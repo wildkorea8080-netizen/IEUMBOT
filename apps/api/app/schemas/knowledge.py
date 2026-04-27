@@ -1,0 +1,81 @@
+from typing import Literal
+
+from pydantic import Field
+
+from app.schemas import ApiSchema
+
+
+KnowledgeSourceGroup = Literal["file_text", "website"]
+KnowledgeSourceType = Literal["file", "text", "website"]
+
+
+class KnowledgeItem(ApiSchema):
+    id: str
+    source_group: KnowledgeSourceGroup
+    source_type: KnowledgeSourceType
+    title: str
+    category: str | None = None
+    field: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    memo: str | None = None
+    summary: str | None = None
+    status: str
+    source_label: str | None = None
+    created_at: str
+    updated_at: str
+    indexed_at: str | None = None
+    effective_date: str | None = None
+    expiration_date: str | None = None
+    department: str | None = None
+    sensitive_detected: bool = False
+    error_message: str | None = None
+    ingestion_job_id: str | None = None
+    ingestion_status: str | None = None
+    ingestion_progress_percent: int | None = None
+    is_active: bool = True
+
+
+class KnowledgeListResponse(ApiSchema):
+    items: list[KnowledgeItem]
+
+
+class KnowledgeDetailResponse(KnowledgeItem):
+    file_name: str | None = None
+    url: str | None = None
+    source_path: str | None = None
+    last_indexed_at: str | None = None
+
+
+class KnowledgeUpsertRequest(ApiSchema):
+    title: str | None = None
+    category: str | None = None
+    field: str | None = None
+    tags: list[str] | None = None
+    memo: str | None = None
+    effective_date: str | None = None
+    expiration_date: str | None = None
+    department: str | None = None
+    is_active: bool | None = None
+
+
+class KnowledgeTextCreateRequest(ApiSchema):
+    chatbot_id: str
+    title: str
+    content: str
+    category: str | None = None
+    field: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    memo: str | None = None
+    effective_date: str | None = None
+    department: str | None = None
+
+
+class KnowledgeWebsiteCreateRequest(ApiSchema):
+    chatbot_id: str
+    url: str
+    title: str
+    category: str | None = None
+    field: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    memo: str | None = None
+    department: str | None = None

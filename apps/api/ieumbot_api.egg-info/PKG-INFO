@@ -1,0 +1,17 @@
+Metadata-Version: 2.4
+Name: ieumbot-api
+Version: 0.1.0
+Summary: IEUMBOT FastAPI scaffold
+Requires-Python: >=3.11
+Requires-Dist: fastapi==0.111.1
+Requires-Dist: uvicorn[standard]==0.30.3
+Requires-Dist: pydantic-settings==2.3.4
+Requires-Dist: sqlalchemy==2.0.35
+Requires-Dist: alembic==1.13.2
+Requires-Dist: psycopg[binary]==3.2.1
+Requires-Dist: pgvector==0.3.2
+Requires-Dist: cryptography==43.0.1
+Requires-Dist: passlib[bcrypt]==1.7.4
+Requires-Dist: PyJWT==2.9.0
+Provides-Extra: dev
+Requires-Dist: ruff==0.6.9; extra == "dev"

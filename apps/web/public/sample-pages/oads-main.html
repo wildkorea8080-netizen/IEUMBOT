@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>해외농업개발서비스 테스트 메인</title>
+    <style>
+      :root {
+        --bg: #f4f7fb;
+        --surface: #ffffff;
+        --text: #16243a;
+        --muted: #5c6d86;
+        --primary: #1c4f9a;
+        --primary-soft: #eaf1fb;
+        --line: #d9e3f2;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Malgun Gothic", "Apple SD Gothic Neo", Arial, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        line-height: 1.5;
+        padding-bottom: 140px;
+      }
+
+      .container {
+        width: min(1160px, calc(100% - 32px));
+        margin: 0 auto;
+      }
+
+      .top {
+        background: var(--surface);
+        border-bottom: 1px solid var(--line);
+        position: sticky;
+        top: 0;
+        z-index: 10;
+      }
+
+      .top-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 14px 0;
+        flex-wrap: wrap;
+      }
+
+      .logo-wrap {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .logo-title {
+        font-size: 22px;
+        font-weight: 700;
+        color: var(--primary);
+      }
+
+      .logo-sub {
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .btn-disabled {
+        border: 1px solid var(--line);
+        background: #f8fbff;
+        color: #7a8ba4;
+        border-radius: 8px;
+        padding: 8px 12px;
+        font-size: 12px;
+        cursor: not-allowed;
+      }
+
+      .menu {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        padding: 0 0 14px;
+      }
+
+      .menu-item {
+        border: 1px solid var(--line);
+        background: #fff;
+        padding: 10px 14px;
+        border-radius: 10px;
+        font-size: 14px;
+        color: var(--text);
+      }
+
+      .hero {
+        margin-top: 18px;
+        border: 1px solid #d1ddf1;
+        border-radius: 14px;
+        padding: 34px 28px;
+        background: linear-gradient(125deg, #204f96 0%, #2f76b5 45%, #4f9f86 100%);
+        color: #f3f8ff;
+      }
+
+      .hero h1 {
+        margin: 0;
+        font-size: clamp(26px, 4vw, 42px);
+        letter-spacing: 0;
+      }
+
+      .hero p {
+        margin: 12px 0 0;
+        font-size: 15px;
+        opacity: 0.95;
+      }
+
+      .hero-actions {
+        margin-top: 18px;
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .hero-btn {
+        border: 1px solid rgba(255, 255, 255, 0.55);
+        background: rgba(255, 255, 255, 0.15);
+        color: #fff;
+        border-radius: 10px;
+        padding: 10px 14px;
+        font-size: 14px;
+        cursor: not-allowed;
+      }
+
+      .section {
+        margin-top: 16px;
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 16px;
+      }
+
+      .section-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .section-title {
+        margin: 0;
+        font-size: 18px;
+      }
+
+      .tabs {
+        margin-top: 12px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .tab-btn {
+        border: 1px solid var(--line);
+        background: #fff;
+        color: #516582;
+        border-radius: 8px;
+        padding: 8px 12px;
+        font-size: 13px;
+        cursor: pointer;
+      }
+
+      .tab-btn.active {
+        background: var(--primary-soft);
+        color: var(--primary);
+        border-color: #bfd2ef;
+      }
+
+      .notice-list {
+        margin: 12px 0 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .notice-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        border-top: 1px solid #edf2fb;
+        padding: 10px 2px;
+      }
+
+      .notice-item:first-child {
+        border-top: 0;
+      }
+
+      .notice-title {
+        font-size: 14px;
+        color: #273952;
+      }
+
+      .notice-date {
+        font-size: 12px;
+        color: #7688a5;
+        white-space: nowrap;
+      }
+
+      .quick-grid,
+      .info-grid {
+        margin-top: 10px;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .card {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: #fff;
+        padding: 14px 12px;
+      }
+
+      .card h4 {
+        margin: 0;
+        font-size: 15px;
+        color: var(--primary);
+      }
+
+      .card p {
+        margin: 8px 0 0;
+        font-size: 13px;
+        color: #617592;
+      }
+
+      .footer {
+        margin-top: 16px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: var(--surface);
+        padding: 16px;
+      }
+
+      .footer p {
+        margin: 4px 0;
+        font-size: 13px;
+        color: #5a6e8a;
+      }
+
+      .guide {
+        margin-top: 10px;
+        padding: 10px 12px;
+        border: 1px dashed #b9cbe8;
+        border-radius: 10px;
+        background: #f7fbff;
+        color: #4b5f7c;
+        font-size: 12px;
+      }
+
+      @media (max-width: 900px) {
+        .quick-grid,
+        .info-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+
+      @media (max-width: 560px) {
+        .container {
+          width: calc(100% - 20px);
+        }
+
+        .quick-grid,
+        .info-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .hero {
+          padding: 24px 18px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="top">
+      <div class="container">
+        <div class="top-row">
+          <div class="logo-wrap">
+            <div class="logo-title">해외농업개발서비스</div>
+            <div class="logo-sub">Overseas Agricultural Development Service</div>
+          </div>
+          <div class="actions">
+            <button type="button" class="btn-disabled" disabled>KOR</button>
+            <button type="button" class="btn-disabled" disabled>ENG</button>
+            <button type="button" class="btn-disabled" disabled>검색</button>
+          </div>
+        </div>
+        <div class="menu">
+          <button type="button" class="menu-item" disabled>주요사업</button>
+          <button type="button" class="menu-item" disabled>해외시장정보</button>
+          <button type="button" class="menu-item" disabled>해외농업투자정보</button>
+          <button type="button" class="menu-item" disabled>자원개발신고</button>
+          <button type="button" class="menu-item" disabled>소통알림</button>
+          <button type="button" class="menu-item" disabled>협회소개</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="container">
+      <section class="hero">
+        <h1>세계 속의 우리농업</h1>
+        <p>해외농업자원개발을 지원하는 정보 서비스</p>
+        <div class="hero-actions">
+          <button type="button" class="hero-btn" disabled>사업 안내</button>
+          <button type="button" class="hero-btn" disabled>신고 절차</button>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-head">
+          <h2 class="section-title">공지/사업공고/FAQ</h2>
+          <button type="button" class="btn-disabled" disabled>전체보기</button>
+        </div>
+        <div class="tabs" role="tablist" aria-label="공지 탭">
+          <button type="button" class="tab-btn active" data-tab="notice">공지사항</button>
+          <button type="button" class="tab-btn" data-tab="announce">사업공고</button>
+          <button type="button" class="tab-btn" data-tab="faq">FAQ</button>
+        </div>
+        <ul class="notice-list" id="notice-list"></ul>
+      </section>
+
+      <section class="section">
+        <div class="section-head">
+          <h2 class="section-title">퀵서비스</h2>
+        </div>
+        <div class="quick-grid">
+          <div class="card"><h4>민간환경조사</h4><p>사업 환경과 리스크를 점검합니다.</p></div>
+          <div class="card"><h4>컨설팅</h4><p>해외농업개발 실무 컨설팅을 제공합니다.</p></div>
+          <div class="card"><h4>해외인턴</h4><p>현장 중심 인력양성 프로그램 안내.</p></div>
+          <div class="card"><h4>융자지원</h4><p>자금지원 제도와 신청요건 안내.</p></div>
+          <div class="card"><h4>해외시장정보</h4><p>국가별 시장 및 가격동향 자료.</p></div>
+          <div class="card"><h4>자원개발신고</h4><p>신고 절차와 제출서류 가이드.</p></div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-head">
+          <h2 class="section-title">정보 섹션</h2>
+        </div>
+        <div class="info-grid">
+          <div class="card"><h4>국가정보</h4><p>국가별 정책·규제·통계 요약</p></div>
+          <div class="card"><h4>곡물가격</h4><p>주요 곡물 시세 현황(샘플)</p></div>
+          <div class="card"><h4>해외시장뉴스</h4><p>시장 관련 최근 동향(샘플)</p></div>
+          <div class="card"><h4>진출전략보고서</h4><p>해외 진출 전략 리포트(샘플)</p></div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="container footer">
+      <p><strong>기관명:</strong> 해외농업개발서비스(샘플)</p>
+      <p><strong>주소:</strong> 서울시 중구 샘플로 123 (테스트용)</p>
+      <p><strong>전화:</strong> 02-0000-0000</p>
+      <p>© 2026 Overseas Agricultural Development Service Sample. All rights reserved.</p>
+      <div class="guide">
+        이 페이지는 IEUMBOT 위젯 테스트용 샘플 페이지입니다.<br />
+        모든 링크는 비활성화되어 있습니다.<br />
+        위젯 코드는 IEUMBOT WIDGET INSTALL CODE 영역에 삽입하세요.
+      </div>
+    </footer>
+
+    <script>
+      (function () {
+        const tabButtons = document.querySelectorAll(".tab-btn");
+        const list = document.getElementById("notice-list");
+        const tabData = {
+          notice: [
+            ["해외농업개발 지원사업 안내(샘플)", "2026-04-10"],
+            ["데이터 제공 정책 개정 공지(샘플)", "2026-04-05"],
+            ["개인정보 처리방침 변경 안내(샘플)", "2026-03-29"],
+            ["시스템 점검 일정 안내(샘플)", "2026-03-20"],
+            ["통합 포털 기능 개선 안내(샘플)", "2026-03-12"]
+          ],
+          announce: [
+            ["2026년 해외농업개발 공모 공고(샘플)", "2026-04-18"],
+            ["해외 현지조사 용역 입찰 공고(샘플)", "2026-04-07"],
+            ["국가별 시장분석 지원 공고(샘플)", "2026-03-30"],
+            ["농업기술 교류사업 참여기관 모집(샘플)", "2026-03-22"],
+            ["청년인턴십 파견기관 모집 공고(샘플)", "2026-03-08"]
+          ],
+          faq: [
+            ["Q. 자원개발신고 절차는 어떻게 되나요? (샘플)", "2026-04-11"],
+            ["Q. 융자지원 신청 요건은 무엇인가요? (샘플)", "2026-04-03"],
+            ["Q. 해외시장정보 자료는 어디서 보나요? (샘플)", "2026-03-26"],
+            ["Q. 컨설팅 신청 가능 대상은? (샘플)", "2026-03-15"],
+            ["Q. 민간환경조사 결과 제공 범위는? (샘플)", "2026-03-01"]
+          ]
+        };
+
+        function render(tabKey) {
+          const rows = tabData[tabKey] || [];
+          list.innerHTML = rows
+            .map(function (item) {
+              return (
+                '<li class="notice-item">' +
+                '<div class="notice-title">' + item[0] + "</div>" +
+                '<div class="notice-date">' + item[1] + "</div>" +
+                "</li>"
+              );
+            })
+            .join("");
+        }
+
+        tabButtons.forEach(function (button) {
+          button.addEventListener("click", function () {
+            tabButtons.forEach(function (btn) { btn.classList.remove("active"); });
+            button.classList.add("active");
+            render(button.getAttribute("data-tab"));
+          });
+        });
+
+        render("notice");
+      })();
+    </script>
+
+    <!-- IEUMBOT WIDGET INSTALL CODE START -->
+    <!-- generated widget install script goes here -->
+    <!-- Super Admin에서 발급한 installScript를 이 영역에 붙여넣으세요. -->
+    <!-- localhost 테스트 시 allowedDomains에 localhost(또는 localhost:포트)를 추가하세요. -->
+    <!-- IEUMBOT WIDGET INSTALL CODE END -->
+
+    <!--
+    <script
+      src="/widget.js"
+      data-chatbot-id="TEST_CHATBOT_ID"
+      data-api-base-url="/api"
+      data-open-on-load="false"
+    ></script>
+    -->
+  </body>
+</html>

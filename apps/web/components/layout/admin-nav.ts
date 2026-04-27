@@ -1,0 +1,16 @@
+export const adminNavItems = [
+  { href: "/admin/dashboard", label: "대시보드", section: "개요" },
+  { href: "/admin/ai/basic", label: "기본 AI", section: "AI 설정" },
+  { href: "/admin/ai/style", label: "스타일 규칙", section: "AI 설정" },
+  { href: "/admin/ai/conditional", label: "조건부 규칙", section: "AI 설정" },
+  { href: "/admin/knowledge/register", label: "지식 등록", section: "지식 관리" },
+  { href: "/admin/knowledge/list", label: "지식 목록", section: "지식 관리" },
+  { href: "/admin/conversations", label: "대화 관리", section: "운영" },
+  { href: "/admin/install-guide", label: "설치 가이드", section: "운영" },
+  { href: "/admin/security", label: "보안", section: "운영" },
+  { href: "/admin/usage", label: "사용량", section: "운영" },
+  { href: "/admin/billing", label: "결제 관리", section: "운영" },
+  { href: "/admin/notifications", label: "알림", section: "운영" },
+  { href: "/admin/users", label: "사용자", section: "운영" },
+  { href: "/admin/audit", label: "감사 로그", section: "운영" },
+] as const;

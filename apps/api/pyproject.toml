@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ieumbot-api"
+version = "0.1.0"
+description = "IEUMBOT FastAPI scaffold"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi==0.111.1",
+  "uvicorn[standard]==0.30.3",
+  "pydantic-settings==2.3.4",
+  "sqlalchemy==2.0.35",
+  "alembic==1.13.2",
+  "psycopg[binary]==3.2.1",
+  "pgvector==0.3.2",
+  "cryptography==43.0.1",
+  "passlib[bcrypt]==1.7.4",
+  "PyJWT==2.9.0"
+]
+
+[project.scripts]
+seed-local-admins = "app.scripts.seed_local_admins:main"
+
+[project.optional-dependencies]
+dev = [
+  "ruff==0.6.9"
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["app", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"

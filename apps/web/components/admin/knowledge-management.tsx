@@ -1,0 +1,503 @@
+"use client";
+
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+
+import { PagePanel } from "../ui/page-panel";
+import { ApiClientError } from "../../lib/api";
+import {
+  deleteKnowledge,
+  getKnowledgeDetail,
+  getKnowledgeList,
+  patchKnowledge,
+  reindexKnowledge,
+} from "../../lib/api/admin-operations";
+import type { KnowledgeDetail, KnowledgeItem, KnowledgeSourceGroup } from "../../lib/api/admin-operations-types";
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof ApiClientError) {
+    return `${error.code}: ${error.message}`;
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return "지식 정보를 처리하지 못했습니다.";
+}
+
+function statusClass(status: string): string {
+  if (status === "ready") return "bg-emerald-100 text-emerald-700";
+  if (status === "failed") return "bg-red-100 text-red-700";
+  if (status === "inactive") return "bg-slate-200 text-slate-700";
+  return "bg-amber-100 text-amber-700";
+}
+
+function sourceTypeLabel(sourceType: string): string {
+  if (sourceType === "text") return "텍스트";
+  if (sourceType === "website") return "웹사이트";
+  return "파일";
+}
+
+function splitTags(value: string): string[] {
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+type EditorState = {
+  title: string;
+  category: string;
+  field: string;
+  tags: string;
+  memo: string;
+  effectiveDate: string;
+  expirationDate: string;
+  department: string;
+  isActive: boolean;
+};
+
+function toEditor(detail: KnowledgeDetail): EditorState {
+  return {
+    title: detail.title,
+    category: detail.category ?? "",
+    field: detail.field ?? "",
+    tags: detail.tags.join(", "),
+    memo: detail.memo ?? "",
+    effectiveDate: detail.effectiveDate ?? "",
+    expirationDate: detail.expirationDate ?? "",
+    department: detail.department ?? "",
+    isActive: detail.isActive,
+  };
+}
+
+export function KnowledgeManagement() {
+  const [sourceGroup, setSourceGroup] = useState<KnowledgeSourceGroup>("file_text");
+  const [items, setItems] = useState<KnowledgeItem[]>([]);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [query, setQuery] = useState("");
+  const [category, setCategory] = useState("");
+  const [field, setField] = useState("");
+  const [status, setStatus] = useState("");
+  const [detail, setDetail] = useState<KnowledgeDetail | null>(null);
+  const [editor, setEditor] = useState<EditorState | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isDetailLoading, setIsDetailLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const categories = useMemo(
+    () => Array.from(new Set(items.map((item) => item.category).filter(Boolean))).sort(),
+    [items],
+  );
+  const fields = useMemo(
+    () => Array.from(new Set(items.map((item) => item.field).filter(Boolean))).sort(),
+    [items],
+  );
+
+  const load = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await getKnowledgeList({
+        sourceGroup,
+        q: query.trim() || undefined,
+        category: category || undefined,
+        field: field || undefined,
+        status: status || undefined,
+      });
+      setItems(response.items);
+      setSelectedIds((current) => current.filter((id) => response.items.some((item) => item.id === id)));
+    } catch (loadError) {
+      setError(getErrorMessage(loadError));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void load();
+  }, [sourceGroup]);
+
+  const openDetail = async (knowledgeId: string) => {
+    setIsDetailLoading(true);
+    setError(null);
+    try {
+      const response = await getKnowledgeDetail(knowledgeId);
+      setDetail(response);
+      setEditor(toEditor(response));
+    } catch (detailError) {
+      setError(getErrorMessage(detailError));
+    } finally {
+      setIsDetailLoading(false);
+    }
+  };
+
+  const saveDetail = async () => {
+    if (!detail || !editor) return;
+    setIsSaving(true);
+    setError(null);
+    try {
+      const response = await patchKnowledge(detail.id, {
+        title: editor.title,
+        category: editor.category || undefined,
+        field: editor.field || undefined,
+        tags: splitTags(editor.tags),
+        memo: editor.memo || undefined,
+        effectiveDate: editor.effectiveDate || undefined,
+        expirationDate: editor.expirationDate || undefined,
+        department: editor.department || undefined,
+        isActive: editor.isActive,
+      });
+      setDetail(response);
+      setEditor(toEditor(response));
+      await load();
+    } catch (saveError) {
+      setError(getErrorMessage(saveError));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const runBulkAction = async (action: "delete" | "inactive") => {
+    if (selectedIds.length === 0) return;
+    setIsSaving(true);
+    setError(null);
+    try {
+      for (const knowledgeId of selectedIds) {
+        if (action === "delete") {
+          await deleteKnowledge(knowledgeId);
+        } else {
+          await patchKnowledge(knowledgeId, { isActive: false });
+        }
+      }
+      setSelectedIds([]);
+      setDetail(null);
+      setEditor(null);
+      await load();
+    } catch (actionError) {
+      setError(getErrorMessage(actionError));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const performRowAction = async (
+    knowledgeId: string,
+    action: "toggle" | "delete" | "reindex",
+    isActive?: boolean,
+  ) => {
+    setIsSaving(true);
+    setError(null);
+    try {
+      if (action === "toggle") {
+        await patchKnowledge(knowledgeId, { isActive: !isActive });
+      } else if (action === "delete") {
+        await deleteKnowledge(knowledgeId);
+      } else {
+        await reindexKnowledge(knowledgeId);
+      }
+      if (detail?.id === knowledgeId) {
+        setDetail(null);
+        setEditor(null);
+      }
+      await load();
+    } catch (actionError) {
+      setError(getErrorMessage(actionError));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const toggleAll = () => {
+    if (selectedIds.length === items.length) {
+      setSelectedIds([]);
+      return;
+    }
+    setSelectedIds(items.map((item) => item.id));
+  };
+
+  return (
+    <div className="space-y-6">
+      <PagePanel
+        title="지식 관리"
+        description="파일, 텍스트, 웹사이트 지식을 검색, 필터, 태그, 재색인, 활성화, 삭제 기능으로 관리합니다."
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1">
+            <button
+              type="button"
+              onClick={() => setSourceGroup("file_text")}
+              className={`rounded-lg px-4 py-2 text-sm font-medium ${sourceGroup === "file_text" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600"}`}
+            >
+              파일 및 텍스트
+            </button>
+            <button
+              type="button"
+              onClick={() => setSourceGroup("website")}
+              className={`rounded-lg px-4 py-2 text-sm font-medium ${sourceGroup === "website" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600"}`}
+            >
+              웹사이트
+            </button>
+          </div>
+          <Link href="/admin/knowledge/register" className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white">
+            지식 등록
+          </Link>
+        </div>
+
+        <div className="mt-5 grid gap-3 lg:grid-cols-[180px_180px_180px_1fr_auto]">
+          <select value={category} onChange={(event) => setCategory(event.target.value)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
+            <option value="">전체 카테고리</option>
+            {categories.map((option) => (
+              <option key={option} value={option ?? ""}>
+                {option}
+              </option>
+            ))}
+          </select>
+          <select value={field} onChange={(event) => setField(event.target.value)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
+            <option value="">전체 분야</option>
+            {fields.map((option) => (
+              <option key={option} value={option ?? ""}>
+                {option}
+              </option>
+            ))}
+          </select>
+          <select value={status} onChange={(event) => setStatus(event.target.value)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
+            <option value="">전체 상태</option>
+            <option value="processing">처리 중</option>
+            <option value="ready">준비 완료</option>
+            <option value="failed">실패</option>
+            <option value="inactive">비활성</option>
+          </select>
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="제목, 내용, 메모 또는 태그로 검색"
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          />
+          <button type="button" onClick={() => void load()} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700">
+            검색
+          </button>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            disabled={selectedIds.length === 0 || isSaving}
+            onClick={() => void runBulkAction("inactive")}
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 disabled:opacity-50"
+          >
+            선택 항목 비활성화
+          </button>
+          <button
+            type="button"
+            disabled={selectedIds.length === 0 || isSaving}
+            onClick={() => void runBulkAction("delete")}
+            className="rounded-lg border border-red-300 px-3 py-2 text-sm text-red-700 disabled:opacity-50"
+          >
+            선택 항목 삭제
+          </button>
+          <span className="text-sm text-slate-500">선택 {selectedIds.length}건</span>
+        </div>
+
+        {error ? <p className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
+        {isLoading ? <p className="mt-4 text-sm text-slate-500">항목을 불러오는 중...</p> : null}
+
+        {!isLoading ? (
+          <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200">
+            <table className="min-w-full table-fixed text-sm">
+              <thead className="bg-slate-50 text-left text-slate-600">
+                <tr>
+                  <th className="w-12 px-3 py-3">
+                    <input type="checkbox" checked={items.length > 0 && selectedIds.length === items.length} onChange={toggleAll} />
+                  </th>
+                  <th className="w-28 px-3 py-3">카테고리</th>
+                  <th className="w-28 px-3 py-3">분야</th>
+                  <th className="px-3 py-3">제목</th>
+                  <th className="w-40 px-3 py-3">태그</th>
+                  <th className="w-28 px-3 py-3">상태</th>
+                  <th className="w-36 px-3 py-3">생성일</th>
+                  <th className="w-56 px-3 py-3">작업</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 bg-white">
+                {items.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="px-3 py-10 text-center text-sm text-slate-500">
+                      조건에 맞는 지식이 없습니다.
+                    </td>
+                  </tr>
+                ) : (
+                  items.map((item) => (
+                    <tr key={item.id} className="align-top">
+                      <td className="px-3 py-4">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.includes(item.id)}
+                          onChange={() =>
+                            setSelectedIds((current) =>
+                              current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id],
+                            )
+                          }
+                        />
+                      </td>
+                      <td className="px-3 py-4 text-slate-700">{item.category ?? "-"}</td>
+                      <td className="px-3 py-4 text-slate-700">{item.field ?? "-"}</td>
+                      <td className="px-3 py-4">
+                        <div className="space-y-2">
+                          <div className="font-medium text-slate-900">{item.title}</div>
+                          <p className="text-xs leading-5 text-slate-500">{item.summary ?? "-"}</p>
+                          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                            <span className="rounded-full bg-slate-100 px-2 py-1">{sourceTypeLabel(item.sourceType)}</span>
+                            {item.sourceLabel ? <span>{item.sourceLabel}</span> : null}
+                            {item.sensitiveDetected ? <span className="rounded-full bg-rose-100 px-2 py-1 text-rose-700">민감</span> : null}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-3 py-4">
+                        <div className="flex flex-wrap gap-2">
+                          {item.tags.length === 0 ? <span className="text-xs text-slate-400">-</span> : null}
+                          {item.tags.map((tag) => (
+                            <span key={tag} className="rounded-full bg-blue-50 px-2 py-1 text-xs text-blue-700">
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="px-3 py-4">
+                        <div className="space-y-2">
+                          <span className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${statusClass(item.status)}`}>
+                            {item.status === "processing"
+                              ? "처리 중"
+                              : item.status === "ready"
+                                ? "준비 완료"
+                                : item.status === "failed"
+                                  ? "실패"
+                                  : item.status === "inactive"
+                                    ? "비활성"
+                                    : item.status}
+                          </span>
+                          {item.ingestionStatus ? <div className="text-xs text-slate-500">{item.ingestionStatus}</div> : null}
+                        </div>
+                      </td>
+                      <td className="px-3 py-4 text-slate-500">{new Date(item.createdAt).toLocaleDateString("ko-KR")}</td>
+                      <td className="px-3 py-4">
+                        <div className="flex flex-wrap gap-2">
+                          <button type="button" onClick={() => void openDetail(item.id)} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-700">
+                            상세
+                          </button>
+                          <button type="button" onClick={() => void performRowAction(item.id, "toggle", item.isActive)} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-700">
+                            {item.isActive ? "비활성화" : "활성화"}
+                          </button>
+                          <button type="button" onClick={() => void performRowAction(item.id, "reindex")} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-700">
+                            재색인
+                          </button>
+                          <button type="button" onClick={() => void performRowAction(item.id, "delete")} className="rounded-lg border border-red-300 px-3 py-1.5 text-xs text-red-700">
+                            삭제
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+      </PagePanel>
+
+      {(detail || isDetailLoading) && (
+        <div className="fixed inset-0 z-40 bg-slate-950/30">
+          <div className="ml-auto flex h-full w-full max-w-2xl flex-col overflow-y-auto bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">지식 상세</h3>
+                <p className="text-sm text-slate-500">메타데이터를 수정하고 수집 상태를 관리합니다.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setDetail(null);
+                  setEditor(null);
+                }}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700"
+              >
+                닫기
+              </button>
+            </div>
+
+            {isDetailLoading ? <p className="px-6 py-8 text-sm text-slate-500">상세 정보를 불러오는 중...</p> : null}
+
+            {detail && editor ? (
+              <div className="space-y-6 px-6 py-6">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <label className="space-y-2">
+                    <span className="text-sm font-medium text-slate-700">제목</span>
+                    <input value={editor.title} onChange={(event) => setEditor((current) => current ? { ...current, title: event.target.value } : current)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+                  </label>
+                  <label className="space-y-2">
+                    <span className="text-sm font-medium text-slate-700">카테고리</span>
+                    <input value={editor.category} onChange={(event) => setEditor((current) => current ? { ...current, category: event.target.value } : current)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+                  </label>
+                  <label className="space-y-2">
+                    <span className="text-sm font-medium text-slate-700">분야</span>
+                    <input value={editor.field} onChange={(event) => setEditor((current) => current ? { ...current, field: event.target.value } : current)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+                  </label>
+                  <label className="space-y-2">
+                    <span className="text-sm font-medium text-slate-700">담당 부서</span>
+                    <input value={editor.department} onChange={(event) => setEditor((current) => current ? { ...current, department: event.target.value } : current)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+                  </label>
+                  <label className="space-y-2">
+                    <span className="text-sm font-medium text-slate-700">시행일</span>
+                    <input type="date" value={editor.effectiveDate} onChange={(event) => setEditor((current) => current ? { ...current, effectiveDate: event.target.value } : current)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+                  </label>
+                  <label className="space-y-2">
+                    <span className="text-sm font-medium text-slate-700">만료일</span>
+                    <input type="date" value={editor.expirationDate} onChange={(event) => setEditor((current) => current ? { ...current, expirationDate: event.target.value } : current)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+                  </label>
+                  <label className="space-y-2 md:col-span-2">
+                    <span className="text-sm font-medium text-slate-700">태그</span>
+                    <input value={editor.tags} onChange={(event) => setEditor((current) => current ? { ...current, tags: event.target.value } : current)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+                  </label>
+                  <label className="space-y-2 md:col-span-2">
+                    <span className="text-sm font-medium text-slate-700">메모</span>
+                    <textarea value={editor.memo} onChange={(event) => setEditor((current) => current ? { ...current, memo: event.target.value } : current)} rows={4} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+                  </label>
+                </div>
+
+                <div className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700 md:grid-cols-2">
+                  <div><strong className="mr-2 text-slate-900">소스 유형</strong>{sourceTypeLabel(detail.sourceType)}</div>
+                  <div><strong className="mr-2 text-slate-900">상태</strong>{detail.status}</div>
+                  <div><strong className="mr-2 text-slate-900">생성일</strong>{new Date(detail.createdAt).toLocaleString("ko-KR")}</div>
+                  <div><strong className="mr-2 text-slate-900">마지막 색인</strong>{detail.lastIndexedAt ? new Date(detail.lastIndexedAt).toLocaleString("ko-KR") : "-"}</div>
+                  <div><strong className="mr-2 text-slate-900">파일 또는 URL</strong>{detail.fileName ?? detail.url ?? "-"}</div>
+                  <div><strong className="mr-2 text-slate-900">민감 정보</strong>{detail.sensitiveDetected ? "감지됨" : "없음"}</div>
+                  <div className="md:col-span-2"><strong className="mr-2 text-slate-900">색인 오류</strong>{detail.errorMessage ?? "-"}</div>
+                </div>
+
+                <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+                  <input type="checkbox" checked={editor.isActive} onChange={(event) => setEditor((current) => current ? { ...current, isActive: event.target.checked } : current)} />
+                  활성
+                </label>
+
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" onClick={() => void saveDetail()} disabled={isSaving} className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
+                    저장
+                  </button>
+                  <button type="button" onClick={() => void performRowAction(detail.id, "reindex")} disabled={isSaving} className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700 disabled:opacity-50">
+                    재색인
+                  </button>
+                  <button type="button" onClick={() => void performRowAction(detail.id, "toggle", detail.isActive)} disabled={isSaving} className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700 disabled:opacity-50">
+                    {detail.isActive ? "비활성화" : "활성화"}
+                  </button>
+                  <button type="button" onClick={() => void performRowAction(detail.id, "delete")} disabled={isSaving} className="rounded-lg border border-red-300 px-4 py-2 text-sm text-red-700 disabled:opacity-50">
+                    삭제
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

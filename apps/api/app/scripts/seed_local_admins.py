@@ -1,0 +1,131 @@
+from collections.abc import Sequence
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.core.config import settings
+from app.core.security import hash_password
+from app.db import SessionLocal
+from app.models import Admin, Organization
+
+ALLOWED_LOCAL_ENVS = {"local", "development", "dev", "test"}
+DEV_ORGANIZATION_SLUG = "local-dev-institution"
+
+SEED_ACCOUNTS: Sequence[dict[str, str | None]] = (
+    {
+        "email": "super@example.com",
+        "name": "Super Admin",
+        "role": "super_admin",
+        "password": "admin123",
+        "organization_slug": None,
+    },
+    {
+        "email": "admin@example.com",
+        "name": "Institution Admin",
+        "role": "institution_admin",
+        "password": "admin123",
+        "organization_slug": DEV_ORGANIZATION_SLUG,
+    },
+)
+
+
+def _ensure_local_environment() -> None:
+    api_env = settings.api_env.strip().lower()
+    if api_env not in ALLOWED_LOCAL_ENVS:
+        allowed = ", ".join(sorted(ALLOWED_LOCAL_ENVS))
+        raise SystemExit(
+            f"Refusing to seed development admins because API_ENV='{settings.api_env}' is not one of: {allowed}."
+        )
+
+
+def _get_or_create_dev_organization(db: Session) -> Organization:
+    stmt = select(Organization).where(Organization.slug == DEV_ORGANIZATION_SLUG).limit(1)
+    organization = db.execute(stmt).scalar_one_or_none()
+    if organization is not None:
+        if organization.status != "active":
+            organization.status = "active"
+        return organization
+
+    organization = Organization(
+        name="Local Dev Institution",
+        slug=DEV_ORGANIZATION_SLUG,
+        status="active",
+        primary_domain="local.example.com",
+        contact_name="Local Dev Admin",
+        contact_email="admin@example.com",
+        timezone="Asia/Seoul",
+        default_locale="ko-KR",
+    )
+    db.add(organization)
+    db.flush()
+    return organization
+
+
+def _get_admin_by_email(db: Session, email: str) -> Admin | None:
+    stmt = select(Admin).where(Admin.email == email).order_by(Admin.created_at.asc()).limit(1)
+    return db.execute(stmt).scalar_one_or_none()
+
+
+def _upsert_admin(
+    db: Session,
+    *,
+    email: str,
+    name: str,
+    role: str,
+    password: str,
+    organization: Organization | None,
+) -> str:
+    admin = _get_admin_by_email(db, email)
+    organization_id = organization.id if organization is not None else None
+
+    if admin is None:
+        db.add(
+            Admin(
+                email=email,
+                name=name,
+                role=role,
+                status="active",
+                organization_id=organization_id,
+                password_hash=hash_password(password),
+            )
+        )
+        return "created"
+
+    admin.name = name
+    admin.role = role
+    admin.status = "active"
+    admin.organization_id = organization_id
+    admin.password_hash = hash_password(password)
+    admin.last_login_at = None
+    return "updated"
+
+
+def main() -> None:
+    _ensure_local_environment()
+
+    with SessionLocal() as db:
+        organization = _get_or_create_dev_organization(db)
+        results: list[str] = []
+
+        for account in SEED_ACCOUNTS:
+            account_organization = organization if account["organization_slug"] == DEV_ORGANIZATION_SLUG else None
+            action = _upsert_admin(
+                db,
+                email=str(account["email"]),
+                name=str(account["name"]),
+                role=str(account["role"]),
+                password=str(account["password"]),
+                organization=account_organization,
+            )
+            results.append(f"{action}: {account['role']} <{account['email']}>")
+
+        db.commit()
+
+    print("Seeded local development admins:")
+    for line in results:
+        print(f"- {line}")
+    print(f"- ensured organization: {DEV_ORGANIZATION_SLUG}")
+
+
+if __name__ == "__main__":
+    main()

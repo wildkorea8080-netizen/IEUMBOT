@@ -1,0 +1,10 @@
+{
+  "name": "@ieumbot/types",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "lint": "pnpm exec eslint \"src/**/*.ts\"",
+    "typecheck": "pnpm exec tsc --project tsconfig.json --noEmit"
+  }
+}

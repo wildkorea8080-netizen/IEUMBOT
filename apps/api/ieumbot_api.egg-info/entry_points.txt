@@ -1,0 +1,2 @@
+[console_scripts]
+seed-local-admins = app.scripts.seed_local_admins:main
