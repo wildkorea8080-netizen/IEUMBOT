@@ -5,20 +5,18 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ieumbot-api"
 version = "0.1.0"
-description = "IEUMBOT FastAPI scaffold"
-requires-python = ">=3.11"
 dependencies = [
-  "fastapi==0.111.1",
-  "uvicorn[standard]==0.30.3",
-  "pydantic-settings==2.3.4",
-  "sqlalchemy==2.0.35",
-  "alembic==1.13.2",
-  "psycopg2-binary==2.9.9",
-  "pgvector==0.3.2",
-  "cryptography==43.0.1",
-  "passlib[bcrypt]==1.7.4",
-  "PyJWT==2.9.0"
-  "bcrypt==4.0.1",
+    "fastapi==0.111.1",
+    "uvicorn[standard]==0.30.3",
+    "pydantic-settings==2.3.4",
+    "sqlalchemy==2.0.35",
+    "alembic==1.13.2",
+    "psycopg2-binary==2.9.9",
+    "pgvector==0.3.2",
+    "cryptography==43.0.1",
+    "passlib[bcrypt]==1.7.4",
+    "bcrypt==4.0.1",
+    "PyJWT==2.9.0"
 ]
 
 [project.scripts]
