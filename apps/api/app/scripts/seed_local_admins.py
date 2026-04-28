@@ -1,3 +1,4 @@
+import os
 from collections.abc import Sequence
 
 from sqlalchemy import select
@@ -31,10 +32,12 @@ SEED_ACCOUNTS: Sequence[dict[str, str | None]] = (
 
 def _ensure_local_environment() -> None:
     api_env = settings.api_env.strip().lower()
-    if api_env not in ALLOWED_LOCAL_ENVS:
+    seed_enabled = os.getenv("ENABLE_ADMIN_SEED", "").strip().lower() == "true"
+    if api_env not in ALLOWED_LOCAL_ENVS and not seed_enabled:
         allowed = ", ".join(sorted(ALLOWED_LOCAL_ENVS))
         raise SystemExit(
-            f"Refusing to seed development admins because API_ENV='{settings.api_env}' is not one of: {allowed}."
+            "Refusing to seed admins because "
+            f"API_ENV='{settings.api_env}' is not one of: {allowed} and ENABLE_ADMIN_SEED is not 'true'."
         )
 
 
@@ -66,6 +69,17 @@ def _get_admin_by_email(db: Session, email: str) -> Admin | None:
     return db.execute(stmt).scalar_one_or_none()
 
 
+def _validate_seed_password(password: object) -> str:
+    if not isinstance(password, str):
+        raise ValueError("Seed password must be a string.")
+
+    password_bytes = password.encode("utf-8")
+    if len(password_bytes) > 72:
+        raise ValueError("Seed password must be 72 bytes or fewer for bcrypt.")
+
+    return password
+
+
 def _upsert_admin(
     db: Session,
     *,
@@ -77,6 +91,7 @@ def _upsert_admin(
 ) -> str:
     admin = _get_admin_by_email(db, email)
     organization_id = organization.id if organization is not None else None
+    validated_password = _validate_seed_password(password)
 
     if admin is None:
         db.add(
@@ -86,7 +101,7 @@ def _upsert_admin(
                 role=role,
                 status="active",
                 organization_id=organization_id,
-                password_hash=hash_password(password),
+                password_hash=hash_password(validated_password),
             )
         )
         return "created"
@@ -95,7 +110,7 @@ def _upsert_admin(
     admin.role = role
     admin.status = "active"
     admin.organization_id = organization_id
-    admin.password_hash = hash_password(password)
+    admin.password_hash = hash_password(validated_password)
     admin.last_login_at = None
     return "updated"
 
@@ -121,7 +136,7 @@ def main() -> None:
 
         db.commit()
 
-    print("Seeded local development admins:")
+    print("Seeded admin accounts:")
     for line in results:
         print(f"- {line}")
     print(f"- ensured organization: {DEV_ORGANIZATION_SLUG}")

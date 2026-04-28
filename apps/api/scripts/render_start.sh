@@ -5,7 +5,9 @@ echo "Running migrations..."
 alembic upgrade head
 
 echo "Seeding admins..."
-python -m app.scripts.seed_local_admins
+if ! python -m app.scripts.seed_local_admins; then
+  echo "Admin seed failed; continuing startup." >&2
+fi
 
 echo "Starting server..."
 uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}
