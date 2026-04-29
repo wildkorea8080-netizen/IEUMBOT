@@ -1,15 +1,119 @@
-"use strict";(()=>{var k=Object.defineProperty;var E=(i,t,e)=>t in i?k(i,t,{enumerable:!0,configurable:!0,writable:!0,value:e}):i[t]=e;var n=(i,t,e)=>E(i,typeof t!="symbol"?t+"":t,e);function M(i){return i.endsWith("/")?i.slice(0,-1):i}var g=class{constructor(t){n(this,"baseUrl");this.baseUrl=M(t)}async getConfig(t){let e=await fetch(`${this.baseUrl}/widget/config/${encodeURIComponent(t)}`,{method:"GET",headers:{"Content-Type":"application/json"},credentials:"omit"});if(!e.ok)throw new Error(`WIDGET_CONFIG_FAILED:${e.status}`);return await e.json()}async sendChat(t,e="/chat/messages"){let s=e.startsWith("/")?e:`/${e}`,o=await fetch(`${this.baseUrl}${s}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(t),credentials:"omit"});if(!o.ok)throw new Error(`WIDGET_CHAT_FAILED:${o.status}`);return await o.json()}async streamChat(t,e,s="/chat/messages/stream"){let o=s.startsWith("/")?s:`/${s}`,r=await fetch(`${this.baseUrl}${o}`,{method:"POST",headers:{"Content-Type":"application/json",Accept:"text/event-stream"},body:JSON.stringify(t),credentials:"omit"});if(!r.ok||!r.body)throw new Error(`WIDGET_CHAT_STREAM_FAILED:${r.status}`);let p=r.body.getReader(),l=new TextDecoder("utf-8"),d="";for(;;){let{value:y,done:u}=await p.read();if(u)break;d+=l.decode(y,{stream:!0});let c=d.indexOf(`
+"use strict";
 
-`);for(;c!==-1;){let h=d.slice(0,c).trim();if(d=d.slice(c+2),c=d.indexOf(`
+(() => {
+  const DEFAULT_API_BASE_URL = "https://ieumbot-api.onrender.com/api";
+  const WIDGET_ROOT_ATTR = "data-ieumbot-widget-root";
+  const initializedWidgets = new Set();
 
-`),!h)continue;let v="message",w=[];for(let m of h.split(`
-`))m.startsWith("event:")?v=m.slice(6).trim():m.startsWith("data:")&&w.push(m.slice(5).trim());if(w.length!==0)try{let m=JSON.parse(w.join(`
-`));e({event:v,data:m})}catch{e({event:"error",data:{code:"STREAM_EVENT_PARSE_FAILED",message:"\uC2A4\uD2B8\uB9BC \uC774\uBCA4\uD2B8 \uD30C\uC2F1 \uC2E4\uD328"}})}}}}};function a(i,t,e){let s=i.createElement(t);return e&&(s.className=e),s}function B(i){return!i||i==="answered"?null:i==="insufficient_evidence"?"\uD655\uC778 \uAC00\uB2A5\uD55C \uADFC\uAC70\uAC00 \uBD80\uC871\uD574 \uC815\uD655\uD55C \uC548\uB0B4\uAC00 \uC81C\uD55C\uB429\uB2C8\uB2E4.":i==="restricted"?"\uD574\uB2F9 \uC9C8\uBB38\uC740 \uC9C1\uC811 \uC548\uB0B4\uAC00 \uC81C\uD55C\uB429\uB2C8\uB2E4.":i==="conflict"?"\uADFC\uAC70 \uD655\uC778\uC774 \uB354 \uD544\uC694\uD55C \uBB38\uC758\uC785\uB2C8\uB2E4.":i==="escalate"?"\uB2F4\uB2F9 \uBD80\uC11C \uD655\uC778\uC774 \uD544\uC694\uD55C \uBB38\uC758\uC785\uB2C8\uB2E4.":null}function W(i){let t=i.documentName??"\uCD9C\uCC98",e=i.pageNumber?`p.${i.pageNumber}`:null,s=i.sectionTitle??null,o=i.sourceUrl??null;return[t,e,s,o].filter(Boolean).join(" | ")}function I(i){return i&&i.trim()?i.replace(/\/$/,""):`${window.location.origin}/api`}function f(i){return typeof i=="string"?i:void 0}function A(i){return typeof i=="boolean"?i:void 0}function S(i){return Array.isArray(i)?i:[]}function L(i,t,e){return`
+  function trimTrailingSlash(value) {
+    return value.endsWith("/") ? value.slice(0, -1) : value;
+  }
+
+  function normalizeBaseUrl(value) {
+    if (typeof value !== "string") {
+      return DEFAULT_API_BASE_URL;
+    }
+    const normalized = value.trim();
+    return normalized ? trimTrailingSlash(normalized) : DEFAULT_API_BASE_URL;
+  }
+
+  function getGlobalConfig() {
+    return (
+      window.IEUMBOTWidgetConfig ||
+      window.IEUMBOT_WIDGET_CONFIG ||
+      null
+    );
+  }
+
+  function resolveApiBaseUrl(explicitValue) {
+    if (typeof explicitValue === "string" && explicitValue.trim()) {
+      return normalizeBaseUrl(explicitValue);
+    }
+
+    const globalConfig = getGlobalConfig();
+    if (globalConfig && typeof globalConfig.apiBaseUrl === "string" && globalConfig.apiBaseUrl.trim()) {
+      return normalizeBaseUrl(globalConfig.apiBaseUrl);
+    }
+
+    return DEFAULT_API_BASE_URL;
+  }
+
+  function createElement(documentRef, tagName, className) {
+    const element = documentRef.createElement(tagName);
+    if (className) {
+      element.className = className;
+    }
+    return element;
+  }
+
+  function getOutcomeNote(outcome) {
+    if (!outcome || outcome === "answered") return null;
+    if (outcome === "insufficient_evidence") {
+      return "확인 가능한 근거가 부족해 정확한 안내가 제한됩니다.";
+    }
+    if (outcome === "restricted") {
+      return "해당 질문은 직접 안내가 제한됩니다.";
+    }
+    if (outcome === "conflict") {
+      return "근거 확인이 더 필요한 문의입니다.";
+    }
+    if (outcome === "escalate") {
+      return "담당 부서 확인이 필요한 문의입니다.";
+    }
+    return null;
+  }
+
+  function formatCitation(item) {
+    const title = item.documentName || "출처";
+    const page = item.pageNumber ? `p.${item.pageNumber}` : null;
+    const section = item.sectionTitle || null;
+    const sourceUrl = item.sourceUrl || null;
+    return [title, page, section, sourceUrl].filter(Boolean).join(" | ");
+  }
+
+  function readString(value) {
+    return typeof value === "string" ? value : undefined;
+  }
+
+  function readBoolean(value) {
+    return typeof value === "boolean" ? value : undefined;
+  }
+
+  function readArray(value) {
+    return Array.isArray(value) ? value : [];
+  }
+
+  async function readErrorBody(response) {
+    try {
+      const text = await response.text();
+      if (!text) return "";
+      try {
+        return JSON.stringify(JSON.parse(text));
+      } catch {
+        return text;
+      }
+    } catch {
+      return "";
+    }
+  }
+
+  async function logHttpError(label, url, response) {
+    const body = await readErrorBody(response);
+    console.error(`[IEUMBOTWidget] ${label}`, {
+      url,
+      status: response.status,
+      statusText: response.statusText,
+      body,
+    });
+  }
+
+  function buildStyles(primaryColor, textColor, backgroundColor) {
+    return `
 :host { all: initial; }
 .ieum-root, .ieum-root * { box-sizing: border-box; font-family: Inter, "Noto Sans KR", Arial, sans-serif; letter-spacing: 0; }
-.ieum-root { position: fixed; right: 16px; bottom: 16px; z-index: 2147480000; color: ${t}; }
-.ieum-launcher { width: 56px; height: 56px; border: none; border-radius: 9999px; background: ${i}; color: #fff; font-size: 24px; cursor: pointer; box-shadow: 0 10px 24px rgba(0,0,0,.2); }
-.ieum-panel { width: min(360px, calc(100vw - 24px)); height: min(640px, calc(100vh - 24px)); border: 1px solid #dbe3ef; border-radius: 8px; background: ${e}; display: none; overflow: hidden; box-shadow: 0 16px 40px rgba(0,0,0,.18); }
+.ieum-root { position: fixed; right: 16px; bottom: 16px; z-index: 2147480000; color: ${textColor}; }
+.ieum-launcher { width: 56px; height: 56px; border: none; border-radius: 9999px; background: ${primaryColor}; color: #fff; font-size: 24px; cursor: pointer; box-shadow: 0 10px 24px rgba(0,0,0,.2); }
+.ieum-panel { width: min(360px, calc(100vw - 24px)); height: min(640px, calc(100vh - 24px)); border: 1px solid #dbe3ef; border-radius: 8px; background: ${backgroundColor}; display: none; overflow: hidden; box-shadow: 0 16px 40px rgba(0,0,0,.18); }
 .ieum-panel.open { display: grid; grid-template-rows: auto auto 1fr auto; }
 .ieum-header { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #e6edf5; padding: 12px; background: #fff; }
 .ieum-title { font-size: 14px; font-weight: 600; }
@@ -24,7 +128,7 @@
 .ieum-message.user { justify-content: flex-end; }
 .ieum-message.system { justify-content: center; }
 .ieum-bubble { max-width: 88%; border-radius: 8px; padding: 8px 10px; font-size: 13px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
-.ieum-message.user .ieum-bubble { background: ${i}; color: #fff; }
+.ieum-message.user .ieum-bubble { background: ${primaryColor}; color: #fff; }
 .ieum-message.assistant .ieum-bubble { border: 1px solid #dbe3ef; background: #f8fafc; color: #111827; }
 .ieum-message.system .ieum-bubble { border: 1px dashed #d1d5db; background: #f9fafb; color: #4b5563; }
 .ieum-outcome-note { margin-top: 6px; font-size: 11px; color: #6b7280; }
@@ -34,11 +138,616 @@
 .ieum-loading { padding: 0 12px 10px; font-size: 12px; color: #6b7280; }
 .ieum-input-wrap { border-top: 1px solid #e6edf5; padding: 10px; display: grid; grid-template-columns: 1fr auto; gap: 8px; background: #fff; }
 .ieum-input { border: 1px solid #d0d8e4; border-radius: 8px; min-height: 42px; max-height: 120px; padding: 10px; font-size: 13px; resize: vertical; }
-.ieum-send { border: none; border-radius: 8px; min-width: 56px; background: ${i}; color: #fff; font-size: 13px; font-weight: 600; cursor: pointer; padding: 0 14px; }
+.ieum-send { border: none; border-radius: 8px; min-width: 56px; background: ${primaryColor}; color: #fff; font-size: 13px; font-weight: 600; cursor: pointer; padding: 0 14px; }
 .ieum-send:disabled, .ieum-launcher:disabled { opacity: .6; cursor: default; }
 .ieum-privacy { padding: 8px 10px; border-top: 1px solid #eef2f7; background: #f8fafc; font-size: 11px; color: #6b7280; line-height: 1.4; }
 @media (max-width: 480px) {
   .ieum-root { right: 8px; bottom: 8px; }
   .ieum-panel { width: calc(100vw - 12px); height: min(620px, calc(100vh - 12px)); }
 }
-`}var b=class{constructor(t){n(this,"options");n(this,"api");n(this,"host");n(this,"shadow");n(this,"root");n(this,"launcherButton");n(this,"panel");n(this,"headerTitle");n(this,"welcomeText");n(this,"afterHoursBox");n(this,"quickActionsWrap");n(this,"messagesWrap");n(this,"loadingRow");n(this,"input");n(this,"sendButton");n(this,"privacyNotice");n(this,"initialized",!1);n(this,"open",!1);n(this,"sending",!1);n(this,"sessionToken",`widget_${Math.random().toString(36).slice(2,10)}_${Date.now().toString(36)}`);n(this,"config",null);n(this,"chatEndpoint","/chat/messages");n(this,"chatStreamEndpoint","/chat/messages/stream");n(this,"sseEnabled",!1);n(this,"messages",[]);n(this,"lastFailedQuestion",null);this.options=t,this.api=new g(I(t.apiBaseUrl)),this.host=document.createElement("div"),this.host.setAttribute("data-ieumbot-widget-root","true"),this.shadow=this.host.attachShadow({mode:"open"}),this.root=a(document,"div","ieum-root"),this.launcherButton=a(document,"button","ieum-launcher"),this.panel=a(document,"div","ieum-panel"),this.headerTitle=a(document,"div","ieum-title"),this.welcomeText=a(document,"p","ieum-welcome-text"),this.afterHoursBox=a(document,"div","ieum-after-hours"),this.quickActionsWrap=a(document,"div","ieum-quick-actions"),this.messagesWrap=a(document,"div","ieum-messages"),this.loadingRow=a(document,"div","ieum-loading"),this.input=a(document,"textarea","ieum-input"),this.sendButton=a(document,"button","ieum-send"),this.privacyNotice=a(document,"div","ieum-privacy"),this.launcherButton.type="button",this.launcherButton.title=t.launcherLabel??"\uCC44\uD305 \uC5F4\uAE30",this.launcherButton.textContent="\u{1F4AC}",this.headerTitle.textContent=t.title??"\uC774\uC74C\uBD07",this.afterHoursBox.style.display="none",this.loadingRow.style.display="none",this.loadingRow.textContent="\uB2F5\uBCC0\uC744 \uC900\uBE44 \uC911\uC785\uB2C8\uB2E4...",this.input.rows=2,this.input.placeholder="\uC9C8\uBB38\uC744 \uC785\uB825\uD558\uC138\uC694",this.sendButton.type="button",this.sendButton.textContent="\uC804\uC1A1",this.privacyNotice.style.display="none"}async mount(){if(this.initialized)return;this.initialized=!0;let t=document.createElement("style");t.textContent=L(this.options.theme?.primaryColor??"#2563eb",this.options.theme?.textColor??"#0f172a",this.options.theme?.backgroundColor??"#ffffff"),this.shadow.appendChild(t),this.shadow.appendChild(this.root);let e=a(document,"div","ieum-header"),s=a(document,"button","ieum-close");s.type="button",s.textContent="\xD7";let o=a(document,"div","ieum-welcome");o.appendChild(this.welcomeText),o.appendChild(this.afterHoursBox),o.appendChild(this.quickActionsWrap);let r=a(document,"div","ieum-input-wrap");r.appendChild(this.input),r.appendChild(this.sendButton),e.appendChild(this.headerTitle),e.appendChild(s),this.panel.appendChild(e),this.panel.appendChild(o),this.panel.appendChild(this.messagesWrap),this.panel.appendChild(this.loadingRow),this.panel.appendChild(r),this.panel.appendChild(this.privacyNotice),this.root.appendChild(this.panel),this.root.appendChild(this.launcherButton),document.body.appendChild(this.host),this.launcherButton.addEventListener("click",()=>this.togglePanel()),s.addEventListener("click",()=>this.setOpen(!1)),this.sendButton.addEventListener("click",()=>void this.sendCurrentInput()),this.input.addEventListener("keydown",p=>{p.key==="Enter"&&!p.shiftKey&&(p.preventDefault(),this.sendCurrentInput())}),await this.loadConfig(),this.options.openOnLoad&&this.setOpen(!0)}async loadConfig(){try{this.config=await this.api.getConfig(this.options.chatbotId),this.headerTitle.textContent=this.options.title??this.config.chatbotName,this.welcomeText.textContent=this.options.welcomeMessage??this.config.welcomeMessage??"\uC548\uB0B4\uB97C \uC2DC\uC791\uD560 \uC900\uBE44\uAC00 \uB418\uC5C8\uC2B5\uB2C8\uB2E4.";let t=this.options.theme?.primaryColor??this.config.theme.primaryColor;t&&(this.launcherButton.style.background=t,this.sendButton.style.background=t),this.config.privacyNotice&&(this.privacyNotice.textContent=this.config.privacyNotice,this.privacyNotice.style.display="block"),this.config.operatingHours.isAfterHours&&this.config.operatingHours.message?(this.afterHoursBox.textContent=this.config.operatingHours.message,this.afterHoursBox.style.display="block"):this.afterHoursBox.style.display="none",this.renderQuickActions(this.config.quickActions),this.config.runtime?.chatEndpoint&&(this.chatEndpoint=this.config.runtime.chatEndpoint),this.config.runtime?.chatStreamEndpoint&&(this.chatStreamEndpoint=this.config.runtime.chatStreamEndpoint),this.sseEnabled=A(this.config.runtime?.sseEnabled)===!0||this.config.runtime?.streamingMode==="sse_preferred"}catch{this.pushMessage({id:`sys_${Date.now()}`,role:"system",text:"\uCD08\uAE30 \uC124\uC815\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.",timestamp:Date.now()})}}renderQuickActions(t){this.quickActionsWrap.innerHTML="";let e=t.filter(s=>s.displayLocation==="welcome").slice(0,6);for(let s of e){let o=a(document,"button","ieum-quick-action");o.type="button",o.textContent=s.label,o.title=s.label,o.addEventListener("click",()=>{if(s.actionType==="link"&&s.url){window.open(s.url,"_blank","noopener,noreferrer");return}this.input.value=s.payload?.trim()||s.label,this.sendCurrentInput()}),this.quickActionsWrap.appendChild(o)}}setOpen(t){this.open=t,t?(this.panel.classList.add("open"),this.launcherButton.style.display="none",this.input.focus(),this.scrollMessagesToBottom()):(this.panel.classList.remove("open"),this.launcherButton.style.display="inline-flex",this.launcherButton.style.alignItems="center",this.launcherButton.style.justifyContent="center")}togglePanel(){this.setOpen(!this.open)}pushMessage(t){this.messages.push(t),this.renderMessages()}updateMessage(t,e){let s=this.messages.findIndex(o=>o.id===t);s<0||(this.messages[s]={...this.messages[s],...e},this.renderMessages())}removeMessage(t){this.messages=this.messages.filter(e=>e.id!==t),this.renderMessages()}renderMessages(){this.messagesWrap.innerHTML="";for(let t of this.messages){let e=a(document,"div",`ieum-message ${t.role}`),s=a(document,"div","ieum-bubble");if(s.textContent=t.text,e.appendChild(s),t.role==="assistant"){let o=B(t.outcome);if(o){let r=a(document,"div","ieum-outcome-note");r.textContent=o,s.appendChild(r)}if(t.citations&&t.citations.length>0){let r=a(document,"div","ieum-citations"),p=a(document,"div","ieum-citations-title");p.textContent="\uCD9C\uCC98",r.appendChild(p);for(let l of t.citations.slice(0,5)){let d=a(document,"div","ieum-citation");d.textContent=W(l),r.appendChild(d)}s.appendChild(r)}}this.messagesWrap.appendChild(e)}if(this.lastFailedQuestion){let t=a(document,"div","ieum-message system"),e=a(document,"button","ieum-quick-action");e.type="button",e.textContent="\uB2E4\uC2DC \uC2DC\uB3C4",e.addEventListener("click",()=>{this.lastFailedQuestion&&(this.input.value=this.lastFailedQuestion,this.sendCurrentInput())}),t.appendChild(e),this.messagesWrap.appendChild(t)}this.scrollMessagesToBottom()}scrollMessagesToBottom(){requestAnimationFrame(()=>{this.messagesWrap.scrollTop=this.messagesWrap.scrollHeight})}setSending(t){this.sending=t,this.sendButton.disabled=t,this.input.disabled=t,this.loadingRow.style.display=t?"block":"none",this.launcherButton.disabled=t}async sendCurrentInput(){if(this.sending)return;let t=this.input.value.trim();if(t){if(this.lastFailedQuestion=null,this.input.value="",this.pushMessage({id:`u_${Date.now()}`,role:"user",text:t,timestamp:Date.now()}),this.setSending(!0),this.sseEnabled&&await this.trySendWithSse(t)){this.setSending(!1),this.input.focus();return}try{let e=await this.api.sendChat({chatbotId:this.options.chatbotId,question:t,topK:this.options.topK??8,sessionToken:this.sessionToken,sourceUrl:this.options.sourceUrl??window.location.href},this.chatEndpoint);this.handleAssistantResponse(e)}catch{this.lastFailedQuestion=t,this.pushMessage({id:`sys_${Date.now()}`,role:"system",text:"\uC694\uCCAD \uCC98\uB9AC \uC911 \uC624\uB958\uAC00 \uBC1C\uC0DD\uD588\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.",timestamp:Date.now()})}finally{this.setSending(!1),this.input.focus()}}}async trySendWithSse(t){let e=`a_stream_${Date.now()}`,s=!1,o="\uC2A4\uD2B8\uB9AC\uBC0D \uC5F0\uACB0 \uC624\uB958\uB85C \uC77C\uBC18 \uBAA8\uB4DC\uB85C \uC804\uD658\uD569\uB2C8\uB2E4.",r="answered",p=[],l="",d=!1;this.pushMessage({id:e,role:"assistant",text:"",timestamp:Date.now()});let y=u=>{let c=u.data??{};if(u.event==="message_delta"){let h=f(c.delta)??"";l+=h,h&&(d=!0),this.updateMessage(e,{text:l});return}if(u.event==="message_complete"){r=f(c.outcome)??r,d=!0,this.updateMessage(e,{outcome:r,text:l||" "});return}if(u.event==="fallback"||u.event==="escalation"){r=f(c.outcome)??(u.event==="escalation"?"escalate":"insufficient_evidence"),l=f(c.message)??"",d=!0,this.updateMessage(e,{text:l,outcome:r});return}if(u.event==="citations"){p=S(c.items),this.updateMessage(e,{citations:p});return}if(u.event==="error"){s=!0,o=f(c.message)??o;return}if(u.event==="done"){let h=f(c.sessionToken);h&&(this.sessionToken=h)}};try{if(await this.api.streamChat({chatbotId:this.options.chatbotId,question:t,topK:this.options.topK??8,sessionToken:this.sessionToken,sourceUrl:this.options.sourceUrl??window.location.href},y,this.chatStreamEndpoint),s)throw new Error(o);return l.trim()?this.updateMessage(e,{text:l,outcome:r,citations:p}):this.updateMessage(e,{text:"\uC694\uCCAD\uC744 \uCC98\uB9AC\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.",outcome:"insufficient_evidence"}),!0}catch{return d?(this.updateMessage(e,{text:l||"\uC751\uB2F5 \uC218\uC2E0 \uC911 \uC5F0\uACB0\uC774 \uC885\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.",outcome:r,citations:p}),this.lastFailedQuestion=t,!0):(this.removeMessage(e),!1)}}handleAssistantResponse(t){let e=t.trace?.messages?.sessionToken;e&&typeof e=="string"&&(this.sessionToken=e);let s=t.answer?.text?.trim()||"\uC548\uB0B4 \uAC00\uB2A5\uD55C \uB2F5\uBCC0\uC744 \uC0DD\uC131\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.";this.pushMessage({id:`a_${t.requestId}`,role:"assistant",text:s,outcome:t.outcome,citations:Array.isArray(t.citations)?t.citations:[],timestamp:Date.now()})}};var C=new Set;async function T(i){if(!i?.chatbotId)throw new Error("WIDGET_INIT_REQUIRES_CHATBOT_ID");let t=`${i.chatbotId}:${i.apiBaseUrl??""}`;if(C.has(t))return;await new b(i).mount(),C.add(t)}window.IEUMBOTWidget={init:T};var x=document.currentScript;if(x){let i=x.getAttribute("data-chatbot-id");i&&T({chatbotId:i,apiBaseUrl:x.getAttribute("data-api-base-url")??void 0,openOnLoad:x.getAttribute("data-open-on-load")==="true"})}})();
+`;
+  }
+
+  class WidgetApiClient {
+    constructor(baseUrl) {
+      this.baseUrl = normalizeBaseUrl(baseUrl);
+    }
+
+    async getConfig(chatbotId) {
+      const url = `${this.baseUrl}/widget/config/${encodeURIComponent(chatbotId)}`;
+      const response = await fetch(url, {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+        credentials: "omit",
+      });
+
+      if (!response.ok) {
+        await logHttpError("Failed to load widget config", url, response);
+        throw new Error(`WIDGET_CONFIG_FAILED:${response.status}`);
+      }
+
+      return response.json();
+    }
+
+    async sendChat(payload, endpoint = "/chat/messages") {
+      const path = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+      const url = `${this.baseUrl}${path}`;
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        credentials: "omit",
+      });
+
+      if (!response.ok) {
+        await logHttpError("Failed to send widget chat message", url, response);
+        throw new Error(`WIDGET_CHAT_FAILED:${response.status}`);
+      }
+
+      return response.json();
+    }
+
+    async streamChat(payload, onEvent, endpoint = "/chat/messages/stream") {
+      const path = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+      const url = `${this.baseUrl}${path}`;
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "text/event-stream",
+        },
+        body: JSON.stringify(payload),
+        credentials: "omit",
+      });
+
+      if (!response.ok) {
+        await logHttpError("Failed to open widget chat stream", url, response);
+        throw new Error(`WIDGET_CHAT_STREAM_FAILED:${response.status}`);
+      }
+
+      if (!response.body) {
+        console.error("[IEUMBOTWidget] Widget chat stream opened without response body", {
+          url,
+          status: response.status,
+          statusText: response.statusText,
+        });
+        throw new Error(`WIDGET_CHAT_STREAM_FAILED:${response.status}`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+      let buffer = "";
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        let boundaryIndex = buffer.indexOf("\n\n");
+        while (boundaryIndex !== -1) {
+          const chunk = buffer.slice(0, boundaryIndex).trim();
+          buffer = buffer.slice(boundaryIndex + 2);
+          boundaryIndex = buffer.indexOf("\n\n");
+
+          if (!chunk) continue;
+
+          let eventName = "message";
+          const dataLines = [];
+          for (const line of chunk.split("\n")) {
+            if (line.startsWith("event:")) {
+              eventName = line.slice(6).trim();
+            } else if (line.startsWith("data:")) {
+              dataLines.push(line.slice(5).trim());
+            }
+          }
+
+          if (dataLines.length === 0) continue;
+
+          try {
+            onEvent({
+              event: eventName,
+              data: JSON.parse(dataLines.join("\n")),
+            });
+          } catch (error) {
+            console.error("[IEUMBOTWidget] Failed to parse stream event", {
+              url,
+              eventName,
+              error,
+              raw: dataLines.join("\n"),
+            });
+            onEvent({
+              event: "error",
+              data: {
+                code: "STREAM_EVENT_PARSE_FAILED",
+                message: "스트림 이벤트 파싱 실패",
+              },
+            });
+          }
+        }
+      }
+    }
+  }
+
+  class WidgetApp {
+    constructor(options) {
+      this.options = options;
+      this.api = new WidgetApiClient(resolveApiBaseUrl(options.apiBaseUrl));
+      this.host = document.createElement("div");
+      this.host.setAttribute(WIDGET_ROOT_ATTR, "true");
+      this.shadow = this.host.attachShadow({ mode: "open" });
+      this.root = createElement(document, "div", "ieum-root");
+      this.launcherButton = createElement(document, "button", "ieum-launcher");
+      this.panel = createElement(document, "div", "ieum-panel");
+      this.headerTitle = createElement(document, "div", "ieum-title");
+      this.welcomeText = createElement(document, "p", "ieum-welcome-text");
+      this.afterHoursBox = createElement(document, "div", "ieum-after-hours");
+      this.quickActionsWrap = createElement(document, "div", "ieum-quick-actions");
+      this.messagesWrap = createElement(document, "div", "ieum-messages");
+      this.loadingRow = createElement(document, "div", "ieum-loading");
+      this.input = createElement(document, "textarea", "ieum-input");
+      this.sendButton = createElement(document, "button", "ieum-send");
+      this.privacyNotice = createElement(document, "div", "ieum-privacy");
+      this.initialized = false;
+      this.open = false;
+      this.sending = false;
+      this.sessionToken = `widget_${Math.random().toString(36).slice(2, 10)}_${Date.now().toString(36)}`;
+      this.config = null;
+      this.chatEndpoint = "/chat/messages";
+      this.chatStreamEndpoint = "/chat/messages/stream";
+      this.sseEnabled = false;
+      this.messages = [];
+      this.lastFailedQuestion = null;
+
+      this.launcherButton.type = "button";
+      this.launcherButton.title = options.launcherLabel || "채팅 열기";
+      this.launcherButton.textContent = "💬";
+      this.headerTitle.textContent = options.title || "이음봇";
+      this.afterHoursBox.style.display = "none";
+      this.loadingRow.style.display = "none";
+      this.loadingRow.textContent = "답변을 준비 중입니다...";
+      this.input.rows = 2;
+      this.input.placeholder = "질문을 입력하세요";
+      this.sendButton.type = "button";
+      this.sendButton.textContent = "전송";
+      this.privacyNotice.style.display = "none";
+    }
+
+    async mount() {
+      if (this.initialized) return;
+      this.initialized = true;
+
+      const style = document.createElement("style");
+      style.textContent = buildStyles(
+        this.options.theme?.primaryColor || "#2563eb",
+        this.options.theme?.textColor || "#0f172a",
+        this.options.theme?.backgroundColor || "#ffffff",
+      );
+      this.shadow.appendChild(style);
+      this.shadow.appendChild(this.root);
+
+      const header = createElement(document, "div", "ieum-header");
+      const closeButton = createElement(document, "button", "ieum-close");
+      closeButton.type = "button";
+      closeButton.textContent = "×";
+
+      const welcome = createElement(document, "div", "ieum-welcome");
+      welcome.appendChild(this.welcomeText);
+      welcome.appendChild(this.afterHoursBox);
+      welcome.appendChild(this.quickActionsWrap);
+
+      const inputWrap = createElement(document, "div", "ieum-input-wrap");
+      inputWrap.appendChild(this.input);
+      inputWrap.appendChild(this.sendButton);
+
+      header.appendChild(this.headerTitle);
+      header.appendChild(closeButton);
+
+      this.panel.appendChild(header);
+      this.panel.appendChild(welcome);
+      this.panel.appendChild(this.messagesWrap);
+      this.panel.appendChild(this.loadingRow);
+      this.panel.appendChild(inputWrap);
+      this.panel.appendChild(this.privacyNotice);
+
+      this.root.appendChild(this.panel);
+      this.root.appendChild(this.launcherButton);
+      document.body.appendChild(this.host);
+
+      this.launcherButton.addEventListener("click", () => this.togglePanel());
+      closeButton.addEventListener("click", () => this.setOpen(false));
+      this.sendButton.addEventListener("click", () => void this.sendCurrentInput());
+      this.input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && !event.shiftKey) {
+          event.preventDefault();
+          void this.sendCurrentInput();
+        }
+      });
+
+      await this.loadConfig();
+
+      if (this.options.openOnLoad) {
+        this.setOpen(true);
+      }
+    }
+
+    async loadConfig() {
+      try {
+        this.config = await this.api.getConfig(this.options.chatbotId);
+        this.headerTitle.textContent = this.options.title || this.config.chatbotName;
+        this.welcomeText.textContent =
+          this.options.welcomeMessage ||
+          this.config.welcomeMessage ||
+          "안내를 시작할 준비가 되었습니다.";
+
+        const primaryColor = this.options.theme?.primaryColor || this.config.theme?.primaryColor;
+        if (primaryColor) {
+          this.launcherButton.style.background = primaryColor;
+          this.sendButton.style.background = primaryColor;
+        }
+
+        if (this.config.privacyNotice) {
+          this.privacyNotice.textContent = this.config.privacyNotice;
+          this.privacyNotice.style.display = "block";
+        }
+
+        if (this.config.operatingHours?.isAfterHours && this.config.operatingHours?.message) {
+          this.afterHoursBox.textContent = this.config.operatingHours.message;
+          this.afterHoursBox.style.display = "block";
+        } else {
+          this.afterHoursBox.style.display = "none";
+        }
+
+        this.renderQuickActions(this.config.quickActions || []);
+
+        if (this.config.runtime?.chatEndpoint) {
+          this.chatEndpoint = this.config.runtime.chatEndpoint;
+        }
+        if (this.config.runtime?.chatStreamEndpoint) {
+          this.chatStreamEndpoint = this.config.runtime.chatStreamEndpoint;
+        }
+
+        this.sseEnabled =
+          readBoolean(this.config.runtime?.sseEnabled) === true ||
+          this.config.runtime?.streamingMode === "sse_preferred";
+      } catch (error) {
+        console.error("[IEUMBOTWidget] Widget config initialization failed", error);
+        this.pushMessage({
+          id: `sys_${Date.now()}`,
+          role: "system",
+          text: "초기 설정을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.",
+          timestamp: Date.now(),
+        });
+      }
+    }
+
+    renderQuickActions(actions) {
+      this.quickActionsWrap.innerHTML = "";
+      const visibleActions = actions.filter((item) => item.displayLocation === "welcome").slice(0, 6);
+
+      for (const action of visibleActions) {
+        const button = createElement(document, "button", "ieum-quick-action");
+        button.type = "button";
+        button.textContent = action.label;
+        button.title = action.label;
+        button.addEventListener("click", () => {
+          if (action.actionType === "link" && action.url) {
+            window.open(action.url, "_blank", "noopener,noreferrer");
+            return;
+          }
+          this.input.value = action.payload?.trim() || action.label;
+          void this.sendCurrentInput();
+        });
+        this.quickActionsWrap.appendChild(button);
+      }
+    }
+
+    setOpen(nextOpen) {
+      this.open = nextOpen;
+      if (nextOpen) {
+        this.panel.classList.add("open");
+        this.launcherButton.style.display = "none";
+        this.input.focus();
+        this.scrollMessagesToBottom();
+        return;
+      }
+
+      this.panel.classList.remove("open");
+      this.launcherButton.style.display = "inline-flex";
+      this.launcherButton.style.alignItems = "center";
+      this.launcherButton.style.justifyContent = "center";
+    }
+
+    togglePanel() {
+      this.setOpen(!this.open);
+    }
+
+    pushMessage(message) {
+      this.messages.push(message);
+      this.renderMessages();
+    }
+
+    updateMessage(messageId, patch) {
+      const index = this.messages.findIndex((message) => message.id === messageId);
+      if (index < 0) return;
+      this.messages[index] = { ...this.messages[index], ...patch };
+      this.renderMessages();
+    }
+
+    removeMessage(messageId) {
+      this.messages = this.messages.filter((message) => message.id !== messageId);
+      this.renderMessages();
+    }
+
+    renderMessages() {
+      this.messagesWrap.innerHTML = "";
+
+      for (const message of this.messages) {
+        const row = createElement(document, "div", `ieum-message ${message.role}`);
+        const bubble = createElement(document, "div", "ieum-bubble");
+        bubble.textContent = message.text;
+        row.appendChild(bubble);
+
+        if (message.role === "assistant") {
+          const outcomeNote = getOutcomeNote(message.outcome);
+          if (outcomeNote) {
+            const note = createElement(document, "div", "ieum-outcome-note");
+            note.textContent = outcomeNote;
+            bubble.appendChild(note);
+          }
+
+          if (message.citations && message.citations.length > 0) {
+            const citations = createElement(document, "div", "ieum-citations");
+            const title = createElement(document, "div", "ieum-citations-title");
+            title.textContent = "출처";
+            citations.appendChild(title);
+
+            for (const item of message.citations.slice(0, 5)) {
+              const citation = createElement(document, "div", "ieum-citation");
+              citation.textContent = formatCitation(item);
+              citations.appendChild(citation);
+            }
+
+            bubble.appendChild(citations);
+          }
+        }
+
+        this.messagesWrap.appendChild(row);
+      }
+
+      if (this.lastFailedQuestion) {
+        const row = createElement(document, "div", "ieum-message system");
+        const retryButton = createElement(document, "button", "ieum-quick-action");
+        retryButton.type = "button";
+        retryButton.textContent = "다시 시도";
+        retryButton.addEventListener("click", () => {
+          if (!this.lastFailedQuestion) return;
+          this.input.value = this.lastFailedQuestion;
+          void this.sendCurrentInput();
+        });
+        row.appendChild(retryButton);
+        this.messagesWrap.appendChild(row);
+      }
+
+      this.scrollMessagesToBottom();
+    }
+
+    scrollMessagesToBottom() {
+      requestAnimationFrame(() => {
+        this.messagesWrap.scrollTop = this.messagesWrap.scrollHeight;
+      });
+    }
+
+    setSending(nextSending) {
+      this.sending = nextSending;
+      this.sendButton.disabled = nextSending;
+      this.input.disabled = nextSending;
+      this.loadingRow.style.display = nextSending ? "block" : "none";
+      this.launcherButton.disabled = nextSending;
+    }
+
+    async sendCurrentInput() {
+      if (this.sending) return;
+      const question = this.input.value.trim();
+      if (!question) return;
+
+      this.lastFailedQuestion = null;
+      this.input.value = "";
+      this.pushMessage({
+        id: `u_${Date.now()}`,
+        role: "user",
+        text: question,
+        timestamp: Date.now(),
+      });
+      this.setSending(true);
+
+      if (this.sseEnabled && (await this.trySendWithSse(question))) {
+        this.setSending(false);
+        this.input.focus();
+        return;
+      }
+
+      try {
+        const response = await this.api.sendChat(
+          {
+            chatbotId: this.options.chatbotId,
+            question,
+            topK: this.options.topK || 8,
+            sessionToken: this.sessionToken,
+            sourceUrl: this.options.sourceUrl || window.location.href,
+          },
+          this.chatEndpoint,
+        );
+        this.handleAssistantResponse(response);
+      } catch (error) {
+        console.error("[IEUMBOTWidget] Widget chat request failed", error);
+        this.lastFailedQuestion = question;
+        this.pushMessage({
+          id: `sys_${Date.now()}`,
+          role: "system",
+          text: "요청 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.",
+          timestamp: Date.now(),
+        });
+      } finally {
+        this.setSending(false);
+        this.input.focus();
+      }
+    }
+
+    async trySendWithSse(question) {
+      const messageId = `a_stream_${Date.now()}`;
+      let streamError = false;
+      let streamErrorMessage = "스트리밍 연결 오류로 일반 모드로 전환합니다.";
+      let outcome = "answered";
+      let citations = [];
+      let text = "";
+      let receivedDelta = false;
+
+      this.pushMessage({
+        id: messageId,
+        role: "assistant",
+        text: "",
+        timestamp: Date.now(),
+      });
+
+      const onEvent = (event) => {
+        const data = event.data || {};
+
+        if (event.event === "message_delta") {
+          const delta = readString(data.delta) || "";
+          text += delta;
+          if (delta) {
+            receivedDelta = true;
+          }
+          this.updateMessage(messageId, { text });
+          return;
+        }
+
+        if (event.event === "message_complete") {
+          outcome = readString(data.outcome) || outcome;
+          receivedDelta = true;
+          this.updateMessage(messageId, { outcome, text: text || " " });
+          return;
+        }
+
+        if (event.event === "fallback" || event.event === "escalation") {
+          outcome = readString(data.outcome) || (event.event === "escalation" ? "escalate" : "insufficient_evidence");
+          text = readString(data.message) || "";
+          receivedDelta = true;
+          this.updateMessage(messageId, { text, outcome });
+          return;
+        }
+
+        if (event.event === "citations") {
+          citations = readArray(data.items);
+          this.updateMessage(messageId, { citations });
+          return;
+        }
+
+        if (event.event === "error") {
+          streamError = true;
+          streamErrorMessage = readString(data.message) || streamErrorMessage;
+          return;
+        }
+
+        if (event.event === "done") {
+          const nextSessionToken = readString(data.sessionToken);
+          if (nextSessionToken) {
+            this.sessionToken = nextSessionToken;
+          }
+        }
+      };
+
+      try {
+        await this.api.streamChat(
+          {
+            chatbotId: this.options.chatbotId,
+            question,
+            topK: this.options.topK || 8,
+            sessionToken: this.sessionToken,
+            sourceUrl: this.options.sourceUrl || window.location.href,
+          },
+          onEvent,
+          this.chatStreamEndpoint,
+        );
+
+        if (streamError) {
+          throw new Error(streamErrorMessage);
+        }
+
+        if (text.trim()) {
+          this.updateMessage(messageId, { text, outcome, citations });
+        } else {
+          this.updateMessage(messageId, {
+            text: "요청을 처리하지 못했습니다.",
+            outcome: "insufficient_evidence",
+          });
+        }
+        return true;
+      } catch (error) {
+        console.error("[IEUMBOTWidget] Widget SSE request failed", error);
+        if (!receivedDelta) {
+          this.removeMessage(messageId);
+          return false;
+        }
+
+        this.updateMessage(messageId, {
+          text: text || "응답 수신 중 연결이 종료되었습니다. 잠시 후 다시 시도해 주세요.",
+          outcome,
+          citations,
+        });
+        this.lastFailedQuestion = question;
+        return true;
+      }
+    }
+
+    handleAssistantResponse(response) {
+      const nextSessionToken = response.trace?.messages?.sessionToken;
+      if (typeof nextSessionToken === "string") {
+        this.sessionToken = nextSessionToken;
+      }
+
+      const answerText =
+        response.answer?.text?.trim() ||
+        "안내 가능한 답변을 생성하지 못했습니다.";
+
+      this.pushMessage({
+        id: `a_${response.requestId}`,
+        role: "assistant",
+        text: answerText,
+        outcome: response.outcome,
+        citations: Array.isArray(response.citations) ? response.citations : [],
+        timestamp: Date.now(),
+      });
+    }
+  }
+
+  async function initWidget(options) {
+    if (!options || !options.chatbotId) {
+      throw new Error("WIDGET_INIT_REQUIRES_CHATBOT_ID");
+    }
+
+    const identity = `${options.chatbotId}:${resolveApiBaseUrl(options.apiBaseUrl)}`;
+    if (initializedWidgets.has(identity)) {
+      return;
+    }
+
+    const app = new WidgetApp(options);
+    await app.mount();
+    initializedWidgets.add(identity);
+  }
+
+  window.IEUMBOTWidget = { init: initWidget };
+
+  const currentScript = document.currentScript;
+  if (currentScript) {
+    const chatbotId = currentScript.getAttribute("data-chatbot-id");
+
+    if (chatbotId) {
+      void initWidget({
+        chatbotId,
+        apiBaseUrl: currentScript.getAttribute("data-api-base-url") || undefined,
+        openOnLoad: currentScript.getAttribute("data-open-on-load") === "true",
+      });
+    }
+  }
+})();

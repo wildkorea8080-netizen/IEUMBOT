@@ -63,12 +63,14 @@ const EMPTY_FORM: WidgetFormState = {
   isActive: true,
 };
 
+const DEFAULT_WIDGET_API_BASE_URL = "https://ieumbot-api.onrender.com/api";
+
 function buildInstallScript(chatbotId: string): string {
   return [
     "<script",
     '  src="/widget.js"',
     `  data-chatbot-id="${chatbotId}"`,
-    '  data-api-base-url="/api"',
+    `  data-api-base-url="${DEFAULT_WIDGET_API_BASE_URL}"`,
     '  data-open-on-load="false"',
     "></script>",
   ].join("\n");
@@ -93,8 +95,17 @@ function toDomainsArray(input: string): string[] {
 }
 
 function isValidDomain(value: string): boolean {
-  if (value === "localhost") return true;
-  return /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(value);
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return false;
+  if (normalized === "localhost") return true;
+
+  try {
+    const parsed = new URL(normalized.includes("://") ? normalized : `https://${normalized}`);
+    const hostname = parsed.hostname.trim().toLowerCase();
+    return hostname === "localhost" || /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(hostname);
+  } catch {
+    return false;
+  }
 }
 
 function getErrorMessage(error: unknown, fallback = "요청을 처리하지 못했습니다."): string {

@@ -1,6 +1,7 @@
 import uuid
 from collections import Counter
 from datetime import UTC, date, datetime, timedelta
+from urllib.parse import urlparse
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
@@ -60,6 +61,18 @@ def _validate_uuid(value: str, detail: str) -> str:
         return str(uuid.UUID(value))
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail) from exc
+
+
+def _normalize_widget_domain(value: str) -> str:
+    normalized = value.strip()
+    if not normalized:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="INVALID_ALLOWED_DOMAIN")
+
+    parsed = urlparse(normalized if "://" in normalized else f"https://{normalized}")
+    hostname = (parsed.hostname or "").strip().lower()
+    if not hostname or " " in hostname:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="INVALID_ALLOWED_DOMAIN")
+    return hostname
 
 
 def get_dashboard_summary_service(
@@ -535,7 +548,7 @@ def patch_widget_service(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="WIDGET_NOT_FOUND")
 
     if body.allowed_domains is not None:
-        normalized = [item.strip() for item in body.allowed_domains if item and item.strip()]
+        normalized = [_normalize_widget_domain(item) for item in body.allowed_domains if item and item.strip()]
         widget.allowed_domains = normalized
     if body.is_active is not None:
         widget.status = "active" if body.is_active else "inactive"

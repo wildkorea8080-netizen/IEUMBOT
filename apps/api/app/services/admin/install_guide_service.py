@@ -37,7 +37,7 @@ def get_install_guide_service(
             )
             continue
 
-        install_script = widget.install_script or build_widget_install_script(chatbot_id=str(widget.chatbot_id))
+        install_script = build_widget_install_script(chatbot_id=str(widget.chatbot_id))
         items.append(
             AdminInstallGuideItem(
                 chatbot_id=str(chatbot.id),

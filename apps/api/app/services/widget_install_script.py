@@ -1,7 +1,10 @@
+DEFAULT_WIDGET_API_BASE_URL = "https://ieumbot-api.onrender.com/api"
+
+
 def build_widget_install_script(
     *,
     chatbot_id: str,
-    api_base_url: str = "/api",
+    api_base_url: str = DEFAULT_WIDGET_API_BASE_URL,
     open_on_load: bool = False,
 ) -> str:
     return (
@@ -12,4 +15,3 @@ def build_widget_install_script(
         f'  data-open-on-load="{"true" if open_on_load else "false"}"\n'
         "></script>"
     )
-

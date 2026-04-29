@@ -30,7 +30,7 @@ const TEXT = {
   installCodeDescription:
     "\uD648\uD398\uC774\uC9C0 \uAD00\uB9AC\uC790 \uB610\uB294 \uAC1C\uBC1C\uC0AC\uC5D0\uAC8C \uC804\uB2EC\uD560 \uC124\uCE58 \uCF54\uB4DC\uC785\uB2C8\uB2E4.",
   installCodeHint:
-    "`/widget.js` \uC815\uC801 \uACBD\uB85C\uC640 `/api` \uC0C1\uB300 \uACBD\uB85C\uB97C \uADF8\uB300\uB85C \uC0AC\uC6A9\uD569\uB2C8\uB2E4.",
+    "`/widget.js` \uC815\uC801 \uACBD\uB85C\uC640 `https://ieumbot-api.onrender.com/api` API \uC8FC\uC18C\uB97C \uD568\uAED8 \uC0AC\uC6A9\uD569\uB2C8\uB2E4.",
   installMethodTitle: "\uC124\uCE58 \uBC29\uBC95",
   installMethodDescription:
     "\uC2E4\uC81C \uD648\uD398\uC774\uC9C0 \uBC18\uC601 \uC2DC \uC804\uB2EC\uD574\uC57C \uD560 \uAC00\uC774\uB4DC\uC785\uB2C8\uB2E4.",
@@ -74,7 +74,7 @@ function defaultScript(chatbotId: string): string {
   return `<script
   src="/widget.js"
   data-chatbot-id="${chatbotId}"
-  data-api-base-url="/api"
+  data-api-base-url="https://ieumbot-api.onrender.com/api"
   data-open-on-load="false"
 ></script>`;
 }
