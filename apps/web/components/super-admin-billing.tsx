@@ -227,56 +227,56 @@ export function SuperAdminBilling() {
       <PagePanel title="결제 개요" description="조직별 예상 매출, 초과 사용 요금, 요금제 설정을 확인합니다.">
         {message ? <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{message}</p> : null}
         {error ? <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
-        {isLoading ? <p className="text-sm text-slate-500">Loading billing summary...</p> : null}
+        {isLoading ? <p className="text-sm text-slate-500">결제 요약을 불러오는 중...</p> : null}
         {!isLoading && summary ? (
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <div className="rounded-2xl border border-slate-200 bg-white p-5">
-              <p className="text-sm text-slate-500">Estimated Revenue</p>
+              <p className="text-sm text-slate-500">예상 매출</p>
               <p className="mt-2 text-3xl font-semibold text-slate-900">{formatCost(summary.totalMonthlyRevenueEstimate)}</p>
             </div>
             <div className="rounded-2xl border border-slate-200 bg-white p-5">
-              <p className="text-sm text-slate-500">Overage Estimate</p>
+              <p className="text-sm text-slate-500">초과 요금 예상액</p>
               <p className="mt-2 text-3xl font-semibold text-slate-900">{formatCost(summary.totalOverageEstimate)}</p>
             </div>
             <div className="rounded-2xl border border-slate-200 bg-white p-5">
-              <p className="text-sm text-slate-500">Over-limit Organizations</p>
+              <p className="text-sm text-slate-500">한도 초과 조직 수</p>
               <p className="mt-2 text-3xl font-semibold text-slate-900">{formatNumber(summary.overLimitOrganizationCount)}</p>
             </div>
             <div className="rounded-2xl border border-slate-200 bg-white p-5">
-              <p className="text-sm text-slate-500">Active Contracts</p>
+              <p className="text-sm text-slate-500">활성 계약 수</p>
               <p className="mt-2 text-3xl font-semibold text-slate-900">{formatNumber(summary.activeContractCount)}</p>
             </div>
           </div>
         ) : null}
       </PagePanel>
 
-      <PagePanel title="Plan Catalog" description="Plans define the included token pool, overage policy, and hard limits used by contracts.">
+      <PagePanel title="요금제 목록" description="요금제별 포함 토큰, 초과 과금 정책, 계약에 적용되는 사용 한도를 관리합니다.">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-slate-500">{isLoading ? "Loading plans..." : `${plans.length} plans`}</p>
+          <p className="text-sm text-slate-500">{isLoading ? "요금제를 불러오는 중..." : `총 ${plans.length}개 요금제`}</p>
           <button type="button" onClick={openCreateModal} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white">
-            New Plan
+            새 요금제
           </button>
         </div>
         <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white">
           <table className="min-w-full text-sm">
             <thead className="bg-slate-50 text-left text-slate-600">
               <tr>
-                <th className="px-3 py-3">Name</th>
-                <th className="px-3 py-3">Base Fee</th>
-                <th className="px-3 py-3">Included Tokens</th>
-                <th className="px-3 py-3">Price / 1K</th>
-                <th className="px-3 py-3">Conversations</th>
-                <th className="px-3 py-3">Chatbots</th>
-                <th className="px-3 py-3">Overage</th>
-                <th className="px-3 py-3">Status</th>
-                <th className="px-3 py-3">Actions</th>
+                <th className="px-3 py-3">이름</th>
+                <th className="px-3 py-3">기본 요금</th>
+                <th className="px-3 py-3">포함 토큰</th>
+                <th className="px-3 py-3">1K당 요금</th>
+                <th className="px-3 py-3">대화 한도</th>
+                <th className="px-3 py-3">챗봇 한도</th>
+                <th className="px-3 py-3">초과 정책</th>
+                <th className="px-3 py-3">상태</th>
+                <th className="px-3 py-3">작업</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {plans.length === 0 && !isLoading ? (
                 <tr>
                   <td colSpan={9} className="px-3 py-10 text-center text-slate-500">
-                    No billing plans found.
+                    등록된 요금제가 없습니다.
                   </td>
                 </tr>
               ) : (
@@ -293,11 +293,11 @@ export function SuperAdminBilling() {
                     <td className="px-3 py-4">{formatNumber(plan.chatbotLimit)}</td>
                     <td className="px-3 py-4">{plan.overagePolicy}</td>
                     <td className="px-3 py-4">
-                      <StatusBadge tone={plan.isActive ? "success" : "warning"}>{plan.isActive ? "active" : "inactive"}</StatusBadge>
+                      <StatusBadge tone={plan.isActive ? "success" : "warning"}>{plan.isActive ? "활성" : "비활성"}</StatusBadge>
                     </td>
                     <td className="px-3 py-4">
                       <button type="button" onClick={() => openEditModal(plan)} className="rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-700">
-                        Edit
+                        수정
                       </button>
                     </td>
                   </tr>
@@ -308,12 +308,12 @@ export function SuperAdminBilling() {
         </div>
       </PagePanel>
 
-      <PagePanel title="Organization Billing" description="Revenue estimate is computed from contract period usage and plan overage settings.">
+      <PagePanel title="조직별 결제" description="계약 기간 사용량과 요금제 초과 과금 설정을 기준으로 조직별 예상 청구액을 확인합니다.">
         <div className="flex flex-wrap gap-3">
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search organization or plan"
+            placeholder="조직명 또는 요금제 검색"
             className="min-w-[220px] flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
           />
           <select
@@ -321,31 +321,31 @@ export function SuperAdminBilling() {
             onChange={(event) => setStatusFilter(event.target.value as "all" | "over" | "normal")}
             className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
           >
-            <option value="all">All organizations</option>
-            <option value="over">Over limit</option>
-            <option value="normal">Within limit</option>
+            <option value="all">전체 조직</option>
+            <option value="over">한도 초과</option>
+            <option value="normal">한도 이내</option>
           </select>
         </div>
         <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-200 bg-white">
           <table className="min-w-full text-sm">
             <thead className="bg-slate-50 text-left text-slate-600">
               <tr>
-                <th className="px-3 py-3">Organization</th>
-                <th className="px-3 py-3">Plan</th>
-                <th className="px-3 py-3">Tokens</th>
-                <th className="px-3 py-3">Remaining</th>
-                <th className="px-3 py-3">Estimated Overage</th>
-                <th className="px-3 py-3">Total Charge</th>
-                <th className="px-3 py-3">Conversations</th>
-                <th className="px-3 py-3">Chatbots</th>
-                <th className="px-3 py-3">Status</th>
+                <th className="px-3 py-3">조직</th>
+                <th className="px-3 py-3">요금제</th>
+                <th className="px-3 py-3">토큰</th>
+                <th className="px-3 py-3">잔여량</th>
+                <th className="px-3 py-3">예상 초과 요금</th>
+                <th className="px-3 py-3">총 예상 청구액</th>
+                <th className="px-3 py-3">대화 수</th>
+                <th className="px-3 py-3">챗봇 수</th>
+                <th className="px-3 py-3">상태</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {!isLoading && filteredOrganizations.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="px-3 py-10 text-center text-slate-500">
-                    No billing data found.
+                    표시할 결제 데이터가 없습니다.
                   </td>
                 </tr>
               ) : (
@@ -367,7 +367,7 @@ export function SuperAdminBilling() {
                     </td>
                     <td className="px-3 py-4">
                       <StatusBadge tone={item.isOverLimit ? "danger" : "success"}>
-                        {item.isOverLimit ? "over" : item.billingStatus ?? "active"}
+                        {item.isOverLimit ? "초과" : item.billingStatus ?? "활성"}
                       </StatusBadge>
                     </td>
                   </tr>
@@ -378,23 +378,23 @@ export function SuperAdminBilling() {
         </div>
       </PagePanel>
 
-      <PagePanel title="Billing Alerts" description="Threshold alerts are stored in DB and can later fan out to Slack or webhook delivery.">
+      <PagePanel title="결제 알림" description="임계치 알림을 저장하고, 이후 Slack 또는 웹훅 전송으로 확장할 수 있습니다.">
         <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
           <table className="min-w-full text-sm">
             <thead className="bg-slate-50 text-left text-slate-600">
               <tr>
-                <th className="px-3 py-3">Time</th>
-                <th className="px-3 py-3">Organization</th>
-                <th className="px-3 py-3">Metric</th>
-                <th className="px-3 py-3">Level</th>
-                <th className="px-3 py-3">Message</th>
+                <th className="px-3 py-3">시간</th>
+                <th className="px-3 py-3">조직</th>
+                <th className="px-3 py-3">지표</th>
+                <th className="px-3 py-3">등급</th>
+                <th className="px-3 py-3">메시지</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {alerts.length === 0 && !isLoading ? (
                 <tr>
                   <td colSpan={5} className="px-3 py-10 text-center text-slate-500">
-                    No billing alerts yet.
+                    아직 결제 알림이 없습니다.
                   </td>
                 </tr>
               ) : (
@@ -422,57 +422,57 @@ export function SuperAdminBilling() {
 
       <AdminModal
         open={modalOpen}
-        title={editingPlan ? "Edit Billing Plan" : "Create Billing Plan"}
-        description="Plans drive included tokens, overage charge, and hard usage limits."
+        title={editingPlan ? "요금제 수정" : "요금제 생성"}
+        description="요금제별 포함 토큰, 초과 과금, 하드 사용 한도를 설정합니다."
         onClose={closeModal}
       >
         <div className="grid gap-4 md:grid-cols-2">
           <label className="text-sm text-slate-700 md:col-span-2">
-            <span className="mb-1 block font-medium">Name</span>
+            <span className="mb-1 block font-medium">이름</span>
             <input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} className="w-full rounded-lg border border-slate-300 px-3 py-2" />
           </label>
           <label className="text-sm text-slate-700 md:col-span-2">
-            <span className="mb-1 block font-medium">Description</span>
+            <span className="mb-1 block font-medium">설명</span>
             <textarea value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} className="min-h-[88px] w-full rounded-lg border border-slate-300 px-3 py-2" />
           </label>
           <label className="text-sm text-slate-700">
-            <span className="mb-1 block font-medium">Monthly Base Fee</span>
+            <span className="mb-1 block font-medium">월 기본 요금</span>
             <input type="number" min="0" step="0.01" value={form.monthlyBaseFee} onChange={(event) => setForm((current) => ({ ...current, monthlyBaseFee: event.target.value }))} className="w-full rounded-lg border border-slate-300 px-3 py-2" />
           </label>
           <label className="text-sm text-slate-700">
-            <span className="mb-1 block font-medium">Included Tokens</span>
+            <span className="mb-1 block font-medium">포함 토큰</span>
             <input type="number" min="0" value={form.includedTokens} onChange={(event) => setForm((current) => ({ ...current, includedTokens: event.target.value }))} className="w-full rounded-lg border border-slate-300 px-3 py-2" />
           </label>
           <label className="text-sm text-slate-700">
-            <span className="mb-1 block font-medium">Price Per 1K Tokens</span>
+            <span className="mb-1 block font-medium">1K 토큰당 요금</span>
             <input type="number" min="0" step="0.0001" value={form.pricePer1kTokens} onChange={(event) => setForm((current) => ({ ...current, pricePer1kTokens: event.target.value }))} className="w-full rounded-lg border border-slate-300 px-3 py-2" />
           </label>
           <label className="text-sm text-slate-700">
-            <span className="mb-1 block font-medium">Overage Policy</span>
+            <span className="mb-1 block font-medium">초과 정책</span>
             <select value={form.overagePolicy} onChange={(event) => setForm((current) => ({ ...current, overagePolicy: event.target.value as "block" | "allow_with_charge" }))} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2">
-              <option value="block">block</option>
-              <option value="allow_with_charge">allow_with_charge</option>
+              <option value="block">차단</option>
+              <option value="allow_with_charge">과금 후 허용</option>
             </select>
           </label>
           <label className="text-sm text-slate-700">
-            <span className="mb-1 block font-medium">Chatbot Limit</span>
+            <span className="mb-1 block font-medium">챗봇 한도</span>
             <input type="number" min="0" value={form.chatbotLimit} onChange={(event) => setForm((current) => ({ ...current, chatbotLimit: event.target.value }))} className="w-full rounded-lg border border-slate-300 px-3 py-2" />
           </label>
           <label className="text-sm text-slate-700">
-            <span className="mb-1 block font-medium">Monthly Conversation Limit</span>
+            <span className="mb-1 block font-medium">월 대화 한도</span>
             <input type="number" min="0" value={form.monthlyConversationLimit} onChange={(event) => setForm((current) => ({ ...current, monthlyConversationLimit: event.target.value }))} className="w-full rounded-lg border border-slate-300 px-3 py-2" />
           </label>
           <label className="flex items-center gap-2 text-sm text-slate-700">
             <input type="checkbox" checked={form.isActive} onChange={(event) => setForm((current) => ({ ...current, isActive: event.target.checked }))} />
-            <span>Active</span>
+            <span>활성</span>
           </label>
         </div>
         <div className="mt-6 flex justify-end gap-2">
           <button type="button" onClick={closeModal} className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700">
-            Cancel
+            취소
           </button>
           <button type="button" onClick={() => void savePlan()} disabled={isSaving} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60">
-            {isSaving ? "Saving..." : "Save"}
+            {isSaving ? "저장 중..." : "저장"}
           </button>
         </div>
       </AdminModal>

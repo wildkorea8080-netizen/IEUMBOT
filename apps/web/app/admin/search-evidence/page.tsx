@@ -255,11 +255,11 @@ export default function SearchEvidencePage() {
 
           <div className="grid gap-3 md:grid-cols-2">
             <label className="block text-xs text-slate-700">
-              corpusDomains (쉼표 구분)
+              자료 범주 (쉼표 구분)
               <input
                 value={corpusDomainsInput}
                 onChange={(event) => setCorpusDomainsInput(event.target.value)}
-                placeholder="policy, notice, procedure, faq, contact"
+                placeholder="정책, 공지, 절차, FAQ, 연락처"
                 className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
               />
             </label>
@@ -278,7 +278,7 @@ export default function SearchEvidencePage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-3 text-xs text-slate-700">
-            <span>sourceTypes:</span>
+            <span>자료 유형:</span>
             {(["pdf", "web", "notice"] as SourceType[]).map((sourceType) => {
               const checked = selectedSourceTypeSet.has(sourceType);
               return (
@@ -304,7 +304,7 @@ export default function SearchEvidencePage() {
                 checked={includeInactive}
                 onChange={(event) => setIncludeInactive(event.target.checked)}
               />
-              includeInactive
+              비활성 포함
             </label>
           </div>
 
@@ -358,14 +358,14 @@ export default function SearchEvidencePage() {
       <PagePanel title="검색 추적 요약" description="요청/정규화/확장/룰 적용/최종 순위를 요약합니다.">
         {searchResult?.trace ? (
           <div className="space-y-2 text-xs text-slate-700">
-            <p>originalQuestion: {searchResult.trace.originalQuestion ?? "-"}</p>
-            <p>normalizedQuestion: {searchResult.trace.normalizedQuestion ?? "-"}</p>
+            <p>원본 질문: {searchResult.trace.originalQuestion ?? "-"}</p>
+            <p>정규화 질문: {searchResult.trace.normalizedQuestion ?? "-"}</p>
             <p>
-              expandedTerms: {(searchResult.trace.expandedTerms ?? []).join(", ") || "-"}
+              확장 용어: {(searchResult.trace.expandedTerms ?? []).join(", ") || "-"}
             </p>
-            <p>filters: {compactObjectPreview(searchResult.trace.appliedFilters)}</p>
-            <p>appliedRules: {compactObjectPreview(searchResult.trace.appliedRules)}</p>
-            <p>rankingOrder: {compactObjectPreview(searchResult.trace.rankingOrder?.[0])}</p>
+            <p>적용 필터: {compactObjectPreview(searchResult.trace.appliedFilters)}</p>
+            <p>적용 규칙: {compactObjectPreview(searchResult.trace.appliedRules)}</p>
+            <p>정렬 순서: {compactObjectPreview(searchResult.trace.rankingOrder?.[0])}</p>
           </div>
         ) : (
           <p className="text-sm text-slate-600">검색 테스트 실행 후 추적 요약이 표시됩니다.</p>

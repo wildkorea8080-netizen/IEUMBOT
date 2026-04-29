@@ -150,7 +150,7 @@ export default function TestChatPage() {
               <input
                 value={chatbotId}
                 onChange={(event) => setChatbotId(event.target.value)}
-                placeholder="UUID"
+                placeholder="챗봇 UUID"
                 className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
                 required
               />
@@ -222,7 +222,7 @@ export default function TestChatPage() {
               turns.map((turn) =>
                 turn.role === "user" ? (
                   <article key={turn.id} className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm">
-                    <p className="text-xs font-semibold text-slate-500">USER</p>
+                    <p className="text-xs font-semibold text-slate-500">사용자</p>
                     <p className="mt-1 whitespace-pre-wrap text-slate-900">{turn.question}</p>
                   </article>
                 ) : (
@@ -237,7 +237,7 @@ export default function TestChatPage() {
                     onClick={() => setSelectedAssistantId(turn.id)}
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-xs font-semibold text-slate-500">ASSISTANT</p>
+                      <p className="text-xs font-semibold text-slate-500">어시스턴트</p>
                       <span className="rounded border border-slate-300 px-2 py-0.5 text-xs text-slate-700">
                         {outcomeLabel(turn.response.outcome)}
                       </span>
@@ -261,10 +261,10 @@ export default function TestChatPage() {
               <div className="space-y-3 text-sm">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="rounded border border-slate-300 px-2 py-0.5 text-xs text-slate-700">
-                    outcome: {selectedAssistant.response.outcome}
+                    결과: {selectedAssistant.response.outcome}
                   </span>
                   <span className="rounded border border-slate-300 px-2 py-0.5 text-xs text-slate-700">
-                    requestId: {selectedAssistant.response.requestId}
+                    요청 ID: {selectedAssistant.response.requestId}
                   </span>
                 </div>
                 <div className="rounded-md border border-slate-200 bg-white p-3">
@@ -301,15 +301,15 @@ export default function TestChatPage() {
               <p className="text-sm text-slate-600">응답을 선택하면 트레이스가 표시됩니다.</p>
             ) : (
               <div className="space-y-2 text-xs text-slate-700">
-                <p>normalizedQuery: {String(selectedAssistant.response.trace.normalizedQuery ?? "-")}</p>
-                <p>policyDecision: {compactMap(selectedAssistant.response.policyDecision)}</p>
-                <p>retrieval: {compactMap(selectedAssistant.response.trace.retrieval)}</p>
-                <p>guardrail: {compactMap(selectedAssistant.response.trace.guardrail)}</p>
+                <p>정규화 질의: {String(selectedAssistant.response.trace.normalizedQuery ?? "-")}</p>
+                <p>정책 판단: {compactMap(selectedAssistant.response.policyDecision)}</p>
+                <p>검색 결과: {compactMap(selectedAssistant.response.trace.retrieval)}</p>
+                <p>가드레일: {compactMap(selectedAssistant.response.trace.guardrail)}</p>
                 <p>
-                  llm: executed={String(selectedAssistant.response.trace.llm?.executed ?? false)} | errorCode=
+                  LLM: 실행={String(selectedAssistant.response.trace.llm?.executed ?? false)} | 오류 코드=
                   {String(selectedAssistant.response.trace.llm?.errorCode ?? "-")}
                 </p>
-                <p>messages: {compactMap(selectedAssistant.response.trace.messages)}</p>
+                <p>메시지: {compactMap(selectedAssistant.response.trace.messages)}</p>
               </div>
             )}
           </PagePanel>
@@ -330,10 +330,10 @@ export default function TestChatPage() {
                   <thead>
                     <tr className="border-b border-slate-200 text-left text-slate-600">
                       <th className="px-2 py-1">문서</th>
-                      <th className="px-2 py-1">sourceType</th>
-                      <th className="px-2 py-1">page/section</th>
-                      <th className="px-2 py-1">score</th>
-                      <th className="px-2 py-1">rank</th>
+                      <th className="px-2 py-1">자료 유형</th>
+                      <th className="px-2 py-1">페이지/섹션</th>
+                      <th className="px-2 py-1">점수</th>
+                      <th className="px-2 py-1">순위</th>
                     </tr>
                   </thead>
                   <tbody>

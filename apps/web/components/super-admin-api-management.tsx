@@ -167,7 +167,7 @@ export function SuperAdminApiManagement() {
   return (
     <div className="space-y-6">
       <PagePanel
-        title="공통 API 관리"
+        title="공용 API 관리"
         description="LLM 제공자별 API 키, 모델, 기본 실행 설정을 관리합니다."
       >
         {message ? (
@@ -211,7 +211,7 @@ export function SuperAdminApiManagement() {
                 <p className="mt-2 text-xs text-slate-500">
                   {item.provider} / {item.defaultModel ?? "-"}
                 </p>
-                <p className="mt-1 text-xs text-slate-500">maskedKey: {item.maskedKey}</p>
+                <p className="mt-1 text-xs text-slate-500">마스킹 키: {item.maskedKey}</p>
               </button>
             ))}
           </div>
@@ -251,13 +251,13 @@ export function SuperAdminApiManagement() {
                 />
                 {selectedItem ? (
                   <span className="mt-1 block text-xs text-slate-500">
-                    현재 원본 키는 표시되지 않습니다. maskedKey: {selectedItem.maskedKey}
+                    현재 원본 키는 표시되지 않습니다. 마스킹 키: {selectedItem.maskedKey}
                   </span>
                 ) : null}
               </label>
 
               <label className="text-sm text-slate-700 md:col-span-2">
-                <span className="mb-1 block font-medium">Base URL</span>
+                <span className="mb-1 block font-medium">기본 URL</span>
                 <input
                   value={form.baseUrl}
                   onChange={(event) => setForm((current) => ({ ...current, baseUrl: event.target.value }))}

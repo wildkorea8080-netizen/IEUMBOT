@@ -1,17 +1,13 @@
 import type { ApiClientOptions, ApiErrorPayload, ApiRequestOptions } from "./types";
 import { clearCurrentAdminAccessToken, getAdminAccessToken } from "../auth/token";
-
-function trimTrailingSlash(value: string): string {
-  return value.endsWith("/") ? value.slice(0, -1) : value;
-}
+import { getApiBaseUrl } from "./base-url";
 
 export class ApiClient {
   private readonly baseUrl: string;
   private readonly defaultHeaders: Record<string, string>;
 
   constructor(options: ApiClientOptions = {}) {
-    const envBaseUrl = process.env.WEB_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api";
-    this.baseUrl = trimTrailingSlash(options.baseUrl ?? envBaseUrl);
+    this.baseUrl = options.baseUrl ?? getApiBaseUrl();
     this.defaultHeaders = options.headers ?? {};
   }
 

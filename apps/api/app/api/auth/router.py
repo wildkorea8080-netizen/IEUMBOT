@@ -5,6 +5,7 @@ from app.api.dependencies.auth import AdminPrincipal, require_admin_auth
 from app.core.security import create_access_token, verify_password
 from app.db import get_db_session
 from app.repositories.auth.admin_auth_repository import get_active_admin_by_email, get_active_admin_by_id
+from app.scripts.seed_local_admins import can_auto_seed_admins, is_reserved_seed_email, seed_admin_accounts
 from app.schemas.auth import (
     AdminAuthLoginRequest,
     AdminAuthLoginResponse,
@@ -26,7 +27,18 @@ def admin_login(
     body: AdminAuthLoginRequest,
     db: Session = Depends(get_db_session),
 ) -> AdminAuthLoginResponse:
-    admin = get_active_admin_by_email(db, body.email)
+    normalized_email = body.email.strip().lower()
+    admin = get_active_admin_by_email(db, normalized_email)
+
+    if (
+        (admin is None or not verify_password(body.password, admin.password_hash))
+        and can_auto_seed_admins()
+        and is_reserved_seed_email(normalized_email)
+    ):
+        seed_admin_accounts(db)
+        db.commit()
+        admin = get_active_admin_by_email(db, normalized_email)
+
     if admin is None or not verify_password(body.password, admin.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

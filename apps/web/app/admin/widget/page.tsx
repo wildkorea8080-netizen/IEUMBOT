@@ -24,7 +24,7 @@ export default function WidgetPage() {
 
   const load = async () => {
     if (!chatbotId.trim()) {
-      setError("chatbotId를 입력하세요.");
+      setError("챗봇 ID를 입력하세요.");
       return;
     }
     setIsLoading(true);
@@ -78,7 +78,7 @@ export default function WidgetPage() {
           <input
             value={chatbotId}
             onChange={(e) => setChatbotId(e.target.value)}
-            placeholder="chatbotId"
+            placeholder="챗봇 ID"
             className="w-full max-w-xl rounded-md border border-slate-300 px-3 py-2 text-sm"
           />
           <button
@@ -97,7 +97,7 @@ export default function WidgetPage() {
             <p>위젯 ID: {data.id}</p>
             <p>상태: {data.status}</p>
             <label className="block">
-              <span className="text-xs text-slate-600">allowedDomains (콤마 구분)</span>
+              <span className="text-xs text-slate-600">허용 도메인 (콤마 구분)</span>
               <input
                 value={domainsInput}
                 onChange={(e) => setDomainsInput(e.target.value)}
@@ -139,4 +139,3 @@ export default function WidgetPage() {
     </div>
   );
 }
-

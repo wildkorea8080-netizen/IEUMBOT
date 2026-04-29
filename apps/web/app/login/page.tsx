@@ -67,12 +67,15 @@ export default function LoginPage() {
       if (!token) {
         return;
       }
+
       try {
         const me = await apiClient.request<AdminMeResponse>("/admin/auth/me");
-        if (!isMounted) return;
+        if (!isMounted) {
+          return;
+        }
         router.replace(resolveRedirectPath(nextPath, me.admin.role));
       } catch {
-        // 기존 토큰 오류면 로그인 화면으로 유지
+        clearAdminAccessToken();
       }
     }
 
@@ -138,7 +141,7 @@ export default function LoginPage() {
               type="password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              placeholder="비밀번호를 입력해 주세요"
+              placeholder="비밀번호를 입력해 주세요."
               className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none ring-brand-600 focus:ring-2"
               autoComplete="current-password"
               required

@@ -17,17 +17,19 @@ SEED_ACCOUNTS: Sequence[dict[str, str | None]] = (
         "email": "super@example.com",
         "name": "Super Admin",
         "role": "super_admin",
-        "password": "admin123",
+        "password": "SuperAdmin123!",
         "organization_slug": None,
     },
     {
         "email": "admin@example.com",
         "name": "Institution Admin",
         "role": "institution_admin",
-        "password": "admin123",
+        "password": "Admin1234!",
         "organization_slug": DEV_ORGANIZATION_SLUG,
     },
 )
+
+SEED_ACCOUNT_EMAILS = {str(account["email"]).strip().lower() for account in SEED_ACCOUNTS}
 
 
 def _ensure_local_environment() -> None:
@@ -39,6 +41,19 @@ def _ensure_local_environment() -> None:
             "Refusing to seed admins because "
             f"API_ENV='{settings.api_env}' is not one of: {allowed} and ENABLE_ADMIN_SEED is not 'true'."
         )
+
+
+def is_admin_seed_enabled() -> bool:
+    return os.getenv("ENABLE_ADMIN_SEED", "").strip().lower() == "true"
+
+
+def can_auto_seed_admins() -> bool:
+    api_env = settings.api_env.strip().lower()
+    return api_env in ALLOWED_LOCAL_ENVS or is_admin_seed_enabled()
+
+
+def is_reserved_seed_email(email: str) -> bool:
+    return email.strip().lower() in SEED_ACCOUNT_EMAILS
 
 
 def _get_or_create_dev_organization(db: Session) -> Organization:
@@ -102,6 +117,7 @@ def _upsert_admin(
                 status="active",
                 organization_id=organization_id,
                 password_hash=hash_password(validated_password),
+                must_change_password=False,
             )
         )
         return "created"
@@ -111,29 +127,35 @@ def _upsert_admin(
     admin.status = "active"
     admin.organization_id = organization_id
     admin.password_hash = hash_password(validated_password)
+    admin.must_change_password = False
     admin.last_login_at = None
     return "updated"
+
+
+def seed_admin_accounts(db: Session) -> list[str]:
+    organization = _get_or_create_dev_organization(db)
+    results: list[str] = []
+
+    for account in SEED_ACCOUNTS:
+        account_organization = organization if account["organization_slug"] == DEV_ORGANIZATION_SLUG else None
+        action = _upsert_admin(
+            db,
+            email=str(account["email"]),
+            name=str(account["name"]),
+            role=str(account["role"]),
+            password=str(account["password"]),
+            organization=account_organization,
+        )
+        results.append(f"{action}: {account['role']} <{account['email']}>")
+
+    return results
 
 
 def main() -> None:
     _ensure_local_environment()
 
     with SessionLocal() as db:
-        organization = _get_or_create_dev_organization(db)
-        results: list[str] = []
-
-        for account in SEED_ACCOUNTS:
-            account_organization = organization if account["organization_slug"] == DEV_ORGANIZATION_SLUG else None
-            action = _upsert_admin(
-                db,
-                email=str(account["email"]),
-                name=str(account["name"]),
-                role=str(account["role"]),
-                password=str(account["password"]),
-                organization=account_organization,
-            )
-            results.append(f"{action}: {account['role']} <{account['email']}>")
-
+        results = seed_admin_accounts(db)
         db.commit()
 
     print("Seeded admin accounts:")

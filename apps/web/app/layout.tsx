@@ -3,8 +3,8 @@ import type { Metadata } from "next";
 import { ReactNode } from "react";
 
 export const metadata: Metadata = {
-  title: "IEUMBOT Admin",
-  description: "IEUMBOT 관리자 콘솔 스켈레톤"
+  title: "IEUMBOT 관리자",
+  description: "IEUMBOT 관리자 콘솔"
 };
 
 type RootLayoutProps = {

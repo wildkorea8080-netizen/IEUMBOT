@@ -50,7 +50,7 @@ function severityTone(severity: NotificationSeverity): "info" | "warning" | "dan
 }
 
 function maskWebhook(url: string): string {
-  return url === "masked" ? "Configured" : url;
+  return url === "masked" ? "설정됨" : url;
 }
 
 export function SuperAdminNotifications() {
@@ -143,7 +143,7 @@ export function SuperAdminNotifications() {
         return [saved, ...others];
       });
       setSlackForm({
-        webhookUrl: "Configured",
+        webhookUrl: "설정됨",
         channel: String(saved.config.channel ?? ""),
         mention: String(saved.config.mention ?? ""),
         isActive: saved.isActive,
@@ -167,7 +167,7 @@ export function SuperAdminNotifications() {
             onChange={(event) => setSeverityFilter(event.target.value as NotificationSeverity | "all")}
             className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
           >
-            <option value="all">All severities</option>
+            <option value="all">전체 심각도</option>
             <option value="info">info</option>
             <option value="warning">warning</option>
             <option value="critical">critical</option>
@@ -177,7 +177,7 @@ export function SuperAdminNotifications() {
             onChange={(event) => setTypeFilter(event.target.value as NotificationType | "all")}
             className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
           >
-            <option value="all">All types</option>
+            <option value="all">전체 유형</option>
             <option value="usage_warning">usage_warning</option>
             <option value="usage_exceeded">usage_exceeded</option>
             <option value="error">error</option>
@@ -189,20 +189,20 @@ export function SuperAdminNotifications() {
           <table className="min-w-full text-sm">
             <thead className="bg-slate-50 text-left text-slate-600">
               <tr>
-                <th className="px-3 py-3">Time</th>
-                <th className="px-3 py-3">Severity</th>
-                <th className="px-3 py-3">Type</th>
-                <th className="px-3 py-3">Title</th>
-                <th className="px-3 py-3">Message</th>
-                <th className="px-3 py-3">Channel</th>
-                <th className="px-3 py-3">Action</th>
+                <th className="px-3 py-3">시간</th>
+                <th className="px-3 py-3">심각도</th>
+                <th className="px-3 py-3">유형</th>
+                <th className="px-3 py-3">제목</th>
+                <th className="px-3 py-3">메시지</th>
+                <th className="px-3 py-3">채널</th>
+                <th className="px-3 py-3">작업</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {!isLoading && filteredNotifications.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-3 py-10 text-center text-slate-500">
-                    No notifications found.
+                    표시할 알림이 없습니다.
                   </td>
                 </tr>
               ) : (
@@ -218,7 +218,7 @@ export function SuperAdminNotifications() {
                     <td className="px-3 py-4">{item.sentTo}</td>
                     <td className="px-3 py-4">
                       <button type="button" onClick={() => void handleMarkRead(item)} className="rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-700">
-                        {item.isRead ? "Unread" : "Mark Read"}
+                        {item.isRead ? "읽지 않음으로 표시" : "읽음 처리"}
                       </button>
                     </td>
                   </tr>
@@ -229,10 +229,10 @@ export function SuperAdminNotifications() {
         </div>
       </PagePanel>
 
-      <PagePanel title="Slack Webhook" description="Store the Slack webhook in DB so alert delivery can be enabled without code changes.">
+      <PagePanel title="Slack 웹훅" description="코드 변경 없이 알림 전송을 활성화할 수 있도록 Slack 웹훅을 저장합니다.">
         <div className="grid gap-4 md:grid-cols-2">
           <label className="text-sm text-slate-700 md:col-span-2">
-            <span className="mb-1 block font-medium">Webhook URL</span>
+            <span className="mb-1 block font-medium">웹훅 URL</span>
             <input
               value={slackForm.webhookUrl}
               onChange={(event) => setSlackForm((current) => ({ ...current, webhookUrl: event.target.value }))}
@@ -241,21 +241,21 @@ export function SuperAdminNotifications() {
             />
           </label>
           <label className="text-sm text-slate-700">
-            <span className="mb-1 block font-medium">Channel</span>
+            <span className="mb-1 block font-medium">채널</span>
             <input value={slackForm.channel} onChange={(event) => setSlackForm((current) => ({ ...current, channel: event.target.value }))} className="w-full rounded-lg border border-slate-300 px-3 py-2" />
           </label>
           <label className="text-sm text-slate-700">
-            <span className="mb-1 block font-medium">Mention</span>
+            <span className="mb-1 block font-medium">멘션</span>
             <input value={slackForm.mention} onChange={(event) => setSlackForm((current) => ({ ...current, mention: event.target.value }))} placeholder="@admin" className="w-full rounded-lg border border-slate-300 px-3 py-2" />
           </label>
           <label className="flex items-center gap-2 text-sm text-slate-700">
             <input type="checkbox" checked={slackForm.isActive} onChange={(event) => setSlackForm((current) => ({ ...current, isActive: event.target.checked }))} />
-            <span>Enable Slack delivery</span>
+            <span>Slack 전송 활성화</span>
           </label>
         </div>
         <div className="mt-6 flex justify-end">
           <button type="button" onClick={() => void saveSlackIntegration()} disabled={isSaving} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60">
-            {isSaving ? "Saving..." : "Save Slack Integration"}
+            {isSaving ? "저장 중..." : "Slack 연동 저장"}
           </button>
         </div>
       </PagePanel>

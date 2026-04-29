@@ -1,0 +1,6 @@
+2026-04-28 23:49:58,735 | INFO | app.core.logging | Logging configured (level=INFO)
+INFO:     Started server process [17552]
+INFO:     Waiting for application startup.
+2026-04-28 23:49:59,011 | INFO | app.main | Starting IEUMBOT API (env=local)
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)

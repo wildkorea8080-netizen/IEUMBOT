@@ -1,4 +1,5 @@
 import { clearAdminAccessToken, getAdminAccessToken } from "../auth/token";
+import { getApiBaseUrl } from "./base-url";
 import { apiClient } from "./client";
 import type {
   AdminChatbotResponse,
@@ -151,7 +152,7 @@ export async function uploadKnowledgeFile(body: {
   if (body.effectiveDate) formData.set("effectiveDate", body.effectiveDate);
   if (body.department) formData.set("department", body.department);
 
-  const baseUrl = (process.env.WEB_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api").replace(/\/$/, "");
+  const baseUrl = getApiBaseUrl();
   const response = await fetch(`${baseUrl}/admin/knowledge/upload`, {
     method: "POST",
     headers: token ? { Authorization: `Bearer ${token}` } : {},

@@ -11,13 +11,13 @@ import type {
 } from "../../lib/api/audit-logs-types";
 
 const TEXT = {
-  title: "Audit 로그",
+  title: "감사 로그",
   description: "기관관리자 권한 범위에서 발생한 주요 운영 이력을 조회합니다.",
-  loading: "Audit 로그를 불러오는 중입니다.",
-  empty: "조회된 Audit 로그가 없습니다.",
-  error: "Audit 로그를 불러오는 중 오류가 발생했습니다.",
+  loading: "감사 로그를 불러오는 중입니다.",
+  empty: "조회된 감사 로그가 없습니다.",
+  error: "감사 로그를 불러오는 중 오류가 발생했습니다.",
   search: "조회",
-  allActions: "전체 액션",
+  allActions: "전체 작업",
   login: "로그인",
   knowledge: "지식 등록",
   settings: "설정 변경",
@@ -26,17 +26,17 @@ const TEXT = {
   contract: "계약 변경",
   time: "시간",
   admin: "관리자",
-  action: "액션",
+  action: "작업",
   target: "대상",
   result: "결과",
   detail: "상세",
   close: "닫기",
-  detailTitle: "Audit 로그 상세",
-  detailDescription: "민감정보와 전체 metadata JSON은 기본 노출하지 않습니다.",
-  metadata: "metadata 요약",
-  noMetadata: "표시할 metadata 요약이 없습니다.",
-  success: "success",
-  fail: "fail",
+  detailTitle: "감사 로그 상세",
+  detailDescription: "민감정보와 전체 메타데이터 JSON은 기본 노출하지 않습니다.",
+  metadata: "메타데이터 요약",
+  noMetadata: "표시할 메타데이터 요약이 없습니다.",
+  success: "성공",
+  fail: "실패",
 };
 
 function getErrorMessage(error: unknown): string {
@@ -257,4 +257,3 @@ export function AuditLogPage() {
     </div>
   );
 }
-

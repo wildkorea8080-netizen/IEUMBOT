@@ -23,7 +23,7 @@ const TEXT = {
   usageTrendTitle: "사용량 그래프",
   usageTrendDescription: "일별 대화 수 추이를 기간별로 확인합니다.",
   chatbotUsageTitle: "챗봇별 사용량",
-  chatbotUsageDescription: "챗봇별 대화 수, 응답 속도, 성공률, fallback 비율을 확인합니다.",
+  chatbotUsageDescription: "챗봇별 대화 수, 응답 속도, 성공률, 대체 응답 비율을 확인합니다.",
   limitTitle: "제한 상태",
   limitDescription: "계약 기준 한도와 현재 사용 상태를 표시합니다.",
   loading: "사용량 데이터를 불러오는 중입니다.",
@@ -33,7 +33,7 @@ const TEXT = {
   conversationCount: "대화 수",
   averageLatency: "평균 응답시간",
   successRate: "성공률",
-  fallbackRate: "fallback 비율",
+  fallbackRate: "대체 응답 비율",
   labelNormal: "정상",
   labelWarning: "임박",
   labelExceeded: "초과",
@@ -280,4 +280,3 @@ export function UsageReport() {
     </div>
   );
 }
-

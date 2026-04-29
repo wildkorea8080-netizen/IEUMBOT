@@ -19,11 +19,11 @@ import type {
 const TEXT = {
   error: "보안 센터 데이터를 불러오는 중 오류가 발생했습니다.",
   title: "보안 센터",
-  description: "차단, fallback, 에스컬레이션, 오류 이벤트를 운영 관점에서 빠르게 확인하는 화면입니다.",
+  description: "차단, 대체 응답, 에스컬레이션, 오류 이벤트를 운영 관점에서 빠르게 확인하는 화면입니다.",
   eventTitle: "이벤트 로그",
   eventDescription: "정책 위반, 근거 부족, 상담 연결, 시스템 오류를 기간과 질문 기준으로 조회할 수 있습니다.",
   blockedToday: "오늘 차단 건수",
-  fallbackToday: "오늘 fallback 건수",
+  fallbackToday: "오늘 대체 응답 건수",
   escalationToday: "오늘 에스컬레이션 건수",
   errorToday: "오늘 오류 건수",
   allEvents: "전체 이벤트",
@@ -33,7 +33,7 @@ const TEXT = {
   empty: "조회된 보안 이벤트가 없습니다.",
   detail: "상세",
   detailTitle: "보안 이벤트 상세",
-  detailDescription: "내부 policy JSON과 rule id는 노출하지 않습니다.",
+  detailDescription: "내부 정책 JSON과 규칙 ID는 노출하지 않습니다.",
   close: "닫기",
   detailLoading: "상세 정보를 불러오는 중입니다.",
   question: "질문",
@@ -43,7 +43,7 @@ const TEXT = {
   time: "시간",
   responseTime: "응답 시간",
   reason: "차단/탐지 사유",
-  fallback: "fallback 메시지",
+  fallback: "대체 응답 메시지",
   escalated: "에스컬레이션 여부",
   chatbot: "챗봇",
   chatbotId: "챗봇 ID",
@@ -163,7 +163,7 @@ export function SecurityCenter() {
           <select value={eventType} onChange={(event) => setEventType(event.target.value)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
             <option value="">{TEXT.allEvents}</option>
             <option value="BLOCKED">차단 (BLOCKED)</option>
-            <option value="FALLBACK">fallback</option>
+            <option value="FALLBACK">대체 응답</option>
             <option value="ESCALATION">에스컬레이션</option>
             <option value="ERROR">오류</option>
           </select>
