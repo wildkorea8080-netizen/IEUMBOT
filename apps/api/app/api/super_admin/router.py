@@ -3,18 +3,36 @@ from sqlalchemy.orm import Session
 
 from app.api.dependencies.auth import AdminPrincipal, require_super_admin_auth
 from app.db import get_db_session
-from app.schemas.super_admin_organizations import (
-    SuperAdminOrganizationCreateRequest,
-    SuperAdminOrganizationCreateResponse,
-    SuperAdminOrganizationDetailResponse,
-    SuperAdminOrganizationListResponse,
-    SuperAdminOrganizationUpdateRequest,
+from app.schemas.billing import (
+    BillingAlertListResponse,
+    PlanCreateRequest,
+    PlanItem,
+    PlanListResponse,
+    PlanUpdateRequest,
+    SuperAdminBillingByOrganizationResponse,
+    SuperAdminBillingSummaryResponse,
+)
+from app.schemas.enforcement import (
+    AutoEnforcementLogItem,
+    AutoEnforcementLogListResponse,
+    AutoEnforcementPolicyItem,
+    AutoEnforcementPolicyListResponse,
+    AutoEnforcementPolicyUpdateRequest,
+    AutoEnforcementResolveRequest,
+)
+from app.schemas.notifications import (
+    NotificationItem,
+    NotificationListResponse,
+    NotificationReadRequest,
+    SystemIntegrationItem,
+    SystemIntegrationListResponse,
+    SystemIntegrationUpsertRequest,
 )
 from app.schemas.super_admin_accounts_contracts import (
     SuperAdminAdminResetPasswordRequest,
     SuperAdminAdminResetPasswordResponse,
-    SuperAdminContractCreateRequest,
     SuperAdminContractCreateDirectRequest,
+    SuperAdminContractCreateRequest,
     SuperAdminContractListResponse,
     SuperAdminContractResponse,
     SuperAdminContractUpdateRequest,
@@ -22,48 +40,6 @@ from app.schemas.super_admin_accounts_contracts import (
     SuperAdminOrgAdminListResponse,
     SuperAdminOrgAdminResponse,
     SuperAdminOrgAdminUpdateRequest,
-)
-from app.services.super_admin.admins_contracts_service import (
-    create_contract_service,
-    create_org_admin_service,
-    disable_admin_service,
-    list_org_admins_service,
-    list_org_contracts_service,
-    reset_admin_password_service,
-    update_admin_service,
-    update_contract_service,
-)
-from app.schemas.super_admin_chatbots_widgets import (
-    SuperAdminChatbotCreateRequest,
-    SuperAdminChatbotDetailResponse,
-    SuperAdminChatbotListResponse,
-    SuperAdminWidgetCreateRequest,
-    SuperAdminWidgetCreateResponse,
-    SuperAdminWidgetDetailResponse,
-    SuperAdminWidgetDomainsUpdateRequest,
-    SuperAdminWidgetListResponse,
-)
-from app.services.super_admin.chatbots_widgets_service import (
-    activate_chatbot_service,
-    activate_widget_service,
-    create_chatbot_service,
-    create_widget_service,
-    deactivate_widget_service,
-    get_chatbot_detail_service,
-    get_widget_detail_service,
-    list_all_widgets_service,
-    list_chatbots_service,
-    list_widgets_service,
-    suspend_chatbot_service,
-    update_widget_domains_service,
-)
-from app.services.super_admin.organizations_service import (
-    activate_organization_service,
-    create_organization_service,
-    get_organization_detail_service,
-    list_organizations_service,
-    suspend_organization_service,
-    update_organization_service,
 )
 from app.schemas.super_admin_api_configs import (
     SuperAdminApiConfigCreateRequest,
@@ -75,34 +51,27 @@ from app.schemas.super_admin_api_configs import (
     SuperAdminApiUsageErrorsResponse,
     SuperAdminApiUsageSummaryResponse,
 )
+from app.schemas.super_admin_chatbots_widgets import (
+    SuperAdminChatbotCreateRequest,
+    SuperAdminChatbotDetailResponse,
+    SuperAdminChatbotListResponse,
+    SuperAdminChatbotUpdateRequest,
+    SuperAdminWidgetCreateRequest,
+    SuperAdminWidgetCreateResponse,
+    SuperAdminWidgetDetailResponse,
+    SuperAdminWidgetDomainsUpdateRequest,
+    SuperAdminWidgetListResponse,
+)
 from app.schemas.super_admin_impersonation import (
     SuperAdminImpersonationRequest,
     SuperAdminImpersonationResponse,
 )
-from app.schemas.billing import (
-    BillingAlertListResponse,
-    PlanCreateRequest,
-    PlanItem,
-    PlanListResponse,
-    PlanUpdateRequest,
-    SuperAdminBillingByOrganizationResponse,
-    SuperAdminBillingSummaryResponse,
-)
-from app.schemas.notifications import (
-    NotificationItem,
-    NotificationListResponse,
-    NotificationReadRequest,
-    SystemIntegrationItem,
-    SystemIntegrationListResponse,
-    SystemIntegrationUpsertRequest,
-)
-from app.schemas.enforcement import (
-    AutoEnforcementLogItem,
-    AutoEnforcementLogListResponse,
-    AutoEnforcementPolicyItem,
-    AutoEnforcementPolicyListResponse,
-    AutoEnforcementPolicyUpdateRequest,
-    AutoEnforcementResolveRequest,
+from app.schemas.super_admin_organizations import (
+    SuperAdminOrganizationCreateRequest,
+    SuperAdminOrganizationCreateResponse,
+    SuperAdminOrganizationDetailResponse,
+    SuperAdminOrganizationListResponse,
+    SuperAdminOrganizationUpdateRequest,
 )
 from app.schemas.system_controls import (
     SuperAdminAnnouncementCreateRequest,
@@ -111,6 +80,36 @@ from app.schemas.system_controls import (
     SuperAdminAnnouncementUpdateRequest,
     SuperAdminMaintenanceItem,
     SuperAdminMaintenanceUpsertRequest,
+)
+from app.services.billing_service import (
+    create_plan_service,
+    get_super_admin_billing_by_organization_service,
+    get_super_admin_billing_summary_service,
+    list_billing_alerts_service,
+    list_plans_service,
+    update_plan_service,
+)
+from app.services.enforcement_service import (
+    list_enforcement_logs_service,
+    list_enforcement_policies_service,
+    resolve_enforcement_log_service,
+    update_enforcement_policy_service,
+)
+from app.services.notification_service import (
+    list_integrations_service,
+    list_notifications_service,
+    mark_notification_read_service,
+    upsert_integration_service,
+)
+from app.services.super_admin.admins_contracts_service import (
+    create_contract_service,
+    create_org_admin_service,
+    disable_admin_service,
+    list_org_admins_service,
+    list_org_contracts_service,
+    reset_admin_password_service,
+    update_admin_service,
+    update_contract_service,
 )
 from app.services.super_admin.api_configs_service import (
     activate_api_config_service,
@@ -126,26 +125,30 @@ from app.services.super_admin.api_configs_service import (
     set_default_api_config_service,
     update_api_config_service,
 )
+from app.services.super_admin.chatbots_widgets_service import (
+    activate_chatbot_service,
+    activate_widget_service,
+    create_chatbot_service,
+    create_widget_service,
+    deactivate_widget_service,
+    get_chatbot_detail_service,
+    get_widget_detail_service,
+    list_all_chatbots_service,
+    list_all_widgets_service,
+    list_chatbots_service,
+    list_widgets_service,
+    suspend_chatbot_service,
+    update_chatbot_service,
+    update_widget_domains_service,
+)
 from app.services.super_admin.impersonation_service import create_impersonation_session_service
-from app.services.billing_service import (
-    create_plan_service,
-    get_super_admin_billing_by_organization_service,
-    get_super_admin_billing_summary_service,
-    list_billing_alerts_service,
-    list_plans_service,
-    update_plan_service,
-)
-from app.services.notification_service import (
-    list_integrations_service,
-    list_notifications_service,
-    mark_notification_read_service,
-    upsert_integration_service,
-)
-from app.services.enforcement_service import (
-    list_enforcement_logs_service,
-    list_enforcement_policies_service,
-    resolve_enforcement_log_service,
-    update_enforcement_policy_service,
+from app.services.super_admin.organizations_service import (
+    activate_organization_service,
+    create_organization_service,
+    get_organization_detail_service,
+    list_organizations_service,
+    suspend_organization_service,
+    update_organization_service,
 )
 from app.services.system_controls_service import (
     create_announcement_service,
@@ -463,6 +466,17 @@ def super_admin_list_chatbots(
     )
 
 
+@router.get("/chatbots", response_model=SuperAdminChatbotListResponse)
+def super_admin_list_all_chatbots(
+    principal: AdminPrincipal = Depends(require_super_admin_auth),
+    db: Session = Depends(get_db_session),
+) -> SuperAdminChatbotListResponse:
+    return list_all_chatbots_service(
+        db,
+        principal=principal,
+    )
+
+
 @router.get("/chatbots/{chatbot_id}", response_model=SuperAdminChatbotDetailResponse)
 def super_admin_get_chatbot(
     chatbot_id: str,
@@ -473,6 +487,21 @@ def super_admin_get_chatbot(
         db,
         principal=principal,
         chatbot_id=chatbot_id,
+    )
+
+
+@router.patch("/chatbots/{chatbot_id}", response_model=SuperAdminChatbotDetailResponse)
+def super_admin_patch_chatbot(
+    chatbot_id: str,
+    body: SuperAdminChatbotUpdateRequest,
+    principal: AdminPrincipal = Depends(require_super_admin_auth),
+    db: Session = Depends(get_db_session),
+) -> SuperAdminChatbotDetailResponse:
+    return update_chatbot_service(
+        db,
+        principal=principal,
+        chatbot_id=chatbot_id,
+        body=body,
     )
 
 

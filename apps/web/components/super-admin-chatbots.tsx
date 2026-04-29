@@ -7,7 +7,8 @@ import { ApiClientError } from "../lib/api";
 import {
   activateSuperAdminChatbot,
   getSuperAdminChatbot,
-  listSuperAdminChatbots,
+  listAllSuperAdminChatbots,
+  patchSuperAdminChatbot,
   suspendSuperAdminChatbot,
 } from "../lib/api/super-admin-chatbots";
 import type {
@@ -19,11 +20,11 @@ import { listSuperAdminOrganizations } from "../lib/api/super-admin-organization
 import type { SuperAdminOrganizationListItem } from "../lib/api/super-admin-organizations-types";
 import { listSuperAdminWidgetsByOrganization } from "../lib/api/super-admin-widgets";
 import { AdminDrawer } from "./ui/admin-drawer";
+import { AdminModal } from "./ui/admin-modal";
 import { PagePanel } from "./ui/page-panel";
 import { StatusBadge } from "./ui/status-badge";
 
 type ChatbotRow = SuperAdminChatbotListItem & {
-  organizationName: string;
   widgetCount: number;
 };
 
@@ -36,9 +37,22 @@ type ChatbotWidgetSummary = {
 };
 
 function getErrorMessage(error: unknown): string {
-  if (error instanceof ApiClientError) return `${error.code}: ${error.message}`;
+  if (error instanceof ApiClientError) {
+    switch (error.code) {
+      case "ORGANIZATION_NOT_FOUND":
+        return "존재하지 않는 기관입니다.";
+      case "CHATBOT_NAME_REQUIRED":
+        return "챗봇 이름을 입력해 주세요.";
+      case "CHATBOT_NAME_CONFLICT":
+        return "이미 같은 이름의 챗봇이 있습니다.";
+      case "HTTP_403":
+        return "챗봇 기관 변경 권한이 없습니다.";
+      default:
+        return error.message || "챗봇 정보를 저장하지 못했습니다.";
+    }
+  }
   if (error instanceof Error) return error.message;
-  return "챗봇 요청에 실패했습니다.";
+  return "챗봇 정보를 저장하지 못했습니다.";
 }
 
 function formatDateTime(value?: string | null): string {
@@ -73,6 +87,12 @@ export function SuperAdminChatbots() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedDetail, setSelectedDetail] = useState<SuperAdminChatbotDetailResponse | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editingRow, setEditingRow] = useState<ChatbotRow | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editOrganizationId, setEditOrganizationId] = useState("");
+  const [editStatus, setEditStatus] = useState<SuperAdminChatbotStatus>("active");
+  const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [warning, setWarning] = useState<string | null>(null);
@@ -84,19 +104,18 @@ export function SuperAdminChatbots() {
     setError(null);
     setWarning(null);
     try {
-      const orgResponse = await listSuperAdminOrganizations({ page: 1, pageSize: 100 });
+      const [orgResponse, chatbotResponse] = await Promise.all([
+        listSuperAdminOrganizations({ page: 1, pageSize: 100 }),
+        listAllSuperAdminChatbots(),
+      ]);
       setOrganizations(orgResponse.items);
       if (orgResponse.total > orgResponse.items.length) {
         setWarning(`MVP 제한으로 ${orgResponse.total}개 중 ${orgResponse.items.length}개 기관만 불러왔습니다.`);
       }
 
-      const grouped = await Promise.all(
+      const widgetGroups = await Promise.all(
         orgResponse.items.map(async (organization) => {
-          const [chatbotsResponse, widgetsResponse] = await Promise.all([
-            listSuperAdminChatbots(organization.id),
-            listSuperAdminWidgetsByOrganization(organization.id),
-          ]);
-
+          const widgetsResponse = await listSuperAdminWidgetsByOrganization(organization.id);
           const widgetMap = new Map<string, ChatbotWidgetSummary[]>();
           widgetsResponse.items.forEach((widget) => {
             const current = widgetMap.get(widget.chatbotId) ?? [];
@@ -109,26 +128,23 @@ export function SuperAdminChatbots() {
             });
             widgetMap.set(widget.chatbotId, current);
           });
-
-          return {
-            organization,
-            chatbots: chatbotsResponse.items.map((chatbot) => ({
-              ...chatbot,
-              organizationName: organization.name,
-              widgetCount: widgetMap.get(chatbot.id)?.length ?? 0,
-            })),
-            widgets: widgetMap,
-          };
+          return widgetMap;
         }),
       );
 
-      const nextRows = grouped.flatMap((item) => item.chatbots).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       const nextWidgetsByChatbot: Record<string, ChatbotWidgetSummary[]> = {};
-      grouped.forEach((item) => {
-        item.widgets.forEach((value, key) => {
+      widgetGroups.forEach((widgetMap) => {
+        widgetMap.forEach((value, key) => {
           nextWidgetsByChatbot[key] = value;
         });
       });
+
+      const nextRows = chatbotResponse.items
+        .map((chatbot) => ({
+          ...chatbot,
+          widgetCount: nextWidgetsByChatbot[chatbot.id]?.length ?? 0,
+        }))
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
       setRows(nextRows);
       setWidgetsByChatbot(nextWidgetsByChatbot);
@@ -199,9 +215,63 @@ export function SuperAdminChatbots() {
         ),
       );
       if (selectedId === chatbotId) setSelectedDetail(detail);
-      setMessage(action === "activate" ? "챗봇을 활성화했습니다." : "챗봇을 정지했습니다.");
+      setMessage(action === "activate" ? "챗봇이 활성화되었습니다." : "챗봇이 정지되었습니다.");
     } catch (actionError) {
       setError(getErrorMessage(actionError));
+    }
+  }
+
+  function openEditModal(row: ChatbotRow) {
+    setEditingRow(row);
+    setEditName(row.name);
+    setEditOrganizationId(row.organizationId);
+    setEditStatus(row.status);
+    setEditModalOpen(true);
+  }
+
+  async function saveChatbotChanges() {
+    if (!editingRow) return;
+    if (!editOrganizationId) {
+      setError("존재하지 않는 기관입니다.");
+      return;
+    }
+    if (!editName.trim()) {
+      setError("챗봇 이름을 입력해 주세요.");
+      return;
+    }
+
+    setIsSaving(true);
+    setError(null);
+    try {
+      const detail = await patchSuperAdminChatbot(editingRow.id, {
+        organizationId: editOrganizationId,
+        name: editName.trim(),
+        status: editStatus,
+      });
+      const organizationName = organizations.find((item) => item.id === editOrganizationId)?.name ?? "";
+      setRows((current) =>
+        current.map((item) =>
+          item.id === editingRow.id
+            ? {
+                ...item,
+                name: detail.name,
+                organizationId: detail.organizationId,
+                organizationName,
+                status: detail.status,
+              }
+            : item,
+        ),
+      );
+      if (selectedId === editingRow.id) {
+        setSelectedDetail(detail);
+      }
+      setMessage("챗봇 정보가 저장되었습니다.");
+      setEditModalOpen(false);
+      setEditingRow(null);
+    } catch (saveError) {
+      setError(getErrorMessage(saveError));
+    } finally {
+      setIsSaving(false);
     }
   }
 
@@ -209,7 +279,7 @@ export function SuperAdminChatbots() {
 
   return (
     <div className="space-y-6">
-      <PagePanel title="챗봇 관리" description="챗봇 상태, 사용 리소스, 연결된 위젯을 확인합니다.">
+      <PagePanel title="챗봇 관리" description="챗봇 상태, 소속 기관, 연결 위젯을 확인하고 수정합니다.">
         {message ? (
           <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
             {message}
@@ -228,7 +298,7 @@ export function SuperAdminChatbots() {
           <input
             value={queryInput}
             onChange={(event) => setQueryInput(event.target.value)}
-            placeholder="기관 또는 챗봇 검색"
+            placeholder="기관명 또는 챗봇명 검색"
             className="min-w-[240px] flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
           />
           <select
@@ -312,6 +382,13 @@ export function SuperAdminChatbots() {
                         </button>
                         <button
                           type="button"
+                          onClick={() => openEditModal(row)}
+                          className="rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-700"
+                        >
+                          기관 변경
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => void changeStatus(row.id, "activate")}
                           className="rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-700"
                         >
@@ -343,7 +420,7 @@ export function SuperAdminChatbots() {
       <AdminDrawer
         open={drawerOpen}
         title={selectedDetail?.name ?? "챗봇 상세"}
-        description="설정과 연결된 위젯을 확인합니다."
+        description="챗봇 설정과 연결된 위젯을 확인합니다."
         onClose={() => {
           setDrawerOpen(false);
           setSelectedId(null);
@@ -375,7 +452,7 @@ export function SuperAdminChatbots() {
             <div className="rounded-2xl border border-slate-200 bg-white p-4">
               <h4 className="text-sm font-semibold text-slate-900">설정 요약</h4>
               <div className="mt-3 grid gap-2 text-sm text-slate-700 md:grid-cols-2">
-                <p>답변 템플릿: {selectedDetail.settings.answerTemplateMode ?? "-"}</p>
+                <p>응답 템플릿: {selectedDetail.settings.answerTemplateMode ?? "-"}</p>
                 <p>출처 표시: {selectedDetail.settings.citationDisplayMode ?? "-"}</p>
                 <p>출처 필수: {String(selectedDetail.settings.requireCitations ?? "-")}</p>
                 <p>근거 필수: {String(selectedDetail.settings.disallowAnswerWithoutEvidence ?? "-")}</p>
@@ -420,6 +497,78 @@ export function SuperAdminChatbots() {
           </>
         ) : null}
       </AdminDrawer>
+
+      <AdminModal
+        open={editModalOpen}
+        title="챗봇 수정"
+        description="소속 기관, 이름, 상태를 수정합니다."
+        onClose={() => {
+          if (isSaving) return;
+          setEditModalOpen(false);
+          setEditingRow(null);
+        }}
+      >
+        <div className="space-y-4">
+          <label className="block text-sm text-slate-700">
+            <span className="mb-1 block font-medium">챗봇 이름</span>
+            <input
+              value={editName}
+              onChange={(event) => setEditName(event.target.value)}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2"
+            />
+          </label>
+
+          <label className="block text-sm text-slate-700">
+            <span className="mb-1 block font-medium">소속 기관</span>
+            <select
+              value={editOrganizationId}
+              onChange={(event) => setEditOrganizationId(event.target.value)}
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+            >
+              <option value="">기관 선택</option>
+              {organizations.map((organization) => (
+                <option key={organization.id} value={organization.id}>
+                  {organization.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block text-sm text-slate-700">
+            <span className="mb-1 block font-medium">상태</span>
+            <select
+              value={editStatus}
+              onChange={(event) => setEditStatus(event.target.value as SuperAdminChatbotStatus)}
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+            >
+              <option value="active">활성</option>
+              <option value="inactive">비활성</option>
+              <option value="suspended">정지</option>
+            </select>
+          </label>
+
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setEditModalOpen(false);
+                setEditingRow(null);
+              }}
+              className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700"
+            >
+              취소
+            </button>
+            <button
+              type="button"
+              onClick={() => void saveChatbotChanges()}
+              disabled={isSaving}
+              className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+            >
+              {isSaving ? "저장 중..." : "저장"}
+            </button>
+          </div>
+        </div>
+      </AdminModal>
     </div>
   );
 }

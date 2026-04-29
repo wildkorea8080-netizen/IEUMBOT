@@ -8,34 +8,36 @@ from app.api.dependencies.auth import AdminPrincipal
 from app.repositories.logs.audit_log_repository import create_audit_log
 from app.repositories.super_admin.admins_contracts_repository import get_organization_by_id
 from app.repositories.super_admin.chatbots_widgets_repository import (
-    create_chatbot,
-    create_widget_deployment,
     count_documents_by_chatbot,
     count_web_sources_by_chatbot,
     count_widgets_by_chatbot,
+    create_chatbot,
+    create_widget_deployment,
     get_chatbot_by_id,
     get_chatbot_by_org_name,
     get_last_trained_at_by_chatbot,
     get_widget_by_id,
+    list_all_chatbots_with_organizations,
     list_chatbots_by_organization,
     list_widgets,
     list_widgets_by_organization,
 )
-from app.services.limits_service import check_chatbot_limit, check_widget_limit
-from app.services.widget_install_script import build_widget_install_script
 from app.schemas.super_admin_chatbots_widgets import (
     SuperAdminChatbotCreateRequest,
     SuperAdminChatbotDetailResponse,
     SuperAdminChatbotListItem,
     SuperAdminChatbotListResponse,
     SuperAdminChatbotSettingsSummary,
-    SuperAdminWidgetDetailResponse,
+    SuperAdminChatbotUpdateRequest,
     SuperAdminWidgetCreateRequest,
     SuperAdminWidgetCreateResponse,
+    SuperAdminWidgetDetailResponse,
     SuperAdminWidgetDomainsUpdateRequest,
     SuperAdminWidgetListItem,
     SuperAdminWidgetListResponse,
 )
+from app.services.limits_service import check_chatbot_limit, check_widget_limit
+from app.services.widget_install_script import build_widget_install_script
 
 
 def _validate_uuid_or_404(entity_id: str, detail: str) -> str:
@@ -59,13 +61,14 @@ def _normalize_domain(value: str) -> str:
     return host
 
 
-def _to_chatbot_list_item(db: Session, *, row) -> SuperAdminChatbotListItem:
+def _to_chatbot_list_item(db: Session, *, row, organization_name: str) -> SuperAdminChatbotListItem:
     last_trained_at = get_last_trained_at_by_chatbot(db, chatbot_id=str(row.id))
     return SuperAdminChatbotListItem(
         id=str(row.id),
         name=row.name,
         status=row.status,
         organization_id=str(row.organization_id),
+        organization_name=organization_name,
         document_count=count_documents_by_chatbot(db, chatbot_id=str(row.id)),
         website_count=count_web_sources_by_chatbot(db, chatbot_id=str(row.id)),
         last_trained_at=(last_trained_at.isoformat() if last_trained_at else None),
@@ -138,7 +141,24 @@ def list_chatbots_service(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="ORGANIZATION_NOT_FOUND")
 
     rows = list_chatbots_by_organization(db, organization_id=organization_id)
-    return SuperAdminChatbotListResponse(items=[_to_chatbot_list_item(db, row=row) for row in rows])
+    return SuperAdminChatbotListResponse(
+        items=[_to_chatbot_list_item(db, row=row, organization_name=organization.name) for row in rows]
+    )
+
+
+def list_all_chatbots_service(
+    db: Session,
+    *,
+    principal: AdminPrincipal,
+) -> SuperAdminChatbotListResponse:
+    _ = principal
+    rows = list_all_chatbots_with_organizations(db)
+    return SuperAdminChatbotListResponse(
+        items=[
+            _to_chatbot_list_item(db, row=chatbot, organization_name=organization_name)
+            for chatbot, organization_name in rows
+        ]
+    )
 
 
 def create_chatbot_service(
@@ -255,6 +275,64 @@ def suspend_chatbot_service(
         result="success",
         request_id=None,
         metadata_json={"status": "suspended"},
+    )
+    db.commit()
+    db.refresh(row)
+    return _to_chatbot_detail_response(db, row=row)
+
+
+def update_chatbot_service(
+    db: Session,
+    *,
+    principal: AdminPrincipal,
+    chatbot_id: str,
+    body: SuperAdminChatbotUpdateRequest,
+) -> SuperAdminChatbotDetailResponse:
+    chatbot_id = _validate_uuid_or_404(chatbot_id, "CHATBOT_NOT_FOUND")
+    row = get_chatbot_by_id(db, chatbot_id=chatbot_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CHATBOT_NOT_FOUND")
+
+    next_organization_id = str(row.organization_id)
+    if body.organization_id is not None:
+        next_organization_id = _validate_uuid_or_404(body.organization_id, "ORGANIZATION_NOT_FOUND")
+        organization = get_organization_by_id(db, organization_id=next_organization_id)
+        if organization is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="ORGANIZATION_NOT_FOUND")
+
+    next_name = row.name
+    if body.name is not None:
+        normalized_name = body.name.strip()
+        if not normalized_name:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="CHATBOT_NAME_REQUIRED")
+        next_name = normalized_name
+
+    if body.status is not None and body.status not in {"active", "inactive", "suspended"}:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="INVALID_CHATBOT_STATUS")
+
+    duplicated = get_chatbot_by_org_name(db, organization_id=next_organization_id, name=next_name)
+    if duplicated is not None and str(duplicated.id) != str(row.id):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="CHATBOT_NAME_CONFLICT")
+
+    row.organization_id = next_organization_id
+    row.name = next_name
+    if body.status is not None:
+        row.status = body.status
+
+    create_audit_log(
+        db,
+        organization_id=str(row.organization_id),
+        admin_id=principal.admin_id,
+        action="super_admin.chatbot.update",
+        target_type="chatbot",
+        target_id=str(row.id),
+        result="success",
+        request_id=None,
+        metadata_json={
+            "organizationId": str(row.organization_id),
+            "name": row.name,
+            "status": row.status,
+        },
     )
     db.commit()
     db.refresh(row)

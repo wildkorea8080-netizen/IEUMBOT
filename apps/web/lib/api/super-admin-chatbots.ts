@@ -2,6 +2,7 @@ import { apiClient } from "./client";
 import type {
   SuperAdminChatbotDetailResponse,
   SuperAdminChatbotListResponse,
+  SuperAdminChatbotUpdateRequest,
 } from "./super-admin-chatbots-types";
 
 export async function listSuperAdminChatbots(
@@ -12,6 +13,20 @@ export async function listSuperAdminChatbots(
 
 export async function getSuperAdminChatbot(chatbotId: string): Promise<SuperAdminChatbotDetailResponse> {
   return apiClient.request<SuperAdminChatbotDetailResponse>(`/super-admin/chatbots/${chatbotId}`);
+}
+
+export async function listAllSuperAdminChatbots(): Promise<SuperAdminChatbotListResponse> {
+  return apiClient.request<SuperAdminChatbotListResponse>("/super-admin/chatbots");
+}
+
+export async function patchSuperAdminChatbot(
+  chatbotId: string,
+  body: SuperAdminChatbotUpdateRequest,
+): Promise<SuperAdminChatbotDetailResponse> {
+  return apiClient.request<SuperAdminChatbotDetailResponse>(`/super-admin/chatbots/${chatbotId}`, {
+    method: "PATCH",
+    body,
+  });
 }
 
 export async function activateSuperAdminChatbot(

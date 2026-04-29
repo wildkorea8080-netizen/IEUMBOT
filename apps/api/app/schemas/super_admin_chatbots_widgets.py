@@ -6,6 +6,7 @@ class SuperAdminChatbotListItem(ApiSchema):
     name: str
     status: str
     organization_id: str
+    organization_name: str
     document_count: int
     website_count: int
     last_trained_at: str | None = None
@@ -20,6 +21,12 @@ class SuperAdminChatbotCreateRequest(ApiSchema):
     organization_id: str
     name: str
     status: str = "active"
+
+
+class SuperAdminChatbotUpdateRequest(ApiSchema):
+    organization_id: str | None = None
+    name: str | None = None
+    status: str | None = None
 
 
 class SuperAdminChatbotSettingsSummary(ApiSchema):

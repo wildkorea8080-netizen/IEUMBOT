@@ -5,6 +5,7 @@ export type SuperAdminChatbotListItem = {
   name: string;
   status: SuperAdminChatbotStatus;
   organizationId: string;
+  organizationName: string;
   documentCount: number;
   websiteCount: number;
   lastTrainedAt?: string | null;
@@ -34,4 +35,10 @@ export type SuperAdminChatbotDetailResponse = {
   widgetCount: number;
   createdAt: string;
   updatedAt: string;
+};
+
+export type SuperAdminChatbotUpdateRequest = {
+  organizationId?: string;
+  name?: string;
+  status?: SuperAdminChatbotStatus;
 };

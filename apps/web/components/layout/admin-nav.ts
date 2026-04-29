@@ -13,4 +13,5 @@ export const adminNavItems = [
   { href: "/admin/notifications", label: "알림", section: "운영" },
   { href: "/admin/users", label: "사용자", section: "운영" },
   { href: "/admin/audit", label: "감사 로그", section: "운영" },
+  { href: "/admin/chatbots", label: "챗봇", section: "고급" },
 ] as const;

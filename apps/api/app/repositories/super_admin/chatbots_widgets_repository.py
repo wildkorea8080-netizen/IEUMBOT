@@ -1,7 +1,7 @@
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import ChatbotSetting, Document, WebSource, WidgetDeployment
+from app.models import ChatbotSetting, Document, Organization, WebSource, WidgetDeployment
 
 
 def list_chatbots_by_organization(
@@ -15,6 +15,18 @@ def list_chatbots_by_organization(
         .order_by(ChatbotSetting.created_at.desc())
     )
     return list(db.execute(stmt).scalars().all())
+
+
+def list_all_chatbots_with_organizations(
+    db: Session,
+) -> list[tuple[ChatbotSetting, str]]:
+    stmt = (
+        select(ChatbotSetting, Organization.name)
+        .join(Organization, Organization.id == ChatbotSetting.organization_id)
+        .where(ChatbotSetting.deleted_at.is_(None))
+        .order_by(ChatbotSetting.created_at.desc())
+    )
+    return list(db.execute(stmt).all())
 
 
 def get_chatbot_by_id(
