@@ -11,8 +11,14 @@ from app.repositories.settings.answer_settings_repository import (
     get_chatbot_settings_row,
     save_answer_settings_json,
 )
-from app.services.admin.scope_service import ensure_chatbot_in_scope, require_institution_organization_id
 from app.schemas.answer_settings import AnswerSettings, AnswerSettingsResponse, AnswerSettingsUpsertRequest
+from app.services.admin.scope_service import ensure_chatbot_in_scope, require_institution_organization_id
+
+DEFAULT_LOW_EVIDENCE_MESSAGE = (
+    "현재 바로 확인되는 자료는 많지 않습니다. 해외농업개발 관련 궁금하신 내용을 조금 더 구체적으로 알려주시면 도와드릴게요."
+)
+DEFAULT_ESCALATION_MESSAGE = "정확한 안내를 위해 담당 부서 연결도 도와드릴 수 있습니다."
+DEFAULT_AFTER_HOURS_MESSAGE = "현재 운영 시간이 아니어서 즉시 연결은 어렵습니다. 운영 시간에 다시 문의해 주세요."
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -50,10 +56,7 @@ def _defaults_from_legacy(row: Any) -> dict[str, Any]:
             "disallowOutcomePrediction": True,
             "disallowLegalJudgment": True,
             "requireLatestSourceCheckWarningWhenRelevant": True,
-            "fallbackMessageWhenInsufficientEvidence": (
-                row.fallback_message
-                or "현재 확인 가능한 공식 근거가 부족하여 확정 안내가 어렵습니다. 담당 부서에 문의해 주세요."
-            ),
+            "fallbackMessageWhenInsufficientEvidence": row.fallback_message or DEFAULT_LOW_EVIDENCE_MESSAGE,
             "clarificationStrategyMode": "ask_one_question",
         },
         "answerFormat": {
@@ -72,10 +75,8 @@ def _defaults_from_legacy(row: Any) -> dict[str, Any]:
         },
         "escalationOperating": {
             "enableEscalationSuggestion": True,
-            "escalationFallbackMessage": "정확한 안내를 위해 담당 부서 연결을 권장합니다.",
-            "operatingHoursFallbackMessage": (
-                "현재 운영시간이 아니므로 즉시 연결이 어렵습니다. 운영시간에 다시 문의해 주세요."
-            ),
+            "escalationFallbackMessage": DEFAULT_ESCALATION_MESSAGE,
+            "operatingHoursFallbackMessage": DEFAULT_AFTER_HOURS_MESSAGE,
             "afterHoursBehaviorMode": "show_notice",
         },
     }
@@ -118,12 +119,7 @@ def _validate_and_normalize_settings(data: dict[str, Any]) -> dict[str, Any]:
 
     if bool(data["answerPolicy"]["disallowAnswerWithoutEvidence"]):
         fallback = str(data["answerPolicy"]["fallbackMessageWhenInsufficientEvidence"]).strip()
-        if not fallback:
-            data["answerPolicy"][
-                "fallbackMessageWhenInsufficientEvidence"
-            ] = "현재 확인 가능한 공식 근거가 부족하여 확정 안내가 어렵습니다. 담당 부서에 문의해 주세요."
-        else:
-            data["answerPolicy"]["fallbackMessageWhenInsufficientEvidence"] = fallback
+        data["answerPolicy"]["fallbackMessageWhenInsufficientEvidence"] = fallback or DEFAULT_LOW_EVIDENCE_MESSAGE
 
     if str(data["answerFormat"]["answerTemplateMode"]) == "fixed_public_service":
         data["answerFormat"]["includeConclusionSection"] = True
@@ -147,12 +143,12 @@ def _validate_and_normalize_settings(data: dict[str, Any]) -> dict[str, Any]:
     data["promptInstruction"]["additionalInstructions"] = str(
         data["promptInstruction"]["additionalInstructions"]
     ).strip()
-    data["escalationOperating"]["escalationFallbackMessage"] = str(
-        data["escalationOperating"]["escalationFallbackMessage"]
-    ).strip()
-    data["escalationOperating"]["operatingHoursFallbackMessage"] = str(
-        data["escalationOperating"]["operatingHoursFallbackMessage"]
-    ).strip()
+    data["escalationOperating"]["escalationFallbackMessage"] = (
+        str(data["escalationOperating"]["escalationFallbackMessage"]).strip() or DEFAULT_ESCALATION_MESSAGE
+    )
+    data["escalationOperating"]["operatingHoursFallbackMessage"] = (
+        str(data["escalationOperating"]["operatingHoursFallbackMessage"]).strip() or DEFAULT_AFTER_HOURS_MESSAGE
+    )
 
     return data
 
@@ -218,20 +214,17 @@ def update_answer_settings(
     changed_keys = sorted([key for key in new_flat.keys() if new_flat.get(key) != old_flat.get(key)])
 
     save_answer_settings_json(db, row=row, answer_settings_json=new_flat)
+
     create_audit_log(
         db,
         organization_id=organization_id,
         admin_id=principal.admin_id,
         action="admin.answer_settings.update",
         target_type="chatbot",
-        target_id=chatbot_id,
+        target_id=str(row.id),
         result="success",
         request_id=None,
-        metadata_json={
-            "changedGroups": changed_keys,
-            "newVersion": int(row.settings_version),
-            "modelName": new_flat.get("modelRuntime", {}).get("modelName"),
-        },
+        metadata_json={"changedKeys": changed_keys},
     )
     db.commit()
     db.refresh(row)
@@ -246,15 +239,12 @@ def get_effective_answer_settings_for_runtime(
     organization_id: str,
     chatbot_id: str,
 ) -> AnswerSettings:
-    """
-    Runtime-safe accessor for future chat generation pipeline integration.
-    This function is intentionally server-side only and not exposed as a public widget endpoint.
-    """
     row = get_chatbot_settings_row(db, organization_id=organization_id, chatbot_id=chatbot_id)
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CHATBOT_NOT_FOUND")
+
     defaults = _defaults_from_legacy(row)
-    stored = row.answer_settings_json if isinstance(row.answer_settings_json, dict) else {}
-    effective = _deep_merge(defaults, stored)
+    stored = row.answer_settings_json or {}
+    effective = _deep_merge(defaults, stored if isinstance(stored, dict) else {})
     normalized = _validate_and_normalize_settings(effective)
     return AnswerSettings.model_validate(normalized)

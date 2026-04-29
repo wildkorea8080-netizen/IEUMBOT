@@ -2,6 +2,8 @@ from typing import Any
 
 from app.schemas.answer_settings import AnswerSettings
 
+DEFAULT_CLARIFICATION_MESSAGE = "정확한 안내를 위해 궁금하신 대상이나 상황을 조금 더 알려주세요."
+
 
 def build_fallback_response(
     *,
@@ -19,7 +21,7 @@ def build_fallback_response(
             safe_message = answer_settings.answer_policy.fallback_message_when_insufficient_evidence
 
     if recommended_action == "ask_clarification":
-        safe_message = "정확한 안내를 위해 신청 대상/기간/신청 방법 중 어떤 항목이 필요한지 알려주세요."
+        safe_message = DEFAULT_CLARIFICATION_MESSAGE
 
     outcome_map = {
         "restricted": "restricted",

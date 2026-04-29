@@ -21,6 +21,34 @@ SLOT_KEYWORDS = {
     "대상": ["대상", "신청자", "지원대상"],
     "방법": ["방법", "절차", "신청", "접수"],
 }
+GREETING_KEYWORDS = [
+    "안녕",
+    "안녕하세요",
+    "반가워",
+    "반갑습니다",
+    "hi",
+    "hello",
+    "hey",
+    "good morning",
+    "good afternoon",
+    "good evening",
+]
+DOMAIN_KEYWORDS = [
+    "해외농업",
+    "농업개발",
+    "해외 농업",
+    "농업",
+    "oa",
+    "oads",
+    "협회",
+    "지원",
+    "사업",
+    "문의",
+    "신청",
+    "교육",
+    "연수",
+    "정책",
+]
 
 
 def _contains_any(text: str, keywords: list[str]) -> bool:
@@ -58,6 +86,15 @@ def _coverage_score(candidates: list[dict[str, Any]]) -> dict[str, bool]:
     return {slot: _contains_any(merged_text, keywords) for slot, keywords in SLOT_KEYWORDS.items()}
 
 
+def _is_greeting(question: str) -> bool:
+    normalized = " ".join(question.strip().lower().split())
+    if not normalized:
+        return False
+    if normalized in {"hi", "hello", "hey", "안녕", "안녕하세요"}:
+        return True
+    return any(keyword in normalized for keyword in GREETING_KEYWORDS)
+
+
 def evaluate_answer_policy(context: dict[str, Any]) -> dict[str, Any]:
     question = str(context.get("question", "")).strip().lower()
     candidates: list[dict[str, Any]] = context.get("retrievedCandidates", [])
@@ -66,14 +103,20 @@ def evaluate_answer_policy(context: dict[str, Any]) -> dict[str, Any]:
 
     min_valid_sources = int(answer_validation_policy.get("minValidSources", 2))
     min_combined_score = float(answer_validation_policy.get("minCombinedScore", 0.2))
+    unrelated_combined_score_threshold = float(answer_validation_policy.get("unrelatedCombinedScoreThreshold", 0.08))
     today = date.today()
 
     valid_candidates = []
     outdated_risk = False
     citation_ready_count = 0
+    top_combined_score = 0.0
+    domain_keyword_matched = _contains_any(question, DOMAIN_KEYWORDS)
+    greeting_detected = _is_greeting(question)
 
     for item in candidates:
         combined_score = float(item.get("combinedScore", 0.0))
+        if combined_score > top_combined_score:
+            top_combined_score = combined_score
         effective_date = item.get("effectiveDate")
         expiration_date = item.get("expirationDate")
 
@@ -127,11 +170,21 @@ def evaluate_answer_policy(context: dict[str, Any]) -> dict[str, Any]:
     if answer_settings.answer_policy.require_citations and citation_ready_count == 0:
         missing_evidence = True
 
+    unrelated_question = (
+        not greeting_detected
+        and not domain_keyword_matched
+        and top_combined_score < unrelated_combined_score_threshold
+    )
+
     flags = {
         "missingEvidence": bool(missing_evidence),
         "conflictDetected": bool(conflict_detected),
         "outdatedRisk": bool(outdated_risk),
         "restrictedTopic": bool(restricted_topic),
+        "greetingDetected": bool(greeting_detected),
+        "domainKeywordMatched": bool(domain_keyword_matched),
+        "unrelatedQuestion": bool(unrelated_question),
+        "topCombinedScore": float(top_combined_score),
     }
 
     guardrail_eval = evaluate_guardrails(
@@ -215,10 +268,18 @@ def evaluate_answer_policy(context: dict[str, Any]) -> dict[str, Any]:
             "guardrailEvaluation": guardrail_eval,
         }
 
+    if greeting_detected:
+        return {
+            "decision": "allow",
+            "reason": "인사성 발화로 판단되어 자연스러운 인사 응답을 우선합니다.",
+            "flags": flags,
+            "recommendedAction": "answer",
+            "safeMessage": None,
+            "guardrailEvaluation": guardrail_eval,
+        }
+
     if missing_evidence and answer_settings.answer_policy.disallow_answer_without_evidence:
-        action = (
-            "escalate" if answer_settings.escalation_operating.enable_escalation_suggestion else "fallback"
-        )
+        action = "escalate" if unrelated_question and answer_settings.escalation_operating.enable_escalation_suggestion else "fallback"
         safe_message = (
             answer_settings.escalation_operating.escalation_fallback_message
             if action == "escalate"

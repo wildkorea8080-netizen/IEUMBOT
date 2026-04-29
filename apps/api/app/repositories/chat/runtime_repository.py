@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import ChatMessage, ChatSession, Citation
@@ -20,6 +20,18 @@ def get_chat_session_by_token(
         ChatSession.session_token == session_token,
     )
     return db.execute(stmt).scalar_one_or_none()
+
+
+def count_user_messages_in_session(
+    db: Session,
+    *,
+    session_id: str,
+) -> int:
+    stmt = select(func.count(ChatMessage.id)).where(
+        ChatMessage.session_id == uuid.UUID(session_id),
+        ChatMessage.role == "user",
+    )
+    return int(db.execute(stmt).scalar_one() or 0)
 
 
 def create_chat_session(

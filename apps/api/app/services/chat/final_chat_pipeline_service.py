@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.repositories.chat.policy_repository import get_chatbot_by_id
 from app.repositories.chat.runtime_repository import (
+    count_user_messages_in_session,
     create_chat_message,
     create_chat_session,
     create_citations,
@@ -29,6 +30,12 @@ from app.services.guardrails.runtime_guardrails_service import get_effective_gua
 from app.services.limits_service import check_conversation_limit
 from app.services.enforcement_service import ensure_runtime_access_for_chatbot
 from app.services.settings.answer_settings_service import get_effective_answer_settings_for_runtime
+
+GREETING_RESPONSE = "안녕하세요! 무엇을 도와드릴까요?\n해외농업개발 관련 궁금하신 내용을 알려주세요."
+SOFT_GUIDANCE_RESPONSES = [
+    "안녕하세요! 무엇을 도와드릴까요?\n해외농업개발 관련 궁금하신 내용을 알려주세요.",
+    "지금 바로 확인되는 자료는 많지 않지만, 알고 싶은 내용을 조금 더 구체적으로 말씀해 주시면 도와드릴게요.\n해외농업개발 관련 궁금하신 내용을 알려주세요.",
+]
 
 
 def _map_outcome_from_decision(decision: str) -> str:
@@ -67,6 +74,12 @@ def _build_public_runtime_trace(
             "sessionToken": session_token,
         },
     }
+
+
+def _build_soft_guidance_response(*, user_turn_count: int) -> str:
+    if user_turn_count <= 0:
+        return SOFT_GUIDANCE_RESPONSES[0]
+    return SOFT_GUIDANCE_RESPONSES[min(user_turn_count, len(SOFT_GUIDANCE_RESPONSES) - 1)]
 
 
 def run_final_chat_pipeline(
@@ -127,6 +140,7 @@ def run_final_chat_pipeline(
     policy_decision["escalation"] = escalation_mapping
     guardrail_eval = policy_decision.get("guardrailEvaluation") or {}
     decision = str(policy_decision.get("decision") or "insufficient_evidence")
+    policy_flags = policy_decision.get("flags") or {}
 
     citations = assemble_citations(
         candidates=retrieval_output["candidates"],
@@ -138,7 +152,26 @@ def run_final_chat_pipeline(
     llm_executed = False
     llm_error_code: str | None = None
 
-    if decision != "allow":
+    session_token = body.session_token or f"session_{uuid.uuid4().hex[:20]}"
+    session = get_chat_session_by_token(
+        db,
+        organization_id=str(chatbot.organization_id),
+        chatbot_id=str(chatbot.id),
+        session_token=session_token,
+    )
+    user_turn_count = count_user_messages_in_session(db, session_id=str(session.id)) if session is not None else 0
+
+    if policy_flags.get("greetingDetected"):
+        outcome = "answered"
+        answer_text = GREETING_RESPONSE
+    elif (
+        decision in {"insufficient_evidence", "conflict", "escalate"}
+        and not policy_flags.get("unrelatedQuestion")
+        and user_turn_count < 2
+    ):
+        outcome = "answered"
+        answer_text = _build_soft_guidance_response(user_turn_count=user_turn_count)
+    elif decision != "allow":
         fallback = build_fallback_response(policy_decision=policy_decision, answer_settings=answer_settings)
         outcome = fallback["outcome"]
         answer_text = fallback["text"]
@@ -185,13 +218,6 @@ def run_final_chat_pipeline(
         warnings.append("인용 정보가 부족하여 답변을 안전 안내로 전환했습니다.")
 
     request_id = f"chat_run_{uuid.uuid4().hex[:16]}"
-    session_token = body.session_token or f"session_{uuid.uuid4().hex[:20]}"
-    session = get_chat_session_by_token(
-        db,
-        organization_id=str(chatbot.organization_id),
-        chatbot_id=str(chatbot.id),
-        session_token=session_token,
-    )
     if session is None:
         session = create_chat_session(
             db,

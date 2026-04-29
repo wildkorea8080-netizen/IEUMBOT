@@ -13,6 +13,12 @@ MaxAnswerLengthMode = Literal["short", "medium", "long"]
 CitationDisplayMode = Literal["visible", "compact", "hidden"]
 AfterHoursBehaviorMode = Literal["show_notice", "escalate_only", "allow_limited_answer"]
 
+DEFAULT_LOW_EVIDENCE_MESSAGE = (
+    "현재 바로 확인되는 자료는 많지 않습니다. 해외농업개발 관련 궁금하신 내용을 조금 더 구체적으로 알려주시면 도와드릴게요."
+)
+DEFAULT_ESCALATION_MESSAGE = "정확한 안내를 위해 담당 부서 연결도 도와드릴 수 있습니다."
+DEFAULT_AFTER_HOURS_MESSAGE = "현재 운영 시간이 아니어서 즉시 연결은 어렵습니다. 운영 시간에 다시 문의해 주세요."
+
 
 class PromptInstructionSettings(ApiSchema):
     system_prompt: str = ""
@@ -29,9 +35,7 @@ class AnswerPolicySettings(ApiSchema):
     disallow_outcome_prediction: bool = True
     disallow_legal_judgment: bool = True
     require_latest_source_check_warning_when_relevant: bool = True
-    fallback_message_when_insufficient_evidence: str = (
-        "현재 확인 가능한 공식 근거가 부족하여 확정 안내가 어렵습니다. 담당 부서에 문의해 주세요."
-    )
+    fallback_message_when_insufficient_evidence: str = DEFAULT_LOW_EVIDENCE_MESSAGE
     clarification_strategy_mode: ClarificationStrategyMode = "ask_one_question"
 
 
@@ -53,10 +57,8 @@ class ModelRuntimeSettings(ApiSchema):
 
 class EscalationOperatingSettings(ApiSchema):
     enable_escalation_suggestion: bool = True
-    escalation_fallback_message: str = "정확한 안내를 위해 담당 부서 연결을 권장합니다."
-    operating_hours_fallback_message: str = (
-        "현재 운영시간이 아니므로 즉시 연결이 어렵습니다. 운영시간에 다시 문의해 주세요."
-    )
+    escalation_fallback_message: str = DEFAULT_ESCALATION_MESSAGE
+    operating_hours_fallback_message: str = DEFAULT_AFTER_HOURS_MESSAGE
     after_hours_behavior_mode: AfterHoursBehaviorMode = "show_notice"
 
 
