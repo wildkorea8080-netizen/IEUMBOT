@@ -35,6 +35,7 @@ from app.schemas.super_admin_chatbots_widgets import (
     SuperAdminWidgetDomainsUpdateRequest,
     SuperAdminWidgetListItem,
     SuperAdminWidgetListResponse,
+    SuperAdminWidgetUpdateRequest,
 )
 from app.services.limits_service import check_chatbot_limit, check_widget_limit
 from app.services.widget_install_script import build_widget_install_script
@@ -59,6 +60,43 @@ def _normalize_domain(value: str) -> str:
     if not host or " " in host:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="INVALID_ALLOWED_DOMAIN")
     return host
+
+
+def _normalize_domains_input(
+    value: list[str] | str | None,
+    *,
+    required_detail: str,
+) -> list[str]:
+    if value is None:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=required_detail)
+
+    raw_items = value.split(",") if isinstance(value, str) else value
+    normalized_domains: list[str] = []
+    seen: set[str] = set()
+    for raw_domain in raw_items:
+        domain = _normalize_domain(raw_domain)
+        if domain in seen:
+            continue
+        seen.add(domain)
+        normalized_domains.append(domain)
+
+    if not normalized_domains:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=required_detail)
+    return normalized_domains
+
+
+def _normalize_optional_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
+def _validate_widget_position(value: str) -> str:
+    normalized = value.strip()
+    if normalized not in {"bottom-right", "bottom-left"}:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="INVALID_WIDGET_POSITION")
+    return normalized
 
 
 def _to_chatbot_list_item(db: Session, *, row, organization_name: str) -> SuperAdminChatbotListItem:
@@ -110,8 +148,13 @@ def _to_widget_list_item(row) -> SuperAdminWidgetListItem:
         status=row.status,
         domain=primary_domain,
         is_active=(row.status == "active"),
+        theme_color=row.theme_color,
+        position=row.position,
+        launcher_label=row.launcher_label,
+        welcome_message=row.welcome_message,
         install_script=build_widget_install_script(chatbot_id=str(row.chatbot_id)),
         created_at=row.created_at.isoformat(),
+        updated_at=row.updated_at.isoformat(),
     )
 
 
@@ -121,10 +164,16 @@ def _to_widget_detail_response(row) -> SuperAdminWidgetDetailResponse:
         chatbot_id=str(row.chatbot_id),
         organization_id=str(row.organization_id),
         allowed_domains=list(row.allowed_domains or []),
+        status=row.status,
         is_active=(row.status == "active"),
+        theme_color=row.theme_color,
+        position=row.position,
+        launcher_label=row.launcher_label,
+        welcome_message=row.welcome_message,
         install_script=build_widget_install_script(chatbot_id=str(row.chatbot_id)),
         last_used_at=None,
         created_at=row.created_at.isoformat(),
+        updated_at=row.updated_at.isoformat(),
     )
 
 
@@ -377,20 +426,11 @@ def create_widget_service(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CHATBOT_NOT_FOUND")
     check_widget_limit(db, organization_id=str(chatbot.organization_id), admin_id=principal.admin_id)
 
-    if not body.allowed_domains:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="ALLOWED_DOMAINS_REQUIRED")
-
-    normalized_domains = []
-    seen: set[str] = set()
-    for raw_domain in body.allowed_domains:
-        domain = _normalize_domain(raw_domain)
-        if domain in seen:
-            continue
-        seen.add(domain)
-        normalized_domains.append(domain)
-
-    if not normalized_domains:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="ALLOWED_DOMAINS_REQUIRED")
+    normalized_domains = _normalize_domains_input(
+        body.allowed_domains,
+        required_detail="ALLOWED_DOMAINS_REQUIRED",
+    )
+    position = _validate_widget_position(body.position)
 
     install_script = build_widget_install_script(chatbot_id=str(chatbot.id))
     row = create_widget_deployment(
@@ -399,6 +439,10 @@ def create_widget_service(
         chatbot_id=str(chatbot.id),
         allowed_domains=normalized_domains,
         status="active",
+        theme_color=_normalize_optional_text(body.theme_color),
+        position=position,
+        launcher_label=_normalize_optional_text(body.launcher_label),
+        welcome_message=_normalize_optional_text(body.welcome_message),
         install_script=install_script,
     )
 
@@ -426,8 +470,13 @@ def create_widget_service(
         allowed_domains=list(row.allowed_domains or []),
         status=row.status,
         is_active=(row.status == "active"),
+        theme_color=row.theme_color,
+        position=row.position,
+        launcher_label=row.launcher_label,
+        welcome_message=row.welcome_message,
         install_script=install_script,
         created_at=row.created_at.isoformat(),
+        updated_at=row.updated_at.isoformat(),
     )
 
 
@@ -513,20 +562,10 @@ def update_widget_domains_service(
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="WIDGET_NOT_FOUND")
 
-    if not body.allowed_domains:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="ALLOWED_DOMAINS_REQUIRED")
-
-    normalized_domains = []
-    seen: set[str] = set()
-    for raw_domain in body.allowed_domains:
-        domain = _normalize_domain(raw_domain)
-        if domain in seen:
-            continue
-        seen.add(domain)
-        normalized_domains.append(domain)
-
-    if not normalized_domains:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="ALLOWED_DOMAINS_REQUIRED")
+    normalized_domains = _normalize_domains_input(
+        body.allowed_domains,
+        required_detail="ALLOWED_DOMAINS_REQUIRED",
+    )
 
     row.allowed_domains = normalized_domains
     create_audit_log(
@@ -539,6 +578,57 @@ def update_widget_domains_service(
         result="success",
         request_id=None,
         metadata_json={"allowedDomains": normalized_domains},
+    )
+    db.commit()
+    db.refresh(row)
+    return _to_widget_detail_response(row)
+
+
+def update_widget_service(
+    db: Session,
+    *,
+    principal: AdminPrincipal,
+    widget_id: str,
+    body: SuperAdminWidgetUpdateRequest,
+) -> SuperAdminWidgetDetailResponse:
+    widget_id = _validate_uuid_or_404(widget_id, "WIDGET_NOT_FOUND")
+    row = get_widget_by_id(db, widget_id=widget_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="WIDGET_NOT_FOUND")
+
+    if body.allowed_domains is not None:
+        row.allowed_domains = _normalize_domains_input(
+            body.allowed_domains,
+            required_detail="ALLOWED_DOMAINS_REQUIRED",
+        )
+    if body.theme_color is not None:
+        row.theme_color = _normalize_optional_text(body.theme_color)
+    if body.launcher_label is not None:
+        row.launcher_label = _normalize_optional_text(body.launcher_label)
+    if body.welcome_message is not None:
+        row.welcome_message = _normalize_optional_text(body.welcome_message)
+    if body.position is not None:
+        row.position = _validate_widget_position(body.position)
+    if body.is_active is not None:
+        row.status = "active" if body.is_active else "inactive"
+
+    create_audit_log(
+        db,
+        organization_id=str(row.organization_id),
+        admin_id=principal.admin_id,
+        action="super_admin.widget.update",
+        target_type="widget",
+        target_id=str(row.id),
+        result="success",
+        request_id=None,
+        metadata_json={
+            "allowedDomains": list(row.allowed_domains or []),
+            "themeColor": row.theme_color,
+            "launcherLabel": row.launcher_label,
+            "welcomeMessage": row.welcome_message,
+            "position": row.position,
+            "isActive": row.status == "active",
+        },
     )
     db.commit()
     db.refresh(row)

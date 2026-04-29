@@ -58,8 +58,13 @@ class SuperAdminWidgetListItem(ApiSchema):
     status: str
     domain: str | None = None
     is_active: bool
+    theme_color: str | None = None
+    position: str
+    launcher_label: str | None = None
+    welcome_message: str | None = None
     install_script: str | None = None
     created_at: str
+    updated_at: str
 
 
 class SuperAdminWidgetListResponse(ApiSchema):
@@ -68,7 +73,11 @@ class SuperAdminWidgetListResponse(ApiSchema):
 
 class SuperAdminWidgetCreateRequest(ApiSchema):
     chatbot_id: str
-    allowed_domains: list[str]
+    allowed_domains: list[str] | str
+    theme_color: str | None = None
+    launcher_label: str | None = None
+    welcome_message: str | None = None
+    position: str = "bottom-right"
 
 
 class SuperAdminWidgetCreateResponse(ApiSchema):
@@ -78,8 +87,13 @@ class SuperAdminWidgetCreateResponse(ApiSchema):
     allowed_domains: list[str]
     status: str
     is_active: bool
+    theme_color: str | None = None
+    position: str
+    launcher_label: str | None = None
+    welcome_message: str | None = None
     install_script: str
     created_at: str
+    updated_at: str
 
 
 class SuperAdminWidgetDetailResponse(ApiSchema):
@@ -87,11 +101,26 @@ class SuperAdminWidgetDetailResponse(ApiSchema):
     chatbot_id: str
     organization_id: str
     allowed_domains: list[str]
+    status: str
     is_active: bool
+    theme_color: str | None = None
+    position: str
+    launcher_label: str | None = None
+    welcome_message: str | None = None
     install_script: str | None = None
     last_used_at: str | None = None
     created_at: str
+    updated_at: str
 
 
 class SuperAdminWidgetDomainsUpdateRequest(ApiSchema):
     allowed_domains: list[str]
+
+
+class SuperAdminWidgetUpdateRequest(ApiSchema):
+    allowed_domains: list[str] | str | None = None
+    theme_color: str | None = None
+    launcher_label: str | None = None
+    welcome_message: str | None = None
+    position: str | None = None
+    is_active: bool | None = None

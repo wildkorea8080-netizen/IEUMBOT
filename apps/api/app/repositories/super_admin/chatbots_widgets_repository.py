@@ -143,6 +143,10 @@ def create_widget_deployment(
     chatbot_id: str,
     allowed_domains: list[str],
     status: str = "active",
+    theme_color: str | None = None,
+    position: str = "bottom-right",
+    launcher_label: str | None = None,
+    welcome_message: str | None = None,
     install_script: str | None = None,
 ) -> WidgetDeployment:
     row = WidgetDeployment(
@@ -150,6 +154,10 @@ def create_widget_deployment(
         chatbot_id=chatbot_id,
         allowed_domains=allowed_domains,
         status=status,
+        theme_color=theme_color,
+        position=position,
+        launcher_label=launcher_label,
+        welcome_message=welcome_message,
         install_script=install_script,
     )
     db.add(row)

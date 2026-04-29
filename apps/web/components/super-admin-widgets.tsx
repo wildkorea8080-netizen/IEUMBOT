@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { ApiClientError } from "../lib/api";
-import { getSuperAdminChatbot, listSuperAdminChatbots } from "../lib/api/super-admin-chatbots";
+import { getSuperAdminChatbot, listAllSuperAdminChatbots } from "../lib/api/super-admin-chatbots";
 import type {
   SuperAdminChatbotDetailResponse,
   SuperAdminChatbotListItem,
@@ -12,15 +12,13 @@ import type {
 import { listSuperAdminOrganizations } from "../lib/api/super-admin-organizations";
 import type { SuperAdminOrganizationListItem } from "../lib/api/super-admin-organizations-types";
 import {
-  activateSuperAdminWidget,
   createSuperAdminWidget,
-  deactivateSuperAdminWidget,
-  listSuperAdminWidgetsByOrganization,
-  patchSuperAdminWidgetDomains,
+  listSuperAdminWidgets,
+  patchSuperAdminWidget,
 } from "../lib/api/super-admin-widgets";
 import type {
-  SuperAdminWidgetDetailResponse,
   SuperAdminWidgetItem,
+  WidgetPosition,
 } from "../lib/api/super-admin-widgets-types";
 import { AdminDrawer } from "./ui/admin-drawer";
 import { AdminModal } from "./ui/admin-modal";
@@ -31,9 +29,7 @@ import { StatusBadge } from "./ui/status-badge";
 type WidgetRow = SuperAdminWidgetItem & {
   organizationName: string;
   chatbotName: string;
-  installScript: string;
-  position: string;
-  lastUsedAt?: string | null;
+  installScriptText: string;
 };
 
 type WidgetFormState = {
@@ -43,14 +39,18 @@ type WidgetFormState = {
   themeColor: string;
   launcherLabel: string;
   welcomeMessage: string;
-  position: string;
-  status: "active" | "inactive";
+  position: WidgetPosition;
+  isActive: boolean;
 };
 
-type DomainsEditState = {
-  widgetId: string;
-  value: string;
-};
+type EditorState =
+  | {
+      mode: "create";
+    }
+  | {
+      mode: "edit";
+      widgetId: string;
+    };
 
 const EMPTY_FORM: WidgetFormState = {
   organizationId: "",
@@ -60,14 +60,8 @@ const EMPTY_FORM: WidgetFormState = {
   launcherLabel: "",
   welcomeMessage: "",
   position: "bottom-right",
-  status: "active",
+  isActive: true,
 };
-
-function getErrorMessage(error: unknown): string {
-  if (error instanceof ApiClientError) return `${error.code}: ${error.message}`;
-  if (error instanceof Error) return error.message;
-  return "위젯 요청에 실패했습니다.";
-}
 
 function buildInstallScript(chatbotId: string): string {
   return [
@@ -87,10 +81,6 @@ function formatDateTime(value?: string | null): string {
   return parsed.toLocaleString("ko-KR");
 }
 
-function toneForStatus(status: string): "success" | "warning" {
-  return status === "active" ? "success" : "warning";
-}
-
 function toDomainsArray(input: string): string[] {
   return Array.from(
     new Set(
@@ -107,6 +97,24 @@ function isValidDomain(value: string): boolean {
   return /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(value);
 }
 
+function getErrorMessage(error: unknown, fallback = "요청을 처리하지 못했습니다."): string {
+  if (error instanceof ApiClientError) {
+    if (error.code === "HTTP_403") return "수정 권한이 없습니다.";
+    if (error.code === "INVALID_WIDGET_POSITION") {
+      return "위치는 bottom-right 또는 bottom-left만 사용할 수 있습니다.";
+    }
+    if (error.code === "ALLOWED_DOMAINS_REQUIRED") return "허용 도메인을 1개 이상 입력해 주세요.";
+    if (error.code === "INVALID_ALLOWED_DOMAIN") return "허용 도메인 형식이 올바르지 않습니다.";
+    return error.message || fallback;
+  }
+  if (error instanceof Error) return error.message || fallback;
+  return fallback;
+}
+
+function toneForStatus(status: string): "success" | "warning" {
+  return status === "active" ? "success" : "warning";
+}
+
 export function SuperAdminWidgets() {
   const [organizations, setOrganizations] = useState<SuperAdminOrganizationListItem[]>([]);
   const [chatbots, setChatbots] = useState<SuperAdminChatbotListItem[]>([]);
@@ -116,12 +124,10 @@ export function SuperAdminWidgets() {
   const [organizationQuery, setOrganizationQuery] = useState("");
   const [chatbotQuery, setChatbotQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
+  const [editor, setEditor] = useState<EditorState | null>(null);
   const [form, setForm] = useState<WidgetFormState>(EMPTY_FORM);
-  const [domainsEdit, setDomainsEdit] = useState<DomainsEditState | null>(null);
   const [selectedChatbotDetail, setSelectedChatbotDetail] =
     useState<SuperAdminChatbotDetailResponse | null>(null);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [domainsOpen, setDomainsOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -134,36 +140,34 @@ export function SuperAdminWidgets() {
     setError(null);
     setWarning(null);
     try {
-      const orgResponse = await listSuperAdminOrganizations({ page: 1, pageSize: 100 });
+      const [orgResponse, chatbotResponse, widgetResponse] = await Promise.all([
+        listSuperAdminOrganizations({ page: 1, pageSize: 100 }),
+        listAllSuperAdminChatbots(),
+        listSuperAdminWidgets(),
+      ]);
+
       setOrganizations(orgResponse.items);
+      setChatbots(chatbotResponse.items);
+
       if (orgResponse.total > orgResponse.items.length) {
-        setWarning(`MVP 제한으로 ${orgResponse.total}개 중 ${orgResponse.items.length}개 기관만 불러왔습니다.`);
+        setWarning(`기관 ${orgResponse.total}개 중 ${orgResponse.items.length}개만 불러왔습니다.`);
       }
 
-      const grouped = await Promise.all(
-        orgResponse.items.map(async (organization) => {
-          const [chatbotsResponse, widgetsResponse] = await Promise.all([
-            listSuperAdminChatbots(organization.id),
-            listSuperAdminWidgetsByOrganization(organization.id),
-          ]);
-          const chatbotMap = new Map(chatbotsResponse.items.map((item) => [item.id, item.name]));
+      const organizationMap = new Map(orgResponse.items.map((item) => [item.id, item.name]));
+      const chatbotMap = new Map(chatbotResponse.items.map((item) => [item.id, item]));
+      const nextRows = widgetResponse.items
+        .map((widget) => {
+          const chatbot = chatbotMap.get(widget.chatbotId);
           return {
-            organization,
-            chatbots: chatbotsResponse.items,
-            widgets: widgetsResponse.items.map((widget) => ({
-              ...widget,
-              organizationName: organization.name,
-              chatbotName: chatbotMap.get(widget.chatbotId) ?? widget.chatbotId,
-              installScript: buildInstallScript(widget.chatbotId),
-              position: "bottom-right",
-              lastUsedAt: null,
-            })),
+            ...widget,
+            organizationName: organizationMap.get(widget.organizationId) ?? widget.organizationId,
+            chatbotName: chatbot?.name ?? widget.chatbotId,
+            installScriptText: widget.installScript ?? buildInstallScript(widget.chatbotId),
           };
-        }),
-      );
+        })
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
-      setChatbots(grouped.flatMap((item) => item.chatbots));
-      setRows(grouped.flatMap((item) => item.widgets).sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
+      setRows(nextRows);
     } catch (loadError) {
       setError(getErrorMessage(loadError));
       setRows([]);
@@ -182,7 +186,7 @@ export function SuperAdminWidgets() {
     const timer = window.setTimeout(() => {
       setMessage(null);
       setError(null);
-    }, 2400);
+    }, 2600);
     return () => window.clearTimeout(timer);
   }, [message, error]);
 
@@ -206,17 +210,27 @@ export function SuperAdminWidgets() {
     setForm({
       ...EMPTY_FORM,
       organizationId: organizations[0]?.id ?? "",
-      chatbotId: "",
     });
-    setCreateOpen(true);
+    setEditor({ mode: "create" });
   }
 
-  function openDomainsEditor(row: WidgetRow) {
-    setDomainsEdit({ widgetId: row.id, value: row.allowedDomains.join(", ") });
-    setDomainsOpen(true);
+  function openEdit(row: WidgetRow) {
+    setForm({
+      organizationId: row.organizationId,
+      chatbotId: row.chatbotId,
+      allowedDomains: row.allowedDomains.join(", "),
+      themeColor: row.themeColor ?? "#0f172a",
+      launcherLabel: row.launcherLabel ?? "",
+      welcomeMessage: row.welcomeMessage ?? "",
+      position: row.position,
+      isActive: row.isActive,
+    });
+    setEditor({ mode: "edit", widgetId: row.id });
   }
 
   async function saveWidget() {
+    if (!editor) return;
+
     if (!form.organizationId) {
       setError("기관을 선택해 주세요.");
       return;
@@ -232,80 +246,58 @@ export function SuperAdminWidgets() {
       return;
     }
     if (allowedDomains.some((item) => !isValidDomain(item))) {
-      setError("허용 도메인은 유효한 호스트명 또는 localhost여야 합니다.");
+      setError("허용 도메인 형식이 올바르지 않습니다.");
       return;
     }
 
     setIsSaving(true);
     setError(null);
     try {
-      const created = await createSuperAdminWidget({
-        chatbotId: form.chatbotId,
-        allowedDomains,
-      });
-      if (form.status === "inactive") {
-        await deactivateSuperAdminWidget(created.widgetId);
+      if (editor.mode === "create") {
+        const created = await createSuperAdminWidget({
+          chatbotId: form.chatbotId,
+          allowedDomains,
+          themeColor: form.themeColor.trim() || null,
+          launcherLabel: form.launcherLabel.trim() || null,
+          welcomeMessage: form.welcomeMessage.trim() || null,
+          position: form.position,
+        });
+        if (!form.isActive) {
+          await patchSuperAdminWidget(created.widgetId, { isActive: false });
+        }
+        setMessage("위젯이 생성되었습니다.");
+      } else {
+        await patchSuperAdminWidget(editor.widgetId, {
+          allowedDomains,
+          themeColor: form.themeColor.trim() || null,
+          launcherLabel: form.launcherLabel.trim() || null,
+          welcomeMessage: form.welcomeMessage.trim() || null,
+          position: form.position,
+          isActive: form.isActive,
+        });
+        setMessage("위젯이 수정되었습니다.");
       }
+
       await loadData();
-      setMessage("위젯을 생성했습니다.");
-      setCreateOpen(false);
+      setEditor(null);
     } catch (saveError) {
-      setError(getErrorMessage(saveError));
+      const fallback = editor.mode === "edit" ? "위젯 수정에 실패했습니다." : "위젯 생성에 실패했습니다.";
+      setError(getErrorMessage(saveError, fallback));
     } finally {
       setIsSaving(false);
     }
   }
 
-  async function saveDomains() {
-    if (!domainsEdit) return;
-    const allowedDomains = toDomainsArray(domainsEdit.value);
-    if (allowedDomains.length === 0) {
-      setError("허용 도메인을 1개 이상 입력해 주세요.");
-      return;
-    }
-    if (allowedDomains.some((item) => !isValidDomain(item))) {
-      setError("허용 도메인은 유효한 호스트명 또는 localhost여야 합니다.");
-      return;
-    }
-
-    setIsSaving(true);
-    setError(null);
-    try {
-      const updated = await patchSuperAdminWidgetDomains(domainsEdit.widgetId, { allowedDomains });
-      setRows((current) =>
-        current.map((item) =>
-          item.id === domainsEdit.widgetId
-            ? { ...item, allowedDomains: updated.allowedDomains, status: updated.isActive ? "active" : "inactive" }
-            : item,
-        ),
-      );
-      setMessage("허용 도메인을 수정했습니다.");
-      setDomainsOpen(false);
-      setDomainsEdit(null);
-    } catch (saveError) {
-      setError(getErrorMessage(saveError));
-    } finally {
-      setIsSaving(false);
-    }
-  }
-
-  async function toggleWidget(row: WidgetRow, next: "active" | "inactive") {
-    const confirmed = window.confirm(
-      next === "active" ? "이 위젯을 활성화하시겠습니까?" : "이 위젯을 비활성화하시겠습니까?",
-    );
+  async function toggleWidget(row: WidgetRow, nextActive: boolean) {
+    const confirmed = window.confirm(nextActive ? "위젯을 활성화하시겠습니까?" : "위젯을 비활성화하시겠습니까?");
     if (!confirmed) return;
 
     try {
-      const updated: SuperAdminWidgetDetailResponse =
-        next === "active" ? await activateSuperAdminWidget(row.id) : await deactivateSuperAdminWidget(row.id);
-      setRows((current) =>
-        current.map((item) =>
-          item.id === row.id ? { ...item, status: updated.isActive ? "active" : "inactive" } : item,
-        ),
-      );
-      setMessage(next === "active" ? "위젯을 활성화했습니다." : "위젯을 비활성화했습니다.");
+      await patchSuperAdminWidget(row.id, { isActive: nextActive });
+      await loadData();
+      setMessage(nextActive ? "위젯이 활성화되었습니다." : "위젯이 비활성화되었습니다.");
     } catch (actionError) {
-      setError(getErrorMessage(actionError));
+      setError(getErrorMessage(actionError, "위젯 상태 변경에 실패했습니다."));
     }
   }
 
@@ -321,9 +313,14 @@ export function SuperAdminWidgets() {
     }
   }
 
+  const isEditMode = editor?.mode === "edit";
+
   return (
     <div className="space-y-6">
-      <PagePanel title="위젯 관리" description="위젯을 생성하고 허용 도메인과 설치 코드를 관리합니다.">
+      <PagePanel
+        title="위젯 관리"
+        description="위젯 배포 상태와 허용 도메인, 표시 설정을 관리합니다."
+      >
         {message ? (
           <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
             {message}
@@ -384,7 +381,7 @@ export function SuperAdminWidgets() {
         </div>
 
         <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-200">
-          <table className="w-full min-w-[1380px] text-left text-sm">
+          <table className="w-full min-w-[1480px] text-left text-sm">
             <thead className="bg-slate-50 text-slate-700">
               <tr>
                 <th className="px-3 py-3">위젯</th>
@@ -392,16 +389,17 @@ export function SuperAdminWidgets() {
                 <th className="px-3 py-3">챗봇</th>
                 <th className="px-3 py-3">상태</th>
                 <th className="px-3 py-3">허용 도메인</th>
+                <th className="px-3 py-3">색상</th>
+                <th className="px-3 py-3">런처 라벨</th>
                 <th className="px-3 py-3">위치</th>
                 <th className="px-3 py-3">생성일</th>
-                <th className="px-3 py-3">최근 사용일</th>
                 <th className="px-3 py-3">작업</th>
               </tr>
             </thead>
             <tbody>
               {!isLoading && filteredRows.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-3 py-10 text-center text-slate-500">
+                  <td colSpan={10} className="px-3 py-10 text-center text-slate-500">
                     위젯이 없습니다.
                   </td>
                 </tr>
@@ -412,30 +410,33 @@ export function SuperAdminWidgets() {
                     <td className="px-3 py-3">{row.organizationName}</td>
                     <td className="px-3 py-3">{row.chatbotName}</td>
                     <td className="px-3 py-3">
-                      <StatusBadge tone={toneForStatus(row.status)}>{row.status === "active" ? "활성" : "비활성"}</StatusBadge>
+                      <StatusBadge tone={toneForStatus(row.status)}>
+                        {row.status === "active" ? "활성" : "비활성"}
+                      </StatusBadge>
                     </td>
                     <td className="px-3 py-3">{row.allowedDomains.join(", ") || "-"}</td>
+                    <td className="px-3 py-3">{row.themeColor ?? "-"}</td>
+                    <td className="px-3 py-3">{row.launcherLabel ?? "-"}</td>
                     <td className="px-3 py-3">{row.position}</td>
                     <td className="px-3 py-3">{formatDateTime(row.createdAt)}</td>
-                    <td className="px-3 py-3">{formatDateTime(row.lastUsedAt)}</td>
                     <td className="px-3 py-3">
                       <div className="flex flex-wrap gap-2">
                         <button
                           type="button"
-                          onClick={() => openDomainsEditor(row)}
+                          onClick={() => openEdit(row)}
                           className="rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-700"
                         >
-                          도메인
+                          수정
                         </button>
                         <button
                           type="button"
-                          onClick={() => void toggleWidget(row, row.status === "active" ? "inactive" : "active")}
+                          onClick={() => void toggleWidget(row, !row.isActive)}
                           className="rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-700"
                         >
-                          {row.status === "active" ? "비활성화" : "활성화"}
+                          {row.isActive ? "비활성화" : "활성화"}
                         </button>
                         <CopyButton
-                          text={row.installScript}
+                          text={row.installScriptText}
                           label="스크립트 복사"
                           onCopied={(nextMessage, tone) => {
                             if (tone === "success") {
@@ -470,20 +471,25 @@ export function SuperAdminWidgets() {
       </PagePanel>
 
       <AdminModal
-        open={createOpen}
-        title="위젯 생성"
-        description="챗봇용 위젯 배포를 생성합니다."
-        onClose={() => setCreateOpen(false)}
+        open={editor !== null}
+        title={isEditMode ? "위젯 수정" : "위젯 생성"}
+        description={
+          isEditMode
+            ? "허용 도메인과 표시 설정을 수정합니다."
+            : "챗봇에 연결할 새 위젯 배포를 생성합니다."
+        }
+        onClose={() => setEditor(null)}
       >
         <div className="grid gap-4 md:grid-cols-2">
           <label className="text-sm text-slate-700 md:col-span-2">
             <span className="mb-1 block font-medium">기관</span>
             <select
               value={form.organizationId}
+              disabled={isEditMode}
               onChange={(event) =>
                 setForm((current) => ({ ...current, organizationId: event.target.value, chatbotId: "" }))
               }
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 disabled:bg-slate-100"
             >
               <option value="">기관 선택</option>
               {organizations.map((organization) => (
@@ -493,12 +499,14 @@ export function SuperAdminWidgets() {
               ))}
             </select>
           </label>
+
           <label className="text-sm text-slate-700 md:col-span-2">
             <span className="mb-1 block font-medium">챗봇</span>
             <select
               value={form.chatbotId}
+              disabled={isEditMode}
               onChange={(event) => setForm((current) => ({ ...current, chatbotId: event.target.value }))}
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 disabled:bg-slate-100"
             >
               <option value="">챗봇 선택</option>
               {filteredChatbots.map((chatbot) => (
@@ -508,6 +516,7 @@ export function SuperAdminWidgets() {
               ))}
             </select>
           </label>
+
           <label className="text-sm text-slate-700 md:col-span-2">
             <span className="mb-1 block font-medium">허용 도메인</span>
             <input
@@ -516,6 +525,7 @@ export function SuperAdminWidgets() {
               className="w-full rounded-lg border border-slate-300 px-3 py-2"
             />
           </label>
+
           <label className="text-sm text-slate-700">
             <span className="mb-1 block font-medium">테마 색상</span>
             <input
@@ -524,16 +534,18 @@ export function SuperAdminWidgets() {
               className="w-full rounded-lg border border-slate-300 px-3 py-2"
             />
           </label>
+
           <label className="text-sm text-slate-700">
-            <span className="mb-1 block font-medium">실행 버튼 라벨</span>
+            <span className="mb-1 block font-medium">런처 라벨</span>
             <input
               value={form.launcherLabel}
               onChange={(event) => setForm((current) => ({ ...current, launcherLabel: event.target.value }))}
               className="w-full rounded-lg border border-slate-300 px-3 py-2"
             />
           </label>
+
           <label className="text-sm text-slate-700 md:col-span-2">
-            <span className="mb-1 block font-medium">환영 메시지</span>
+            <span className="mb-1 block font-medium">웰컴 메시지</span>
             <textarea
               value={form.welcomeMessage}
               onChange={(event) => setForm((current) => ({ ...current, welcomeMessage: event.target.value }))}
@@ -541,38 +553,35 @@ export function SuperAdminWidgets() {
               className="w-full rounded-lg border border-slate-300 px-3 py-2"
             />
           </label>
+
           <label className="text-sm text-slate-700">
             <span className="mb-1 block font-medium">위치</span>
             <select
               value={form.position}
-              onChange={(event) => setForm((current) => ({ ...current, position: event.target.value }))}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, position: event.target.value as WidgetPosition }))
+              }
               className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
             >
               <option value="bottom-right">bottom-right</option>
               <option value="bottom-left">bottom-left</option>
             </select>
           </label>
-          <label className="text-sm text-slate-700">
-            <span className="mb-1 block font-medium">초기 상태</span>
-            <select
-              value={form.status}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, status: event.target.value as "active" | "inactive" }))
-              }
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
-            >
-              <option value="active">활성</option>
-              <option value="inactive">비활성</option>
-            </select>
+
+          <label className="flex items-center gap-2 self-end text-sm text-slate-700">
+            <input
+              type="checkbox"
+              checked={form.isActive}
+              onChange={(event) => setForm((current) => ({ ...current, isActive: event.target.checked }))}
+            />
+            활성 상태로 저장
           </label>
         </div>
-        <p className="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-          MVP 안내: 현재 API는 `chatbotId`, `allowedDomains`, 활성 상태만 저장합니다. 나머지 필드는 향후 런타임 설정을 위한 UI 자리표시자입니다.
-        </p>
+
         <div className="mt-6 flex justify-end gap-2">
           <button
             type="button"
-            onClick={() => setCreateOpen(false)}
+            onClick={() => setEditor(null)}
             className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700"
           >
             취소
@@ -588,45 +597,10 @@ export function SuperAdminWidgets() {
         </div>
       </AdminModal>
 
-      <AdminModal
-        open={domainsOpen}
-        title="허용 도메인 수정"
-        description="이 위젯의 허용 도메인을 수정합니다."
-        onClose={() => setDomainsOpen(false)}
-      >
-        <label className="text-sm text-slate-700">
-          <span className="mb-1 block font-medium">허용 도메인</span>
-          <input
-            value={domainsEdit?.value ?? ""}
-            onChange={(event) =>
-              setDomainsEdit((current) => (current ? { ...current, value: event.target.value } : current))
-            }
-            className="w-full rounded-lg border border-slate-300 px-3 py-2"
-          />
-        </label>
-        <div className="mt-6 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={() => setDomainsOpen(false)}
-            className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700"
-          >
-            취소
-          </button>
-          <button
-            type="button"
-            onClick={() => void saveDomains()}
-            disabled={isSaving}
-            className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-          >
-            {isSaving ? "저장 중..." : "저장"}
-          </button>
-        </div>
-      </AdminModal>
-
       <AdminDrawer
         open={detailOpen}
         title={selectedChatbotDetail?.name ?? "챗봇 상세"}
-        description="이 위젯에 연결된 챗봇 요약입니다."
+        description="위젯에 연결된 챗봇 요약입니다."
         onClose={() => setDetailOpen(false)}
       >
         {!selectedChatbotDetail ? (

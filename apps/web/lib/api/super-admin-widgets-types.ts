@@ -1,3 +1,5 @@
+export type WidgetPosition = "bottom-right" | "bottom-left";
+
 export type SuperAdminWidgetItem = {
   id: string;
   chatbotId: string;
@@ -6,8 +8,13 @@ export type SuperAdminWidgetItem = {
   status: string;
   domain?: string | null;
   isActive: boolean;
+  themeColor?: string | null;
+  position: WidgetPosition;
+  launcherLabel?: string | null;
+  welcomeMessage?: string | null;
   installScript?: string | null;
   createdAt: string;
+  updatedAt: string;
 };
 
 export type SuperAdminWidgetListResponse = {
@@ -17,6 +24,10 @@ export type SuperAdminWidgetListResponse = {
 export type SuperAdminWidgetCreateRequest = {
   chatbotId: string;
   allowedDomains: string[];
+  themeColor?: string | null;
+  launcherLabel?: string | null;
+  welcomeMessage?: string | null;
+  position?: WidgetPosition;
 };
 
 export type SuperAdminWidgetCreateResponse = {
@@ -26,8 +37,13 @@ export type SuperAdminWidgetCreateResponse = {
   allowedDomains: string[];
   status: string;
   isActive: boolean;
+  themeColor?: string | null;
+  position: WidgetPosition;
+  launcherLabel?: string | null;
+  welcomeMessage?: string | null;
   installScript: string;
   createdAt: string;
+  updatedAt: string;
 };
 
 export type SuperAdminWidgetDomainsPatchRequest = {
@@ -39,7 +55,22 @@ export type SuperAdminWidgetDetailResponse = {
   chatbotId: string;
   organizationId: string;
   allowedDomains: string[];
+  status: string;
   isActive: boolean;
+  themeColor?: string | null;
+  position: WidgetPosition;
+  launcherLabel?: string | null;
+  welcomeMessage?: string | null;
   installScript?: string | null;
   createdAt: string;
+  updatedAt: string;
+};
+
+export type SuperAdminWidgetUpdateRequest = {
+  allowedDomains?: string[] | string;
+  themeColor?: string | null;
+  launcherLabel?: string | null;
+  welcomeMessage?: string | null;
+  position?: WidgetPosition;
+  isActive?: boolean;
 };

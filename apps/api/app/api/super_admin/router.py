@@ -61,6 +61,7 @@ from app.schemas.super_admin_chatbots_widgets import (
     SuperAdminWidgetDetailResponse,
     SuperAdminWidgetDomainsUpdateRequest,
     SuperAdminWidgetListResponse,
+    SuperAdminWidgetUpdateRequest,
 )
 from app.schemas.super_admin_impersonation import (
     SuperAdminImpersonationRequest,
@@ -139,6 +140,7 @@ from app.services.super_admin.chatbots_widgets_service import (
     list_widgets_service,
     suspend_chatbot_service,
     update_chatbot_service,
+    update_widget_service,
     update_widget_domains_service,
 )
 from app.services.super_admin.impersonation_service import create_impersonation_session_service
@@ -591,6 +593,21 @@ def super_admin_get_widget(
         db,
         principal=principal,
         widget_id=widget_id,
+    )
+
+
+@router.patch("/widgets/{widget_id}", response_model=SuperAdminWidgetDetailResponse)
+def super_admin_patch_widget(
+    widget_id: str,
+    body: SuperAdminWidgetUpdateRequest,
+    principal: AdminPrincipal = Depends(require_super_admin_auth),
+    db: Session = Depends(get_db_session),
+) -> SuperAdminWidgetDetailResponse:
+    return update_widget_service(
+        db,
+        principal=principal,
+        widget_id=widget_id,
+        body=body,
     )
 
 

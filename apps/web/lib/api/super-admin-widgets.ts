@@ -5,6 +5,7 @@ import type {
   SuperAdminWidgetDetailResponse,
   SuperAdminWidgetDomainsPatchRequest,
   SuperAdminWidgetListResponse,
+  SuperAdminWidgetUpdateRequest,
 } from "./super-admin-widgets-types";
 
 export async function listSuperAdminWidgets(): Promise<SuperAdminWidgetListResponse> {
@@ -22,6 +23,16 @@ export async function createSuperAdminWidget(
 ): Promise<SuperAdminWidgetCreateResponse> {
   return apiClient.request<SuperAdminWidgetCreateResponse>("/super-admin/widgets", {
     method: "POST",
+    body,
+  });
+}
+
+export async function patchSuperAdminWidget(
+  widgetId: string,
+  body: SuperAdminWidgetUpdateRequest,
+): Promise<SuperAdminWidgetDetailResponse> {
+  return apiClient.request<SuperAdminWidgetDetailResponse>(`/super-admin/widgets/${widgetId}`, {
+    method: "PATCH",
     body,
   });
 }

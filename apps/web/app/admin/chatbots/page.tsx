@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { AdminModal } from "../../../components/ui/admin-modal";
@@ -24,9 +25,7 @@ function getErrorMessage(error: unknown): string {
         return error.message;
     }
   }
-  if (error instanceof Error) {
-    return error.message;
-  }
+  if (error instanceof Error) return error.message;
   return "요청 처리 중 오류가 발생했습니다.";
 }
 
@@ -143,6 +142,7 @@ export default function AdminChatbotsPage() {
                   <th className="px-3 py-2">문서 수</th>
                   <th className="px-3 py-2">웹소스 수</th>
                   <th className="px-3 py-2">수정일</th>
+                  <th className="px-3 py-2">테스트</th>
                   <th className="px-3 py-2">ON/OFF</th>
                 </tr>
               </thead>
@@ -157,6 +157,14 @@ export default function AdminChatbotsPage() {
                     <td className="px-3 py-2">{item.documentCount}</td>
                     <td className="px-3 py-2">{item.websiteCount}</td>
                     <td className="px-3 py-2">{new Date(item.updatedAt).toLocaleString("ko-KR")}</td>
+                    <td className="px-3 py-2">
+                      <Link
+                        href={`/admin/test-chatbot?chatbotId=${encodeURIComponent(item.id)}`}
+                        className="inline-flex rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-100"
+                      >
+                        테스트
+                      </Link>
+                    </td>
                     <td className="px-3 py-2">
                       <div className="flex gap-2">
                         <button
@@ -186,7 +194,7 @@ export default function AdminChatbotsPage() {
       <AdminModal
         open={isCreateModalOpen}
         title="챗봇 생성"
-        description="로그인된 기관 관리자 계정의 organizationId 범위로 생성됩니다."
+        description="로그인한 기관 관리자 계정의 organizationId 범위로 생성됩니다."
         onClose={() => {
           if (isCreating) return;
           setIsCreateModalOpen(false);
