@@ -2,6 +2,7 @@ import { clearAdminAccessToken, getAdminAccessToken } from "../auth/token";
 import { getApiBaseUrl } from "./base-url";
 import { apiClient } from "./client";
 import type {
+  AdminChatbotCreateRequest,
   AdminChatbotResponse,
   AdminChatbotsResponse,
   AdminChatLogsResponse,
@@ -179,6 +180,13 @@ export async function uploadKnowledgeFile(body: {
 
 export async function getAdminChatbots(): Promise<AdminChatbotsResponse> {
   return apiClient.request<AdminChatbotsResponse>("/admin/chatbots");
+}
+
+export async function createAdminChatbot(body: AdminChatbotCreateRequest): Promise<AdminChatbotResponse> {
+  return apiClient.request<AdminChatbotResponse>("/admin/chatbots", {
+    method: "POST",
+    body,
+  });
 }
 
 export async function getAdminChatbot(chatbotId: string): Promise<AdminChatbotResponse> {

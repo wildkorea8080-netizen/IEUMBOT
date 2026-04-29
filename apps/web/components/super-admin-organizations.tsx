@@ -13,7 +13,6 @@ import {
   suspendSuperAdminOrganization,
 } from "../lib/api/super-admin-organizations";
 import type {
-  SuperAdminOrganizationCreateResponse,
   SuperAdminOrganizationDetail,
   SuperAdminOrganizationListItem,
   SuperAdminOrganizationStatus,
@@ -42,6 +41,37 @@ type CreatedAdminCredentials = {
   tempPassword: string;
 };
 
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function mapOrganizationErrorCode(code: string): string | null {
+  switch (code) {
+    case "ADMIN_EMAIL_ALREADY_EXISTS":
+      return "이미 등록된 관리자 이메일입니다. 다른 이메일을 입력하거나 기존 관리자를 선택해 주세요.";
+    case "ADMIN_EMAIL_ALREADY_ASSIGNED_TO_OTHER_ORGANIZATION":
+      return "이미 다른 기관에 소속된 관리자 이메일입니다. 해당 기관의 관리자를 확인해 주세요.";
+    case "SUPER_ADMIN_EMAIL_REUSE_FORBIDDEN":
+      return "전체관리자 이메일은 기관 관리자로 사용할 수 없습니다.";
+    case "ORGANIZATION_CODE_ALREADY_EXISTS":
+      return "이미 사용 중인 기관코드입니다. 다른 기관코드를 입력해 주세요.";
+    case "PRIMARY_DOMAIN_ALREADY_EXISTS":
+      return "이미 등록된 대표 도메인입니다. 다른 도메인을 입력해 주세요.";
+    case "INVALID_ORGANIZATION_NAME":
+      return "기관명을 입력해 주세요.";
+    case "INVALID_ORGANIZATION_CODE":
+      return "기관코드는 영문 소문자, 숫자, 하이픈(-), 언더스코어(_)만 사용할 수 있습니다.";
+    case "INVALID_ADMIN_EMAIL":
+      return "관리자 이메일 형식이 올바르지 않습니다.";
+    case "INVALID_ADMIN_NAME":
+      return "관리자 이름을 입력해 주세요.";
+    case "INVALID_PRIMARY_DOMAIN":
+      return "대표 도메인 형식이 올바르지 않습니다.";
+    case "INVALID_CONTACT_EMAIL":
+      return "담당자 이메일 형식이 올바르지 않습니다.";
+    default:
+      return null;
+  }
+}
+
 const EMPTY_FORM: FormState = {
   name: "",
   code: "",
@@ -55,7 +85,7 @@ const EMPTY_FORM: FormState = {
 };
 
 function getErrorMessage(error: unknown): string {
-  if (error instanceof ApiClientError) return `${error.code}: ${error.message}`;
+  if (error instanceof ApiClientError) return mapOrganizationErrorCode(error.code) ?? error.message;
   if (error instanceof Error) return error.message;
   return "기관 요청 처리에 실패했습니다.";
 }
@@ -237,6 +267,30 @@ export function SuperAdminOrganizations() {
       return;
     }
     if (selectedId === "new" && !form.code.trim()) {
+      setError("기관코드를 입력해 주세요.");
+      return;
+    }
+    if (selectedId === "new" && !form.adminEmail.trim()) {
+      setError("관리자 이메일을 입력해 주세요.");
+      return;
+    }
+    if (selectedId === "new" && !EMAIL_PATTERN.test(form.adminEmail.trim())) {
+      setError("관리자 이메일 형식이 올바르지 않습니다.");
+      return;
+    }
+    if (selectedId === "new" && !form.adminName.trim()) {
+      setError("관리자 이름을 입력해 주세요.");
+      return;
+    }
+    if (form.contactEmail.trim() && !EMAIL_PATTERN.test(form.contactEmail.trim())) {
+      setError("담당자 이메일 형식이 올바르지 않습니다.");
+      return;
+    }
+    if (!form.name.trim()) {
+      setError("기관명을 입력해 주세요.");
+      return;
+    }
+    if (selectedId === "new" && !form.code.trim()) {
       setError("기관 코드를 입력해 주세요.");
       return;
     }
@@ -252,20 +306,29 @@ export function SuperAdminOrganizations() {
     setIsSaving(true);
     setError(null);
     try {
-      let saved: SuperAdminOrganizationDetail;
       if (selectedId === "new") {
-        const created: SuperAdminOrganizationCreateResponse = await createSuperAdminOrganization(
-          toCreateRequest(form),
-        );
-        saved = created;
-        setCreatedCredentials({
-          adminEmail: created.adminEmail,
-          tempPassword: created.tempPassword,
-        });
-        setCredentialsModalOpen(true);
-      } else {
-        saved = await patchSuperAdminOrganization(selectedId, toUpdateRequest(form));
+        const created = await createSuperAdminOrganization(toCreateRequest(form));
+        setSelectedId(created.id);
+        setDetail(created);
+        setForm(toForm(created));
+        if (created.tempPassword) {
+          setCreatedCredentials({
+            adminEmail: created.adminEmail,
+            tempPassword: created.tempPassword,
+          });
+          setCredentialsModalOpen(true);
+          setMessage("기관과 관리자 계정이 생성되었습니다.");
+        } else {
+          setCreatedCredentials(null);
+          setCredentialsModalOpen(false);
+          setMessage("기관이 생성되고 기존 관리자 계정이 연결되었습니다.");
+        }
+        await loadOrganizations(created.id);
+        return;
       }
+
+      let saved: SuperAdminOrganizationDetail;
+      saved = await patchSuperAdminOrganization(selectedId, toUpdateRequest(form));
 
       setSelectedId(saved.id);
       setDetail(saved);

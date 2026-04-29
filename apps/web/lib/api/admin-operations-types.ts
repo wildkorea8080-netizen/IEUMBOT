@@ -93,6 +93,11 @@ export type AdminChatbotsResponse = {
   items: AdminChatbotItem[];
 };
 
+export type AdminChatbotCreateRequest = {
+  name: string;
+  descriptionText?: string | null;
+};
+
 export type AdminChatbotResponse = {
   id: string;
   name: string;

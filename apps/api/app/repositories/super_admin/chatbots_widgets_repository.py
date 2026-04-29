@@ -45,11 +45,13 @@ def create_chatbot(
     *,
     organization_id: str,
     name: str,
+    description_text: str | None = None,
     status: str = "active",
 ) -> ChatbotSetting:
     row = ChatbotSetting(
         organization_id=organization_id,
         name=name,
+        description_text=description_text,
         status=status,
     )
     db.add(row)

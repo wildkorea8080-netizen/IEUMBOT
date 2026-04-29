@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.api.dependencies.auth import AdminPrincipal
 from app.repositories.admin.operations_repository import (
+    average_response_time_seconds,
     count_answered_messages,
     count_chat_sessions,
     count_chatbots,
@@ -15,7 +16,6 @@ from app.repositories.admin.operations_repository import (
     count_web_sources_by_chatbot,
     daily_message_counts,
     daily_session_counts,
-    average_response_time_seconds,
     get_latest_document_version,
     get_widget_by_chatbot,
     list_chatbots,
@@ -23,17 +23,17 @@ from app.repositories.admin.operations_repository import (
     list_recent_assistant_messages,
     list_user_message_contents_for_range,
 )
+from app.repositories.logs.audit_log_repository import create_audit_log
 from app.repositories.logs.chat_trace_repository import get_latest_user_question_for_session
-from app.services.admin.scope_service import (
-    ensure_chatbot_in_scope,
-    ensure_document_in_scope,
-    require_institution_organization_id,
+from app.repositories.super_admin.chatbots_widgets_repository import (
+    create_chatbot,
+    get_chatbot_by_org_name,
 )
-from app.services.widget_install_script import build_widget_install_script
 from app.schemas.admin_operations import (
+    AdminChatbotCreateRequest,
+    AdminChatbotItem,
     AdminChatbotResponse,
     AdminChatbotsListResponse,
-    AdminChatbotItem,
     AdminChatbotUpdateRequest,
     AdminDashboardQuestionTypeItem,
     AdminDashboardRecentChatItem,
@@ -46,6 +46,13 @@ from app.schemas.admin_operations import (
     AdminWidgetResponse,
     AdminWidgetUpdateRequest,
 )
+from app.services.admin.scope_service import (
+    ensure_chatbot_in_scope,
+    ensure_document_in_scope,
+    require_institution_organization_id,
+)
+from app.services.limits_service import check_chatbot_limit
+from app.services.widget_install_script import build_widget_install_script
 
 
 def _validate_uuid(value: str, detail: str) -> str:
@@ -342,6 +349,73 @@ def get_chatbot_service(
             organization_id=organization_id,
             chatbot_id=str(row.id),
         ),
+        created_at=row.created_at.isoformat(),
+        updated_at=row.updated_at.isoformat(),
+    )
+
+
+def create_chatbot_service(
+    db: Session,
+    *,
+    principal: AdminPrincipal,
+    body: AdminChatbotCreateRequest,
+) -> AdminChatbotResponse:
+    organization_id = require_institution_organization_id(principal)
+    chatbot_name = body.name.strip()
+    if not chatbot_name:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="CHATBOT_NAME_REQUIRED")
+
+    description_text = body.description_text.strip() if isinstance(body.description_text, str) else None
+    if description_text == "":
+        description_text = None
+
+    duplicated = get_chatbot_by_org_name(db, organization_id=organization_id, name=chatbot_name)
+    if duplicated is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="CHATBOT_NAME_CONFLICT")
+
+    check_chatbot_limit(db, organization_id=organization_id, admin_id=principal.admin_id)
+
+    row = create_chatbot(
+        db,
+        organization_id=organization_id,
+        name=chatbot_name,
+        description_text=description_text,
+        status="active",
+    )
+
+    create_audit_log(
+        db,
+        organization_id=organization_id,
+        admin_id=principal.admin_id,
+        action="admin.chatbot.create",
+        target_type="chatbot",
+        target_id=str(row.id),
+        result="success",
+        request_id=None,
+        metadata_json={
+            "name": row.name,
+            "status": row.status,
+        },
+    )
+    db.commit()
+    db.refresh(row)
+    return AdminChatbotResponse(
+        id=str(row.id),
+        name=row.name,
+        status=row.status,
+        organization_id=str(row.organization_id),
+        tone=row.tone,
+        answer_length=row.answer_length,
+        citation_mode=row.citation_mode,
+        web_search_enabled=row.web_search_enabled,
+        welcome_message=row.welcome_message,
+        fallback_message=row.fallback_message,
+        description_text=row.description_text,
+        theme=row.theme or {},
+        business_hours=row.business_hours or {},
+        escalation_policy=row.escalation_policy or {},
+        document_count=0,
+        website_count=0,
         created_at=row.created_at.isoformat(),
         updated_at=row.updated_at.isoformat(),
     )

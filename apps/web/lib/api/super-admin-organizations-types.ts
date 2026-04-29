@@ -65,7 +65,7 @@ export type SuperAdminOrganizationUpsertRequest = {
 
 export type SuperAdminOrganizationCreateResponse = SuperAdminOrganizationDetail & {
   adminEmail: string;
-  tempPassword: string;
+  tempPassword?: string | null;
   mustChangePassword: boolean;
 };
 

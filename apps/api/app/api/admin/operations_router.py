@@ -4,12 +4,13 @@ from sqlalchemy.orm import Session
 from app.api.dependencies.auth import AdminPrincipal, require_institution_admin_auth
 from app.db import get_db_session
 from app.schemas.admin_operations import (
+    AdminChatbotCreateRequest,
     AdminChatbotResponse,
     AdminChatbotsListResponse,
     AdminChatbotUpdateRequest,
-    AdminDashboardResponse,
     AdminDashboardQuestionTypeItem,
     AdminDashboardRecentChatItem,
+    AdminDashboardResponse,
     AdminDashboardUsageTrendItem,
     AdminDocumentResponse,
     AdminDocumentsListResponse,
@@ -18,12 +19,13 @@ from app.schemas.admin_operations import (
     AdminWidgetUpdateRequest,
 )
 from app.services.admin.operations_service import (
+    create_chatbot_service,
     delete_document_service,
-    get_dashboard_summary_service,
+    get_chatbot_service,
     get_dashboard_question_types_service,
     get_dashboard_recent_chats_service,
+    get_dashboard_summary_service,
     get_dashboard_usage_trend_service,
-    get_chatbot_service,
     get_widget_service,
     list_chatbots_service,
     list_documents_service,
@@ -136,6 +138,19 @@ def admin_chatbots_list(
     db: Session = Depends(get_db_session),
 ) -> AdminChatbotsListResponse:
     return list_chatbots_service(db, principal=principal)
+
+
+@router.post("/chatbots", response_model=AdminChatbotResponse, status_code=status.HTTP_201_CREATED)
+def admin_create_chatbot(
+    body: AdminChatbotCreateRequest,
+    principal: AdminPrincipal = Depends(require_institution_admin_auth),
+    db: Session = Depends(get_db_session),
+) -> AdminChatbotResponse:
+    return create_chatbot_service(
+        db,
+        principal=principal,
+        body=body,
+    )
 
 
 @router.get("/chatbots/{chatbot_id}", response_model=AdminChatbotResponse)

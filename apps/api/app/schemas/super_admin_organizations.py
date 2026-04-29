@@ -89,5 +89,5 @@ class SuperAdminOrganizationDetailResponse(ApiSchema):
 
 class SuperAdminOrganizationCreateResponse(SuperAdminOrganizationDetailResponse):
     admin_email: str
-    temp_password: str = Field(alias="tempPassword")
-    must_change_password: bool = Field(default=True, alias="mustChangePassword")
+    temp_password: str | None = Field(default=None, alias="tempPassword")
+    must_change_password: bool = Field(default=False, alias="mustChangePassword")

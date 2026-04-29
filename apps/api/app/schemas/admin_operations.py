@@ -72,6 +72,11 @@ class AdminChatbotsListResponse(ApiSchema):
     items: list[AdminChatbotItem]
 
 
+class AdminChatbotCreateRequest(ApiSchema):
+    name: str
+    description_text: str | None = None
+
+
 class AdminChatbotUpdateRequest(ApiSchema):
     name: str | None = None
     status: str | None = None

@@ -38,6 +38,8 @@ ORGANIZATION_STATUS_SET = {"active", "suspended", "trial"}
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 ORGANIZATION_CODE_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{1,119}$")
 TEMP_PASSWORD_ALPHABET = string.ascii_letters + string.digits + "!@#$%^&*"
+INSTITUTION_ADMIN_ROLES = {"institution_admin", "admin"}
+SUPER_ADMIN_ROLE = "super_admin"
 
 
 def _normalize_optional_text(value: str | None) -> str | None:
@@ -87,6 +89,13 @@ def _normalize_contact_email(value: str | None) -> str | None:
     return lowered
 
 
+def _normalize_admin_email(value: str) -> str:
+    normalized = value.strip().lower()
+    if not EMAIL_PATTERN.match(normalized):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="INVALID_ADMIN_EMAIL")
+    return normalized
+
+
 def _build_unique_slug(db: Session, *, name: str) -> str:
     base_slug = _slugify_name(name)
     candidate = base_slug
@@ -119,6 +128,37 @@ def _validate_organization_id(organization_id: str) -> str:
         return str(uuid.UUID(organization_id))
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="ORGANIZATION_NOT_FOUND") from exc
+
+
+def _upsert_existing_organization(
+    *,
+    row,
+    name: str,
+    status_value: str,
+    primary_domain: str | None,
+    contact_name: str | None,
+    contact_email: str | None,
+    contact_phone: str | None,
+) -> None:
+    row.name = name
+    row.status = status_value
+    row.primary_domain = primary_domain
+    row.contact_name = contact_name
+    row.contact_email = contact_email
+    row.contact_phone = contact_phone
+
+
+def _attach_or_update_institution_admin(
+    *,
+    admin_row,
+    organization_id: str,
+    admin_name: str,
+):
+    admin_row.organization_id = organization_id
+    admin_row.name = admin_name
+    admin_row.role = "institution_admin"
+    admin_row.status = "active"
+    return admin_row
 
 
 def list_organizations_service(
@@ -175,44 +215,90 @@ def create_organization_service(
     if not name:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="INVALID_ORGANIZATION_NAME")
     code = _normalize_organization_code(body.code)
-    admin_email = _normalize_contact_email(body.admin_email)
+    admin_email = _normalize_admin_email(body.admin_email)
     admin_name = _normalize_optional_text(body.admin_name)
     if admin_name is None:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="INVALID_ADMIN_NAME")
     primary_domain = _normalize_primary_domain(body.primary_domain)
+    contact_name = _normalize_optional_text(body.contact_name)
+    contact_email = _normalize_contact_email(body.contact_email)
+    contact_phone = _normalize_optional_text(body.contact_phone)
     status_value = body.status
     _validate_status(status_value)
 
-    if get_organization_by_slug(db, slug=code) is not None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="ORGANIZATION_CODE_ALREADY_EXISTS")
+    existing_org = get_organization_by_slug(db, slug=code)
     if primary_domain:
         exists = get_organization_by_primary_domain(db, primary_domain=primary_domain)
-        if exists is not None:
+        if exists is not None and (existing_org is None or str(exists.id) != str(existing_org.id)):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="PRIMARY_DOMAIN_ALREADY_EXISTS")
-    if get_admin_by_email(db, email=admin_email) is not None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="ADMIN_EMAIL_ALREADY_EXISTS")
+    existing_admin = get_admin_by_email(db, email=admin_email)
 
-    row = create_organization(
-        db,
-        name=name,
-        slug=code,
-        status=status_value,
-        primary_domain=primary_domain,
-        contact_name=_normalize_optional_text(body.contact_name),
-        contact_email=_normalize_contact_email(body.contact_email),
-        contact_phone=_normalize_optional_text(body.contact_phone),
-    )
-    temp_password = _generate_temp_password()
-    admin_row = create_admin(
-        db,
-        organization_id=str(row.id),
-        email=admin_email,
-        name=admin_name,
-        role="institution_admin",
-        status="active",
-        password_hash=hash_password(temp_password),
-        must_change_password=True,
-    )
+    if existing_admin is not None and str(existing_admin.role) == SUPER_ADMIN_ROLE:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="SUPER_ADMIN_EMAIL_REUSE_FORBIDDEN")
+
+    if existing_org is not None:
+        if existing_admin is None or str(existing_admin.organization_id) != str(existing_org.id):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="ORGANIZATION_CODE_ALREADY_EXISTS")
+        if str(existing_admin.role) not in INSTITUTION_ADMIN_ROLES:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="ADMIN_EMAIL_ALREADY_EXISTS")
+
+        _upsert_existing_organization(
+            row=existing_org,
+            name=name,
+            status_value=status_value,
+            primary_domain=primary_domain,
+            contact_name=contact_name,
+            contact_email=contact_email,
+            contact_phone=contact_phone,
+        )
+        admin_row = _attach_or_update_institution_admin(
+            admin_row=existing_admin,
+            organization_id=str(existing_org.id),
+            admin_name=admin_name,
+        )
+        row = existing_org
+        temp_password: str | None = None
+        must_change_password = bool(admin_row.must_change_password)
+    else:
+        row = create_organization(
+            db,
+            name=name,
+            slug=code,
+            status=status_value,
+            primary_domain=primary_domain,
+            contact_name=contact_name,
+            contact_email=contact_email,
+            contact_phone=contact_phone,
+        )
+
+        if existing_admin is None:
+            temp_password = _generate_temp_password()
+            admin_row = create_admin(
+                db,
+                organization_id=str(row.id),
+                email=admin_email,
+                name=admin_name,
+                role="institution_admin",
+                status="active",
+                password_hash=hash_password(temp_password),
+                must_change_password=True,
+            )
+            must_change_password = True
+        else:
+            if str(existing_admin.role) not in INSTITUTION_ADMIN_ROLES:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="ADMIN_EMAIL_ALREADY_EXISTS")
+            if existing_admin.organization_id is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="ADMIN_EMAIL_ALREADY_ASSIGNED_TO_OTHER_ORGANIZATION",
+                )
+            admin_row = _attach_or_update_institution_admin(
+                admin_row=existing_admin,
+                organization_id=str(row.id),
+                admin_name=admin_name,
+            )
+            temp_password = None
+            must_change_password = bool(admin_row.must_change_password)
 
     create_audit_log(
         db,
@@ -229,6 +315,7 @@ def create_organization_service(
             "status": row.status,
             "primaryDomain": row.primary_domain,
             "adminEmail": admin_row.email,
+            "adminLinked": temp_password is None,
         },
     )
     db.commit()
@@ -238,7 +325,7 @@ def create_organization_service(
         **detail.model_dump(),
         admin_email=admin_row.email,
         temp_password=temp_password,
-        must_change_password=True,
+        must_change_password=must_change_password,
     )
 
 
