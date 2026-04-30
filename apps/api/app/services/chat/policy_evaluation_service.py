@@ -8,17 +8,17 @@ CONFLICT_KEYWORD_PAIRS = [
     ("가능", "불가"),
     ("허용", "제한"),
     ("필수", "선택"),
-    ("대상", "비대상"),
+    ("무료", "유료"),
 ]
 
 LATEST_QUERY_KEYWORDS = ["최신", "최근", "현재", "변경", "개정", "업데이트"]
-OUTCOME_PREDICTION_KEYWORDS = ["될까요", "가능할까요", "당첨", "선정", "승인", "합격", "결과"]
-LEGAL_JUDGMENT_KEYWORDS = ["위법", "합법", "법적으로", "법률해석", "소송", "판결"]
+OUTCOME_PREDICTION_KEYWORDS = ["될까요", "가능할까요", "합격", "선정", "통과", "결과"]
+LEGAL_JUDGMENT_KEYWORDS = ["위법", "불법", "법적으로", "법률해석", "소송", "판결"]
 DEFINITIVE_CLAIM_KEYWORDS = ["확정", "무조건", "반드시", "100%"]
 SLOT_KEYWORDS = {
     "조건": ["조건", "자격", "요건"],
     "기간": ["기간", "기한", "마감", "일정"],
-    "대상": ["대상", "신청자", "지원대상"],
+    "대상": ["대상", "신청자", "지원자"],
     "방법": ["방법", "절차", "신청", "접수"],
 }
 GREETING_KEYWORDS = [
@@ -33,6 +33,37 @@ GREETING_KEYWORDS = [
     "good afternoon",
     "good evening",
 ]
+GRATITUDE_KEYWORDS = [
+    "고마워",
+    "고맙습니다",
+    "감사",
+    "thank you",
+    "thanks",
+    "thx",
+]
+SMALL_TALK_KEYWORDS = [
+    "잘 지내",
+    "잘지내",
+    "어떻게 지내",
+    "어떻게지내",
+    "괜찮아",
+    "괜찮으세요",
+    "뭐해",
+    "뭐 하니",
+    "심심해",
+    "재밌네",
+    "오늘 어때",
+    "주말 뭐해",
+    "what's up",
+    "hows it going",
+    "how are you",
+]
+ABUSIVE_KEYWORDS = {
+    "critical": ["죽어", "fuck you", "꺼져", "닥쳐", "개새끼"],
+    "high": ["씨발", "시발", "병신", "bastard"],
+    "medium": ["멍청", "idiot", "stupid"],
+    "low": ["짜증", "답답", "별로", "이상하네"],
+}
 DOMAIN_KEYWORDS = [
     "해외농업",
     "농업개발",
@@ -40,14 +71,13 @@ DOMAIN_KEYWORDS = [
     "농업",
     "oa",
     "oads",
-    "협회",
-    "지원",
     "사업",
     "문의",
-    "신청",
+    "요청",
     "교육",
     "연수",
     "정책",
+    "지원",
 ]
 
 
@@ -59,7 +89,8 @@ def _detect_conflict(candidates: list[dict[str, Any]]) -> bool:
     top = candidates[:3]
     if len(top) < 2:
         return False
-    signals = []
+
+    signals: list[str] = []
     for item in top:
         signal_text = (
             f"{item.get('documentName', '')} "
@@ -86,8 +117,12 @@ def _coverage_score(candidates: list[dict[str, Any]]) -> dict[str, bool]:
     return {slot: _contains_any(merged_text, keywords) for slot, keywords in SLOT_KEYWORDS.items()}
 
 
+def _normalize_question(question: str) -> str:
+    return " ".join(question.strip().lower().split())
+
+
 def _is_greeting(question: str) -> bool:
-    normalized = " ".join(question.strip().lower().split())
+    normalized = _normalize_question(question)
     if not normalized:
         return False
     if normalized in {"hi", "hello", "hey", "안녕", "안녕하세요"}:
@@ -95,8 +130,34 @@ def _is_greeting(question: str) -> bool:
     return any(keyword in normalized for keyword in GREETING_KEYWORDS)
 
 
+def _is_gratitude(question: str) -> bool:
+    normalized = _normalize_question(question)
+    if not normalized:
+        return False
+    return any(keyword in normalized for keyword in GRATITUDE_KEYWORDS)
+
+
+def _is_small_talk(question: str) -> bool:
+    normalized = _normalize_question(question)
+    if not normalized or len(normalized) > 40:
+        return False
+    if _is_greeting(normalized) or _is_gratitude(normalized):
+        return False
+    return any(keyword in normalized for keyword in SMALL_TALK_KEYWORDS)
+
+
+def _abuse_severity_from_question(question: str) -> str | None:
+    normalized = _normalize_question(question)
+    if not normalized:
+        return None
+    for severity in ("critical", "high", "medium", "low"):
+        if any(keyword in normalized for keyword in ABUSIVE_KEYWORDS[severity]):
+            return severity
+    return None
+
+
 def evaluate_answer_policy(context: dict[str, Any]) -> dict[str, Any]:
-    question = str(context.get("question", "")).strip().lower()
+    question = _normalize_question(str(context.get("question", "")))
     candidates: list[dict[str, Any]] = context.get("retrievedCandidates", [])
     answer_settings: AnswerSettings = context["answerSettings"]
     answer_validation_policy: dict[str, Any] = context.get("answerValidationPolicy", {}) or {}
@@ -106,17 +167,23 @@ def evaluate_answer_policy(context: dict[str, Any]) -> dict[str, Any]:
     unrelated_combined_score_threshold = float(answer_validation_policy.get("unrelatedCombinedScoreThreshold", 0.08))
     today = date.today()
 
-    valid_candidates = []
+    valid_candidates: list[dict[str, Any]] = []
     outdated_risk = False
     citation_ready_count = 0
     top_combined_score = 0.0
     domain_keyword_matched = _contains_any(question, DOMAIN_KEYWORDS)
     greeting_detected = _is_greeting(question)
+    gratitude_detected = _is_gratitude(question)
+    small_talk_detected = _is_small_talk(question)
+    abusive_severity = str(context.get("abusiveSeverity") or _abuse_severity_from_question(question) or "")
+    abusive_detected = bool(abusive_severity)
+    repeated_user_dissatisfaction = bool(context.get("repeatedUserDissatisfaction"))
 
     for item in candidates:
         combined_score = float(item.get("combinedScore", 0.0))
         if combined_score > top_combined_score:
             top_combined_score = combined_score
+
         effective_date = item.get("effectiveDate")
         expiration_date = item.get("expirationDate")
 
@@ -126,6 +193,7 @@ def evaluate_answer_policy(context: dict[str, Any]) -> dict[str, Any]:
                 is_effective_ok = date.fromisoformat(effective_date) <= today
             except ValueError:
                 is_effective_ok = False
+
         is_not_expired = True
         if expiration_date:
             try:
@@ -172,6 +240,8 @@ def evaluate_answer_policy(context: dict[str, Any]) -> dict[str, Any]:
 
     unrelated_question = (
         not greeting_detected
+        and not gratitude_detected
+        and not small_talk_detected
         and not domain_keyword_matched
         and top_combined_score < unrelated_combined_score_threshold
     )
@@ -182,6 +252,11 @@ def evaluate_answer_policy(context: dict[str, Any]) -> dict[str, Any]:
         "outdatedRisk": bool(outdated_risk),
         "restrictedTopic": bool(restricted_topic),
         "greetingDetected": bool(greeting_detected),
+        "gratitudeDetected": bool(gratitude_detected),
+        "smallTalkDetected": bool(small_talk_detected),
+        "abusiveDetected": bool(abusive_detected),
+        "abusiveSeverity": abusive_severity or None,
+        "repeatedUserDissatisfaction": bool(repeated_user_dissatisfaction),
         "domainKeywordMatched": bool(domain_keyword_matched),
         "unrelatedQuestion": bool(unrelated_question),
         "topCombinedScore": float(top_combined_score),
@@ -194,17 +269,28 @@ def evaluate_answer_policy(context: dict[str, Any]) -> dict[str, Any]:
             "flags": {
                 **flags,
                 "afterHours": context.get("afterHours", False),
-                "repeatedUserDissatisfaction": context.get("repeatedUserDissatisfaction", False),
+                "repeatedUserDissatisfaction": repeated_user_dissatisfaction,
             },
         }
     )
+
+    if abusive_detected:
+        return {
+            "decision": "restricted",
+            "reason": "욕설 또는 공격적 표현이 감지되어 응답 톤을 제한합니다.",
+            "flags": flags,
+            "recommendedAction": "fallback",
+            "safeMessage": "원활한 안내를 위해 정중한 표현으로 다시 말씀해 주세요. 업무 관련 질문은 계속 도와드릴 수 있습니다.",
+            "guardrailEvaluation": guardrail_eval,
+        }
+
     if guardrail_eval.get("matched"):
         final_action = guardrail_eval.get("finalAction")
         safe_message = guardrail_eval.get("safeMessage")
         if final_action == "restricted":
             return {
                 "decision": "restricted",
-                "reason": "가드레일 규칙에 의해 제한 응답으로 분류되었습니다.",
+                "reason": "가드레일 규칙에 따라 제한 응답으로 분류했습니다.",
                 "flags": flags,
                 "recommendedAction": (
                     "escalate"
@@ -218,7 +304,7 @@ def evaluate_answer_policy(context: dict[str, Any]) -> dict[str, Any]:
         if final_action == "escalate":
             return {
                 "decision": "escalate",
-                "reason": "가드레일 규칙에 의해 담당 부서 연결이 필요합니다.",
+                "reason": "가드레일 규칙에 따라 담당 부서 연결이 필요합니다.",
                 "flags": flags,
                 "recommendedAction": "escalate",
                 "safeMessage": safe_message
@@ -231,14 +317,13 @@ def evaluate_answer_policy(context: dict[str, Any]) -> dict[str, Any]:
                 "reason": "가드레일 규칙에 따라 추가 확인 질문이 필요합니다.",
                 "flags": flags,
                 "recommendedAction": "ask_clarification",
-                "safeMessage": safe_message
-                or "정확한 안내를 위해 몇 가지 확인 질문이 필요합니다.",
+                "safeMessage": safe_message or "정확한 안내를 위해 몇 가지 확인 질문이 필요합니다.",
                 "guardrailEvaluation": guardrail_eval,
             }
         if final_action == "fallback":
             return {
                 "decision": "insufficient_evidence",
-                "reason": "가드레일 규칙에 의해 안전 안내 문구로 전환되었습니다.",
+                "reason": "가드레일 규칙에 따라 안전 안내 문구로 전환했습니다.",
                 "flags": flags,
                 "recommendedAction": "fallback",
                 "safeMessage": safe_message
@@ -249,7 +334,7 @@ def evaluate_answer_policy(context: dict[str, Any]) -> dict[str, Any]:
     if restricted_topic:
         return {
             "decision": "restricted",
-            "reason": "질문이 제한 주제를 포함하여 확정형 답변이 제한됩니다.",
+            "reason": "질문에 제한 주제가 포함되어 확정적 답변을 제한합니다.",
             "flags": flags,
             "recommendedAction": (
                 "escalate" if answer_settings.escalation_operating.enable_escalation_suggestion else "fallback"
@@ -258,10 +343,20 @@ def evaluate_answer_policy(context: dict[str, Any]) -> dict[str, Any]:
             "guardrailEvaluation": guardrail_eval,
         }
 
+    if repeated_user_dissatisfaction and answer_settings.escalation_operating.enable_escalation_suggestion:
+        return {
+            "decision": "escalate",
+            "reason": "사용자 불만이 반복되어 상담 연결을 우선합니다.",
+            "flags": flags,
+            "recommendedAction": "escalate",
+            "safeMessage": answer_settings.escalation_operating.escalation_fallback_message,
+            "guardrailEvaluation": guardrail_eval,
+        }
+
     if conflict_detected:
         return {
             "decision": "conflict",
-            "reason": "상위 근거 문서 간 충돌 가능성이 감지되었습니다.",
+            "reason": "상위 근거 문서 간 충돌 가능성을 감지했습니다.",
             "flags": flags,
             "recommendedAction": "ask_clarification",
             "safeMessage": "근거 간 차이가 있어 추가 확인이 필요합니다. 담당 부서 확인을 권장합니다.",
@@ -278,8 +373,32 @@ def evaluate_answer_policy(context: dict[str, Any]) -> dict[str, Any]:
             "guardrailEvaluation": guardrail_eval,
         }
 
+    if gratitude_detected:
+        return {
+            "decision": "allow",
+            "reason": "감사 표현으로 판단되어 짧은 응답을 허용합니다.",
+            "flags": flags,
+            "recommendedAction": "answer",
+            "safeMessage": None,
+            "guardrailEvaluation": guardrail_eval,
+        }
+
+    if small_talk_detected:
+        return {
+            "decision": "allow",
+            "reason": "업무 외 짧은 잡담으로 판단되어 제한된 자연 응답을 허용합니다.",
+            "flags": flags,
+            "recommendedAction": "answer",
+            "safeMessage": None,
+            "guardrailEvaluation": guardrail_eval,
+        }
+
     if missing_evidence and answer_settings.answer_policy.disallow_answer_without_evidence:
-        action = "escalate" if unrelated_question and answer_settings.escalation_operating.enable_escalation_suggestion else "fallback"
+        action = (
+            "escalate"
+            if unrelated_question and answer_settings.escalation_operating.enable_escalation_suggestion
+            else "fallback"
+        )
         safe_message = (
             answer_settings.escalation_operating.escalation_fallback_message
             if action == "escalate"
@@ -287,7 +406,7 @@ def evaluate_answer_policy(context: dict[str, Any]) -> dict[str, Any]:
         )
         return {
             "decision": "insufficient_evidence",
-            "reason": "답변 근거가 충분하지 않아 정책상 답변 생성을 차단합니다.",
+            "reason": "답변 근거가 충분하지 않아 정확한 답변 생성을 차단합니다.",
             "flags": flags,
             "recommendedAction": action,
             "safeMessage": safe_message,
@@ -297,7 +416,7 @@ def evaluate_answer_policy(context: dict[str, Any]) -> dict[str, Any]:
     if outdated_risk and answer_settings.answer_policy.require_latest_source_check_warning_when_relevant:
         return {
             "decision": "escalate",
-            "reason": "최신성/유효기간 리스크가 감지되어 추가 확인이 필요합니다.",
+            "reason": "최신성 또는 유효기간 리스크가 감지되어 추가 확인이 필요합니다.",
             "flags": flags,
             "recommendedAction": "escalate",
             "safeMessage": answer_settings.escalation_operating.escalation_fallback_message,
@@ -306,7 +425,7 @@ def evaluate_answer_policy(context: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "decision": "allow",
-        "reason": "정책 점검 통과: 답변 생성 진행 가능",
+        "reason": "정책 평가를 통과해 답변 생성을 진행할 수 있습니다.",
         "flags": flags,
         "recommendedAction": "answer",
         "safeMessage": None,

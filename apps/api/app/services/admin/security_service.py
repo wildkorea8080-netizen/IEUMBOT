@@ -61,6 +61,24 @@ def _fallback_message(message: ChatMessage, event_type: str) -> str | None:
     return None
 
 
+def _event_severity(message: ChatMessage) -> str | None:
+    metadata = dict(message.metadata_json or {})
+    tone = metadata.get("conversationTone")
+    if isinstance(tone, dict):
+        severity = tone.get("abusiveSeverity")
+        if isinstance(severity, str) and severity:
+            return severity
+    return None
+
+
+def _is_repeated_dissatisfaction(message: ChatMessage) -> bool:
+    metadata = dict(message.metadata_json or {})
+    tone = metadata.get("conversationTone")
+    if isinstance(tone, dict):
+        return bool(tone.get("repeatedUserDissatisfaction"))
+    return False
+
+
 def get_security_summary_service(
     db: Session,
     *,
@@ -74,11 +92,33 @@ def get_security_summary_service(
         from_date=datetime.combine(today, time.min, tzinfo=UTC),
         to_date=datetime.combine(today, time.max, tzinfo=UTC),
     )
+    rows, _ = list_security_events(
+        db,
+        organization_id=organization_id,
+        from_date=datetime.combine(today, time.min, tzinfo=UTC),
+        to_date=datetime.combine(today, time.max, tzinfo=UTC),
+        event_type=None,
+        severity=None,
+        repeated_dissatisfaction_only=False,
+        question_query=None,
+        offset=0,
+        limit=500,
+    )
+    severity_counts = {"low": 0, "medium": 0, "high": 0, "critical": 0}
+    repeated_dissatisfaction_escalations = 0
+    for assistant, _, _, _, _ in rows:
+        severity = _event_severity(assistant)
+        if severity in severity_counts:
+            severity_counts[severity] += 1
+        if assistant.result_type == "escalate" and _is_repeated_dissatisfaction(assistant):
+            repeated_dissatisfaction_escalations += 1
     return AdminSecuritySummaryResponse(
         blocked_today=counts["BLOCKED"],
         fallback_today=counts["FALLBACK"],
         escalation_today=counts["ESCALATION"],
         error_today=counts["ERROR"],
+        repeated_dissatisfaction_escalations_today=repeated_dissatisfaction_escalations,
+        severity_counts_today=severity_counts,
     )
 
 
@@ -89,6 +129,8 @@ def list_security_events_service(
     from_date_raw: str | None,
     to_date_raw: str | None,
     event_type: str | None,
+    severity: str | None,
+    repeated_dissatisfaction_only: bool,
     question_query: str | None,
     page: int,
     page_size: int,
@@ -100,6 +142,8 @@ def list_security_events_service(
         from_date=_parse_datetime_range(from_date_raw),
         to_date=_parse_datetime_range(to_date_raw, end_of_day=True),
         event_type=(event_type.strip().upper() if event_type else None),
+        severity=(severity.strip().lower() if severity else None),
+        repeated_dissatisfaction_only=repeated_dissatisfaction_only,
         question_query=(question_query.strip() if question_query else None),
         offset=(page - 1) * page_size,
         limit=page_size,
@@ -119,6 +163,8 @@ def list_security_events_service(
                 event_type=event_key,
                 event_label=event_label,
                 reason_label=reason_label,
+                severity=_event_severity(assistant),
+                repeated_dissatisfaction=_is_repeated_dissatisfaction(assistant),
                 response_time_ms=assistant.latency_ms,
             )
         )
@@ -161,6 +207,8 @@ def get_security_event_detail_service(
         status=assistant.status,
         time=assistant.created_at.isoformat(),
         reason_label=reason_label,
+        severity=_event_severity(assistant),
+        repeated_dissatisfaction=_is_repeated_dissatisfaction(assistant),
         fallback_message=_fallback_message(assistant, event_key),
         escalated=bool(assistant.result_type == "escalate" or assistant.escalation_reason),
         response_time_ms=assistant.latency_ms,

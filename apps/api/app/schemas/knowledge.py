@@ -4,7 +4,6 @@ from pydantic import Field
 
 from app.schemas import ApiSchema
 
-
 KnowledgeSourceGroup = Literal["file_text", "website"]
 KnowledgeSourceType = Literal["file", "text", "website"]
 
@@ -44,6 +43,10 @@ class KnowledgeDetailResponse(KnowledgeItem):
     url: str | None = None
     source_path: str | None = None
     last_indexed_at: str | None = None
+    crawl_page_limit: int | None = None
+    excluded_paths: list[str] = Field(default_factory=list)
+    crawled_urls: list[str] = Field(default_factory=list)
+    crawled_page_count: int | None = None
 
 
 class KnowledgeUpsertRequest(ApiSchema):
@@ -55,6 +58,8 @@ class KnowledgeUpsertRequest(ApiSchema):
     effective_date: str | None = None
     expiration_date: str | None = None
     department: str | None = None
+    crawl_page_limit: int | None = Field(default=None, ge=1, le=100)
+    excluded_paths: list[str] | None = None
     is_active: bool | None = None
 
 
@@ -74,6 +79,8 @@ class KnowledgeWebsiteCreateRequest(ApiSchema):
     chatbot_id: str
     url: str
     title: str
+    crawl_page_limit: int = Field(default=12, ge=1, le=100)
+    excluded_paths: list[str] = Field(default_factory=list)
     category: str | None = None
     field: str | None = None
     tags: list[str] = Field(default_factory=list)

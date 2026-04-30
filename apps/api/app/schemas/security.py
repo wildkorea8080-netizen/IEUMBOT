@@ -6,6 +6,8 @@ class AdminSecuritySummaryResponse(ApiSchema):
     fallback_today: int
     escalation_today: int
     error_today: int
+    repeated_dissatisfaction_escalations_today: int = 0
+    severity_counts_today: dict[str, int] = {}
 
 
 class AdminSecurityEventItem(ApiSchema):
@@ -18,6 +20,8 @@ class AdminSecurityEventItem(ApiSchema):
     event_type: str
     event_label: str
     reason_label: str
+    severity: str | None = None
+    repeated_dissatisfaction: bool = False
     response_time_ms: int | None = None
 
 
@@ -40,6 +44,8 @@ class AdminSecurityEventDetailResponse(ApiSchema):
     status: str
     time: str
     reason_label: str
+    severity: str | None = None
+    repeated_dissatisfaction: bool = False
     fallback_message: str | None = None
     escalated: bool
     response_time_ms: int | None = None

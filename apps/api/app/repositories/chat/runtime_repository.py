@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -34,6 +34,21 @@ def count_user_messages_in_session(
     return int(db.execute(stmt).scalar_one() or 0)
 
 
+def list_recent_session_messages(
+    db: Session,
+    *,
+    session_id: str,
+    limit: int = 8,
+) -> list[ChatMessage]:
+    stmt = (
+        select(ChatMessage)
+        .where(ChatMessage.session_id == uuid.UUID(session_id))
+        .order_by(ChatMessage.created_at.desc())
+        .limit(limit)
+    )
+    return list(db.execute(stmt).scalars().all())
+
+
 def create_chat_session(
     db: Session,
     *,
@@ -49,8 +64,8 @@ def create_chat_session(
         source_url=source_url,
         status="active",
         client_context={},
-        started_at=datetime.now(timezone.utc),
-        last_message_at=datetime.now(timezone.utc),
+        started_at=datetime.now(UTC),
+        last_message_at=datetime.now(UTC),
     )
     db.add(row)
     db.flush()
@@ -75,6 +90,7 @@ def create_chat_message(
     selected_sources: list[dict],
     final_decision: dict,
     validation_signals: dict,
+    metadata_json: dict | None = None,
     escalation_reason: str | None = None,
     escalation_target_department: str | None = None,
     escalation_target_queue: str | None = None,
@@ -89,7 +105,7 @@ def create_chat_message(
         content_masked=None,
         status=status,
         model_name=model_name,
-        metadata_json={},
+        metadata_json=metadata_json or {},
         classification_result={},
         rewritten_query=None,
         normalized_query=normalized_query,

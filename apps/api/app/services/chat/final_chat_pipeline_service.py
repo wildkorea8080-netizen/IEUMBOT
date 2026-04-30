@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import HTTPException, status
@@ -12,6 +12,7 @@ from app.repositories.chat.runtime_repository import (
     create_chat_session,
     create_citations,
     get_chat_session_by_token,
+    list_recent_session_messages,
 )
 from app.repositories.logs.audit_log_repository import create_audit_log
 from app.schemas.chat_policy import PreAnswerRequest
@@ -22,31 +23,50 @@ from app.services.chat.fallback_response_service import build_fallback_response
 from app.services.chat.policy_evaluation_service import evaluate_answer_policy
 from app.services.chat.prompt_assembly_service import build_answer_prompt
 from app.services.chat.retrieval_precheck_service import normalize_query, retrieve_for_precheck
+from app.services.enforcement_service import ensure_runtime_access_for_chatbot
 from app.services.escalations.runtime_escalation_service import (
     get_effective_escalation_rules_for_runtime,
     map_escalation_target_for_runtime,
 )
 from app.services.guardrails.runtime_guardrails_service import get_effective_guardrails_for_runtime
 from app.services.limits_service import check_conversation_limit
-from app.services.enforcement_service import ensure_runtime_access_for_chatbot
 from app.services.settings.answer_settings_service import get_effective_answer_settings_for_runtime
 
-GREETING_RESPONSE = "안녕하세요! 무엇을 도와드릴까요?\n해외농업개발 관련 궁금하신 내용을 알려주세요."
+GREETING_RESPONSE = "안녕하세요. 무엇을 도와드릴까요?\n해외농업개발 관련 궁금하신 내용을 알려주세요."
+THANKS_RESPONSE = "도움이 되었다면 다행입니다. 필요한 내용이 있으면 이어서 말씀해 주세요."
+SMALL_TALK_FIRST_RESPONSE = "가벼운 대화도 괜찮지만, 저는 해외농업개발 관련 안내에 가장 정확하게 답할 수 있어요.\n궁금한 제도, 사업, 신청 조건, 절차가 있으면 편하게 물어보세요."
+SMALL_TALK_REDIRECT_RESPONSE = "업무 관련 질문을 주시면 바로 도와드리겠습니다.\n예를 들면 사업 내용, 신청 대상, 제출 서류, 진행 절차를 물어보실 수 있어요."
 SOFT_GUIDANCE_RESPONSES = [
-    "안녕하세요! 무엇을 도와드릴까요?\n해외농업개발 관련 궁금하신 내용을 알려주세요.",
-    "지금 바로 확인되는 자료는 많지 않지만, 알고 싶은 내용을 조금 더 구체적으로 말씀해 주시면 도와드릴게요.\n해외농업개발 관련 궁금하신 내용을 알려주세요.",
+    "안녕하세요. 무엇을 도와드릴까요?\n해외농업개발 관련 궁금하신 내용을 알려주세요.",
+    "지금 바로 확인되는 자료가 많지 않지만, 묻고 싶은 내용을 조금 더 구체적으로 말씀해 주시면 도와드릴게요.\n해외농업개발 관련 궁금하신 내용을 알려주세요.",
+]
+ABUSIVE_KEYWORDS = {
+    "critical": ["죽어", "fuck you", "꺼져", "닥쳐", "개새끼"],
+    "high": ["씨발", "시발", "병신", "bastard"],
+    "medium": ["멍청", "idiot", "stupid"],
+    "low": ["짜증", "답답", "별로", "이상하네"],
+}
+DISSATISFACTION_KEYWORDS = [
+    "이상해",
+    "이상하네",
+    "도움이 안",
+    "쓸모없",
+    "별로야",
+    "왜 이래",
+    "말이 안",
+    "틀렸",
+    "다시 말해",
+    "다시 설명",
+    "불만",
+    "답답",
+    "not helpful",
+    "wrong answer",
+    "this is wrong",
 ]
 
 
-def _map_outcome_from_decision(decision: str) -> str:
-    mapping = {
-        "allow": "answered",
-        "insufficient_evidence": "insufficient_evidence",
-        "restricted": "restricted",
-        "conflict": "conflict",
-        "escalate": "escalate",
-    }
-    return mapping.get(decision, "insufficient_evidence")
+def _normalize_text(value: str) -> str:
+    return " ".join(value.strip().lower().split())
 
 
 def _build_public_runtime_trace(
@@ -82,6 +102,63 @@ def _build_soft_guidance_response(*, user_turn_count: int) -> str:
     return SOFT_GUIDANCE_RESPONSES[min(user_turn_count, len(SOFT_GUIDANCE_RESPONSES) - 1)]
 
 
+def _classify_abuse(question: str) -> tuple[bool, str | None, list[str]]:
+    normalized = _normalize_text(question)
+    matched: list[str] = []
+    for severity in ("critical", "high", "medium", "low"):
+        keywords = [keyword for keyword in ABUSIVE_KEYWORDS[severity] if keyword in normalized]
+        if keywords:
+            matched.extend(keywords)
+            return True, severity, keywords
+    return False, None, matched
+
+
+def _is_dissatisfied(question: str) -> bool:
+    normalized = _normalize_text(question)
+    if not normalized:
+        return False
+    return any(keyword in normalized for keyword in DISSATISFACTION_KEYWORDS)
+
+
+def _conversation_tone_summary(
+    *,
+    question: str,
+    recent_messages: list[Any],
+) -> dict[str, Any]:
+    abusive_detected, abusive_severity, abusive_keywords = _classify_abuse(question)
+    dissatisfied_current = _is_dissatisfied(question)
+    previous_dissatisfied = 0
+    previous_problem_assistant = 0
+
+    for message in recent_messages:
+        if message.role == "user":
+            tone = dict(message.metadata_json or {}).get("conversationTone") or {}
+            if tone.get("dissatisfied") or _is_dissatisfied(message.content):
+                previous_dissatisfied += 1
+        elif message.role == "assistant" and (message.result_type or "") in {
+            "insufficient_evidence",
+            "clarification",
+            "restricted",
+            "conflict",
+            "escalate",
+        }:
+            previous_problem_assistant += 1
+
+    repeated_dissatisfaction = dissatisfied_current and (
+        previous_dissatisfied >= 1 or previous_problem_assistant >= 1
+    )
+
+    return {
+        "abusiveDetected": abusive_detected,
+        "abusiveSeverity": abusive_severity,
+        "abusiveKeywords": abusive_keywords,
+        "dissatisfied": dissatisfied_current,
+        "previousDissatisfiedCount": previous_dissatisfied,
+        "previousProblemAssistantCount": previous_problem_assistant,
+        "repeatedUserDissatisfaction": repeated_dissatisfaction,
+    }
+
+
 def run_final_chat_pipeline(
     db: Session,
     *,
@@ -95,6 +172,17 @@ def run_final_chat_pipeline(
     check_conversation_limit(db, chatbot_id=str(chatbot.id))
 
     normalized_query = body.normalized_query or normalize_query(body.question)
+    session_token = body.session_token or f"session_{uuid.uuid4().hex[:20]}"
+    session = get_chat_session_by_token(
+        db,
+        organization_id=str(chatbot.organization_id),
+        chatbot_id=str(chatbot.id),
+        session_token=session_token,
+    )
+    user_turn_count = count_user_messages_in_session(db, session_id=str(session.id)) if session is not None else 0
+    recent_messages = list_recent_session_messages(db, session_id=str(session.id), limit=8) if session is not None else []
+    tone_summary = _conversation_tone_summary(question=body.question, recent_messages=recent_messages)
+
     retrieval_output = retrieve_for_precheck(
         db,
         organization_id=str(chatbot.organization_id),
@@ -126,6 +214,8 @@ def run_final_chat_pipeline(
             "answerValidationPolicy": chatbot.answer_validation_policy or {},
             "guardrailPolicy": chatbot.guardrail_policy or {},
             "runtimeGuardrails": runtime_guardrails,
+            "repeatedUserDissatisfaction": tone_summary["repeatedUserDissatisfaction"],
+            "abusiveSeverity": tone_summary["abusiveSeverity"],
         }
     )
     runtime_escalation_config = get_effective_escalation_rules_for_runtime(
@@ -152,18 +242,27 @@ def run_final_chat_pipeline(
     llm_executed = False
     llm_error_code: str | None = None
 
-    session_token = body.session_token or f"session_{uuid.uuid4().hex[:20]}"
-    session = get_chat_session_by_token(
-        db,
-        organization_id=str(chatbot.organization_id),
-        chatbot_id=str(chatbot.id),
-        session_token=session_token,
-    )
-    user_turn_count = count_user_messages_in_session(db, session_id=str(session.id)) if session is not None else 0
+    greeting_detected = bool(policy_flags.get("greetingDetected"))
+    gratitude_detected = bool(policy_flags.get("gratitudeDetected"))
+    small_talk_detected = bool(policy_flags.get("smallTalkDetected"))
+    abusive_detected = bool(policy_flags.get("abusiveDetected"))
+    natural_conversation = greeting_detected or gratitude_detected or small_talk_detected
 
-    if policy_flags.get("greetingDetected"):
+    if abusive_detected:
+        outcome = "restricted"
+        answer_text = str(
+            policy_decision.get("safeMessage")
+            or "원활한 안내를 위해 정중한 표현으로 다시 말씀해 주세요. 업무 관련 질문은 계속 도와드릴 수 있습니다."
+        )
+    elif greeting_detected:
         outcome = "answered"
         answer_text = GREETING_RESPONSE
+    elif gratitude_detected:
+        outcome = "answered"
+        answer_text = THANKS_RESPONSE
+    elif small_talk_detected:
+        outcome = "answered"
+        answer_text = SMALL_TALK_FIRST_RESPONSE if user_turn_count <= 0 else SMALL_TALK_REDIRECT_RESPONSE
     elif (
         decision in {"insufficient_evidence", "conflict", "escalate"}
         and not policy_flags.get("unrelatedQuestion")
@@ -198,24 +297,26 @@ def run_final_chat_pipeline(
         if generation.get("text"):
             answer_text = str(generation["text"])
             if guardrail_eval.get("requiresWarningNotice"):
-                warnings.append("최신 기준과 개별 조건에 따라 결과가 달라질 수 있으니 담당 부서 확인이 필요합니다.")
+                warnings.append("최신 기준이나 관계 조건에 따라 결과가 달라질 수 있으므로 담당 부서 확인이 필요합니다.")
             outcome = "answered"
         else:
             fallback = build_fallback_response(policy_decision=policy_decision, answer_settings=answer_settings)
-            if fallback["outcome"] == "answered":
-                outcome = "escalate"
-            else:
-                outcome = fallback["outcome"]
+            outcome = fallback["outcome"] if fallback["outcome"] != "answered" else "escalate"
             answer_text = fallback["text"]
             if llm_error_code:
-                warnings.append("자동 응답 처리 중 오류로 안전 안내로 전환되었습니다.")
+                warnings.append("자동 응답 처리 중 오류로 인해 안전 안내로 전환했습니다.")
 
-    if outcome == "answered" and answer_settings.answer_policy.require_citations and not citations:
+    if (
+        outcome == "answered"
+        and answer_settings.answer_policy.require_citations
+        and not citations
+        and not natural_conversation
+    ):
         fallback = build_fallback_response(policy_decision=policy_decision, answer_settings=answer_settings)
         outcome = "insufficient_evidence"
         answer_text = fallback["text"]
         llm_executed = False
-        warnings.append("인용 정보가 부족하여 답변을 안전 안내로 전환했습니다.")
+        warnings.append("인용 정보가 부족하여 안전 안내로 전환했습니다.")
 
     request_id = f"chat_run_{uuid.uuid4().hex[:16]}"
     if session is None:
@@ -228,6 +329,19 @@ def run_final_chat_pipeline(
         )
     elif body.source_url and not session.source_url:
         session.source_url = body.source_url
+
+    user_message_metadata = {
+        "conversationTone": tone_summary,
+    }
+    assistant_message_metadata = {
+        "conversationTone": {
+            "abusiveDetected": abusive_detected,
+            "abusiveSeverity": tone_summary.get("abusiveSeverity"),
+            "repeatedUserDissatisfaction": bool(policy_flags.get("repeatedUserDissatisfaction")),
+            "gratitudeDetected": gratitude_detected,
+            "smallTalkDetected": small_talk_detected,
+        }
+    }
 
     user_message = create_chat_message(
         db,
@@ -245,6 +359,7 @@ def run_final_chat_pipeline(
         selected_sources=[],
         final_decision={},
         validation_signals={},
+        metadata_json=user_message_metadata,
     )
     assistant_message = create_chat_message(
         db,
@@ -262,6 +377,7 @@ def run_final_chat_pipeline(
         selected_sources=citations,
         final_decision=policy_decision,
         validation_signals=policy_decision.get("flags", {}),
+        metadata_json=assistant_message_metadata,
         escalation_reason=(
             policy_decision.get("reason")
             if outcome in {"escalate", "restricted", "conflict", "insufficient_evidence"}
@@ -303,6 +419,13 @@ def run_final_chat_pipeline(
             "reason": policy_decision.get("reason"),
             "escalationMapping": escalation_mapping,
             "guardrailMatchedRuleIds": guardrail_eval.get("matchedRuleIds", []),
+            "safety": {
+                "abusiveDetected": abusive_detected,
+                "abusiveSeverity": tone_summary.get("abusiveSeverity"),
+                "abusiveKeywords": tone_summary.get("abusiveKeywords", []),
+                "dissatisfied": tone_summary.get("dissatisfied"),
+                "repeatedUserDissatisfaction": tone_summary.get("repeatedUserDissatisfaction"),
+            },
             "retrievalSummary": [
                 {
                     "documentId": item.get("documentId"),
@@ -334,7 +457,7 @@ def run_final_chat_pipeline(
         },
     )
 
-    session.last_message_at = datetime.now(timezone.utc)
+    session.last_message_at = datetime.now(UTC)
     db.commit()
 
     return ChatRuntimeResponse(

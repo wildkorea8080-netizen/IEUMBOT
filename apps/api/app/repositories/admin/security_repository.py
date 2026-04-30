@@ -3,7 +3,7 @@ from datetime import datetime
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, aliased
 
-from app.models import AuditLog, ChatMessage, ChatSession, ChatbotSetting
+from app.models import AuditLog, ChatbotSetting, ChatMessage, ChatSession
 
 
 def _assistant_events_parts(*, organization_id: str):
@@ -64,6 +64,8 @@ def list_security_events(
     from_date: datetime | None,
     to_date: datetime | None,
     event_type: str | None,
+    severity: str | None,
+    repeated_dissatisfaction_only: bool,
     question_query: str | None,
     offset: int,
     limit: int,
@@ -74,6 +76,14 @@ def list_security_events(
         stmt = stmt.where(assistant.created_at >= from_date)
     if to_date is not None:
         stmt = stmt.where(assistant.created_at <= to_date)
+    if severity:
+        stmt = stmt.where(
+            assistant.metadata_json["conversationTone"]["abusiveSeverity"].astext == severity.lower()
+        )
+    if repeated_dissatisfaction_only:
+        stmt = stmt.where(
+            assistant.metadata_json["conversationTone"]["repeatedUserDissatisfaction"].astext == "true"
+        )
     if question_query:
         like_value = f"%{question_query}%"
         stmt = stmt.where(
