@@ -533,6 +533,12 @@ def get_widget_service(
         logo_url=theme.get("widgetLogoUrl") if isinstance(theme.get("widgetLogoUrl"), str) else None,
         intro_message=theme.get("widgetIntroMessage") if isinstance(theme.get("widgetIntroMessage"), str) else None,
         color_preset=theme.get("widgetColorPreset") if isinstance(theme.get("widgetColorPreset"), str) else None,
+        launcher_icon=theme.get("widgetLauncherIcon") if isinstance(theme.get("widgetLauncherIcon"), str) else None,
+        launcher_hover_message=(
+            theme.get("widgetLauncherHoverMessage")
+            if isinstance(theme.get("widgetLauncherHoverMessage"), str)
+            else None
+        ),
         banner_title=theme.get("widgetBannerTitle") if isinstance(theme.get("widgetBannerTitle"), str) else None,
         banner_description=(
             theme.get("widgetBannerDescription") if isinstance(theme.get("widgetBannerDescription"), str) else None
@@ -585,6 +591,10 @@ def patch_widget_service(
         theme["widgetIntroMessage"] = body.intro_message.strip() or None
     if body.color_preset is not None:
         theme["widgetColorPreset"] = body.color_preset.strip() or None
+    if body.launcher_icon is not None:
+        theme["widgetLauncherIcon"] = body.launcher_icon.strip() or None
+    if body.launcher_hover_message is not None:
+        theme["widgetLauncherHoverMessage"] = body.launcher_hover_message.strip() or None
     if body.banner_title is not None:
         theme["widgetBannerTitle"] = body.banner_title.strip() or None
     if body.banner_description is not None:
@@ -610,6 +620,12 @@ def patch_widget_service(
         logo_url=theme.get("widgetLogoUrl") if isinstance(theme.get("widgetLogoUrl"), str) else None,
         intro_message=theme.get("widgetIntroMessage") if isinstance(theme.get("widgetIntroMessage"), str) else None,
         color_preset=theme.get("widgetColorPreset") if isinstance(theme.get("widgetColorPreset"), str) else None,
+        launcher_icon=theme.get("widgetLauncherIcon") if isinstance(theme.get("widgetLauncherIcon"), str) else None,
+        launcher_hover_message=(
+            theme.get("widgetLauncherHoverMessage")
+            if isinstance(theme.get("widgetLauncherHoverMessage"), str)
+            else None
+        ),
         banner_title=theme.get("widgetBannerTitle") if isinstance(theme.get("widgetBannerTitle"), str) else None,
         banner_description=(
             theme.get("widgetBannerDescription") if isinstance(theme.get("widgetBannerDescription"), str) else None

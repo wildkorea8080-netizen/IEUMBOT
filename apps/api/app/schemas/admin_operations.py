@@ -128,6 +128,8 @@ class AdminWidgetResponse(ApiSchema):
     logo_url: str | None = None
     intro_message: str | None = None
     color_preset: str | None = None
+    launcher_icon: str | None = None
+    launcher_hover_message: str | None = None
     banner_title: str | None = None
     banner_description: str | None = None
     starter_questions: list[str] = []
@@ -146,6 +148,8 @@ class AdminWidgetUpdateRequest(ApiSchema):
     logo_url: str | None = None
     intro_message: str | None = None
     color_preset: str | None = None
+    launcher_icon: str | None = None
+    launcher_hover_message: str | None = None
     banner_title: str | None = None
     banner_description: str | None = None
     starter_questions: list[str] | None = None

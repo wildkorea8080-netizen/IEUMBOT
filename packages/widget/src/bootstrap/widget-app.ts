@@ -17,6 +17,8 @@ type Message = {
   timestamp: number;
 };
 
+type LauncherIconName = "chat" | "heart" | "shield" | "leaf" | "spark";
+
 function createElement<K extends keyof HTMLElementTagNameMap>(
   documentRef: Document,
   tag: K,
@@ -27,11 +29,36 @@ function createElement<K extends keyof HTMLElementTagNameMap>(
   return element;
 }
 
-function createIconSvg(name: "chat" | "heart" | "send" | "minimize" | "close"): string {
+function createIconSvg(name: LauncherIconName | "send" | "minimize" | "close"): string {
   if (name === "heart") {
     return `
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M19.5 12.57 12 20l-7.5-7.43a4.95 4.95 0 0 1 0-7 4.95 4.95 0 0 1 7 0L12 6l.5-.43a4.95 4.95 0 0 1 7 7Z"/>
+      </svg>
+    `;
+  }
+  if (name === "shield") {
+    return `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12 3 5 6v6c0 5 3.5 7.7 7 9 3.5-1.3 7-4 7-9V6l-7-3Z"/>
+        <path d="m9.5 12 1.7 1.7L14.8 10"/>
+      </svg>
+    `;
+  }
+  if (name === "leaf") {
+    return `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M11 20c5 0 9-4 9-9V4h-7c-5 0-9 4-9 9 0 4 3 7 7 7Z"/>
+        <path d="M8 16c2-3 5-5 9-6"/>
+      </svg>
+    `;
+  }
+  if (name === "spark") {
+    return `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="m12 3 1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6L12 3Z"/>
+        <path d="m19 16 .8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8L19 16Z"/>
+        <path d="m5 14 .8 2.2L8 17l-2.2.8L5 20l-.8-2.2L2 17l2.2-.8L5 14Z"/>
       </svg>
     `;
   }
@@ -68,6 +95,23 @@ function createIconSvg(name: "chat" | "heart" | "send" | "minimize" | "close"): 
   `;
 }
 
+function normalizeApiBaseUrl(value?: string): string {
+  if (value && value.trim()) return value.replace(/\/$/, "");
+  return `${window.location.origin}/api`;
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function asBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function asCitationArray(value: unknown): ChatCitation[] {
+  return Array.isArray(value) ? (value as ChatCitation[]) : [];
+}
+
 function getFriendlyOutcomeLabel(outcome?: string): string | null {
   if (!outcome || outcome === "answered") return null;
   if (outcome === "insufficient_evidence") return "확인 가능한 참고 내용이 부족해 일반 안내로 전환했습니다.";
@@ -85,31 +129,8 @@ function toCitationText(citation: ChatCitation): string {
   return [name, page, section, url].filter(Boolean).join(" | ");
 }
 
-function normalizeApiBaseUrl(value?: string): string {
-  if (value && value.trim()) return value.replace(/\/$/, "");
-  return `${window.location.origin}/api`;
-}
-
-function asString(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
-}
-
-function asBoolean(value: unknown): boolean | undefined {
-  return typeof value === "boolean" ? value : undefined;
-}
-
-function asCitationArray(value: unknown): ChatCitation[] {
-  if (!Array.isArray(value)) return [];
-  return value as ChatCitation[];
-}
-
 function getInstitutionLabel(config: WidgetPublicConfig | null, options: WidgetInitOptions): string {
-  return (
-    options.title?.trim() ||
-    config?.institutionName?.trim() ||
-    config?.chatbotName?.trim() ||
-    "기관"
-  );
+  return options.title?.trim() || config?.institutionName?.trim() || config?.chatbotName?.trim() || "기관";
 }
 
 function headerDisplayName(config: WidgetPublicConfig | null, options: WidgetInitOptions): string {
@@ -132,6 +153,19 @@ function getPresetGradient(preset?: string | null): string {
   return "linear-gradient(135deg, #2563EB, #22C55E)";
 }
 
+function getLauncherIcon(config: WidgetPublicConfig | null): LauncherIconName {
+  const icon = config?.theme?.launcherIcon;
+  if (icon === "heart" || icon === "shield" || icon === "leaf" || icon === "spark") return icon;
+  return "chat";
+}
+
+function getLauncherHoverMessage(config: WidgetPublicConfig | null, options: WidgetInitOptions): string | null {
+  const explicit = config?.launcherHoverMessage?.trim();
+  if (explicit) return explicit;
+  const institution = getInstitutionLabel(config, options);
+  return `AI챗봇 ${institution}예요. 무엇을 도와드릴까요?`;
+}
+
 function buildScopedStyles(primaryGradient: string): string {
   return `
 :host { all: initial; }
@@ -147,9 +181,57 @@ function buildScopedStyles(primaryGradient: string): string {
   z-index: 2147480000;
   color: #0f172a;
 }
+.ieum-launcher-wrap {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 12px;
+}
+.ieum-launcher-tip {
+  max-width: min(280px, calc(100vw - 48px));
+  border: 1px solid #dbe4f0;
+  border-radius: 18px;
+  background: #ffffff;
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.14);
+  padding: 12px 14px 12px 16px;
+  display: none;
+  align-items: flex-start;
+  gap: 10px;
+}
+.ieum-launcher-tip.visible {
+  display: flex;
+  animation: ieum-tooltip-in .18s ease;
+}
+.ieum-launcher-tip-text {
+  flex: 1;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #0f172a;
+  white-space: pre-wrap;
+}
+.ieum-launcher-tip-close {
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 9999px;
+  background: #f1f5f9;
+  color: #64748b;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.ieum-launcher-tip-close svg {
+  width: 14px;
+  height: 14px;
+}
 .ieum-floating {
-  width: 56px;
-  height: 56px;
+  width: 64px;
+  height: 64px;
   border: none;
   border-radius: 9999px;
   background: ${primaryGradient};
@@ -170,8 +252,8 @@ function buildScopedStyles(primaryGradient: string): string {
 .ieum-header-icon img,
 .ieum-header-button svg,
 .ieum-send svg {
-  width: 22px;
-  height: 22px;
+  width: 26px;
+  height: 26px;
 }
 .ieum-header-icon img {
   width: 20px;
@@ -210,282 +292,88 @@ function buildScopedStyles(primaryGradient: string): string {
   align-items: center;
   justify-content: space-between;
 }
-.ieum-header-main {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-}
+.ieum-header-main { display:flex; align-items:center; gap:10px; min-width:0; }
 .ieum-header-icon {
-  width: 34px;
-  height: 34px;
-  border-radius: 9999px;
-  background: rgba(255, 255, 255, 0.16);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
+  width: 34px; height: 34px; border-radius: 9999px; background: rgba(255,255,255,.16);
+  display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto;
 }
 .ieum-title {
-  font-size: 15px;
-  font-weight: 700;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.ieum-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
+.ieum-header-actions { display:flex; align-items:center; gap:6px; }
 .ieum-header-button {
-  width: 30px;
-  height: 30px;
-  border: none;
-  border-radius: 9999px;
-  background: rgba(255, 255, 255, 0.15);
-  color: #ffffff;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
+  width:30px; height:30px; border:none; border-radius:9999px; background:rgba(255,255,255,.15); color:#fff;
+  display:inline-flex; align-items:center; justify-content:center; cursor:pointer;
 }
-.ieum-header-button:hover {
-  background: rgba(255, 255, 255, 0.24);
-}
+.ieum-header-button:hover { background: rgba(255,255,255,.24); }
 .ieum-messages {
-  flex: 1;
-  padding: 16px;
-  background: #f8fafc;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+  flex:1; padding:16px; background:#f8fafc; overflow-y:auto; display:flex; flex-direction:column; gap:10px;
 }
 .ieum-banner {
-  margin: 16px 16px 0;
-  border: 1px solid rgba(37, 99, 235, 0.12);
-  border-radius: 14px;
-  padding: 12px 14px;
-  background: linear-gradient(180deg, rgba(255,255,255,0.96), rgba(239,246,255,0.9));
-  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.05);
+  margin: 16px 16px 0; border:1px solid rgba(37,99,235,.12); border-radius:14px; padding:12px 14px;
+  background: linear-gradient(180deg, rgba(255,255,255,.96), rgba(239,246,255,.9));
+  box-shadow: 0 4px 16px rgba(15,23,42,.05);
 }
-.ieum-banner-title {
-  font-size: 12px;
-  font-weight: 700;
-  color: #1e3a8a;
+.ieum-banner-title { font-size:12px; font-weight:700; color:#1e3a8a; }
+.ieum-banner-description { margin-top:4px; font-size:12px; line-height:1.5; color:#475569; white-space:pre-wrap; }
+.ieum-starter-questions, .ieum-quick-actions {
+  display:flex; flex-wrap:wrap; gap:8px; padding:0 16px 12px; background:#f8fafc;
 }
-.ieum-banner-description {
-  margin-top: 4px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: #475569;
-  white-space: pre-wrap;
-}
-.ieum-starter-questions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 0 16px 12px;
-  background: #f8fafc;
+.ieum-starter-question, .ieum-quick-action {
+  border:1px solid #dbe4f0; background:#fff; color:#0f172a; padding:10px 12px; cursor:pointer;
+  box-shadow:0 2px 8px rgba(15,23,42,.04);
 }
 .ieum-starter-question {
-  width: 100%;
-  border: 1px solid #dbe4f0;
-  border-radius: 14px;
-  background: #ffffff;
-  color: #0f172a;
-  padding: 10px 12px;
-  text-align: left;
-  font-size: 12px;
-  line-height: 1.45;
-  cursor: pointer;
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
-}
-.ieum-starter-question:hover {
-  border-color: #93c5fd;
-  background: #eff6ff;
-}
-.ieum-message {
-  display: flex;
-  width: 100%;
-  animation: ieum-message-in .2s ease;
-}
-.ieum-message.user {
-  justify-content: flex-end;
-}
-.ieum-message.assistant,
-.ieum-message.system {
-  justify-content: flex-start;
-}
-.ieum-bubble {
-  max-width: 75%;
-  border-radius: 16px;
-  padding: 12px 14px;
-  font-size: 13px;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.ieum-message.assistant .ieum-bubble,
-.ieum-message.system .ieum-bubble {
-  background: #ffffff;
-  color: #0f172a;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
-}
-.ieum-message.user .ieum-bubble {
-  background: #2563eb;
-  color: #ffffff;
-}
-.ieum-outcome-note {
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px dashed #dbe4f0;
-  font-size: 11px;
-  color: #64748b;
-}
-.ieum-citations {
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px dashed #dbe4f0;
-}
-.ieum-citations-title {
-  margin-bottom: 4px;
-  font-size: 11px;
-  color: #475569;
-  font-weight: 700;
-}
-.ieum-citation {
-  font-size: 11px;
-  color: #475569;
-  line-height: 1.45;
-  margin-bottom: 3px;
-}
-.ieum-quick-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 0 16px 12px;
-  background: #f8fafc;
+  width:100%; border-radius:14px; text-align:left; font-size:12px; line-height:1.45;
 }
 .ieum-quick-action {
-  border: 1px solid #dbe4f0;
-  border-radius: 9999px;
-  background: #ffffff;
-  color: #1e3a8a;
-  padding: 8px 12px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  border-radius:9999px; color:#1e3a8a; padding:8px 12px; font-size:12px; font-weight:600; box-shadow:0 1px 3px rgba(15,23,42,.04);
 }
-.ieum-quick-action:hover {
-  border-color: #93c5fd;
-  background: #eff6ff;
+.ieum-starter-question:hover, .ieum-quick-action:hover { border-color:#93c5fd; background:#eff6ff; }
+.ieum-message { display:flex; width:100%; animation: ieum-message-in .2s ease; }
+.ieum-message.user { justify-content:flex-end; }
+.ieum-message.assistant, .ieum-message.system { justify-content:flex-start; }
+.ieum-bubble {
+  max-width:75%; border-radius:16px; padding:12px 14px; font-size:13px; line-height:1.6; white-space:pre-wrap; word-break:break-word;
 }
+.ieum-message.assistant .ieum-bubble, .ieum-message.system .ieum-bubble {
+  background:#fff; color:#0f172a; box-shadow:0 2px 6px rgba(0,0,0,.05);
+}
+.ieum-message.user .ieum-bubble { background:#2563eb; color:#fff; }
+.ieum-outcome-note, .ieum-citations { margin-top:8px; padding-top:8px; border-top:1px dashed #dbe4f0; }
+.ieum-outcome-note, .ieum-citations-title, .ieum-citation { font-size:11px; color:#475569; }
+.ieum-citations-title { margin-bottom:4px; font-weight:700; }
+.ieum-citation { line-height:1.45; margin-bottom:3px; }
 .ieum-loading {
-  display: none;
-  align-self: flex-start;
-  max-width: 75%;
-  margin: 0 16px 12px;
-  border-radius: 16px;
-  padding: 12px 14px;
-  background: #ffffff;
-  color: #64748b;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
-  font-size: 18px;
-  line-height: 1;
+  display:none; align-self:flex-start; max-width:75%; margin:0 16px 12px; border-radius:16px; padding:12px 14px;
+  background:#fff; color:#64748b; box-shadow:0 2px 6px rgba(0,0,0,.05); font-size:18px; line-height:1;
 }
-.ieum-loading.active {
-  display: inline-flex;
-  gap: 4px;
-}
-.ieum-loading-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 9999px;
-  background: #94a3b8;
-  animation: ieum-dot 1s infinite ease-in-out;
-}
-.ieum-loading-dot:nth-child(2) { animation-delay: .15s; }
-.ieum-loading-dot:nth-child(3) { animation-delay: .3s; }
+.ieum-loading.active { display:inline-flex; gap:4px; }
+.ieum-loading-dot { width:5px; height:5px; border-radius:9999px; background:#94a3b8; animation: ieum-dot 1s infinite ease-in-out; }
+.ieum-loading-dot:nth-child(2) { animation-delay:.15s; }
+.ieum-loading-dot:nth-child(3) { animation-delay:.3s; }
 .ieum-input-wrap {
-  min-height: 64px;
-  border-top: 1px solid #e5e7eb;
-  padding: 8px 12px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: #ffffff;
+  min-height:64px; border-top:1px solid #e5e7eb; padding:8px 12px; display:flex; align-items:center; gap:10px; background:#fff;
 }
 .ieum-input {
-  flex: 1;
-  min-width: 0;
-  height: 44px;
-  border-radius: 9999px;
-  border: 1px solid #e5e7eb;
-  padding: 10px 14px;
-  font-size: 13px;
-  color: #0f172a;
-  outline: none;
+  flex:1; min-width:0; height:44px; border-radius:9999px; border:1px solid #e5e7eb; padding:10px 14px; font-size:13px; color:#0f172a; outline:none;
 }
-.ieum-input::placeholder {
-  color: #94a3b8;
-}
-.ieum-input:focus {
-  border-color: #93c5fd;
-  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.08);
-}
+.ieum-input::placeholder { color:#94a3b8; }
+.ieum-input:focus { border-color:#93c5fd; box-shadow:0 0 0 4px rgba(37,99,235,.08); }
 .ieum-send {
-  width: 42px;
-  height: 42px;
-  border: none;
-  border-radius: 9999px;
-  background: #2563eb;
-  color: #ffffff;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: filter .16s ease, transform .16s ease;
+  width:42px; height:42px; border:none; border-radius:9999px; background:#2563eb; color:#fff; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; transition:filter .16s ease;
 }
-.ieum-send:hover {
-  filter: brightness(1.1);
-}
-.ieum-send:disabled,
-.ieum-floating:disabled {
-  opacity: .65;
-  cursor: default;
-}
-.ieum-footer {
-  border-top: 1px solid #eef2f7;
-  padding: 8px 12px;
-  background: #f8fafc;
-  font-size: 11px;
-  color: #64748b;
-  line-height: 1.45;
-}
-@keyframes ieum-dot {
-  0%, 80%, 100% { transform: translateY(0); opacity: .45; }
-  40% { transform: translateY(-3px); opacity: 1; }
-}
-@keyframes ieum-message-in {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
+.ieum-send:hover { filter: brightness(1.1); }
+.ieum-send:disabled, .ieum-floating:disabled { opacity:.65; cursor:default; }
+.ieum-footer { border-top:1px solid #eef2f7; padding:8px 12px; background:#f8fafc; font-size:11px; color:#64748b; line-height:1.45; }
+@keyframes ieum-dot { 0%,80%,100%{transform:translateY(0);opacity:.45} 40%{transform:translateY(-3px);opacity:1} }
+@keyframes ieum-message-in { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+@keyframes ieum-tooltip-in { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
 @media (max-width: 640px) {
-  .ieum-root {
-    right: 8px;
-    left: 8px;
-    bottom: 8px;
-  }
-  .ieum-panel {
-    width: 100%;
-    height: min(520px, calc(100vh - 16px));
-  }
-  .ieum-bubble {
-    max-width: 84%;
-  }
+  .ieum-root { right:8px; left:8px; bottom:8px; }
+  .ieum-panel { width:100%; height:min(520px, calc(100vh - 16px)); }
+  .ieum-bubble { max-width:84%; }
+  .ieum-launcher-tip { max-width: calc(100vw - 32px); }
 }
 `;
 }
@@ -496,6 +384,10 @@ export class IeumWidgetApp {
   private readonly host: HTMLDivElement;
   private readonly shadow: ShadowRoot;
   private readonly root: HTMLDivElement;
+  private readonly launcherWrap: HTMLDivElement;
+  private readonly launcherTip: HTMLDivElement;
+  private readonly launcherTipText: HTMLDivElement;
+  private readonly launcherTipClose: HTMLButtonElement;
   private readonly floatingButton: HTMLButtonElement;
   private readonly panel: HTMLDivElement;
   private readonly titleNode: HTMLDivElement;
@@ -512,6 +404,9 @@ export class IeumWidgetApp {
   private initialized = false;
   private open = false;
   private sending = false;
+  private launcherTipDismissed = false;
+  private launcherHoverMessage = "";
+  private launcherTipStorageKey = "";
   private sessionToken = `widget_${Math.random().toString(36).slice(2, 10)}_${Date.now().toString(36)}`;
   private config: WidgetPublicConfig | null = null;
   private chatEndpoint = "/chat/messages";
@@ -527,6 +422,10 @@ export class IeumWidgetApp {
     this.host.setAttribute("data-ieumbot-widget-root", "true");
     this.shadow = this.host.attachShadow({ mode: "open" });
     this.root = createElement(document, "div", "ieum-root");
+    this.launcherWrap = createElement(document, "div", "ieum-launcher-wrap");
+    this.launcherTip = createElement(document, "div", "ieum-launcher-tip");
+    this.launcherTipText = createElement(document, "div", "ieum-launcher-tip-text");
+    this.launcherTipClose = createElement(document, "button", "ieum-launcher-tip-close");
     this.floatingButton = createElement(document, "button", "ieum-floating");
     this.panel = createElement(document, "div", "ieum-panel");
     this.titleNode = createElement(document, "div", "ieum-title");
@@ -539,6 +438,12 @@ export class IeumWidgetApp {
     this.input = createElement(document, "input", "ieum-input");
     this.sendButton = createElement(document, "button", "ieum-send");
     this.footerNotice = createElement(document, "div", "ieum-footer");
+
+    this.launcherTipClose.type = "button";
+    this.launcherTipClose.setAttribute("aria-label", "안내 닫기");
+    this.launcherTipClose.innerHTML = createIconSvg("close");
+    this.launcherTip.appendChild(this.launcherTipText);
+    this.launcherTip.appendChild(this.launcherTipClose);
 
     this.floatingButton.type = "button";
     this.floatingButton.title = options.launcherLabel ?? "챗봇 열기";
@@ -603,11 +508,24 @@ export class IeumWidgetApp {
     this.panel.appendChild(inputWrap);
     this.panel.appendChild(this.footerNotice);
 
+    this.launcherWrap.appendChild(this.launcherTip);
+    this.launcherWrap.appendChild(this.floatingButton);
+
     this.root.appendChild(this.panel);
-    this.root.appendChild(this.floatingButton);
+    this.root.appendChild(this.launcherWrap);
     document.body.appendChild(this.host);
 
     this.floatingButton.addEventListener("click", () => this.togglePanel());
+    this.floatingButton.addEventListener("mouseenter", () => this.showLauncherTip());
+    this.floatingButton.addEventListener("focus", () => this.showLauncherTip());
+    this.floatingButton.addEventListener("mouseleave", () => this.hideLauncherTip());
+    this.floatingButton.addEventListener("blur", () => this.hideLauncherTip());
+    this.launcherTip.addEventListener("mouseenter", () => this.showLauncherTip());
+    this.launcherTip.addEventListener("mouseleave", () => this.hideLauncherTip());
+    this.launcherTipClose.addEventListener("click", (event) => {
+      event.stopPropagation();
+      this.dismissLauncherTip();
+    });
     minimizeButton.addEventListener("click", () => this.setOpen(false));
     closeButton.addEventListener("click", () => this.setOpen(false));
     this.sendButton.addEventListener("click", () => void this.sendCurrentInput());
@@ -640,6 +558,35 @@ export class IeumWidgetApp {
     }
   }
 
+  private readLauncherTipDismissed() {
+    if (!this.launcherTipStorageKey) return false;
+    try {
+      return window.localStorage.getItem(this.launcherTipStorageKey) === "1";
+    } catch {
+      return false;
+    }
+  }
+
+  private dismissLauncherTip() {
+    this.launcherTipDismissed = true;
+    this.hideLauncherTip();
+    if (!this.launcherTipStorageKey) return;
+    try {
+      window.localStorage.setItem(this.launcherTipStorageKey, "1");
+    } catch {
+      // ignore storage failures
+    }
+  }
+
+  private showLauncherTip() {
+    if (this.open || this.launcherTipDismissed || !this.launcherHoverMessage.trim()) return;
+    this.launcherTip.classList.add("visible");
+  }
+
+  private hideLauncherTip() {
+    this.launcherTip.classList.remove("visible");
+  }
+
   private async loadConfig() {
     try {
       this.config = await this.api.getConfig(this.options.chatbotId);
@@ -653,6 +600,11 @@ export class IeumWidgetApp {
       } else {
         this.headerIconNode.innerHTML = createIconSvg("heart");
       }
+      this.floatingButton.innerHTML = createIconSvg(getLauncherIcon(this.config));
+      this.launcherHoverMessage = getLauncherHoverMessage(this.config, this.options) ?? "";
+      this.launcherTipText.textContent = this.launcherHoverMessage;
+      this.launcherTipStorageKey = `ieumbot_launcher_tip_dismissed:${this.options.chatbotId}`;
+      this.launcherTipDismissed = this.readLauncherTipDismissed();
       this.renderBanner();
       this.renderStarterQuestions();
       if (this.config.privacyNotice) {
@@ -744,17 +696,18 @@ export class IeumWidgetApp {
   private setOpen(value: boolean) {
     this.open = value;
     if (value) {
+      this.hideLauncherTip();
       this.ensureInitialMessage();
       this.panel.classList.add("open");
-      this.floatingButton.style.opacity = "0";
-      this.floatingButton.style.pointerEvents = "none";
+      this.launcherWrap.style.opacity = "0";
+      this.launcherWrap.style.pointerEvents = "none";
       this.input.focus();
       this.scrollMessagesToBottom();
       return;
     }
     this.panel.classList.remove("open");
-    this.floatingButton.style.opacity = "1";
-    this.floatingButton.style.pointerEvents = "auto";
+    this.launcherWrap.style.opacity = "1";
+    this.launcherWrap.style.pointerEvents = "auto";
   }
 
   private togglePanel() {

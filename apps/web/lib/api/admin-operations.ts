@@ -225,6 +225,8 @@ export async function patchAdminWidget(chatbotId: string, body: {
   logoUrl?: string;
   introMessage?: string;
   colorPreset?: string;
+  launcherIcon?: string;
+  launcherHoverMessage?: string;
   bannerTitle?: string;
   bannerDescription?: string;
   starterQuestions?: string[];

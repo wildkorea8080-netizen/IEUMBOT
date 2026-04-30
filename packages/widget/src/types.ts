@@ -22,12 +22,14 @@ export type WidgetPublicConfig = {
     textColor?: string | null;
     backgroundColor?: string | null;
     preset?: string | null;
+    launcherIcon?: string | null;
   };
   banner: {
     title?: string | null;
     description?: string | null;
   };
   starterQuestions: string[];
+  launcherHoverMessage?: string | null;
   quickActions: WidgetQuickAction[];
   operatingHours: {
     isAfterHours: boolean;

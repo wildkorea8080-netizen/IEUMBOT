@@ -21,6 +21,7 @@ class WidgetTheme(ApiSchema):
     text_color: str | None = None
     background_color: str | None = None
     preset: str | None = None
+    launcher_icon: str | None = None
 
 
 class WidgetBanner(ApiSchema):
@@ -40,6 +41,7 @@ class WidgetPublicConfigResponse(ApiSchema):
     theme: WidgetTheme
     banner: WidgetBanner
     starter_questions: list[str]
+    launcher_hover_message: str | None = None
     quick_actions: list[WidgetQuickAction]
     operating_hours: WidgetOperatingHours
     runtime: dict

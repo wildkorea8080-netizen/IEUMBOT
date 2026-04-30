@@ -117,6 +117,8 @@ def get_widget_public_config(
     text_color = theme.get("textColor") or theme.get("text_color")
     background_color = theme.get("backgroundColor") or theme.get("background_color")
     preset = theme.get("widgetColorPreset") or theme.get("widget_color_preset")
+    launcher_icon = theme.get("widgetLauncherIcon") or theme.get("widget_launcher_icon")
+    launcher_hover_message = theme.get("widgetLauncherHoverMessage") or theme.get("widget_launcher_hover_message")
     institution_name = theme.get("widgetInstitutionName") or theme.get("widget_institution_name")
     logo_url = theme.get("widgetLogoUrl") or theme.get("widget_logo_url")
     intro_message = theme.get("widgetIntroMessage") or theme.get("widget_intro_message")
@@ -142,6 +144,7 @@ def get_widget_public_config(
             text_color=text_color if isinstance(text_color, str) else None,
             background_color=background_color if isinstance(background_color, str) else None,
             preset=preset if isinstance(preset, str) else None,
+            launcher_icon=launcher_icon if isinstance(launcher_icon, str) else None,
         ),
         banner=WidgetBanner(
             title=banner_title if isinstance(banner_title, str) else None,
@@ -154,6 +157,7 @@ def get_widget_public_config(
         ]
         if isinstance(starter_questions, list)
         else [],
+        launcher_hover_message=launcher_hover_message if isinstance(launcher_hover_message, str) else None,
         quick_actions=[
             WidgetQuickAction(
                 id=str(row.id),
