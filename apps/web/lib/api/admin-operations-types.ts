@@ -182,6 +182,10 @@ export type AdminWidgetResponse = {
   bannerTitle?: string | null;
   bannerDescription?: string | null;
   starterQuestions: string[];
+  runtimeProvider?: string | null;
+  runtimeModel?: string | null;
+  runtimeSource?: string | null;
+  runtimeModelRecommended: boolean;
   installScript?: string | null;
   createdAt: string;
   updatedAt: string;

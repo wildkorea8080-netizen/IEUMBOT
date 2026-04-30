@@ -133,6 +133,10 @@ class AdminWidgetResponse(ApiSchema):
     banner_title: str | None = None
     banner_description: str | None = None
     starter_questions: list[str] = []
+    runtime_provider: str | None = None
+    runtime_model: str | None = None
+    runtime_source: str | None = None
+    runtime_model_recommended: bool = False
     install_script: str | None = None
     created_at: str
     updated_at: str

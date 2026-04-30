@@ -53,7 +53,11 @@ from app.services.admin.scope_service import (
     require_institution_organization_id,
 )
 from app.services.limits_service import check_chatbot_limit
+from app.services.llm_api_config_runtime_service import resolve_runtime_api_config
+from app.services.settings.answer_settings_service import get_effective_answer_settings_for_runtime
 from app.services.widget_install_script import build_widget_install_script
+
+RECOMMENDED_OPENAI_MODELS = {"gpt-4.1-mini", "gpt-4.1"}
 
 
 def _validate_uuid(value: str, detail: str) -> str:
@@ -518,6 +522,20 @@ def get_widget_service(
     install_script = build_widget_install_script(chatbot_id=str(widget.chatbot_id))
     chatbot = ensure_chatbot_in_scope(db, principal=principal, chatbot_id=chatbot_id)
     theme = chatbot.theme if isinstance(chatbot.theme, dict) else {}
+    runtime_api = resolve_runtime_api_config(db)
+    answer_settings = get_effective_answer_settings_for_runtime(
+        db,
+        organization_id=organization_id,
+        chatbot_id=chatbot_id,
+    )
+    runtime_provider = runtime_api.provider if runtime_api is not None else None
+    runtime_model = answer_settings.model_runtime.model_name or (
+        runtime_api.default_model if runtime_api is not None else None
+    )
+    runtime_source = runtime_api.source if runtime_api is not None else None
+    runtime_model_recommended = (
+        runtime_provider == "openai" and str(runtime_model or "").strip() in RECOMMENDED_OPENAI_MODELS
+    )
     return AdminWidgetResponse(
         id=str(widget.id),
         chatbot_id=str(widget.chatbot_id),
@@ -550,6 +568,10 @@ def get_widget_service(
         ]
         if isinstance(theme.get("widgetStarterQuestions"), list)
         else [],
+        runtime_provider=runtime_provider,
+        runtime_model=runtime_model,
+        runtime_source=runtime_source,
+        runtime_model_recommended=runtime_model_recommended,
         install_script=install_script,
         created_at=widget.created_at.isoformat(),
         updated_at=widget.updated_at.isoformat(),
@@ -605,6 +627,20 @@ def patch_widget_service(
     db.commit()
     db.refresh(widget)
     install_script = build_widget_install_script(chatbot_id=str(widget.chatbot_id))
+    runtime_api = resolve_runtime_api_config(db)
+    answer_settings = get_effective_answer_settings_for_runtime(
+        db,
+        organization_id=organization_id,
+        chatbot_id=chatbot_id,
+    )
+    runtime_provider = runtime_api.provider if runtime_api is not None else None
+    runtime_model = answer_settings.model_runtime.model_name or (
+        runtime_api.default_model if runtime_api is not None else None
+    )
+    runtime_source = runtime_api.source if runtime_api is not None else None
+    runtime_model_recommended = (
+        runtime_provider == "openai" and str(runtime_model or "").strip() in RECOMMENDED_OPENAI_MODELS
+    )
     return AdminWidgetResponse(
         id=str(widget.id),
         chatbot_id=str(widget.chatbot_id),
@@ -637,6 +673,10 @@ def patch_widget_service(
         ]
         if isinstance(theme.get("widgetStarterQuestions"), list)
         else [],
+        runtime_provider=runtime_provider,
+        runtime_model=runtime_model,
+        runtime_source=runtime_source,
+        runtime_model_recommended=runtime_model_recommended,
         install_script=install_script,
         created_at=widget.created_at.isoformat(),
         updated_at=widget.updated_at.isoformat(),

@@ -138,6 +138,21 @@ export default function WidgetPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [debouncedIframeState, setDebouncedIframeState] = useState({
+    selectedChatbotId: "",
+    chatbotName: "",
+    institutionName: "",
+    logoUrl: "",
+    introMessage: "",
+    themeColor: "#2563EB",
+    colorPreset: "default",
+    welcomeMessage: "",
+    bannerTitle: "",
+    bannerDescription: "",
+    launcherIcon: "chat",
+    launcherHoverMessage: "",
+    starterQuestions: [] as string[],
+  });
 
   const starterQuestions = useMemo(
     () => starterQuestionsInput.split("\n").map((item) => item.trim()).filter(Boolean),
@@ -157,31 +172,66 @@ export default function WidgetPage() {
   const previewHoverMessage =
     launcherHoverMessage.trim() || `AI챗봇 ${previewTitle}예요. 무엇을 도와드릴까요?`;
 
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setDebouncedIframeState({
+        selectedChatbotId,
+        chatbotName: selectedChatbot?.name ?? previewTitle,
+        institutionName: previewTitle,
+        logoUrl: logoUrl.trim(),
+        introMessage: introMessage.trim(),
+        themeColor: themeColor.trim() || "#2563EB",
+        colorPreset,
+        welcomeMessage: welcomeMessage.trim(),
+        bannerTitle: bannerTitle.trim(),
+        bannerDescription: bannerDescription.trim(),
+        launcherIcon,
+        launcherHoverMessage: previewHoverMessage,
+        starterQuestions,
+      });
+    }, 350);
+    return () => window.clearTimeout(timeout);
+  }, [
+    bannerDescription,
+    bannerTitle,
+    colorPreset,
+    introMessage,
+    launcherIcon,
+    logoUrl,
+    previewHoverMessage,
+    previewTitle,
+    selectedChatbot?.name,
+    selectedChatbotId,
+    starterQuestions,
+    themeColor,
+    welcomeMessage,
+  ]);
+
   const iframeSrcDoc = useMemo(() => {
-    if (!selectedChatbotId.trim()) return "";
+    if (!debouncedIframeState.selectedChatbotId.trim()) return "";
     const origin = typeof window !== "undefined" ? window.location.origin : "";
     const payload = {
-      chatbotId: selectedChatbotId,
-      chatbotName: selectedChatbot?.name ?? previewTitle,
-      institutionName: previewTitle,
-      logoUrl: logoUrl.trim() || null,
-      introMessage: introMessage.trim() || null,
-      welcomeMessage: welcomeMessage.trim() || previewIntro,
+      chatbotId: debouncedIframeState.selectedChatbotId,
+      chatbotName: debouncedIframeState.chatbotName,
+      institutionName: debouncedIframeState.institutionName,
+      logoUrl: debouncedIframeState.logoUrl || null,
+      introMessage: debouncedIframeState.introMessage || null,
+      welcomeMessage: debouncedIframeState.welcomeMessage || previewIntro,
       privacyNotice: null,
       citationMode: "optional",
       theme: {
-        primaryColor: themeColor.trim() || "#2563EB",
+        primaryColor: debouncedIframeState.themeColor || "#2563EB",
         textColor: null,
         backgroundColor: null,
-        preset: colorPreset,
-        launcherIcon,
+        preset: debouncedIframeState.colorPreset,
+        launcherIcon: debouncedIframeState.launcherIcon,
       },
       banner: {
-        title: bannerTitle.trim() || null,
-        description: bannerDescription.trim() || null,
+        title: debouncedIframeState.bannerTitle || null,
+        description: debouncedIframeState.bannerDescription || null,
       },
-      starterQuestions,
-      launcherHoverMessage: previewHoverMessage,
+      starterQuestions: debouncedIframeState.starterQuestions,
+      launcherHoverMessage: debouncedIframeState.launcherHoverMessage,
       quickActions: [],
       operatingHours: { isAfterHours: false, message: null },
       runtime: {
@@ -209,7 +259,7 @@ export default function WidgetPage() {
       const __originalFetch__ = window.fetch.bind(window);
       window.fetch = async (input, init) => {
         const url = typeof input === "string" ? input : input instanceof Request ? input.url : String(input);
-        if (url.includes("/widget/config/${selectedChatbotId}")) {
+        if (url.includes("/widget/config/${debouncedIframeState.selectedChatbotId}")) {
           return new Response(JSON.stringify(__IEUMBOT_PREVIEW_CONFIG__), {
             status: 200,
             headers: { "Content-Type": "application/json" }
@@ -218,25 +268,12 @@ export default function WidgetPage() {
         return __originalFetch__(input, init);
       };
     </script>
-    <script src="/widget.js" data-chatbot-id="${selectedChatbotId}" data-api-base-url="${origin}/api" data-open-on-load="true"></script>
+    <script src="/widget.js" data-chatbot-id="${debouncedIframeState.selectedChatbotId}" data-api-base-url="${origin}/api" data-open-on-load="true"></script>
   </body>
 </html>`;
   }, [
-    bannerDescription,
-    bannerTitle,
-    colorPreset,
-    introMessage,
-    launcherHoverMessage,
-    launcherIcon,
-    logoUrl,
-    previewHoverMessage,
     previewIntro,
-    previewTitle,
-    selectedChatbot?.name,
-    selectedChatbotId,
-    starterQuestions,
-    themeColor,
-    welcomeMessage,
+    debouncedIframeState,
   ]);
 
   useEffect(() => {
@@ -413,6 +450,40 @@ export default function WidgetPage() {
         {data ? (
           <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
             <div className="space-y-6 rounded-2xl border border-slate-200 bg-white p-5 text-sm shadow-sm">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900">현재 실제 사용 중인 AI 런타임</p>
+                    <p className="mt-1 text-xs text-slate-500">슈퍼관리자 기본 API 설정과 챗봇 답변 설정을 합쳐 계산한 현재 기준입니다.</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700">
+                      provider: {data.runtimeProvider ?? "-"}
+                    </span>
+                    <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700">
+                      model: {data.runtimeModel ?? "-"}
+                    </span>
+                    <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700">
+                      source: {data.runtimeSource ?? "-"}
+                    </span>
+                  </div>
+                </div>
+                {data.runtimeProvider === "openai" ? (
+                  <div
+                    className={[
+                      "mt-3 rounded-2xl border px-4 py-3 text-xs leading-5",
+                      data.runtimeModelRecommended
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                        : "border-amber-200 bg-amber-50 text-amber-700",
+                    ].join(" ")}
+                  >
+                    {data.runtimeModelRecommended
+                      ? "현재 OpenAI 권장 기본 모델 범위(gpt-4.1-mini 또는 gpt-4.1)로 설정되어 있습니다."
+                      : "현재 OpenAI는 사용 중이지만 모델이 권장 기본값(gpt-4.1-mini 또는 gpt-4.1)이 아닙니다. /admin/answer-settings 에서 modelName을 확인해 주세요."}
+                  </div>
+                ) : null}
+              </div>
+
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
                   <p className="font-medium text-slate-900">위젯 상태</p>
