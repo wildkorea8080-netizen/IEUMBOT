@@ -124,6 +124,9 @@ class AdminWidgetResponse(ApiSchema):
     position: str | None = None
     launcher_label: str | None = None
     welcome_message: str | None = None
+    institution_name: str | None = None
+    logo_url: str | None = None
+    intro_message: str | None = None
     install_script: str | None = None
     created_at: str
     updated_at: str
@@ -133,3 +136,8 @@ class AdminWidgetUpdateRequest(ApiSchema):
     allowed_domains: list[str] | None = None
     is_active: bool | None = None
     launcher_label: str | None = None
+    theme_color: str | None = None
+    welcome_message: str | None = None
+    institution_name: str | None = None
+    logo_url: str | None = None
+    intro_message: str | None = None

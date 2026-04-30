@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db import get_db_session
-from app.models import ChatbotSetting, Organization, QuickAction
+from app.models import ChatbotSetting, QuickAction, WidgetDeployment
 from app.schemas.widget import (
     WidgetOperatingHours,
     WidgetPublicConfigResponse,
@@ -92,6 +92,11 @@ def get_widget_public_config(
     if chatbot is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CHATBOT_NOT_FOUND")
     organization, chatbot = ensure_runtime_access_for_widget(db, chatbot_id=str(chatbot.id))
+    widget_stmt = select(WidgetDeployment).where(
+        WidgetDeployment.chatbot_id == chatbot.id,
+        WidgetDeployment.organization_id == chatbot.organization_id,
+    )
+    widget = db.execute(widget_stmt).scalar_one_or_none()
 
     quick_actions_stmt = (
         select(QuickAction)
@@ -110,6 +115,9 @@ def get_widget_public_config(
     primary_color = theme.get("primaryColor") or theme.get("primary_color")
     text_color = theme.get("textColor") or theme.get("text_color")
     background_color = theme.get("backgroundColor") or theme.get("background_color")
+    institution_name = theme.get("widgetInstitutionName") or theme.get("widget_institution_name")
+    logo_url = theme.get("widgetLogoUrl") or theme.get("widget_logo_url")
+    intro_message = theme.get("widgetIntroMessage") or theme.get("widget_intro_message")
 
     after_hours = _is_after_hours(chatbot.business_hours or {}, organization.timezone)
     operating_message = _build_after_hours_message(chatbot) if after_hours else None
@@ -117,7 +125,11 @@ def get_widget_public_config(
     return WidgetPublicConfigResponse(
         chatbot_id=str(chatbot.id),
         chatbot_name=chatbot.name,
-        welcome_message=chatbot.welcome_message or f"{chatbot.name} 상담 도우미입니다. 궁금한 내용을 입력해 주세요.",
+        institution_name=institution_name if isinstance(institution_name, str) else None,
+        logo_url=logo_url if isinstance(logo_url, str) else None,
+        intro_message=intro_message if isinstance(intro_message, str) else None,
+        welcome_message=(widget.welcome_message if widget and widget.welcome_message else chatbot.welcome_message)
+        or f"{chatbot.name} 상담 도우미입니다. 궁금한 내용을 입력해 주세요.",
         privacy_notice=chatbot.privacy_notice,
         citation_mode=chatbot.citation_mode,
         theme=WidgetTheme(

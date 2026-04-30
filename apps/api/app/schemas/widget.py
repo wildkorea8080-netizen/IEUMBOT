@@ -25,6 +25,9 @@ class WidgetTheme(ApiSchema):
 class WidgetPublicConfigResponse(ApiSchema):
     chatbot_id: str
     chatbot_name: str
+    institution_name: str | None = None
+    logo_url: str | None = None
+    intro_message: str | None = None
     welcome_message: str
     privacy_notice: str | None = None
     citation_mode: str

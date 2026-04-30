@@ -516,6 +516,8 @@ def get_widget_service(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="WIDGET_NOT_FOUND")
 
     install_script = build_widget_install_script(chatbot_id=str(widget.chatbot_id))
+    chatbot = ensure_chatbot_in_scope(db, principal=principal, chatbot_id=chatbot_id)
+    theme = chatbot.theme if isinstance(chatbot.theme, dict) else {}
     return AdminWidgetResponse(
         id=str(widget.id),
         chatbot_id=str(widget.chatbot_id),
@@ -527,6 +529,9 @@ def get_widget_service(
         position=widget.position,
         launcher_label=widget.launcher_label,
         welcome_message=widget.welcome_message,
+        institution_name=theme.get("widgetInstitutionName") if isinstance(theme.get("widgetInstitutionName"), str) else None,
+        logo_url=theme.get("widgetLogoUrl") if isinstance(theme.get("widgetLogoUrl"), str) else None,
+        intro_message=theme.get("widgetIntroMessage") if isinstance(theme.get("widgetIntroMessage"), str) else None,
         install_script=install_script,
         created_at=widget.created_at.isoformat(),
         updated_at=widget.updated_at.isoformat(),
@@ -552,8 +557,21 @@ def patch_widget_service(
         widget.allowed_domains = normalized
     if body.is_active is not None:
         widget.status = "active" if body.is_active else "inactive"
+    if body.theme_color is not None:
+        widget.theme_color = body.theme_color.strip() or None
     if body.launcher_label is not None:
         widget.launcher_label = body.launcher_label.strip() or None
+    if body.welcome_message is not None:
+        widget.welcome_message = body.welcome_message.strip() or None
+    chatbot = ensure_chatbot_in_scope(db, principal=principal, chatbot_id=chatbot_id)
+    theme = dict(chatbot.theme or {}) if isinstance(chatbot.theme, dict) else {}
+    if body.institution_name is not None:
+        theme["widgetInstitutionName"] = body.institution_name.strip() or None
+    if body.logo_url is not None:
+        theme["widgetLogoUrl"] = body.logo_url.strip() or None
+    if body.intro_message is not None:
+        theme["widgetIntroMessage"] = body.intro_message.strip() or None
+    chatbot.theme = theme
     db.commit()
     db.refresh(widget)
     install_script = build_widget_install_script(chatbot_id=str(widget.chatbot_id))
@@ -568,6 +586,9 @@ def patch_widget_service(
         position=widget.position,
         launcher_label=widget.launcher_label,
         welcome_message=widget.welcome_message,
+        institution_name=theme.get("widgetInstitutionName") if isinstance(theme.get("widgetInstitutionName"), str) else None,
+        logo_url=theme.get("widgetLogoUrl") if isinstance(theme.get("widgetLogoUrl"), str) else None,
+        intro_message=theme.get("widgetIntroMessage") if isinstance(theme.get("widgetIntroMessage"), str) else None,
         install_script=install_script,
         created_at=widget.created_at.isoformat(),
         updated_at=widget.updated_at.isoformat(),
