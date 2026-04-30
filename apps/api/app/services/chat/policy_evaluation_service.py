@@ -85,6 +85,40 @@ def _contains_any(text: str, keywords: list[str]) -> bool:
     return any(keyword in text for keyword in keywords)
 
 
+STRUCTURED_QUESTION_KEYWORDS = [
+    "신청",
+    "접수",
+    "절차",
+    "방법",
+    "대상",
+    "자격",
+    "조건",
+    "서류",
+    "기간",
+    "마감",
+    "언제",
+    "어디서",
+    "가능",
+    "불가",
+    "요건",
+]
+OVERVIEW_QUESTION_KEYWORDS = [
+    "주요사업",
+    "사업",
+    "소개",
+    "개요",
+    "역할",
+    "기능",
+    "업무",
+    "서비스",
+    "지원",
+    "센터",
+    "기관",
+    "무엇",
+    "어떤",
+]
+
+
 def _detect_conflict(candidates: list[dict[str, Any]]) -> bool:
     top = candidates[:3]
     if len(top) < 2:
@@ -119,6 +153,16 @@ def _coverage_score(candidates: list[dict[str, Any]]) -> dict[str, bool]:
 
 def _normalize_question(question: str) -> str:
     return " ".join(question.strip().lower().split())
+
+
+def _is_structured_question(question: str) -> bool:
+    normalized = _normalize_question(question)
+    return _contains_any(normalized, STRUCTURED_QUESTION_KEYWORDS)
+
+
+def _is_overview_question(question: str) -> bool:
+    normalized = _normalize_question(question)
+    return _contains_any(normalized, OVERVIEW_QUESTION_KEYWORDS)
 
 
 def _is_greeting(question: str) -> bool:
@@ -163,11 +207,10 @@ def evaluate_answer_policy(context: dict[str, Any]) -> dict[str, Any]:
     answer_validation_policy: dict[str, Any] = context.get("answerValidationPolicy", {}) or {}
 
     min_valid_sources = int(answer_validation_policy.get("minValidSources", 2))
-    min_combined_score = float(answer_validation_policy.get("minCombinedScore", 0.2))
     unrelated_combined_score_threshold = float(answer_validation_policy.get("unrelatedCombinedScoreThreshold", 0.08))
     today = date.today()
 
-    valid_candidates: list[dict[str, Any]] = []
+    referenceable_candidates: list[dict[str, Any]] = []
     outdated_risk = False
     citation_ready_count = 0
     top_combined_score = 0.0
@@ -175,9 +218,12 @@ def evaluate_answer_policy(context: dict[str, Any]) -> dict[str, Any]:
     greeting_detected = _is_greeting(question)
     gratitude_detected = _is_gratitude(question)
     small_talk_detected = _is_small_talk(question)
+    structured_question = _is_structured_question(question)
+    overview_question = _is_overview_question(question)
     abusive_severity = str(context.get("abusiveSeverity") or _abuse_severity_from_question(question) or "")
     abusive_detected = bool(abusive_severity)
     repeated_user_dissatisfaction = bool(context.get("repeatedUserDissatisfaction"))
+    effective_min_valid_sources = 1 if overview_question and not structured_question else min_valid_sources
 
     for item in candidates:
         combined_score = float(item.get("combinedScore", 0.0))
@@ -204,23 +250,22 @@ def evaluate_answer_policy(context: dict[str, Any]) -> dict[str, Any]:
                 is_not_expired = False
                 outdated_risk = True
 
-        if combined_score >= min_combined_score and is_effective_ok and is_not_expired:
-            valid_candidates.append(item)
+        if is_effective_ok and is_not_expired:
+            referenceable_candidates.append(item)
             if item.get("documentVersionId") and (item.get("pageNumber") is not None or item.get("sectionTitle")):
                 citation_ready_count += 1
-
     evidence_empty = len(candidates) == 0
-    missing_evidence = evidence_empty or len(valid_candidates) < min_valid_sources
+    missing_evidence = evidence_empty or len(referenceable_candidates) == 0
 
-    coverage = _coverage_score(valid_candidates)
+    coverage = _coverage_score(referenceable_candidates)
     covered_slots = sum(1 for covered in coverage.values() if covered)
-    if covered_slots < 2:
+    if structured_question and len(referenceable_candidates) < effective_min_valid_sources and covered_slots < 2:
         missing_evidence = True
 
-    conflict_detected = _detect_conflict(valid_candidates)
+    conflict_detected = _detect_conflict(referenceable_candidates)
 
     if _contains_any(question, LATEST_QUERY_KEYWORDS):
-        if not any(item.get("effectiveDate") for item in valid_candidates):
+        if not any(item.get("effectiveDate") for item in referenceable_candidates):
             outdated_risk = True
 
     restricted_topic = False
@@ -258,6 +303,8 @@ def evaluate_answer_policy(context: dict[str, Any]) -> dict[str, Any]:
         "abusiveSeverity": abusive_severity or None,
         "repeatedUserDissatisfaction": bool(repeated_user_dissatisfaction),
         "domainKeywordMatched": bool(domain_keyword_matched),
+        "structuredQuestion": bool(structured_question),
+        "overviewQuestion": bool(overview_question),
         "unrelatedQuestion": bool(unrelated_question),
         "topCombinedScore": float(top_combined_score),
     }

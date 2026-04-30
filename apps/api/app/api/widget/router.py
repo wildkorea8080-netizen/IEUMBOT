@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db_session
 from app.models import ChatbotSetting, QuickAction, WidgetDeployment
 from app.schemas.widget import (
+    WidgetBanner,
     WidgetOperatingHours,
     WidgetPublicConfigResponse,
     WidgetQuickAction,
@@ -115,9 +116,13 @@ def get_widget_public_config(
     primary_color = theme.get("primaryColor") or theme.get("primary_color")
     text_color = theme.get("textColor") or theme.get("text_color")
     background_color = theme.get("backgroundColor") or theme.get("background_color")
+    preset = theme.get("widgetColorPreset") or theme.get("widget_color_preset")
     institution_name = theme.get("widgetInstitutionName") or theme.get("widget_institution_name")
     logo_url = theme.get("widgetLogoUrl") or theme.get("widget_logo_url")
     intro_message = theme.get("widgetIntroMessage") or theme.get("widget_intro_message")
+    banner_title = theme.get("widgetBannerTitle") or theme.get("widget_banner_title")
+    banner_description = theme.get("widgetBannerDescription") or theme.get("widget_banner_description")
+    starter_questions = theme.get("widgetStarterQuestions") or theme.get("widget_starter_questions")
 
     after_hours = _is_after_hours(chatbot.business_hours or {}, organization.timezone)
     operating_message = _build_after_hours_message(chatbot) if after_hours else None
@@ -136,7 +141,19 @@ def get_widget_public_config(
             primary_color=primary_color if isinstance(primary_color, str) else None,
             text_color=text_color if isinstance(text_color, str) else None,
             background_color=background_color if isinstance(background_color, str) else None,
+            preset=preset if isinstance(preset, str) else None,
         ),
+        banner=WidgetBanner(
+            title=banner_title if isinstance(banner_title, str) else None,
+            description=banner_description if isinstance(banner_description, str) else None,
+        ),
+        starter_questions=[
+            item.strip()
+            for item in starter_questions
+            if isinstance(item, str) and item.strip()
+        ]
+        if isinstance(starter_questions, list)
+        else [],
         quick_actions=[
             WidgetQuickAction(
                 id=str(row.id),

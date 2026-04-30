@@ -20,6 +20,12 @@ class WidgetTheme(ApiSchema):
     primary_color: str | None = None
     text_color: str | None = None
     background_color: str | None = None
+    preset: str | None = None
+
+
+class WidgetBanner(ApiSchema):
+    title: str | None = None
+    description: str | None = None
 
 
 class WidgetPublicConfigResponse(ApiSchema):
@@ -32,6 +38,8 @@ class WidgetPublicConfigResponse(ApiSchema):
     privacy_notice: str | None = None
     citation_mode: str
     theme: WidgetTheme
+    banner: WidgetBanner
+    starter_questions: list[str]
     quick_actions: list[WidgetQuickAction]
     operating_hours: WidgetOperatingHours
     runtime: dict

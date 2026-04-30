@@ -532,6 +532,18 @@ def get_widget_service(
         institution_name=theme.get("widgetInstitutionName") if isinstance(theme.get("widgetInstitutionName"), str) else None,
         logo_url=theme.get("widgetLogoUrl") if isinstance(theme.get("widgetLogoUrl"), str) else None,
         intro_message=theme.get("widgetIntroMessage") if isinstance(theme.get("widgetIntroMessage"), str) else None,
+        color_preset=theme.get("widgetColorPreset") if isinstance(theme.get("widgetColorPreset"), str) else None,
+        banner_title=theme.get("widgetBannerTitle") if isinstance(theme.get("widgetBannerTitle"), str) else None,
+        banner_description=(
+            theme.get("widgetBannerDescription") if isinstance(theme.get("widgetBannerDescription"), str) else None
+        ),
+        starter_questions=[
+            item.strip()
+            for item in theme.get("widgetStarterQuestions", [])
+            if isinstance(item, str) and item.strip()
+        ]
+        if isinstance(theme.get("widgetStarterQuestions"), list)
+        else [],
         install_script=install_script,
         created_at=widget.created_at.isoformat(),
         updated_at=widget.updated_at.isoformat(),
@@ -571,6 +583,14 @@ def patch_widget_service(
         theme["widgetLogoUrl"] = body.logo_url.strip() or None
     if body.intro_message is not None:
         theme["widgetIntroMessage"] = body.intro_message.strip() or None
+    if body.color_preset is not None:
+        theme["widgetColorPreset"] = body.color_preset.strip() or None
+    if body.banner_title is not None:
+        theme["widgetBannerTitle"] = body.banner_title.strip() or None
+    if body.banner_description is not None:
+        theme["widgetBannerDescription"] = body.banner_description.strip() or None
+    if body.starter_questions is not None:
+        theme["widgetStarterQuestions"] = [item.strip() for item in body.starter_questions if item and item.strip()]
     chatbot.theme = theme
     db.commit()
     db.refresh(widget)
@@ -589,6 +609,18 @@ def patch_widget_service(
         institution_name=theme.get("widgetInstitutionName") if isinstance(theme.get("widgetInstitutionName"), str) else None,
         logo_url=theme.get("widgetLogoUrl") if isinstance(theme.get("widgetLogoUrl"), str) else None,
         intro_message=theme.get("widgetIntroMessage") if isinstance(theme.get("widgetIntroMessage"), str) else None,
+        color_preset=theme.get("widgetColorPreset") if isinstance(theme.get("widgetColorPreset"), str) else None,
+        banner_title=theme.get("widgetBannerTitle") if isinstance(theme.get("widgetBannerTitle"), str) else None,
+        banner_description=(
+            theme.get("widgetBannerDescription") if isinstance(theme.get("widgetBannerDescription"), str) else None
+        ),
+        starter_questions=[
+            item.strip()
+            for item in theme.get("widgetStarterQuestions", [])
+            if isinstance(item, str) and item.strip()
+        ]
+        if isinstance(theme.get("widgetStarterQuestions"), list)
+        else [],
         install_script=install_script,
         created_at=widget.created_at.isoformat(),
         updated_at=widget.updated_at.isoformat(),

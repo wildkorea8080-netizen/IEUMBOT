@@ -127,6 +127,10 @@ class AdminWidgetResponse(ApiSchema):
     institution_name: str | None = None
     logo_url: str | None = None
     intro_message: str | None = None
+    color_preset: str | None = None
+    banner_title: str | None = None
+    banner_description: str | None = None
+    starter_questions: list[str] = []
     install_script: str | None = None
     created_at: str
     updated_at: str
@@ -141,3 +145,7 @@ class AdminWidgetUpdateRequest(ApiSchema):
     institution_name: str | None = None
     logo_url: str | None = None
     intro_message: str | None = None
+    color_preset: str | None = None
+    banner_title: str | None = None
+    banner_description: str | None = None
+    starter_questions: list[str] | None = None

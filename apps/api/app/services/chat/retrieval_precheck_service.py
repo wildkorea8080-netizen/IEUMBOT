@@ -4,7 +4,13 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.models import Document, DocumentChunk, DocumentVersion, RetrievalControlRule, SynonymDictionary
+from app.models import (
+    Document,
+    DocumentChunk,
+    DocumentVersion,
+    RetrievalControlRule,
+    SynonymDictionary,
+)
 from app.repositories.admin.search_control_repository import (
     fetch_retrieval_candidates,
     list_active_rules,
@@ -12,6 +18,36 @@ from app.repositories.admin.search_control_repository import (
 )
 
 TOKEN_SPLIT_REGEX = re.compile(r"[^0-9A-Za-z가-힣]+")
+KOREAN_PARTICLE_SUFFIXES = [
+    "으로",
+    "에서",
+    "에게",
+    "한테",
+    "부터",
+    "까지",
+    "처럼",
+    "보다",
+    "라고",
+    "이고",
+    "이며",
+    "으로는",
+    "으로도",
+    "에는",
+    "에도",
+    "은",
+    "는",
+    "이",
+    "가",
+    "을",
+    "를",
+    "에",
+    "의",
+    "와",
+    "과",
+    "도",
+    "만",
+    "로",
+]
 
 
 def normalize_query(question: str) -> str:
@@ -20,6 +56,19 @@ def normalize_query(question: str) -> str:
 
 def _tokenize(query: str) -> list[str]:
     return [token for token in TOKEN_SPLIT_REGEX.split(query) if token]
+
+
+def _normalize_token_variants(tokens: list[str]) -> list[str]:
+    normalized: set[str] = set()
+    for token in tokens:
+        stripped = token.strip().lower()
+        if not stripped:
+            continue
+        normalized.add(stripped)
+        for suffix in KOREAN_PARTICLE_SUFFIXES:
+            if stripped.endswith(suffix) and len(stripped) > len(suffix) + 1:
+                normalized.add(stripped[: -len(suffix)])
+    return sorted(normalized)
 
 
 def _expand_tokens(tokens: list[str], synonyms: list[SynonymDictionary]) -> list[str]:
@@ -85,10 +134,10 @@ def retrieve_for_precheck(
     search_control_policy: dict[str, Any],
 ) -> dict[str, Any]:
     normalized = normalize_query(question)
-    tokens = _tokenize(normalized)
+    tokens = _normalize_token_variants(_tokenize(normalized))
 
     synonyms = list_active_synonyms(db, organization_id, chatbot_id)
-    expanded_tokens = _expand_tokens(tokens, synonyms)
+    expanded_tokens = _normalize_token_variants(_expand_tokens(tokens, synonyms))
 
     rules = list_active_rules(db, organization_id, chatbot_id)
     exclude_rules = [rule for rule in rules if rule.rule_type == "exclude"]
