@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     api_api_config_encryption_secret: str = ""
     api_session_secret: str = "change-me"
     api_access_token_expire_minutes: int = 60 * 12
+    widget_public_api_base_url: str = "https://ieumbot-api.onrender.com/api"
     api_supported_model_names: list[str] = [
         "gpt-4.1-mini",
         "gpt-4.1",
