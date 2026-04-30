@@ -3,14 +3,13 @@ import { SuperAdminPlaceholder } from "../../../components/ui/super-admin-placeh
 export default function SuperAdminSecurityPage() {
   return (
     <SuperAdminPlaceholder
-      title="시스템/보안"
-      description="플랫폼 공통 보안 정책과 운영 위험 신호를 점검하는 화면입니다."
+      title="보안 로그"
+      description="접속, 권한 변경, 이상 행위를 장기 보관 로그 기준으로 점검하는 운영 보안 화면입니다."
       bullets={[
-        "관리자 인증/권한 정책 점검",
-        "감사 로그 및 이상 접근 탐지 현황 확인",
-        "보안 점검 체크리스트 및 대응 이력 조회",
+        "권한 변경과 대리접속 추적 카드",
+        "위험도별 이벤트 목록과 필터",
+        "내보내기와 감사 대응용 상세 로그 패널",
       ]}
     />
   );
 }
-

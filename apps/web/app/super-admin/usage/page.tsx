@@ -3,14 +3,13 @@ import { SuperAdminPlaceholder } from "../../../components/ui/super-admin-placeh
 export default function SuperAdminUsagePage() {
   return (
     <SuperAdminPlaceholder
-      title="사용량/통계"
-      description="기관별 사용량과 품질 지표를 확인하는 운영 통계 화면입니다."
+      title="사용량 모니터링"
+      description="기관별 사용량, 이상 징후, 기간별 추이를 운영 관점에서 추적하는 화면입니다."
       bullets={[
-        "기관별 대화량/활성 세션/응답 실패율 집계",
-        "정책 차단, 에스컬레이션, 근거 부족 비율 추적",
-        "계약 한도 대비 사용량 모니터링",
+        "기관별 기간 비교와 급증 탐지 카드",
+        "API 및 토큰 사용량 추이 차트",
+        "이상 사용 패턴과 조치 이력 테이블",
       ]}
     />
   );
 }
-

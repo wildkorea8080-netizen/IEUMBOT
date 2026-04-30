@@ -2,8 +2,25 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
-import { PagePanel } from "../../../components/ui/page-panel";
+import { EmptyState } from "../../../components/ui/empty-state";
+import { AdminIcon } from "../../../components/ui/admin-icons";
+import { PageHeader } from "../../../components/ui/page-header";
+import { SectionCard } from "../../../components/ui/section-card";
+import { StatCard } from "../../../components/ui/stat-card";
+import { StatusBadge } from "../../../components/ui/status-badge";
 import { ApiClientError } from "../../../lib/api";
 import {
   getDashboardQuestionTypes,
@@ -22,7 +39,10 @@ function getErrorMessage(error: unknown): string {
   if (error instanceof ApiClientError) {
     return `${error.code}: ${error.message}`;
   }
-  return "대시보드 데이터를 불러오는 중 오류가 발생했습니다.";
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return "대시보드 데이터를 불러오지 못했습니다.";
 }
 
 function toDateRangeLast30Days(): { from: string; to: string } {
@@ -34,82 +54,20 @@ function toDateRangeLast30Days(): { from: string; to: string } {
   return { from, to };
 }
 
-function statusLabel(status: DashboardRecentChatItem["status"]): string {
+function formatChartDate(value: string): string {
+  return value.slice(5).replace("-", ".");
+}
+
+function getRecentStatusTone(status: DashboardRecentChatItem["status"]): "success" | "warning" | "info" {
+  if (status === "success") return "success";
+  if (status === "escalation") return "warning";
+  return "info";
+}
+
+function getRecentStatusLabel(status: DashboardRecentChatItem["status"]): string {
   if (status === "success") return "성공";
   if (status === "escalation") return "이관";
   return "대체응답";
-}
-
-function statusClassName(status: DashboardRecentChatItem["status"]): string {
-  if (status === "success") return "bg-emerald-50 text-emerald-700";
-  if (status === "escalation") return "bg-amber-50 text-amber-700";
-  return "bg-slate-100 text-slate-700";
-}
-
-function UsageTrendChart({ rows }: { rows: DashboardUsageTrendItem[] }) {
-  const width = 640;
-  const height = 240;
-  const padding = 28;
-  const maxValue = Math.max(1, ...rows.map((row) => Math.max(row.users, row.messages)));
-
-  const pointsUsers = rows
-    .map((row, index) => {
-      const x = padding + (index * (width - padding * 2)) / Math.max(1, rows.length - 1);
-      const y = height - padding - (row.users / maxValue) * (height - padding * 2);
-      return `${x},${y}`;
-    })
-    .join(" ");
-
-  const pointsMessages = rows
-    .map((row, index) => {
-      const x = padding + (index * (width - padding * 2)) / Math.max(1, rows.length - 1);
-      const y = height - padding - (row.messages / maxValue) * (height - padding * 2);
-      return `${x},${y}`;
-    })
-    .join(" ");
-
-  return (
-    <div className="rounded border border-slate-200 p-3">
-      <div className="mb-2 flex items-center gap-4 text-xs text-slate-600">
-        <span className="inline-flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-blue-500" />사용자</span>
-        <span className="inline-flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-emerald-500" />메시지</span>
-      </div>
-      <svg viewBox={`0 0 ${width} ${height}`} className="h-56 w-full">
-        <line x1={padding} y1={padding} x2={padding} y2={height - padding} stroke="#CBD5E1" strokeWidth="1" />
-        <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} stroke="#CBD5E1" strokeWidth="1" />
-        <polyline fill="none" stroke="#3B82F6" strokeWidth="2.5" points={pointsUsers} />
-        <polyline fill="none" stroke="#10B981" strokeWidth="2.5" points={pointsMessages} />
-      </svg>
-      <div className="mt-2 flex justify-between text-[11px] text-slate-500">
-        <span>{rows[0]?.date ?? "-"}</span>
-        <span>{rows[rows.length - 1]?.date ?? "-"}</span>
-      </div>
-    </div>
-  );
-}
-
-function QuestionTypeChart({ rows }: { rows: DashboardQuestionTypeItem[] }) {
-  const maxCount = Math.max(1, ...rows.map((row) => row.count));
-  return (
-    <div className="rounded border border-slate-200 p-3">
-      <div className="space-y-3">
-        {rows.map((row) => {
-          const widthPercent = Math.round((row.count / maxCount) * 100);
-          return (
-            <div key={row.label} className="space-y-1">
-              <div className="flex items-center justify-between text-xs text-slate-700">
-                <span>{row.label}</span>
-                <span>{row.count}</span>
-              </div>
-              <div className="h-2 rounded bg-slate-100">
-                <div className="h-2 rounded bg-blue-500" style={{ width: `${widthPercent}%` }} />
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
 }
 
 export default function DashboardPage() {
@@ -124,111 +82,219 @@ export default function DashboardPage() {
 
   useEffect(() => {
     let mounted = true;
+
     (async () => {
       setIsLoading(true);
       setError(null);
+
       try {
-        const [summaryRes, trendRes, typeRes, recentRes] = await Promise.all([
-          getDashboardSummary(),
-          getDashboardUsageTrend(range),
-          getDashboardQuestionTypes(range),
-          getDashboardRecentChats({ limit: 12 }),
-        ]);
+        const [summaryResponse, usageTrendResponse, questionTypeResponse, recentChatResponse] =
+          await Promise.all([
+            getDashboardSummary(),
+            getDashboardUsageTrend(range),
+            getDashboardQuestionTypes(range),
+            getDashboardRecentChats({ limit: 8 }),
+          ]);
+
         if (!mounted) return;
-        setSummary(summaryRes);
-        setUsageTrend(trendRes);
-        setQuestionTypes(typeRes);
-        setRecentChats(recentRes);
-      } catch (err) {
+
+        setSummary(summaryResponse);
+        setUsageTrend(usageTrendResponse);
+        setQuestionTypes(questionTypeResponse);
+        setRecentChats(recentChatResponse);
+      } catch (loadError) {
         if (!mounted) return;
-        setError(getErrorMessage(err));
+        setError(getErrorMessage(loadError));
       } finally {
         if (mounted) setIsLoading(false);
       }
     })();
+
     return () => {
       mounted = false;
     };
   }, [range]);
 
   return (
-    <div className="space-y-4">
-      <PagePanel title="주요 메뉴" description="자주 사용하는 운영 화면으로 바로 이동할 수 있습니다.">
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {[
-            { href: "/admin/ai/basic", title: "AI 설정", description: "기본 설정, 대화 스타일, 조건별 설정" },
-            { href: "/admin/knowledge/register", title: "지식관리", description: "지식 등록과 목록 관리" },
-            { href: "/admin/conversations", title: "대화관리", description: "일반 대화 이력 조회" },
-            { href: "/admin/install-guide", title: "설치/연동", description: "위젯 설치 코드와 테스트 안내" },
-            { href: "/admin/security", title: "운영관리", description: "보안센터, 사용량, 감사로그 확인" },
-            { href: "/admin/knowledge/list", title: "지식 목록", description: "등록 자료 상태와 색인 결과 확인" },
-          ].map((item) => (
-            <Link key={item.href} href={item.href} className="rounded-2xl border border-slate-200 bg-white p-4 transition hover:border-slate-300 hover:bg-slate-50">
-              <h3 className="text-sm font-semibold text-slate-900">{item.title}</h3>
-              <p className="mt-2 text-sm text-slate-600">{item.description}</p>
+    <div className="space-y-6">
+      <PageHeader
+        title="기관관리자 대시보드"
+        description="사용량, 질문 분포, 최근 대화 현황을 한 화면에서 확인할 수 있도록 SaaS 스타일로 정리했습니다."
+        breadcrumbs={["기관관리자", "대시보드"]}
+        badge={
+          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+            ORG ADMIN
+          </span>
+        }
+        actions={
+          <>
+            <Link
+              href="/admin/conversations"
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              <AdminIcon name="conversation" className="h-4 w-4" />
+              대화 관리
             </Link>
-          ))}
-        </div>
-      </PagePanel>
+            <Link
+              href="/admin/knowledge/register"
+              className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-3 py-2 text-sm font-medium text-white"
+            >
+              <AdminIcon name="plus" className="h-4 w-4" />
+              지식 등록
+            </Link>
+          </>
+        }
+      />
 
-      <PagePanel title="운영 현황 대시보드" description="기관 단위 운영 지표, 사용량 추이, 질문 유형, 최근 대화를 확인합니다.">
-        {isLoading ? <p className="text-sm text-slate-600">대시보드 로딩 중...</p> : null}
-        {error ? <p className="text-sm text-red-700">{error}</p> : null}
-        {!isLoading && !error && summary ? (
-          <div className="space-y-4">
-            <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <article className="rounded border border-slate-200 bg-white p-3">
-                <p className="text-xs text-slate-500">총 사용자(세션)</p>
-                <p className="mt-1 text-2xl font-semibold text-slate-900">{summary.totalUsers}</p>
-              </article>
-              <article className="rounded border border-slate-200 bg-white p-3">
-                <p className="text-xs text-slate-500">총 대화 수</p>
-                <p className="mt-1 text-2xl font-semibold text-slate-900">{summary.totalConversations}</p>
-              </article>
-              <article className="rounded border border-slate-200 bg-white p-3">
-                <p className="text-xs text-slate-500">응답 성공률</p>
-                <p className="mt-1 text-2xl font-semibold text-slate-900">{summary.successRate}%</p>
-              </article>
-              <article className="rounded border border-slate-200 bg-white p-3">
-                <p className="text-xs text-slate-500">평균 응답 시간</p>
-                <p className="mt-1 text-2xl font-semibold text-slate-900">{summary.avgResponseTime}s</p>
-              </article>
-            </section>
+      {error ? (
+        <SectionCard title="오류" description="대시보드 데이터를 불러오는 중 문제가 발생했습니다.">
+          <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p>
+        </SectionCard>
+      ) : null}
 
-            <section className="grid gap-4 xl:grid-cols-[1.6fr_1fr]">
-              <div>
-                <h3 className="mb-2 text-sm font-semibold text-slate-800">사용량 추이 (최근 30일)</h3>
-                <UsageTrendChart rows={usageTrend} />
-              </div>
-              <div>
-                <h3 className="mb-2 text-sm font-semibold text-slate-800">질문 유형 분석</h3>
-                <QuestionTypeChart rows={questionTypes} />
-              </div>
-            </section>
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard label="총 사용자 수" value={summary?.totalUsers ?? "-"} icon="users" />
+        <StatCard label="총 대화 수" value={summary?.totalConversations ?? "-"} icon="conversation" tone="neutral" />
+        <StatCard
+          label="답변 성공률"
+          value={summary ? `${summary.successRate}%` : "-"}
+          icon="success"
+          tone="success"
+        />
+        <StatCard
+          label="평균 응답시간"
+          value={summary ? `${summary.avgResponseTime}s` : "-"}
+          icon="usage"
+          tone="primary"
+        />
+      </section>
 
-            <section className="rounded border border-slate-200">
-              <div className="border-b border-slate-200 px-3 py-2 text-sm font-medium text-slate-800">최근 대화</div>
-              <div className="divide-y divide-slate-100">
-                {recentChats.length === 0 ? (
-                  <p className="px-3 py-4 text-sm text-slate-500">최근 대화 데이터가 없습니다.</p>
-                ) : (
-                  recentChats.map((item) => (
-                    <div key={`${item.createdAt}-${item.question ?? ""}`} className="flex items-start justify-between gap-3 px-3 py-3">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-slate-900">{item.question ?? "(질문 없음)"}</p>
-                        <p className="mt-1 text-xs text-slate-500">{new Date(item.createdAt).toLocaleString("ko-KR")}</p>
-                      </div>
-                      <span className={`shrink-0 rounded px-2 py-1 text-xs ${statusClassName(item.status)}`}>
-                        {statusLabel(item.status)}
-                      </span>
-                    </div>
-                  ))
-                )}
+      <div className="grid gap-6 xl:grid-cols-[1.65fr_1fr]">
+        <SectionCard title="사용량 추이" description="최근 30일 기준 날짜별 사용자 수와 대화 수를 표시합니다.">
+          {isLoading ? (
+            <p className="text-sm text-slate-500">사용량 추이를 불러오는 중입니다...</p>
+          ) : usageTrend.length === 0 ? (
+            <EmptyState
+              title="사용량 데이터가 아직 없습니다"
+              description="날짜별 사용 데이터가 누적되면 이 영역에 그래프를 표시합니다."
+              icon="usage"
+            />
+          ) : (
+            <div className="h-[320px] rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={usageTrend}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                  <XAxis dataKey="date" tickFormatter={formatChartDate} stroke="#64748B" tickLine={false} axisLine={false} />
+                  <YAxis stroke="#64748B" tickLine={false} axisLine={false} />
+                  <Tooltip
+                    contentStyle={{
+                      borderRadius: 16,
+                      border: "1px solid #E2E8F0",
+                      boxShadow: "0 10px 30px rgba(15, 23, 42, 0.08)",
+                    }}
+                    labelFormatter={(label) => `날짜 ${label}`}
+                  />
+                  <Legend />
+                  <Line
+                    type="monotone"
+                    dataKey="messages"
+                    name="대화 수"
+                    stroke="#4F46E5"
+                    strokeWidth={3}
+                    dot={{ r: 3 }}
+                    activeDot={{ r: 5 }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="users"
+                    name="사용자 수"
+                    stroke="#10B981"
+                    strokeWidth={3}
+                    dot={{ r: 3 }}
+                    activeDot={{ r: 5 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </SectionCard>
+
+        <SectionCard title="질문 유형 분석" description="카테고리별 질문 수를 막대 그래프로 표시합니다.">
+          {isLoading ? (
+            <p className="text-sm text-slate-500">질문 유형을 집계하는 중입니다...</p>
+          ) : questionTypes.length === 0 ? (
+            <EmptyState
+              title="질문 유형 데이터가 아직 없습니다"
+              description="카테고리 집계 데이터가 생기면 이 영역에 자동으로 반영됩니다."
+              icon="conversation"
+            />
+          ) : (
+            <div className="h-[320px] rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={questionTypes} layout="vertical" margin={{ left: 12, right: 12 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" horizontal={false} />
+                  <XAxis type="number" stroke="#64748B" tickLine={false} axisLine={false} />
+                  <YAxis
+                    type="category"
+                    dataKey="label"
+                    stroke="#64748B"
+                    tickLine={false}
+                    axisLine={false}
+                    width={96}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      borderRadius: 16,
+                      border: "1px solid #E2E8F0",
+                      boxShadow: "0 10px 30px rgba(15, 23, 42, 0.08)",
+                    }}
+                  />
+                  <Bar dataKey="count" name="질문 수" fill="#4F46E5" radius={[0, 8, 8, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </SectionCard>
+      </div>
+
+      <SectionCard
+        title="최근 대화"
+        description="최근 대화의 시간, 질문, 상태를 빠르게 확인할 수 있도록 리스트로 구성했습니다."
+        action={
+          <Link href="/admin/conversations" className="text-sm font-medium text-indigo-600 hover:text-indigo-500">
+            전체 보기
+          </Link>
+        }
+      >
+        {isLoading ? (
+          <p className="text-sm text-slate-500">최근 대화를 불러오는 중입니다...</p>
+        ) : recentChats.length === 0 ? (
+          <EmptyState
+            title="최근 대화가 없습니다"
+            description="대화가 쌓이면 최근 대화 리스트가 이곳에 표시됩니다."
+            icon="conversation"
+          />
+        ) : (
+          <div className="grid gap-3">
+            {recentChats.map((item) => (
+              <div
+                key={`${item.createdAt}-${item.question ?? ""}`}
+                className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-4 md:grid-cols-[180px_1fr_auto] md:items-center"
+              >
+                <div className="text-sm font-medium text-slate-700">
+                  {new Date(item.createdAt).toLocaleString("ko-KR")}
+                </div>
+                <div className="text-sm text-slate-900">{item.question ?? "질문 내용이 없습니다."}</div>
+                <div className="justify-self-start md:justify-self-end">
+                  <StatusBadge tone={getRecentStatusTone(item.status)}>
+                    {getRecentStatusLabel(item.status)}
+                  </StatusBadge>
+                </div>
               </div>
-            </section>
+            ))}
           </div>
-        ) : null}
-      </PagePanel>
+        )}
+      </SectionCard>
     </div>
   );
 }

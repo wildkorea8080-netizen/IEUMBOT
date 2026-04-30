@@ -6,13 +6,19 @@ export function StatusBadge(props: {
 }) {
   const className =
     props.tone === "success"
-      ? "bg-emerald-100 text-emerald-700"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
       : props.tone === "warning"
-        ? "bg-amber-100 text-amber-700"
+        ? "border-amber-200 bg-amber-50 text-amber-700"
         : props.tone === "danger"
-          ? "bg-rose-100 text-rose-700"
+          ? "border-rose-200 bg-rose-50 text-rose-700"
           : props.tone === "info"
-            ? "bg-blue-100 text-blue-700"
-            : "bg-slate-100 text-slate-700";
-  return <span className={`rounded-full px-3 py-1 text-xs font-medium ${className}`}>{props.children}</span>;
+            ? "border-blue-200 bg-blue-50 text-blue-700"
+            : "border-slate-200 bg-slate-50 text-slate-700";
+  return (
+    <span
+      className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold tracking-tight ${className}`}
+    >
+      {props.children}
+    </span>
+  );
 }
