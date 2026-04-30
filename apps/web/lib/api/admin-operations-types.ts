@@ -72,6 +72,10 @@ export type KnowledgeDetail = KnowledgeItem & {
   url?: string | null;
   sourcePath?: string | null;
   lastIndexedAt?: string | null;
+  crawlPageLimit?: number | null;
+  excludedPaths?: string[];
+  crawledUrls?: string[];
+  crawledPageCount?: number | null;
 };
 
 export type KnowledgeListResponse = {
@@ -135,6 +139,8 @@ export type KnowledgeWebsiteCreateRequest = {
   chatbotId: string;
   url: string;
   title: string;
+  crawlPageLimit: number;
+  excludedPaths: string[];
   category?: string;
   field?: string;
   tags: string[];
@@ -151,6 +157,8 @@ export type KnowledgeUpdateRequest = {
   effectiveDate?: string;
   expirationDate?: string;
   department?: string;
+  crawlPageLimit?: number;
+  excludedPaths?: string[];
   isActive?: boolean;
 };
 
@@ -165,6 +173,13 @@ export type AdminWidgetResponse = {
   position?: string | null;
   launcherLabel?: string | null;
   welcomeMessage?: string | null;
+  institutionName?: string | null;
+  logoUrl?: string | null;
+  introMessage?: string | null;
+  colorPreset?: string | null;
+  bannerTitle?: string | null;
+  bannerDescription?: string | null;
+  starterQuestions: string[];
   installScript?: string | null;
   createdAt: string;
   updatedAt: string;

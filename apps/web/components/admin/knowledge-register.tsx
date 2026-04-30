@@ -34,6 +34,8 @@ type WebsiteFormState = {
   chatbotId: string;
   title: string;
   url: string;
+  crawlPageLimit: string;
+  excludedPaths: string;
   category: string;
   field: string;
   tags: string;
@@ -59,6 +61,8 @@ function emptyWebsiteForm(chatbotId = ""): WebsiteFormState {
     chatbotId,
     title: "",
     url: "",
+    crawlPageLimit: "12",
+    excludedPaths: "",
     category: "",
     field: "",
     tags: "",
@@ -74,8 +78,18 @@ function parseTags(value: string): string[] {
     .filter(Boolean);
 }
 
+function parseExcludedPaths(value: string): string[] {
+  return value
+    .split(/\r?\n|,/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 function getErrorMessage(error: unknown): string {
   if (error instanceof ApiClientError) {
+    if (error.code === "WEBSITE_ALREADY_REGISTERED") {
+      return "이미 등록된 웹사이트입니다. 동일한 챗봇에는 같은 URL을 중복 등록할 수 없습니다.";
+    }
     return `${error.code}: ${error.message}`;
   }
   if (error instanceof Error) {
@@ -110,8 +124,12 @@ function RegisterTypeButton(props: {
           <h3 className="text-lg font-semibold text-slate-900">{props.title}</h3>
           <p className="mt-2 text-sm leading-6 text-slate-600">{props.description}</p>
         </div>
-        <span className={`rounded-full px-3 py-1 text-xs font-medium ${props.active ? "bg-blue-700 text-white" : "bg-slate-100 text-slate-600"}`}>
-          선택됨
+        <span
+          className={`rounded-full px-3 py-1 text-xs font-medium ${
+            props.active ? "bg-blue-700 text-white" : "bg-slate-100 text-slate-600"
+          }`}
+        >
+          선택
         </span>
       </div>
     </button>
@@ -265,7 +283,7 @@ export function KnowledgeRegister() {
 
   const submitFile = async () => {
     if (!selectedFile) {
-      setError("업로드할 파일을 선택해 주세요.");
+      setError("업로드할 파일을 선택해주세요.");
       return;
     }
     setIsSubmitting(true);
@@ -324,6 +342,8 @@ export function KnowledgeRegister() {
         chatbotId: websiteForm.chatbotId,
         url: websiteForm.url,
         title: websiteForm.title,
+        crawlPageLimit: Number(websiteForm.crawlPageLimit) || 12,
+        excludedPaths: parseExcludedPaths(websiteForm.excludedPaths),
         category: websiteForm.category || undefined,
         field: websiteForm.field || undefined,
         tags: parseTags(websiteForm.tags),
@@ -354,13 +374,13 @@ export function KnowledgeRegister() {
           />
           <RegisterTypeButton
             title="텍스트 붙여넣기"
-            description="짧은 공지나 긴급 텍스트 지식을 등록합니다."
+            description="즉시 공지나 기준 텍스트 지식을 등록합니다."
             active={selectedType === "text"}
             onClick={() => setSelectedType("text")}
           />
           <RegisterTypeButton
             title="웹사이트 등록"
-            description="공식 URL을 등록하고 수동 색인 소스로 관리합니다."
+            description="공식 URL을 등록하고 하위 링크까지 수집 범위를 설정합니다."
             active={selectedType === "website"}
             onClick={() => setSelectedType("website")}
           />
@@ -368,10 +388,10 @@ export function KnowledgeRegister() {
       </PagePanel>
 
       <PagePanel
-        title={selectedType === "file" ? "파일 소스" : selectedType === "text" ? "텍스트 소스" : "웹사이트 소스"}
-        description="등록한 항목은 색인 상태와 함께 관리 목록에 바로 표시됩니다."
+        title={selectedType === "file" ? "파일 폼" : selectedType === "text" ? "텍스트 폼" : "웹사이트 폼"}
+        description="등록 후 목록 화면에서 색인 상태와 상세 정보를 바로 확인할 수 있습니다."
       >
-        {isLoading ? <p className="text-sm text-slate-500">챗봇을 불러오는 중...</p> : null}
+        {isLoading ? <p className="text-sm text-slate-500">챗봇 목록을 불러오는 중입니다.</p> : null}
         {error ? <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
 
         {!isLoading && selectedType === "file" ? (
@@ -416,7 +436,7 @@ export function KnowledgeRegister() {
                 onChange={(event) => setTextForm((current) => ({ ...current, content: event.target.value }))}
                 rows={12}
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                placeholder="여기에 내용을 붙여넣으세요"
+                placeholder="여기에 내용을 붙여넣어 주세요"
               />
             </label>
             <div className="flex justify-end">
@@ -468,6 +488,19 @@ export function KnowledgeRegister() {
                 />
               </label>
               <label className="space-y-2">
+                <span className="text-sm font-medium text-slate-700">크롤링 페이지 수</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={websiteForm.crawlPageLimit}
+                  onChange={(event) =>
+                    setWebsiteForm((current) => ({ ...current, crawlPageLimit: event.target.value }))
+                  }
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                />
+              </label>
+              <label className="space-y-2">
                 <span className="text-sm font-medium text-slate-700">카테고리</span>
                 <input
                   value={websiteForm.category}
@@ -490,6 +523,19 @@ export function KnowledgeRegister() {
                   onChange={(event) => setWebsiteForm((current) => ({ ...current, department: event.target.value }))}
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                 />
+              </label>
+              <label className="space-y-2 md:col-span-2">
+                <span className="text-sm font-medium text-slate-700">제외 경로</span>
+                <textarea
+                  value={websiteForm.excludedPaths}
+                  onChange={(event) =>
+                    setWebsiteForm((current) => ({ ...current, excludedPaths: event.target.value }))
+                  }
+                  rows={3}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  placeholder={"/login\n/board/history"}
+                />
+                <p className="text-xs text-slate-500">줄바꿈 또는 쉼표로 여러 경로를 입력할 수 있습니다.</p>
               </label>
               <label className="space-y-2 md:col-span-2">
                 <span className="text-sm font-medium text-slate-700">태그</span>
@@ -525,18 +571,22 @@ export function KnowledgeRegister() {
       </PagePanel>
 
       {result ? (
-        <PagePanel title="등록 결과" description="등록 후 관리 목록에서 새 항목을 추적할 수 있습니다.">
+        <PagePanel title="등록 결과" description="등록 후 목록 화면에서 상세 항목과 색인 상태를 추적할 수 있습니다.">
           <div className="flex flex-wrap items-center gap-3">
             <strong className="text-base text-slate-900">{result.title}</strong>
-            <span className={`rounded-full px-3 py-1 text-xs font-medium ${statusBadgeClass(result.status)}`}>{result.status}</span>
+            <span className={`rounded-full px-3 py-1 text-xs font-medium ${statusBadgeClass(result.status)}`}>
+              {result.status}
+            </span>
             {result.ingestionStatus ? (
-              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-700">Index {result.ingestionStatus}</span>
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-700">
+                Index {result.ingestionStatus}
+              </span>
             ) : null}
           </div>
           <p className="mt-3 text-sm text-slate-600">{result.summary ?? "Registration completed."}</p>
           <div className="mt-4 flex flex-wrap gap-3">
             <span className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-              저장 후 지식 목록으로 이동합니다.
+              잠시 후 지식 목록으로 이동합니다.
             </span>
             <Link href="/admin/knowledge/list" className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white">
               관리 화면으로 이동

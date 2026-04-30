@@ -3,6 +3,8 @@ export type AdminSecuritySummary = {
   fallbackToday: number;
   escalationToday: number;
   errorToday: number;
+  repeatedDissatisfactionEscalationsToday: number;
+  severityCountsToday: Record<string, number>;
 };
 
 export type AdminSecurityEventItem = {
@@ -15,6 +17,8 @@ export type AdminSecurityEventItem = {
   eventType: "BLOCKED" | "FALLBACK" | "ESCALATION" | "ERROR" | string;
   eventLabel: string;
   reasonLabel: string;
+  severity?: string | null;
+  repeatedDissatisfaction: boolean;
   responseTimeMs?: number | null;
 };
 
@@ -37,6 +41,8 @@ export type AdminSecurityEventDetail = {
   status: string;
   time: string;
   reasonLabel: string;
+  severity?: string | null;
+  repeatedDissatisfaction: boolean;
   fallbackMessage?: string | null;
   escalated: boolean;
   responseTimeMs?: number | null;

@@ -218,7 +218,16 @@ export async function getAdminWidget(chatbotId: string): Promise<AdminWidgetResp
 export async function patchAdminWidget(chatbotId: string, body: {
   allowedDomains?: string[];
   isActive?: boolean;
+  themeColor?: string;
   launcherLabel?: string;
+  welcomeMessage?: string;
+  institutionName?: string;
+  logoUrl?: string;
+  introMessage?: string;
+  colorPreset?: string;
+  bannerTitle?: string;
+  bannerDescription?: string;
+  starterQuestions?: string[];
 }): Promise<AdminWidgetResponse> {
   return apiClient.request<AdminWidgetResponse>(`/admin/chatbots/${chatbotId}/widget`, {
     method: "PATCH",

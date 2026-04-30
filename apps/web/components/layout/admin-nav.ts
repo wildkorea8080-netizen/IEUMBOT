@@ -5,6 +5,7 @@ export const adminNavItems = [
   { href: "/admin/knowledge/list", label: "지식 목록", section: "Workspace", icon: "knowledge" },
   { href: "/admin/conversations", label: "대화 관리", section: "Workspace", icon: "conversation" },
   { href: "/admin/usage", label: "사용량", section: "Workspace", icon: "usage" },
+  { href: "/admin/widget", label: "위젯 설정", section: "Workspace", icon: "widget" },
   { href: "/admin/ai/basic", label: "기본 AI", section: "AI Config", icon: "ai" },
   { href: "/admin/ai/style", label: "스타일 규칙", section: "AI Config", icon: "spark" },
   { href: "/admin/ai/conditional", label: "조건부 규칙", section: "AI Config", icon: "spark" },

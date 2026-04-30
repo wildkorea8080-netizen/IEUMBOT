@@ -27,12 +27,53 @@ function createElement<K extends keyof HTMLElementTagNameMap>(
   return element;
 }
 
+function createIconSvg(name: "chat" | "heart" | "send" | "minimize" | "close"): string {
+  if (name === "heart") {
+    return `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M19.5 12.57 12 20l-7.5-7.43a4.95 4.95 0 0 1 0-7 4.95 4.95 0 0 1 7 0L12 6l.5-.43a4.95 4.95 0 0 1 7 7Z"/>
+      </svg>
+    `;
+  }
+  if (name === "send") {
+    return `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M22 2 11 13"/>
+        <path d="m22 2-7 20-4-9-9-4Z"/>
+      </svg>
+    `;
+  }
+  if (name === "minimize") {
+    return `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M5 12h14"/>
+      </svg>
+    `;
+  }
+  if (name === "close") {
+    return `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M18 6 6 18"/>
+        <path d="m6 6 12 12"/>
+      </svg>
+    `;
+  }
+  return `
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M7 10h10"/>
+      <path d="M7 14h6"/>
+      <path d="M21 12a8.96 8.96 0 0 1-2.64 6.36A9 9 0 1 1 21 12Z"/>
+      <path d="m15 19 3.5 3.5"/>
+    </svg>
+  `;
+}
+
 function getFriendlyOutcomeLabel(outcome?: string): string | null {
   if (!outcome || outcome === "answered") return null;
-  if (outcome === "insufficient_evidence") return "확인 가능한 근거가 부족해 정확한 안내가 제한됩니다.";
-  if (outcome === "restricted") return "해당 질문은 직접 안내가 제한됩니다.";
-  if (outcome === "conflict") return "근거 확인이 더 필요한 문의입니다.";
-  if (outcome === "escalate") return "담당 부서 확인이 필요한 문의입니다.";
+  if (outcome === "insufficient_evidence") return "확인 가능한 참고 내용이 부족해 일반 안내로 전환했습니다.";
+  if (outcome === "restricted") return "직접 안내가 어려운 질문이라 안전한 범위에서만 답변합니다.";
+  if (outcome === "conflict") return "근거 확인이 더 필요한 질문입니다.";
+  if (outcome === "escalate") return "추가 확인이 필요한 내용으로 상담 연결이 권장됩니다.";
   return null;
 }
 
@@ -62,43 +103,389 @@ function asCitationArray(value: unknown): ChatCitation[] {
   return value as ChatCitation[];
 }
 
-function buildScopedStyles(primaryColor: string, textColor: string, backgroundColor: string): string {
+function getInstitutionLabel(config: WidgetPublicConfig | null, options: WidgetInitOptions): string {
+  return (
+    options.title?.trim() ||
+    config?.institutionName?.trim() ||
+    config?.chatbotName?.trim() ||
+    "기관"
+  );
+}
+
+function headerDisplayName(config: WidgetPublicConfig | null, options: WidgetInitOptions): string {
+  const preferred = getInstitutionLabel(config, options);
+  return preferred.startsWith("AI 챗봇") ? preferred : `AI 챗봇 ${preferred}`;
+}
+
+function buildInitialMessage(config: WidgetPublicConfig | null, options: WidgetInitOptions): string {
+  if (options.welcomeMessage?.trim()) return options.welcomeMessage.trim();
+  if (config?.introMessage?.trim()) return config.introMessage.trim();
+  const preferred = getInstitutionLabel(config, options);
+  return `안녕하세요\n${preferred} AI 챗봇입니다.\n\n궁금하신 내용을 입력해주시면\n빠르게 안내해드리겠습니다.`;
+}
+
+function getPresetGradient(preset?: string | null): string {
+  if (preset === "forest") return "linear-gradient(135deg, #166534, #0f766e)";
+  if (preset === "sky") return "linear-gradient(135deg, #1d4ed8, #0284c7)";
+  if (preset === "civic") return "linear-gradient(135deg, #1e40af, #0f766e)";
+  if (preset === "sunset") return "linear-gradient(135deg, #b45309, #ea580c)";
+  return "linear-gradient(135deg, #2563EB, #22C55E)";
+}
+
+function buildScopedStyles(primaryGradient: string): string {
   return `
 :host { all: initial; }
-.ieum-root, .ieum-root * { box-sizing: border-box; font-family: Inter, "Noto Sans KR", Arial, sans-serif; letter-spacing: 0; }
-.ieum-root { position: fixed; right: 16px; bottom: 16px; z-index: 2147480000; color: ${textColor}; }
-.ieum-launcher { width: 56px; height: 56px; border: none; border-radius: 9999px; background: ${primaryColor}; color: #fff; font-size: 24px; cursor: pointer; box-shadow: 0 10px 24px rgba(0,0,0,.2); }
-.ieum-panel { width: min(360px, calc(100vw - 24px)); height: min(640px, calc(100vh - 24px)); border: 1px solid #dbe3ef; border-radius: 8px; background: ${backgroundColor}; display: none; overflow: hidden; box-shadow: 0 16px 40px rgba(0,0,0,.18); }
-.ieum-panel.open { display: grid; grid-template-rows: auto auto 1fr auto; }
-.ieum-header { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #e6edf5; padding: 12px; background: #fff; }
-.ieum-title { font-size: 14px; font-weight: 600; }
-.ieum-close { border: 1px solid #d0d8e4; border-radius: 6px; background: #fff; width: 32px; height: 32px; cursor: pointer; }
-.ieum-welcome { border-bottom: 1px solid #eef2f7; padding: 12px; background: #fcfdff; }
-.ieum-welcome-text { margin: 0; font-size: 13px; line-height: 1.5; color: #1f2937; }
-.ieum-after-hours { margin-top: 8px; padding: 8px 10px; border: 1px solid #fde68a; border-radius: 6px; background: #fffbeb; font-size: 12px; color: #92400e; }
-.ieum-quick-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
-.ieum-quick-action { border: 1px solid #d0d8e4; border-radius: 9999px; background: #fff; padding: 6px 10px; font-size: 12px; cursor: pointer; max-width: 100%; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
-.ieum-messages { overflow: auto; padding: 12px; background: #fff; }
-.ieum-message { margin-bottom: 10px; display: flex; }
-.ieum-message.user { justify-content: flex-end; }
-.ieum-message.system { justify-content: center; }
-.ieum-bubble { max-width: 88%; border-radius: 8px; padding: 8px 10px; font-size: 13px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
-.ieum-message.user .ieum-bubble { background: ${primaryColor}; color: #fff; }
-.ieum-message.assistant .ieum-bubble { border: 1px solid #dbe3ef; background: #f8fafc; color: #111827; }
-.ieum-message.system .ieum-bubble { border: 1px dashed #d1d5db; background: #f9fafb; color: #4b5563; }
-.ieum-outcome-note { margin-top: 6px; font-size: 11px; color: #6b7280; }
-.ieum-citations { margin-top: 8px; border-top: 1px dashed #d1d5db; padding-top: 6px; }
-.ieum-citations-title { font-size: 11px; color: #4b5563; margin-bottom: 4px; font-weight: 600; }
-.ieum-citation { font-size: 11px; color: #374151; line-height: 1.4; margin-bottom: 3px; }
-.ieum-loading { padding: 0 12px 10px; font-size: 12px; color: #6b7280; }
-.ieum-input-wrap { border-top: 1px solid #e6edf5; padding: 10px; display: grid; grid-template-columns: 1fr auto; gap: 8px; background: #fff; }
-.ieum-input { border: 1px solid #d0d8e4; border-radius: 8px; min-height: 42px; max-height: 120px; padding: 10px; font-size: 13px; resize: vertical; }
-.ieum-send { border: none; border-radius: 8px; min-width: 56px; background: ${primaryColor}; color: #fff; font-size: 13px; font-weight: 600; cursor: pointer; padding: 0 14px; }
-.ieum-send:disabled, .ieum-launcher:disabled { opacity: .6; cursor: default; }
-.ieum-privacy { padding: 8px 10px; border-top: 1px solid #eef2f7; background: #f8fafc; font-size: 11px; color: #6b7280; line-height: 1.4; }
-@media (max-width: 480px) {
-  .ieum-root { right: 8px; bottom: 8px; }
-  .ieum-panel { width: calc(100vw - 12px); height: min(620px, calc(100vh - 12px)); }
+.ieum-root, .ieum-root * {
+  box-sizing: border-box;
+  font-family: "Pretendard", "Noto Sans KR", "Apple SD Gothic Neo", Arial, sans-serif;
+  letter-spacing: -0.01em;
+}
+.ieum-root {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 2147480000;
+  color: #0f172a;
+}
+.ieum-floating {
+  width: 56px;
+  height: 56px;
+  border: none;
+  border-radius: 9999px;
+  background: ${primaryGradient};
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 14px 30px rgba(37, 99, 235, 0.28);
+  transition: transform .18s ease, box-shadow .18s ease, opacity .18s ease;
+}
+.ieum-floating:hover {
+  transform: scale(1.05);
+  box-shadow: 0 20px 36px rgba(15, 23, 42, 0.28);
+}
+.ieum-floating svg,
+.ieum-header-icon svg,
+.ieum-header-icon img,
+.ieum-header-button svg,
+.ieum-send svg {
+  width: 22px;
+  height: 22px;
+}
+.ieum-header-icon img {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  border-radius: 9999px;
+}
+.ieum-panel {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: min(340px, calc(100vw - 24px));
+  height: min(520px, calc(100vh - 24px));
+  border-radius: 16px;
+  background: #ffffff;
+  overflow: hidden;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+  display: flex;
+  flex-direction: column;
+  opacity: 0;
+  transform: translateY(20px);
+  pointer-events: none;
+  transition: opacity .22s ease, transform .22s ease;
+}
+.ieum-panel.open {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+.ieum-header {
+  min-height: 60px;
+  padding: 12px 16px;
+  background: ${primaryGradient};
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.ieum-header-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.ieum-header-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.16);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+.ieum-title {
+  font-size: 15px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ieum-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ieum-header-button {
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.ieum-header-button:hover {
+  background: rgba(255, 255, 255, 0.24);
+}
+.ieum-messages {
+  flex: 1;
+  padding: 16px;
+  background: #f8fafc;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ieum-banner {
+  margin: 16px 16px 0;
+  border: 1px solid rgba(37, 99, 235, 0.12);
+  border-radius: 14px;
+  padding: 12px 14px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.96), rgba(239,246,255,0.9));
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.05);
+}
+.ieum-banner-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #1e3a8a;
+}
+.ieum-banner-description {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #475569;
+  white-space: pre-wrap;
+}
+.ieum-starter-questions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 16px 12px;
+  background: #f8fafc;
+}
+.ieum-starter-question {
+  width: 100%;
+  border: 1px solid #dbe4f0;
+  border-radius: 14px;
+  background: #ffffff;
+  color: #0f172a;
+  padding: 10px 12px;
+  text-align: left;
+  font-size: 12px;
+  line-height: 1.45;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+}
+.ieum-starter-question:hover {
+  border-color: #93c5fd;
+  background: #eff6ff;
+}
+.ieum-message {
+  display: flex;
+  width: 100%;
+  animation: ieum-message-in .2s ease;
+}
+.ieum-message.user {
+  justify-content: flex-end;
+}
+.ieum-message.assistant,
+.ieum-message.system {
+  justify-content: flex-start;
+}
+.ieum-bubble {
+  max-width: 75%;
+  border-radius: 16px;
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.ieum-message.assistant .ieum-bubble,
+.ieum-message.system .ieum-bubble {
+  background: #ffffff;
+  color: #0f172a;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+}
+.ieum-message.user .ieum-bubble {
+  background: #2563eb;
+  color: #ffffff;
+}
+.ieum-outcome-note {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed #dbe4f0;
+  font-size: 11px;
+  color: #64748b;
+}
+.ieum-citations {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed #dbe4f0;
+}
+.ieum-citations-title {
+  margin-bottom: 4px;
+  font-size: 11px;
+  color: #475569;
+  font-weight: 700;
+}
+.ieum-citation {
+  font-size: 11px;
+  color: #475569;
+  line-height: 1.45;
+  margin-bottom: 3px;
+}
+.ieum-quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 16px 12px;
+  background: #f8fafc;
+}
+.ieum-quick-action {
+  border: 1px solid #dbe4f0;
+  border-radius: 9999px;
+  background: #ffffff;
+  color: #1e3a8a;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+.ieum-quick-action:hover {
+  border-color: #93c5fd;
+  background: #eff6ff;
+}
+.ieum-loading {
+  display: none;
+  align-self: flex-start;
+  max-width: 75%;
+  margin: 0 16px 12px;
+  border-radius: 16px;
+  padding: 12px 14px;
+  background: #ffffff;
+  color: #64748b;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+  font-size: 18px;
+  line-height: 1;
+}
+.ieum-loading.active {
+  display: inline-flex;
+  gap: 4px;
+}
+.ieum-loading-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 9999px;
+  background: #94a3b8;
+  animation: ieum-dot 1s infinite ease-in-out;
+}
+.ieum-loading-dot:nth-child(2) { animation-delay: .15s; }
+.ieum-loading-dot:nth-child(3) { animation-delay: .3s; }
+.ieum-input-wrap {
+  min-height: 64px;
+  border-top: 1px solid #e5e7eb;
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #ffffff;
+}
+.ieum-input {
+  flex: 1;
+  min-width: 0;
+  height: 44px;
+  border-radius: 9999px;
+  border: 1px solid #e5e7eb;
+  padding: 10px 14px;
+  font-size: 13px;
+  color: #0f172a;
+  outline: none;
+}
+.ieum-input::placeholder {
+  color: #94a3b8;
+}
+.ieum-input:focus {
+  border-color: #93c5fd;
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.08);
+}
+.ieum-send {
+  width: 42px;
+  height: 42px;
+  border: none;
+  border-radius: 9999px;
+  background: #2563eb;
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: filter .16s ease, transform .16s ease;
+}
+.ieum-send:hover {
+  filter: brightness(1.1);
+}
+.ieum-send:disabled,
+.ieum-floating:disabled {
+  opacity: .65;
+  cursor: default;
+}
+.ieum-footer {
+  border-top: 1px solid #eef2f7;
+  padding: 8px 12px;
+  background: #f8fafc;
+  font-size: 11px;
+  color: #64748b;
+  line-height: 1.45;
+}
+@keyframes ieum-dot {
+  0%, 80%, 100% { transform: translateY(0); opacity: .45; }
+  40% { transform: translateY(-3px); opacity: 1; }
+}
+@keyframes ieum-message-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (max-width: 640px) {
+  .ieum-root {
+    right: 8px;
+    left: 8px;
+    bottom: 8px;
+  }
+  .ieum-panel {
+    width: 100%;
+    height: min(520px, calc(100vh - 16px));
+  }
+  .ieum-bubble {
+    max-width: 84%;
+  }
 }
 `;
 }
@@ -109,17 +496,18 @@ export class IeumWidgetApp {
   private readonly host: HTMLDivElement;
   private readonly shadow: ShadowRoot;
   private readonly root: HTMLDivElement;
-  private readonly launcherButton: HTMLButtonElement;
+  private readonly floatingButton: HTMLButtonElement;
   private readonly panel: HTMLDivElement;
-  private readonly headerTitle: HTMLDivElement;
-  private readonly welcomeText: HTMLParagraphElement;
-  private readonly afterHoursBox: HTMLDivElement;
+  private readonly titleNode: HTMLDivElement;
+  private readonly headerIconNode: HTMLDivElement;
+  private readonly bannerWrap: HTMLDivElement;
+  private readonly starterQuestionsWrap: HTMLDivElement;
   private readonly quickActionsWrap: HTMLDivElement;
   private readonly messagesWrap: HTMLDivElement;
   private readonly loadingRow: HTMLDivElement;
-  private readonly input: HTMLTextAreaElement;
+  private readonly input: HTMLInputElement;
   private readonly sendButton: HTMLButtonElement;
-  private readonly privacyNotice: HTMLDivElement;
+  private readonly footerNotice: HTMLDivElement;
 
   private initialized = false;
   private open = false;
@@ -139,31 +527,35 @@ export class IeumWidgetApp {
     this.host.setAttribute("data-ieumbot-widget-root", "true");
     this.shadow = this.host.attachShadow({ mode: "open" });
     this.root = createElement(document, "div", "ieum-root");
-    this.launcherButton = createElement(document, "button", "ieum-launcher");
+    this.floatingButton = createElement(document, "button", "ieum-floating");
     this.panel = createElement(document, "div", "ieum-panel");
-    this.headerTitle = createElement(document, "div", "ieum-title");
-    this.welcomeText = createElement(document, "p", "ieum-welcome-text");
-    this.afterHoursBox = createElement(document, "div", "ieum-after-hours");
+    this.titleNode = createElement(document, "div", "ieum-title");
+    this.headerIconNode = createElement(document, "div", "ieum-header-icon");
+    this.bannerWrap = createElement(document, "div", "ieum-banner");
+    this.starterQuestionsWrap = createElement(document, "div", "ieum-starter-questions");
     this.quickActionsWrap = createElement(document, "div", "ieum-quick-actions");
     this.messagesWrap = createElement(document, "div", "ieum-messages");
     this.loadingRow = createElement(document, "div", "ieum-loading");
-    this.input = createElement(document, "textarea", "ieum-input");
+    this.input = createElement(document, "input", "ieum-input");
     this.sendButton = createElement(document, "button", "ieum-send");
-    this.privacyNotice = createElement(document, "div", "ieum-privacy");
+    this.footerNotice = createElement(document, "div", "ieum-footer");
 
-    this.launcherButton.type = "button";
-    this.launcherButton.title = options.launcherLabel ?? "채팅 열기";
-    this.launcherButton.textContent = "💬";
+    this.floatingButton.type = "button";
+    this.floatingButton.title = options.launcherLabel ?? "챗봇 열기";
+    this.floatingButton.setAttribute("aria-label", options.launcherLabel ?? "챗봇 열기");
+    this.floatingButton.innerHTML = createIconSvg("chat");
 
-    this.headerTitle.textContent = options.title ?? "이음봇";
-    this.afterHoursBox.style.display = "none";
-    this.loadingRow.style.display = "none";
-    this.loadingRow.textContent = "답변을 준비 중입니다...";
-    this.input.rows = 2;
-    this.input.placeholder = "질문을 입력하세요";
+    this.titleNode.textContent = headerDisplayName(null, options);
+    this.loadingRow.innerHTML = `
+      <span class="ieum-loading-dot"></span>
+      <span class="ieum-loading-dot"></span>
+      <span class="ieum-loading-dot"></span>
+    `;
+    this.input.placeholder = "무엇을 도와드릴까요?";
     this.sendButton.type = "button";
-    this.sendButton.textContent = "전송";
-    this.privacyNotice.style.display = "none";
+    this.sendButton.setAttribute("aria-label", "메시지 전송");
+    this.sendButton.innerHTML = createIconSvg("send");
+    this.footerNotice.style.display = "none";
   }
 
   async mount() {
@@ -171,42 +563,52 @@ export class IeumWidgetApp {
     this.initialized = true;
 
     const style = document.createElement("style");
-    style.textContent = buildScopedStyles(
-      this.options.theme?.primaryColor ?? "#2563eb",
-      this.options.theme?.textColor ?? "#0f172a",
-      this.options.theme?.backgroundColor ?? "#ffffff",
-    );
+    style.textContent = buildScopedStyles(getPresetGradient(this.options.theme?.primaryColor ?? null));
     this.shadow.appendChild(style);
     this.shadow.appendChild(this.root);
 
     const header = createElement(document, "div", "ieum-header");
-    const closeButton = createElement(document, "button", "ieum-close");
-    closeButton.type = "button";
-    closeButton.textContent = "×";
-
-    const welcome = createElement(document, "div", "ieum-welcome");
-    welcome.appendChild(this.welcomeText);
-    welcome.appendChild(this.afterHoursBox);
-    welcome.appendChild(this.quickActionsWrap);
-
+    const headerMain = createElement(document, "div", "ieum-header-main");
+    const headerActions = createElement(document, "div", "ieum-header-actions");
+    const minimizeButton = createElement(document, "button", "ieum-header-button");
+    const closeButton = createElement(document, "button", "ieum-header-button");
     const inputWrap = createElement(document, "div", "ieum-input-wrap");
+
+    this.headerIconNode.innerHTML = createIconSvg("heart");
+    minimizeButton.type = "button";
+    minimizeButton.title = "최소화";
+    minimizeButton.setAttribute("aria-label", "최소화");
+    minimizeButton.innerHTML = createIconSvg("minimize");
+    closeButton.type = "button";
+    closeButton.title = "닫기";
+    closeButton.setAttribute("aria-label", "닫기");
+    closeButton.innerHTML = createIconSvg("close");
+
+    headerMain.appendChild(this.headerIconNode);
+    headerMain.appendChild(this.titleNode);
+    headerActions.appendChild(minimizeButton);
+    headerActions.appendChild(closeButton);
+    header.appendChild(headerMain);
+    header.appendChild(headerActions);
+
     inputWrap.appendChild(this.input);
     inputWrap.appendChild(this.sendButton);
 
-    header.appendChild(this.headerTitle);
-    header.appendChild(closeButton);
     this.panel.appendChild(header);
-    this.panel.appendChild(welcome);
+    this.panel.appendChild(this.bannerWrap);
     this.panel.appendChild(this.messagesWrap);
+    this.panel.appendChild(this.starterQuestionsWrap);
+    this.panel.appendChild(this.quickActionsWrap);
     this.panel.appendChild(this.loadingRow);
     this.panel.appendChild(inputWrap);
-    this.panel.appendChild(this.privacyNotice);
+    this.panel.appendChild(this.footerNotice);
 
     this.root.appendChild(this.panel);
-    this.root.appendChild(this.launcherButton);
+    this.root.appendChild(this.floatingButton);
     document.body.appendChild(this.host);
 
-    this.launcherButton.addEventListener("click", () => this.togglePanel());
+    this.floatingButton.addEventListener("click", () => this.togglePanel());
+    minimizeButton.addEventListener("click", () => this.setOpen(false));
     closeButton.addEventListener("click", () => this.setOpen(false));
     this.sendButton.addEventListener("click", () => void this.sendCurrentInput());
     this.input.addEventListener("keydown", (event: KeyboardEvent) => {
@@ -220,37 +622,52 @@ export class IeumWidgetApp {
     if (this.options.openOnLoad) this.setOpen(true);
   }
 
+  private ensureInitialMessage() {
+    if (this.messages.length > 0) return;
+    this.pushMessage({
+      id: `assistant_welcome_${Date.now()}`,
+      role: "assistant",
+      text: buildInitialMessage(this.config, this.options),
+      timestamp: Date.now(),
+    });
+    if (this.config?.operatingHours.isAfterHours && this.config.operatingHours.message) {
+      this.pushMessage({
+        id: `system_after_hours_${Date.now()}`,
+        role: "system",
+        text: this.config.operatingHours.message,
+        timestamp: Date.now(),
+      });
+    }
+  }
+
   private async loadConfig() {
     try {
       this.config = await this.api.getConfig(this.options.chatbotId);
-      this.headerTitle.textContent = this.options.title ?? this.config.chatbotName;
-      this.welcomeText.textContent =
-        this.options.welcomeMessage ?? this.config.welcomeMessage ?? "안내를 시작할 준비가 되었습니다.";
-
-      const primaryColor = this.options.theme?.primaryColor ?? this.config.theme.primaryColor;
-      if (primaryColor) {
-        this.launcherButton.style.background = primaryColor;
-        this.sendButton.style.background = primaryColor;
+      const style = this.shadow.querySelector("style");
+      if (style) {
+        style.textContent = buildScopedStyles(getPresetGradient(this.config.theme?.preset));
       }
-      if (this.config.privacyNotice) {
-        this.privacyNotice.textContent = this.config.privacyNotice;
-        this.privacyNotice.style.display = "block";
-      }
-      if (this.config.operatingHours.isAfterHours && this.config.operatingHours.message) {
-        this.afterHoursBox.textContent = this.config.operatingHours.message;
-        this.afterHoursBox.style.display = "block";
+      this.titleNode.textContent = headerDisplayName(this.config, this.options);
+      if (this.config.logoUrl?.trim()) {
+        this.headerIconNode.innerHTML = `<img src="${this.config.logoUrl}" alt="기관 로고" />`;
       } else {
-        this.afterHoursBox.style.display = "none";
+        this.headerIconNode.innerHTML = createIconSvg("heart");
       }
-
+      this.renderBanner();
+      this.renderStarterQuestions();
+      if (this.config.privacyNotice) {
+        this.footerNotice.textContent = this.config.privacyNotice;
+        this.footerNotice.style.display = "block";
+      }
       this.renderQuickActions(this.config.quickActions);
       if (this.config.runtime?.chatEndpoint) this.chatEndpoint = this.config.runtime.chatEndpoint;
       if (this.config.runtime?.chatStreamEndpoint) this.chatStreamEndpoint = this.config.runtime.chatStreamEndpoint;
       this.sseEnabled =
         asBoolean(this.config.runtime?.sseEnabled) === true || this.config.runtime?.streamingMode === "sse_preferred";
+      this.ensureInitialMessage();
     } catch {
       this.pushMessage({
-        id: `sys_${Date.now()}`,
+        id: `system_load_error_${Date.now()}`,
         role: "system",
         text: "초기 설정을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.",
         timestamp: Date.now(),
@@ -258,9 +675,55 @@ export class IeumWidgetApp {
     }
   }
 
+  private renderBanner() {
+    this.bannerWrap.innerHTML = "";
+    const title = this.config?.banner?.title?.trim();
+    const description = this.config?.banner?.description?.trim();
+    if (!title && !description) {
+      this.bannerWrap.style.display = "none";
+      return;
+    }
+    this.bannerWrap.style.display = "block";
+    if (title) {
+      const titleNode = createElement(document, "div", "ieum-banner-title");
+      titleNode.textContent = title;
+      this.bannerWrap.appendChild(titleNode);
+    }
+    if (description) {
+      const descriptionNode = createElement(document, "div", "ieum-banner-description");
+      descriptionNode.textContent = description;
+      this.bannerWrap.appendChild(descriptionNode);
+    }
+  }
+
+  private renderStarterQuestions() {
+    this.starterQuestionsWrap.innerHTML = "";
+    const items = this.config?.starterQuestions?.filter((item) => item.trim()).slice(0, 4) ?? [];
+    if (items.length === 0) {
+      this.starterQuestionsWrap.style.display = "none";
+      return;
+    }
+    this.starterQuestionsWrap.style.display = "flex";
+    for (const question of items) {
+      const button = createElement(document, "button", "ieum-starter-question");
+      button.type = "button";
+      button.textContent = question;
+      button.addEventListener("click", () => {
+        this.input.value = question;
+        void this.sendCurrentInput();
+      });
+      this.starterQuestionsWrap.appendChild(button);
+    }
+  }
+
   private renderQuickActions(actions: WidgetQuickAction[]) {
     this.quickActionsWrap.innerHTML = "";
     const visible = actions.filter((item) => item.displayLocation === "welcome").slice(0, 6);
+    if (visible.length === 0) {
+      this.quickActionsWrap.style.display = "none";
+      return;
+    }
+    this.quickActionsWrap.style.display = "flex";
     for (const action of visible) {
       const button = createElement(document, "button", "ieum-quick-action");
       button.type = "button";
@@ -281,16 +744,17 @@ export class IeumWidgetApp {
   private setOpen(value: boolean) {
     this.open = value;
     if (value) {
+      this.ensureInitialMessage();
       this.panel.classList.add("open");
-      this.launcherButton.style.display = "none";
+      this.floatingButton.style.opacity = "0";
+      this.floatingButton.style.pointerEvents = "none";
       this.input.focus();
       this.scrollMessagesToBottom();
-    } else {
-      this.panel.classList.remove("open");
-      this.launcherButton.style.display = "inline-flex";
-      this.launcherButton.style.alignItems = "center";
-      this.launcherButton.style.justifyContent = "center";
+      return;
     }
+    this.panel.classList.remove("open");
+    this.floatingButton.style.opacity = "1";
+    this.floatingButton.style.pointerEvents = "auto";
   }
 
   private togglePanel() {
@@ -316,11 +780,11 @@ export class IeumWidgetApp {
 
   private renderMessages() {
     this.messagesWrap.innerHTML = "";
+    this.starterQuestionsWrap.style.display = this.messages.length <= 1 ? this.starterQuestionsWrap.style.display : "none";
     for (const message of this.messages) {
       const row = createElement(document, "div", `ieum-message ${message.role}`);
       const bubble = createElement(document, "div", "ieum-bubble");
       bubble.textContent = message.text;
-      row.appendChild(bubble);
 
       if (message.role === "assistant") {
         const outcomeText = getFriendlyOutcomeLabel(message.outcome);
@@ -342,6 +806,8 @@ export class IeumWidgetApp {
           bubble.appendChild(citationWrap);
         }
       }
+
+      row.appendChild(bubble);
       this.messagesWrap.appendChild(row);
     }
 
@@ -358,6 +824,7 @@ export class IeumWidgetApp {
       retryRow.appendChild(retryButton);
       this.messagesWrap.appendChild(retryRow);
     }
+
     this.scrollMessagesToBottom();
   }
 
@@ -371,8 +838,7 @@ export class IeumWidgetApp {
     this.sending = value;
     this.sendButton.disabled = value;
     this.input.disabled = value;
-    this.loadingRow.style.display = value ? "block" : "none";
-    this.launcherButton.disabled = value;
+    this.loadingRow.classList.toggle("active", value);
   }
 
   private async sendCurrentInput() {
@@ -383,7 +849,7 @@ export class IeumWidgetApp {
     this.lastFailedQuestion = null;
     this.input.value = "";
     this.pushMessage({
-      id: `u_${Date.now()}`,
+      id: `user_${Date.now()}`,
       role: "user",
       text: question,
       timestamp: Date.now(),
@@ -414,7 +880,7 @@ export class IeumWidgetApp {
     } catch {
       this.lastFailedQuestion = question;
       this.pushMessage({
-        id: `sys_${Date.now()}`,
+        id: `system_send_error_${Date.now()}`,
         role: "system",
         text: "요청 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.",
         timestamp: Date.now(),
@@ -426,7 +892,7 @@ export class IeumWidgetApp {
   }
 
   private async trySendWithSse(question: string): Promise<boolean> {
-    const draftMessageId = `a_stream_${Date.now()}`;
+    const draftMessageId = `assistant_stream_${Date.now()}`;
     let streamFailed = false;
     let streamErrorMessage = "스트리밍 연결 오류로 일반 모드로 전환합니다.";
     let finalOutcome = "answered";
@@ -453,7 +919,7 @@ export class IeumWidgetApp {
       if (event.event === "message_complete") {
         finalOutcome = asString(data.outcome) ?? finalOutcome;
         receivedVisiblePayload = true;
-        this.updateMessage(draftMessageId, { outcome: finalOutcome, text: finalText || " " });
+        this.updateMessage(draftMessageId, { outcome: finalOutcome, text: finalText || "..." });
         return;
       }
       if (event.event === "fallback" || event.event === "escalation") {
@@ -474,8 +940,8 @@ export class IeumWidgetApp {
         return;
       }
       if (event.event === "done") {
-        const sessionToken = asString(data.sessionToken);
-        if (sessionToken) this.sessionToken = sessionToken;
+        const nextSessionToken = asString(data.sessionToken);
+        if (nextSessionToken) this.sessionToken = nextSessionToken;
       }
     };
 
@@ -493,7 +959,10 @@ export class IeumWidgetApp {
       );
       if (streamFailed) throw new Error(streamErrorMessage);
       if (!finalText.trim()) {
-        this.updateMessage(draftMessageId, { text: "요청을 처리하지 못했습니다.", outcome: "insufficient_evidence" });
+        this.updateMessage(draftMessageId, {
+          text: "요청을 처리하지 못했습니다.",
+          outcome: "insufficient_evidence",
+        });
       } else {
         this.updateMessage(draftMessageId, {
           text: finalText,
@@ -524,7 +993,7 @@ export class IeumWidgetApp {
     }
     const answerText = response.answer?.text?.trim() || "안내 가능한 답변을 생성하지 못했습니다.";
     this.pushMessage({
-      id: `a_${response.requestId}`,
+      id: `assistant_${response.requestId}`,
       role: "assistant",
       text: answerText,
       outcome: response.outcome,

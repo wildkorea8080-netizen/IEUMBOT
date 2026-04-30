@@ -11,6 +11,9 @@ export type WidgetQuickAction = {
 export type WidgetPublicConfig = {
   chatbotId: string;
   chatbotName: string;
+  institutionName?: string | null;
+  logoUrl?: string | null;
+  introMessage?: string | null;
   welcomeMessage: string;
   privacyNotice?: string | null;
   citationMode: string;
@@ -18,7 +21,13 @@ export type WidgetPublicConfig = {
     primaryColor?: string | null;
     textColor?: string | null;
     backgroundColor?: string | null;
+    preset?: string | null;
   };
+  banner: {
+    title?: string | null;
+    description?: string | null;
+  };
+  starterQuestions: string[];
   quickActions: WidgetQuickAction[];
   operatingHours: {
     isAfterHours: boolean;

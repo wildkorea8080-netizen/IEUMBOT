@@ -19,36 +19,39 @@ import type {
 const TEXT = {
   error: "보안 센터 데이터를 불러오는 중 오류가 발생했습니다.",
   title: "보안 센터",
-  description: "차단, 대체 응답, 에스컬레이션, 오류 이벤트를 운영 관점에서 빠르게 확인하는 화면입니다.",
+  description:
+    "차단, 대체 응답, 상담 이관, 오류 이벤트를 한 화면에서 확인하고 반복 불만 패턴을 빠르게 추적합니다.",
   eventTitle: "이벤트 로그",
-  eventDescription: "정책 위반, 근거 부족, 상담 연결, 시스템 오류를 기간과 질문 기준으로 조회할 수 있습니다.",
-  blockedToday: "오늘 차단 건수",
-  fallbackToday: "오늘 대체 응답 건수",
-  escalationToday: "오늘 에스컬레이션 건수",
-  errorToday: "오늘 오류 건수",
+  eventDescription: "기간, 유형, 수위, 반복 불만 여부로 필터링해 주요 보안 이벤트를 조회합니다.",
+  blockedToday: "오늘 차단",
+  fallbackToday: "오늘 대체 응답",
+  escalationToday: "오늘 상담 이관",
+  errorToday: "오늘 오류",
+  repeatedToday: "반복 불만 이관",
   allEvents: "전체 이벤트",
-  searchQuestion: "질문 내용으로 검색",
-  search: "검색",
+  allSeverity: "전체 수위",
+  searchQuestion: "질문 내용 검색",
+  search: "조회",
   loading: "이벤트 로그를 불러오는 중입니다.",
   empty: "조회된 보안 이벤트가 없습니다.",
   detail: "상세",
   detailTitle: "보안 이벤트 상세",
-  detailDescription: "내부 정책 JSON과 규칙 ID는 노출하지 않습니다.",
+  detailDescription: "세션 단위로 발생한 차단, 대체 응답, 상담 이관 사유를 확인합니다.",
   close: "닫기",
   detailLoading: "상세 정보를 불러오는 중입니다.",
   question: "질문",
-  answer: "답변",
+  answer: "응답",
   eventType: "이벤트 유형",
   status: "상태",
   time: "시간",
   responseTime: "응답 시간",
-  reason: "차단/탐지 사유",
-  fallback: "대체 응답 메시지",
-  escalated: "에스컬레이션 여부",
+  reason: "사유",
+  fallback: "안내 메시지",
+  escalated: "상담 이관 여부",
   chatbot: "챗봇",
   chatbotId: "챗봇 ID",
-  conversationId: "대화 ID",
-  advanced: "고급 분석 보기",
+  conversationId: "세션 ID",
+  advanced: "대화 분석 보기",
   yes: "예",
   no: "아니오",
 } as const;
@@ -64,6 +67,14 @@ function eventBadgeClass(eventType: string): string {
   if (eventType === "FALLBACK") return "bg-amber-100 text-amber-700";
   if (eventType === "ESCALATION") return "bg-blue-100 text-blue-700";
   return "bg-slate-200 text-slate-700";
+}
+
+function severityBadgeClass(severity?: string | null): string {
+  if (severity === "critical") return "bg-red-100 text-red-700";
+  if (severity === "high") return "bg-orange-100 text-orange-700";
+  if (severity === "medium") return "bg-amber-100 text-amber-700";
+  if (severity === "low") return "bg-blue-100 text-blue-700";
+  return "bg-slate-100 text-slate-600";
 }
 
 function formatDateTime(value?: string | null): string {
@@ -85,14 +96,26 @@ function SummaryCard(props: { title: string; value: number; className: string })
   );
 }
 
+function SeverityCard(props: { label: string; value: number; className: string }) {
+  return (
+    <div className={`rounded-2xl border p-4 ${props.className}`}>
+      <p className="text-xs font-medium uppercase tracking-wide">{props.label}</p>
+      <p className="mt-2 text-2xl font-semibold">{props.value}</p>
+    </div>
+  );
+}
+
 export function SecurityCenter() {
   const [summary, setSummary] = useState<AdminSecuritySummary | null>(null);
   const [items, setItems] = useState<AdminSecurityEventItem[]>([]);
+  const [repeatedItems, setRepeatedItems] = useState<AdminSecurityEventItem[]>([]);
   const [detail, setDetail] = useState<AdminSecurityEventDetail | null>(null);
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [eventType, setEventType] = useState("");
+  const [severity, setSeverity] = useState("");
   const [question, setQuestion] = useState("");
+  const [repeatedOnly, setRepeatedOnly] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize] = useState(20);
   const [totalCount, setTotalCount] = useState(0);
@@ -100,27 +123,40 @@ export function SecurityCenter() {
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const totalPages = useMemo(() => Math.max(1, Math.ceil(totalCount / pageSize)), [totalCount, pageSize]);
+  const totalPages = useMemo(() => Math.max(1, Math.ceil(totalCount / pageSize)), [pageSize, totalCount]);
+  const repeatedEscalations = useMemo(
+    () => repeatedItems.filter((item) => item.eventType === "ESCALATION" && item.repeatedDissatisfaction),
+    [repeatedItems],
+  );
 
   async function loadEvents(nextPage = page) {
     setIsLoading(true);
     setError(null);
     try {
-      const [summaryResponse, eventsResponse] = await Promise.all([
+      const [summaryResponse, eventsResponse, repeatedResponse] = await Promise.all([
         getAdminSecuritySummary(),
         getAdminSecurityEvents({
           from: from || undefined,
           to: to || undefined,
           eventType: eventType || undefined,
+          severity: severity || undefined,
+          repeatedDissatisfactionOnly: repeatedOnly || undefined,
           question: question.trim() || undefined,
           page: nextPage,
           pageSize,
+        }),
+        getAdminSecurityEvents({
+          eventType: "ESCALATION",
+          repeatedDissatisfactionOnly: true,
+          page: 1,
+          pageSize: 5,
         }),
       ]);
       setSummary(summaryResponse);
       setItems(eventsResponse.items);
       setTotalCount(eventsResponse.totalCount);
       setPage(eventsResponse.page);
+      setRepeatedItems(repeatedResponse.items);
     } catch (loadError) {
       setError(getErrorMessage(loadError));
     } finally {
@@ -148,32 +184,123 @@ export function SecurityCenter() {
   return (
     <div className="space-y-6">
       <PagePanel title={TEXT.title} description={TEXT.description}>
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <SummaryCard title={TEXT.blockedToday} value={summary?.blockedToday ?? 0} className="border-rose-200 bg-rose-50 text-rose-700" />
-          <SummaryCard title={TEXT.fallbackToday} value={summary?.fallbackToday ?? 0} className="border-amber-200 bg-amber-50 text-amber-700" />
-          <SummaryCard title={TEXT.escalationToday} value={summary?.escalationToday ?? 0} className="border-blue-200 bg-blue-50 text-blue-700" />
-          <SummaryCard title={TEXT.errorToday} value={summary?.errorToday ?? 0} className="border-slate-200 bg-slate-50 text-slate-700" />
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+          <SummaryCard
+            title={TEXT.blockedToday}
+            value={summary?.blockedToday ?? 0}
+            className="border-rose-200 bg-rose-50 text-rose-700"
+          />
+          <SummaryCard
+            title={TEXT.fallbackToday}
+            value={summary?.fallbackToday ?? 0}
+            className="border-amber-200 bg-amber-50 text-amber-700"
+          />
+          <SummaryCard
+            title={TEXT.escalationToday}
+            value={summary?.escalationToday ?? 0}
+            className="border-blue-200 bg-blue-50 text-blue-700"
+          />
+          <SummaryCard
+            title={TEXT.errorToday}
+            value={summary?.errorToday ?? 0}
+            className="border-slate-200 bg-slate-50 text-slate-700"
+          />
+          <SummaryCard
+            title={TEXT.repeatedToday}
+            value={summary?.repeatedDissatisfactionEscalationsToday ?? 0}
+            className="border-indigo-200 bg-indigo-50 text-indigo-700"
+          />
+        </div>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <SeverityCard
+            label="Low"
+            value={summary?.severityCountsToday?.low ?? 0}
+            className="border-blue-200 bg-blue-50 text-blue-700"
+          />
+          <SeverityCard
+            label="Medium"
+            value={summary?.severityCountsToday?.medium ?? 0}
+            className="border-amber-200 bg-amber-50 text-amber-700"
+          />
+          <SeverityCard
+            label="High"
+            value={summary?.severityCountsToday?.high ?? 0}
+            className="border-orange-200 bg-orange-50 text-orange-700"
+          />
+          <SeverityCard
+            label="Critical"
+            value={summary?.severityCountsToday?.critical ?? 0}
+            className="border-red-200 bg-red-50 text-red-700"
+          />
         </div>
       </PagePanel>
 
       <PagePanel title={TEXT.eventTitle} description={TEXT.eventDescription}>
-        <div className="grid gap-3 lg:grid-cols-[160px_160px_170px_1fr_auto]">
-          <input type="date" value={from} onChange={(event) => setFrom(event.target.value)} className="rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-          <input type="date" value={to} onChange={(event) => setTo(event.target.value)} className="rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-          <select value={eventType} onChange={(event) => setEventType(event.target.value)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
+        <div className="grid gap-3 xl:grid-cols-[160px_160px_170px_170px_1fr_auto]">
+          <input
+            type="date"
+            value={from}
+            onChange={(event) => setFrom(event.target.value)}
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          />
+          <input
+            type="date"
+            value={to}
+            onChange={(event) => setTo(event.target.value)}
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          />
+          <select
+            value={eventType}
+            onChange={(event) => setEventType(event.target.value)}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+          >
             <option value="">{TEXT.allEvents}</option>
-            <option value="BLOCKED">차단 (BLOCKED)</option>
+            <option value="BLOCKED">차단</option>
             <option value="FALLBACK">대체 응답</option>
-            <option value="ESCALATION">에스컬레이션</option>
+            <option value="ESCALATION">상담 이관</option>
             <option value="ERROR">오류</option>
           </select>
-          <input value={question} onChange={(event) => setQuestion(event.target.value)} placeholder={TEXT.searchQuestion} className="rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-          <button type="button" onClick={() => void loadEvents(1)} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700">
+          <select
+            value={severity}
+            onChange={(event) => setSeverity(event.target.value)}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+          >
+            <option value="">{TEXT.allSeverity}</option>
+            <option value="low">low</option>
+            <option value="medium">medium</option>
+            <option value="high">high</option>
+            <option value="critical">critical</option>
+          </select>
+          <input
+            value={question}
+            onChange={(event) => setQuestion(event.target.value)}
+            placeholder={TEXT.searchQuestion}
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          />
+          <button
+            type="button"
+            onClick={() => void loadEvents(1)}
+            className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700"
+          >
             {TEXT.search}
           </button>
         </div>
 
-        {error ? <p className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
+        <label className="mt-3 inline-flex items-center gap-2 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            checked={repeatedOnly}
+            onChange={(event) => setRepeatedOnly(event.target.checked)}
+          />
+          반복 불만으로 상담 이관된 건만 보기
+        </label>
+
+        {error ? (
+          <p className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            {error}
+          </p>
+        ) : null}
         {isLoading ? <p className="mt-4 text-sm text-slate-500">{TEXT.loading}</p> : null}
 
         {!isLoading ? (
@@ -183,8 +310,9 @@ export function SecurityCenter() {
                 <tr>
                   <th className="w-44 px-3 py-3">시간</th>
                   <th className="px-3 py-3">사용자 질문</th>
-                  <th className="w-28 px-3 py-3">이벤트 유형</th>
-                  <th className="w-40 px-3 py-3">사유</th>
+                  <th className="w-40 px-3 py-3">이벤트</th>
+                  <th className="w-36 px-3 py-3">사유</th>
+                  <th className="w-32 px-3 py-3">반복 불만</th>
                   <th className="w-36 px-3 py-3">챗봇</th>
                   <th className="w-28 px-3 py-3">작업</th>
                 </tr>
@@ -192,7 +320,7 @@ export function SecurityCenter() {
               <tbody className="divide-y divide-slate-100 bg-white">
                 {items.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-3 py-10 text-center text-sm text-slate-500">
+                    <td colSpan={7} className="px-3 py-10 text-center text-sm text-slate-500">
                       {TEXT.empty}
                     </td>
                   </tr>
@@ -204,14 +332,40 @@ export function SecurityCenter() {
                         <p className="line-clamp-2 text-slate-900">{item.questionPreview ?? "-"}</p>
                       </td>
                       <td className="px-3 py-4">
-                        <span className={`rounded-full px-3 py-1 text-xs font-medium ${eventBadgeClass(item.eventType)}`}>
-                          {item.eventType}
-                        </span>
+                        <div className="flex flex-wrap gap-2">
+                          <span
+                            className={`rounded-full px-3 py-1 text-xs font-medium ${eventBadgeClass(item.eventType)}`}
+                          >
+                            {item.eventType}
+                          </span>
+                          {item.severity ? (
+                            <span
+                              className={`rounded-full px-3 py-1 text-xs font-medium ${severityBadgeClass(item.severity)}`}
+                            >
+                              {item.severity}
+                            </span>
+                          ) : null}
+                        </div>
                       </td>
                       <td className="px-3 py-4 text-slate-700">{item.reasonLabel}</td>
+                      <td className="px-3 py-4">
+                        <span
+                          className={`rounded-full px-3 py-1 text-xs font-medium ${
+                            item.repeatedDissatisfaction
+                              ? "bg-indigo-100 text-indigo-700"
+                              : "bg-slate-100 text-slate-600"
+                          }`}
+                        >
+                          {item.repeatedDissatisfaction ? "반복됨" : "일반"}
+                        </span>
+                      </td>
                       <td className="px-3 py-4 text-slate-700">{item.chatbotName}</td>
                       <td className="px-3 py-4">
-                        <button type="button" onClick={() => void openDetail(item.eventId)} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-700">
+                        <button
+                          type="button"
+                          onClick={() => void openDetail(item.eventId)}
+                          className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-700"
+                        >
                           {TEXT.detail}
                         </button>
                       </td>
@@ -228,14 +382,69 @@ export function SecurityCenter() {
             총 {totalCount}건 / {page}페이지 / {totalPages}페이지
           </span>
           <div className="flex gap-2">
-            <button type="button" disabled={page <= 1} onClick={() => void loadEvents(page - 1)} className="rounded-lg border border-slate-300 px-3 py-2 disabled:opacity-50">
+            <button
+              type="button"
+              disabled={page <= 1}
+              onClick={() => void loadEvents(page - 1)}
+              className="rounded-lg border border-slate-300 px-3 py-2 disabled:opacity-50"
+            >
               이전
             </button>
-            <button type="button" disabled={page >= totalPages} onClick={() => void loadEvents(page + 1)} className="rounded-lg border border-slate-300 px-3 py-2 disabled:opacity-50">
+            <button
+              type="button"
+              disabled={page >= totalPages}
+              onClick={() => void loadEvents(page + 1)}
+              className="rounded-lg border border-slate-300 px-3 py-2 disabled:opacity-50"
+            >
               다음
             </button>
           </div>
         </div>
+      </PagePanel>
+
+      <PagePanel
+        title="반복 불만 이관 목록"
+        description="같은 세션에서 불만이 반복되어 상담 연결로 전환된 건만 따로 모아 봅니다."
+      >
+        {repeatedEscalations.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
+            최근 반복 불만 이관 건이 없습니다.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {repeatedEscalations.map((item) => (
+              <div key={item.eventId} className="rounded-2xl border border-slate-200 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap gap-2">
+                      <span className="rounded-full bg-indigo-100 px-3 py-1 text-xs font-medium text-indigo-700">
+                        반복 불만 이관
+                      </span>
+                      {item.severity ? (
+                        <span
+                          className={`rounded-full px-3 py-1 text-xs font-medium ${severityBadgeClass(item.severity)}`}
+                        >
+                          {item.severity}
+                        </span>
+                      ) : null}
+                    </div>
+                    <p className="text-sm text-slate-900">{item.questionPreview ?? "-"}</p>
+                    <p className="text-xs text-slate-500">
+                      {formatDateTime(item.time)} | {item.chatbotName} | {item.reasonLabel}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void openDetail(item.eventId)}
+                    className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-700"
+                  >
+                    {TEXT.detail}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </PagePanel>
 
       {(detail || isDetailLoading) && (
@@ -246,43 +455,97 @@ export function SecurityCenter() {
                 <h3 className="text-lg font-semibold text-slate-900">{TEXT.detailTitle}</h3>
                 <p className="text-sm text-slate-500">{TEXT.detailDescription}</p>
               </div>
-              <button type="button" onClick={() => setDetail(null)} className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700">
+              <button
+                type="button"
+                onClick={() => {
+                  setDetail(null);
+                  setIsDetailLoading(false);
+                }}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700"
+              >
                 {TEXT.close}
               </button>
             </div>
 
-            {isDetailLoading ? <p className="px-6 py-8 text-sm text-slate-500">{TEXT.detailLoading}</p> : null}
+            {isDetailLoading ? (
+              <p className="px-6 py-8 text-sm text-slate-500">{TEXT.detailLoading}</p>
+            ) : null}
 
             {detail ? (
               <div className="space-y-6 px-6 py-6">
                 <div className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700 md:grid-cols-2">
-                  <div><strong className="mr-2 text-slate-900">{TEXT.eventType}</strong>{detail.eventType}</div>
-                  <div><strong className="mr-2 text-slate-900">{TEXT.status}</strong>{detail.status}</div>
-                  <div><strong className="mr-2 text-slate-900">{TEXT.time}</strong>{formatDateTime(detail.time)}</div>
-                  <div><strong className="mr-2 text-slate-900">{TEXT.responseTime}</strong>{formatLatency(detail.responseTimeMs)}</div>
+                  <div>
+                    <strong className="mr-2 text-slate-900">{TEXT.eventType}</strong>
+                    {detail.eventType}
+                  </div>
+                  <div>
+                    <strong className="mr-2 text-slate-900">{TEXT.status}</strong>
+                    {detail.status}
+                  </div>
+                  <div>
+                    <strong className="mr-2 text-slate-900">{TEXT.time}</strong>
+                    {formatDateTime(detail.time)}
+                  </div>
+                  <div>
+                    <strong className="mr-2 text-slate-900">{TEXT.responseTime}</strong>
+                    {formatLatency(detail.responseTimeMs)}
+                  </div>
+                  <div>
+                    <strong className="mr-2 text-slate-900">수위</strong>
+                    {detail.severity ?? "-"}
+                  </div>
+                  <div>
+                    <strong className="mr-2 text-slate-900">반복 불만</strong>
+                    {detail.repeatedDissatisfaction ? TEXT.yes : TEXT.no}
+                  </div>
                 </div>
 
                 <div className="rounded-xl border border-slate-200 p-4">
                   <h4 className="text-sm font-semibold text-slate-900">{TEXT.question}</h4>
-                  <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{detail.userQuestion ?? "-"}</p>
+                  <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">
+                    {detail.userQuestion ?? "-"}
+                  </p>
                 </div>
 
                 <div className="rounded-xl border border-slate-200 p-4">
                   <h4 className="text-sm font-semibold text-slate-900">{TEXT.answer}</h4>
-                  <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{detail.assistantAnswer ?? "-"}</p>
+                  <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">
+                    {detail.assistantAnswer ?? "-"}
+                  </p>
                 </div>
 
                 <div className="grid gap-3 rounded-xl border border-slate-200 p-4 text-sm text-slate-700 md:grid-cols-2">
-                  <div><strong className="mr-2 text-slate-900">{TEXT.reason}</strong>{detail.reasonLabel}</div>
-                  <div><strong className="mr-2 text-slate-900">{TEXT.fallback}</strong>{detail.fallbackMessage ?? "-"}</div>
-                  <div><strong className="mr-2 text-slate-900">{TEXT.escalated}</strong>{detail.escalated ? TEXT.yes : TEXT.no}</div>
-                  <div><strong className="mr-2 text-slate-900">{TEXT.chatbot}</strong>{detail.chatbotName}</div>
-                  <div><strong className="mr-2 text-slate-900">{TEXT.chatbotId}</strong>{detail.chatbotId}</div>
-                  <div><strong className="mr-2 text-slate-900">{TEXT.conversationId}</strong>{detail.sessionId}</div>
+                  <div>
+                    <strong className="mr-2 text-slate-900">{TEXT.reason}</strong>
+                    {detail.reasonLabel}
+                  </div>
+                  <div>
+                    <strong className="mr-2 text-slate-900">{TEXT.fallback}</strong>
+                    {detail.fallbackMessage ?? "-"}
+                  </div>
+                  <div>
+                    <strong className="mr-2 text-slate-900">{TEXT.escalated}</strong>
+                    {detail.escalated ? TEXT.yes : TEXT.no}
+                  </div>
+                  <div>
+                    <strong className="mr-2 text-slate-900">{TEXT.chatbot}</strong>
+                    {detail.chatbotName}
+                  </div>
+                  <div>
+                    <strong className="mr-2 text-slate-900">{TEXT.chatbotId}</strong>
+                    {detail.chatbotId}
+                  </div>
+                  <div>
+                    <strong className="mr-2 text-slate-900">{TEXT.conversationId}</strong>
+                    {detail.sessionId}
+                  </div>
                 </div>
 
                 <div className="flex flex-wrap gap-2">
-                  <Link href={detail.advancedAnalysisUrl ?? "/admin/conversation-analysis"} className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700">
+                  <Link
+                    href={detail.advancedAnalysisUrl ?? "/admin/conversation-analysis"}
+                    className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700"
+                  >
                     {TEXT.advanced}
                   </Link>
                 </div>
