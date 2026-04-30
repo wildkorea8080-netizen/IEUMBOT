@@ -1,11 +1,18 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { PagePanel } from "../../../components/ui/page-panel";
 import { ApiClientError } from "../../../lib/api";
-import { getAdminWidget, patchAdminWidget } from "../../../lib/api/admin-operations";
-import type { AdminWidgetResponse } from "../../../lib/api/admin-operations-types";
+import {
+  getAdminChatbots,
+  getAdminWidget,
+  patchAdminWidget,
+} from "../../../lib/api/admin-operations";
+import type {
+  AdminChatbotItem,
+  AdminWidgetResponse,
+} from "../../../lib/api/admin-operations-types";
 
 const COLOR_PRESETS = [
   { value: "default", label: "기본 공공기관", preview: "from-blue-600 to-green-500" },
@@ -17,7 +24,15 @@ const COLOR_PRESETS = [
 
 function ChatIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5">
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.9"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-5 w-5"
+    >
       <path d="M7 10h10" />
       <path d="M7 14h6" />
       <path d="M21 12a8.96 8.96 0 0 1-2.64 6.36A9 9 0 1 1 21 12Z" />
@@ -28,7 +43,15 @@ function ChatIcon() {
 
 function MinimizeIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-4 w-4"
+    >
       <path d="M5 12h14" />
     </svg>
   );
@@ -36,7 +59,15 @@ function MinimizeIcon() {
 
 function CloseIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-4 w-4"
+    >
       <path d="M18 6 6 18" />
       <path d="m6 6 12 12" />
     </svg>
@@ -45,7 +76,15 @@ function CloseIcon() {
 
 function SendIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.9"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-4 w-4"
+    >
       <path d="M22 2 11 13" />
       <path d="m22 2-7 20-4-9-9-4Z" />
     </svg>
@@ -56,6 +95,9 @@ function getErrorMessage(error: unknown): string {
   if (error instanceof ApiClientError) {
     return `${error.code}: ${error.message}`;
   }
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
   return "요청 처리 중 오류가 발생했습니다.";
 }
 
@@ -64,7 +106,8 @@ function gradientClass(preset: string) {
 }
 
 export default function WidgetPage() {
-  const [chatbotId, setChatbotId] = useState("");
+  const [chatbots, setChatbots] = useState<AdminChatbotItem[]>([]);
+  const [selectedChatbotId, setSelectedChatbotId] = useState("");
   const [domainsInput, setDomainsInput] = useState("");
   const [launcherLabel, setLauncherLabel] = useState("");
   const [institutionName, setInstitutionName] = useState("");
@@ -77,6 +120,7 @@ export default function WidgetPage() {
   const [bannerDescription, setBannerDescription] = useState("");
   const [starterQuestionsInput, setStarterQuestionsInput] = useState("");
   const [data, setData] = useState<AdminWidgetResponse | null>(null);
+  const [isBooting, setIsBooting] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -91,19 +135,25 @@ export default function WidgetPage() {
     [starterQuestionsInput],
   );
 
-  const previewTitle = institutionName.trim() || "기관";
+  const selectedChatbot = useMemo(
+    () => chatbots.find((item) => item.id === selectedChatbotId) ?? null,
+    [chatbots, selectedChatbotId],
+  );
+
+  const previewTitle = institutionName.trim() || selectedChatbot?.name || "기관";
   const previewLauncher = launcherLabel.trim() || "챗봇 열기";
   const previewIntro =
     introMessage.trim() ||
     `안녕하세요\n${previewTitle} AI 챗봇입니다.\n\n궁금하신 내용을 입력해주시면\n빠르게 안내해드리겠습니다.`;
+
   const iframeSrcDoc = useMemo(() => {
-    const chatbotKey = chatbotId.trim();
+    const chatbotKey = selectedChatbotId.trim();
     if (!chatbotKey) return "";
     const origin = typeof window !== "undefined" ? window.location.origin : "";
 
     const payload = {
       chatbotId: chatbotKey,
-      chatbotName: previewTitle,
+      chatbotName: selectedChatbot?.name ?? previewTitle,
       institutionName: previewTitle,
       logoUrl: logoUrl.trim() || null,
       introMessage: introMessage.trim() || null,
@@ -164,7 +214,7 @@ export default function WidgetPage() {
         if (url.includes("/widget/config/${chatbotKey}")) {
           return new Response(JSON.stringify(__IEUMBOT_PREVIEW_CONFIG__), {
             status: 200,
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json" }
           });
         }
         return __originalFetch__(input, init);
@@ -176,48 +226,95 @@ export default function WidgetPage() {
   }, [
     bannerDescription,
     bannerTitle,
-    chatbotId,
     colorPreset,
     introMessage,
     logoUrl,
     previewIntro,
     previewTitle,
+    selectedChatbot?.name,
+    selectedChatbotId,
     starterQuestions,
     themeColor,
     welcomeMessage,
   ]);
 
-  const load = async () => {
-    if (!chatbotId.trim()) {
-      setError("챗봇 ID를 입력해 주세요.");
-      return;
-    }
-    setIsLoading(true);
-    setError(null);
-    setSuccess(null);
-    try {
-      const res = await getAdminWidget(chatbotId.trim());
-      setData(res);
-      setDomainsInput((res.allowedDomains ?? []).join(", "));
-      setLauncherLabel(res.launcherLabel ?? "");
-      setInstitutionName(res.institutionName ?? "");
-      setLogoUrl(res.logoUrl ?? "");
-      setIntroMessage(res.introMessage ?? "");
-      setThemeColor(res.themeColor ?? "#2563EB");
-      setColorPreset(res.colorPreset ?? "default");
-      setWelcomeMessage(res.welcomeMessage ?? "");
-      setBannerTitle(res.bannerTitle ?? "");
-      setBannerDescription(res.bannerDescription ?? "");
-      setStarterQuestionsInput((res.starterQuestions ?? []).join("\n"));
-    } catch (err) {
-      setError(getErrorMessage(err));
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  useEffect(() => {
+    let cancelled = false;
+
+    const boot = async () => {
+      setIsBooting(true);
+      setError(null);
+      try {
+        const chatbotResponse = await getAdminChatbots();
+        if (cancelled) return;
+        setChatbots(chatbotResponse.items);
+
+        const firstChatbot = chatbotResponse.items[0];
+        if (!firstChatbot) {
+          setData(null);
+          return;
+        }
+        setSelectedChatbotId((current) => current || firstChatbot.id);
+      } catch (err) {
+        if (!cancelled) {
+          setError(getErrorMessage(err));
+        }
+      } finally {
+        if (!cancelled) {
+          setIsBooting(false);
+        }
+      }
+    };
+
+    void boot();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!selectedChatbotId) return;
+    let cancelled = false;
+
+    const loadWidget = async () => {
+      setIsLoading(true);
+      setError(null);
+      setSuccess(null);
+      try {
+        const res = await getAdminWidget(selectedChatbotId);
+        if (cancelled) return;
+        setData(res);
+        setDomainsInput((res.allowedDomains ?? []).join(", "));
+        setLauncherLabel(res.launcherLabel ?? "");
+        setInstitutionName(res.institutionName ?? "");
+        setLogoUrl(res.logoUrl ?? "");
+        setIntroMessage(res.introMessage ?? "");
+        setThemeColor(res.themeColor ?? "#2563EB");
+        setColorPreset(res.colorPreset ?? "default");
+        setWelcomeMessage(res.welcomeMessage ?? "");
+        setBannerTitle(res.bannerTitle ?? "");
+        setBannerDescription(res.bannerDescription ?? "");
+        setStarterQuestionsInput((res.starterQuestions ?? []).join("\n"));
+      } catch (err) {
+        if (!cancelled) {
+          setError(getErrorMessage(err));
+          setData(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    void loadWidget();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedChatbotId]);
 
   const saveSettings = async () => {
-    if (!chatbotId.trim()) return;
+    if (!selectedChatbotId.trim()) return;
     setIsSaving(true);
     setError(null);
     setSuccess(null);
@@ -227,7 +324,7 @@ export default function WidgetPage() {
         .map((item) => item.trim())
         .filter(Boolean);
 
-      const res = await patchAdminWidget(chatbotId.trim(), {
+      const res = await patchAdminWidget(selectedChatbotId, {
         allowedDomains,
         launcherLabel: launcherLabel.trim(),
         institutionName: institutionName.trim(),
@@ -250,11 +347,11 @@ export default function WidgetPage() {
   };
 
   const toggleActive = async (nextValue: boolean) => {
-    if (!chatbotId.trim()) return;
+    if (!selectedChatbotId.trim()) return;
     setError(null);
     setSuccess(null);
     try {
-      const res = await patchAdminWidget(chatbotId.trim(), { isActive: nextValue });
+      const res = await patchAdminWidget(selectedChatbotId, { isActive: nextValue });
       setData(res);
       setSuccess(nextValue ? "위젯을 활성화했습니다." : "위젯을 비활성화했습니다.");
     } catch (err) {
@@ -266,27 +363,75 @@ export default function WidgetPage() {
     <div className="space-y-4">
       <PagePanel
         title="위젯 설정"
-        description="공개 사이트에 삽입되는 챗봇 위젯의 브랜드, 배너, 시작 질문 카드와 실제 화면 미리보기를 함께 관리합니다."
+        description="기관에서 생성한 챗봇을 선택해 공개 위젯의 브랜드, 배너, 시작 질문 카드와 미리보기를 관리합니다."
       >
-        <div className="mb-4 flex flex-wrap gap-2">
-          <input
-            value={chatbotId}
-            onChange={(event) => setChatbotId(event.target.value)}
-            placeholder="챗봇 ID"
-            className="w-full max-w-xl rounded-md border border-slate-300 px-3 py-2 text-sm"
-          />
-          <button
-            type="button"
-            onClick={() => void load()}
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
-          >
-            조회
-          </button>
+        <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-slate-900">챗봇 선택</p>
+              <p className="mt-1 text-xs text-slate-500">위젯을 연결할 챗봇을 카드에서 바로 선택하세요.</p>
+            </div>
+            <div className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600">
+              선택된 ID: {selectedChatbotId || "-"}
+            </div>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {chatbots.map((chatbot) => {
+              const active = chatbot.id === selectedChatbotId;
+              return (
+                <button
+                  key={chatbot.id}
+                  type="button"
+                  onClick={() => setSelectedChatbotId(chatbot.id)}
+                  className={[
+                    "rounded-2xl border p-4 text-left transition",
+                    active
+                      ? "border-blue-400 bg-blue-50 shadow-sm ring-2 ring-blue-100"
+                      : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50",
+                  ].join(" ")}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-slate-900">{chatbot.name}</p>
+                      <p className="mt-1 text-xs text-slate-500">{chatbot.id}</p>
+                    </div>
+                    <span
+                      className={[
+                        "rounded-full px-2.5 py-1 text-[11px] font-medium",
+                        chatbot.status === "active"
+                          ? "bg-emerald-100 text-emerald-700"
+                          : "bg-slate-100 text-slate-600",
+                      ].join(" ")}
+                    >
+                      {chatbot.status}
+                    </span>
+                  </div>
+                  <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-slate-600">
+                    <div className="rounded-xl bg-slate-50 px-3 py-2">
+                      <p className="text-[11px] text-slate-500">문서</p>
+                      <p className="mt-1 font-semibold text-slate-900">{chatbot.documentCount}</p>
+                    </div>
+                    <div className="rounded-xl bg-slate-50 px-3 py-2">
+                      <p className="text-[11px] text-slate-500">웹사이트</p>
+                      <p className="mt-1 font-semibold text-slate-900">{chatbot.websiteCount}</p>
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
         </div>
 
-        {isLoading ? <p className="text-sm text-slate-600">불러오는 중...</p> : null}
+        {isBooting ? <p className="text-sm text-slate-600">챗봇 목록을 불러오는 중...</p> : null}
+        {isLoading ? <p className="text-sm text-slate-600">위젯 설정을 불러오는 중...</p> : null}
         {error ? <p className="text-sm text-red-700">{error}</p> : null}
         {success ? <p className="text-sm text-emerald-700">{success}</p> : null}
+        {!isBooting && chatbots.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
+            먼저 챗봇을 생성한 뒤 위젯 설정을 진행해 주세요.
+          </div>
+        ) : null}
 
         {data ? (
           <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
@@ -476,7 +621,7 @@ export default function WidgetPage() {
                 </div>
 
                 <div className="relative min-h-[620px] overflow-hidden rounded-[28px] border border-slate-200 bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.10),_transparent_42%),linear-gradient(180deg,#f8fafc_0%,#eef2ff_100%)] p-5">
-                  <div className="absolute bottom-6 right-6 flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br text-white shadow-lg transition hover:scale-105 hover:shadow-xl xl:flex from-blue-600 to-green-500">
+                  <div className="absolute bottom-6 right-6 flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-green-500 text-white shadow-lg transition hover:scale-105 hover:shadow-xl xl:flex">
                     <ChatIcon />
                   </div>
 
@@ -565,7 +710,7 @@ export default function WidgetPage() {
                   </p>
                 </div>
 
-                {chatbotId.trim() ? (
+                {selectedChatbotId.trim() ? (
                   <iframe
                     title="IEUMBOT widget iframe preview"
                     srcDoc={iframeSrcDoc}
@@ -574,7 +719,7 @@ export default function WidgetPage() {
                   />
                 ) : (
                   <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
-                    챗봇 ID를 입력하면 실제 widget.js iframe 미리보기를 확인할 수 있습니다.
+                    챗봇을 선택하면 실제 widget.js iframe 미리보기를 확인할 수 있습니다.
                   </div>
                 )}
               </div>
