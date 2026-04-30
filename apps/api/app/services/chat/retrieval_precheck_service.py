@@ -259,7 +259,7 @@ def retrieve_for_precheck(
                 "matchedPinRuleIds": [str(rule.id) for rule in matched_pin_rules],
                 "contentSignals": {
                     "sectionTitle": chunk.section_title or "",
-                    "textPreview": (chunk.text_content or "")[:220],
+                    "textPreview": (chunk.text_content or "")[:1200],
                 },
             }
         )

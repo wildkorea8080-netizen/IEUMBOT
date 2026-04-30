@@ -12,7 +12,19 @@ def assemble_citations(
 
     citation_limit = 2 if citation_display_mode == "compact" else min(top_k, 5)
     citations: list[dict[str, Any]] = []
-    for item in candidates[:citation_limit]:
+    seen_keys: set[tuple[Any, ...]] = set()
+    for item in candidates:
+        source_type = item.get("sourceType")
+        source_url = item.get("sourceUrl")
+        document_version_id = item.get("documentVersionId")
+        document_id = item.get("documentId")
+        key = (
+            source_type,
+            source_url or document_version_id or document_id or item.get("documentName"),
+        )
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
         citations.append(
             {
                 "documentId": item.get("documentId"),
@@ -27,4 +39,6 @@ def assemble_citations(
                 "selectionReason": "retrieval_rank_selected",
             }
         )
+        if len(citations) >= citation_limit:
+            break
     return citations

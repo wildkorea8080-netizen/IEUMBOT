@@ -32,26 +32,39 @@ from app.services.guardrails.runtime_guardrails_service import get_effective_gua
 from app.services.limits_service import check_conversation_limit
 from app.services.settings.answer_settings_service import get_effective_answer_settings_for_runtime
 
-GREETING_RESPONSE = "안녕하세요. 무엇을 도와드릴까요?\n해외농업개발 관련 궁금하신 내용을 알려주세요."
-THANKS_RESPONSE = "도움이 되었다면 다행입니다. 필요한 내용이 있으면 이어서 말씀해 주세요."
-SMALL_TALK_FIRST_RESPONSE = "가벼운 대화도 괜찮지만, 저는 해외농업개발 관련 안내에 가장 정확하게 답할 수 있어요.\n궁금한 제도, 사업, 신청 조건, 절차가 있으면 편하게 물어보세요."
-SMALL_TALK_REDIRECT_RESPONSE = "업무 관련 질문을 주시면 바로 도와드리겠습니다.\n예를 들면 사업 내용, 신청 대상, 제출 서류, 진행 절차를 물어보실 수 있어요."
+GREETING_RESPONSE = (
+    "안녕하세요. 무엇을 도와드릴까요?\n"
+    "해외농업개발 관련 궁금하신 내용을 알려주시면 빠르게 안내해드리겠습니다."
+)
+THANKS_RESPONSE = "도움이 되었다면 다행입니다. 추가로 궁금한 점이 있으면 이어서 말씀해 주세요."
+SMALL_TALK_FIRST_RESPONSE = (
+    "가벼운 대화도 가능하지만, 해외농업개발 관련 안내를 더 정확하게 도와드릴 수 있습니다.\n"
+    "사업 내용, 신청 조건, 제출 서류, 진행 절차처럼 궁금한 내용을 말씀해 주세요."
+)
+SMALL_TALK_REDIRECT_RESPONSE = (
+    "업무 관련 질문을 주시면 바로 안내해드리겠습니다.\n"
+    "예를 들어 사업 내용, 신청 대상, 제출 서류, 진행 절차를 물어보실 수 있습니다."
+)
 SOFT_GUIDANCE_RESPONSES = [
     "안녕하세요. 무엇을 도와드릴까요?\n해외농업개발 관련 궁금하신 내용을 알려주세요.",
-    "지금 바로 확인되는 자료가 많지 않지만, 묻고 싶은 내용을 조금 더 구체적으로 말씀해 주시면 도와드릴게요.\n해외농업개발 관련 궁금하신 내용을 알려주세요.",
+    (
+        "지금 바로 확인되는 자료가 충분하지 않더라도, 질문을 조금 더 구체적으로 주시면 "
+        "확인 가능한 범위에서 최대한 안내해드리겠습니다.\n"
+        "해외농업개발 관련 궁금하신 내용을 알려주세요."
+    ),
 ]
 ABUSIVE_KEYWORDS = {
-    "critical": ["죽어", "fuck you", "꺼져", "닥쳐", "개새끼"],
-    "high": ["씨발", "시발", "병신", "bastard"],
+    "critical": ["죽어", "fuck you", "꺼져", "씨발", "개새끼"],
+    "high": ["시발", "병신", "bastard"],
     "medium": ["멍청", "idiot", "stupid"],
     "low": ["짜증", "답답", "별로", "이상하네"],
 }
 DISSATISFACTION_KEYWORDS = [
     "이상해",
     "이상하네",
-    "도움이 안",
-    "쓸모없",
     "별로야",
+    "쓸모없어",
+    "보여줘",
     "왜 이래",
     "말이 안",
     "틀렸",
@@ -159,6 +172,33 @@ def _conversation_tone_summary(
     }
 
 
+def _run_grounded_generation(
+    db: Session,
+    *,
+    body: PreAnswerRequest,
+    chatbot: Any,
+    normalized_query: str,
+    retrieval_output: dict[str, Any],
+    answer_settings: Any,
+    guardrail_eval: dict[str, Any],
+) -> dict[str, Any]:
+    prompt_bundle = build_answer_prompt(
+        question=body.question,
+        normalized_query=normalized_query,
+        candidates=retrieval_output["candidates"],
+        settings=answer_settings,
+        requires_cautious_wording=bool(guardrail_eval.get("requiresCautiousWording")),
+        requires_warning_notice=bool(guardrail_eval.get("requiresWarningNotice")),
+    )
+    return generate_grounded_answer(
+        db,
+        organization_id=str(chatbot.organization_id),
+        chatbot_id=str(chatbot.id),
+        prompt_bundle=prompt_bundle,
+        answer_settings=answer_settings,
+    )
+
+
 def run_final_chat_pipeline(
     db: Session,
     *,
@@ -247,6 +287,15 @@ def run_final_chat_pipeline(
     small_talk_detected = bool(policy_flags.get("smallTalkDetected"))
     abusive_detected = bool(policy_flags.get("abusiveDetected"))
     natural_conversation = greeting_detected or gratitude_detected or small_talk_detected
+    has_candidates = bool(retrieval_output["candidates"])
+    has_referenceable_candidates = bool(citations)
+    can_try_grounded_answer = (
+        has_candidates
+        and not abusive_detected
+        and not natural_conversation
+        and not policy_flags.get("unrelatedQuestion")
+        and decision not in {"restricted", "conflict"}
+    )
 
     if abusive_detected:
         outcome = "restricted"
@@ -263,33 +312,15 @@ def run_final_chat_pipeline(
     elif small_talk_detected:
         outcome = "answered"
         answer_text = SMALL_TALK_FIRST_RESPONSE if user_turn_count <= 0 else SMALL_TALK_REDIRECT_RESPONSE
-    elif (
-        decision in {"insufficient_evidence", "conflict", "escalate"}
-        and not policy_flags.get("unrelatedQuestion")
-        and user_turn_count < 2
-    ):
-        outcome = "answered"
-        answer_text = _build_soft_guidance_response(user_turn_count=user_turn_count)
-    elif decision != "allow":
-        fallback = build_fallback_response(policy_decision=policy_decision, answer_settings=answer_settings)
-        outcome = fallback["outcome"]
-        answer_text = fallback["text"]
-        warnings = fallback.get("warnings", [])
-    else:
-        prompt_bundle = build_answer_prompt(
-            question=body.question,
-            normalized_query=normalized_query,
-            candidates=retrieval_output["candidates"],
-            settings=answer_settings,
-            requires_cautious_wording=bool(guardrail_eval.get("requiresCautiousWording")),
-            requires_warning_notice=bool(guardrail_eval.get("requiresWarningNotice")),
-        )
-        generation = generate_grounded_answer(
+    elif decision == "allow" or can_try_grounded_answer:
+        generation = _run_grounded_generation(
             db,
-            organization_id=str(chatbot.organization_id),
-            chatbot_id=str(chatbot.id),
-            prompt_bundle=prompt_bundle,
+            body=body,
+            chatbot=chatbot,
+            normalized_query=normalized_query,
+            retrieval_output=retrieval_output,
             answer_settings=answer_settings,
+            guardrail_eval=guardrail_eval,
         )
         llm_executed = bool(generation.get("executed"))
         llm_error_code = generation.get("errorCode")
@@ -297,26 +328,46 @@ def run_final_chat_pipeline(
         if generation.get("text"):
             answer_text = str(generation["text"])
             if guardrail_eval.get("requiresWarningNotice"):
-                warnings.append("최신 기준이나 관계 조건에 따라 결과가 달라질 수 있으므로 담당 부서 확인이 필요합니다.")
+                warnings.append("최신 기준이나 공고 조건에 따라 결과가 달라질 수 있으므로 담당 부서 확인이 필요합니다.")
             outcome = "answered"
+        elif (
+            decision in {"insufficient_evidence", "conflict", "escalate"}
+            and not policy_flags.get("unrelatedQuestion")
+            and user_turn_count < 2
+        ):
+            outcome = "answered"
+            answer_text = _build_soft_guidance_response(user_turn_count=user_turn_count)
         else:
             fallback = build_fallback_response(policy_decision=policy_decision, answer_settings=answer_settings)
             outcome = fallback["outcome"] if fallback["outcome"] != "answered" else "escalate"
             answer_text = fallback["text"]
+            warnings = fallback.get("warnings", [])
             if llm_error_code:
-                warnings.append("자동 응답 처리 중 오류로 인해 안전 안내로 전환했습니다.")
+                warnings.append("자동 응답 처리 중 오류가 있어 안전 안내 문구로 전환했습니다.")
+    elif (
+        decision in {"insufficient_evidence", "conflict", "escalate"}
+        and not policy_flags.get("unrelatedQuestion")
+        and user_turn_count < 2
+    ):
+        outcome = "answered"
+        answer_text = _build_soft_guidance_response(user_turn_count=user_turn_count)
+    else:
+        fallback = build_fallback_response(policy_decision=policy_decision, answer_settings=answer_settings)
+        outcome = fallback["outcome"]
+        answer_text = fallback["text"]
+        warnings = fallback.get("warnings", [])
 
     if (
         outcome == "answered"
         and answer_settings.answer_policy.require_citations
-        and not citations
+        and not has_referenceable_candidates
         and not natural_conversation
     ):
         fallback = build_fallback_response(policy_decision=policy_decision, answer_settings=answer_settings)
         outcome = "insufficient_evidence"
         answer_text = fallback["text"]
         llm_executed = False
-        warnings.append("인용 정보가 부족하여 안전 안내로 전환했습니다.")
+        warnings.append("인용 가능한 근거가 없어 안전 안내 문구로 전환했습니다.")
 
     request_id = f"chat_run_{uuid.uuid4().hex[:16]}"
     if session is None:
