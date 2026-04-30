@@ -128,15 +128,21 @@ def get_widget_public_config(
 
     after_hours = _is_after_hours(chatbot.business_hours or {}, organization.timezone)
     operating_message = _build_after_hours_message(chatbot) if after_hours else None
+    resolved_intro_message = intro_message if isinstance(intro_message, str) and intro_message.strip() else None
+    resolved_welcome_message = (
+        (widget.welcome_message if widget and widget.welcome_message else chatbot.welcome_message)
+        or f"{chatbot.name} ?곷떞 ?꾩슦誘몄엯?덈떎. 沅곴툑???댁슜???낅젰??二쇱꽭??"
+    )
+    if not resolved_intro_message and isinstance(resolved_welcome_message, str) and resolved_welcome_message.strip():
+        resolved_intro_message = resolved_welcome_message.strip()
 
     return WidgetPublicConfigResponse(
         chatbot_id=str(chatbot.id),
         chatbot_name=chatbot.name,
         institution_name=institution_name if isinstance(institution_name, str) else None,
         logo_url=logo_url if isinstance(logo_url, str) else None,
-        intro_message=intro_message if isinstance(intro_message, str) else None,
-        welcome_message=(widget.welcome_message if widget and widget.welcome_message else chatbot.welcome_message)
-        or f"{chatbot.name} 상담 도우미입니다. 궁금한 내용을 입력해 주세요.",
+        intro_message=resolved_intro_message,
+        welcome_message=resolved_welcome_message,
         privacy_notice=chatbot.privacy_notice,
         citation_mode=chatbot.citation_mode,
         theme=WidgetTheme(
