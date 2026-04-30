@@ -141,6 +141,7 @@ function headerDisplayName(config: WidgetPublicConfig | null, options: WidgetIni
 function buildInitialMessage(config: WidgetPublicConfig | null, options: WidgetInitOptions): string {
   if (options.welcomeMessage?.trim()) return options.welcomeMessage.trim();
   if (config?.introMessage?.trim()) return config.introMessage.trim();
+  if (config?.welcomeMessage?.trim()) return config.welcomeMessage.trim();
   const preferred = getInstitutionLabel(config, options);
   return `안녕하세요\n${preferred} AI 챗봇입니다.\n\n궁금하신 내용을 입력해주시면\n빠르게 안내해드리겠습니다.`;
 }
