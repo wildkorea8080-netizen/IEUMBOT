@@ -3,7 +3,8 @@ import path from "node:path";
 
 import { NextRequest, NextResponse } from "next/server";
 
-const WIDGET_ICON_ROOT = path.join(process.cwd(), "public", "widget-icons");
+const WEB_PUBLIC_ROOT = path.join(process.cwd(), "apps", "web", "public");
+const WIDGET_ICON_ROOT = path.join(WEB_PUBLIC_ROOT, "widget-icons");
 const CUSTOM_ICON_DIR = path.join(WIDGET_ICON_ROOT, "custom");
 const ALLOWED_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"]);
 const EXCLUDED_FILES = new Set(["appswebpublicwidget-icons.png"]);
@@ -43,7 +44,7 @@ function toLabel(fileName: string): string {
 }
 
 function toIconUrl(filePath: string): string {
-  const relative = path.relative(path.join(process.cwd(), "public"), filePath).split(path.sep).join("/");
+  const relative = path.relative(WEB_PUBLIC_ROOT, filePath).split(path.sep).join("/");
   return `/${relative}`;
 }
 
