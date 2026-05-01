@@ -27,6 +27,20 @@ const LAUNCHER_ICONS = [
 
 const LOVE_CHAT_ICON_SRC = "/widget-icons/love-chat-icons.png";
 const CUSTOM_LAUNCHER_ICON_EXAMPLE = "/widget-icons/Gemini_Generated_Image_jf6w0sjf6w0sjf6w.png";
+const IMAGE_LAUNCHER_ICON_SET = [
+  { value: "/widget-icons/generated/pink-heart-bubble.png", label: "핑크 하트" },
+  { value: "/widget-icons/generated/blue-heart-bubble.png", label: "블루 하트" },
+  { value: "/widget-icons/generated/purple-gold-heart.png", label: "퍼플 골드" },
+  { value: "/widget-icons/generated/green-heart-bubble.png", label: "그린 하트" },
+  { value: "/widget-icons/generated/coral-square-heart.png", label: "코랄 하트" },
+  { value: "/widget-icons/generated/peach-square-heart.png", label: "피치 하트" },
+  { value: "/widget-icons/generated/yellow-heart-bubble.png", label: "옐로 하트" },
+  { value: "/widget-icons/generated/code-heart-bubble.png", label: "코드 하트" },
+  { value: "/widget-icons/generated/blue-heart-bubble-2.png", label: "블루 하트 2" },
+  { value: "/widget-icons/generated/pixel-heart-dark.png", label: "픽셀 하트" },
+  { value: "/widget-icons/generated/paper-heart-cream.png", label: "페이퍼 하트" },
+  { value: "/widget-icons/generated/outline-heart-chat.png", label: "아웃라인 하트" },
+] as const;
 
 function ChatIcon() {
   return (
@@ -563,6 +577,33 @@ export default function WidgetPage() {
                   />
                   <p className="text-xs text-slate-500">예: /widget-icons/Gemini_Generated_Image_jf6w0sjf6w0sjf6w.png</p>
                 </label>
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-slate-600">업로드 이미지 아이콘 세트</p>
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    {IMAGE_LAUNCHER_ICON_SET.map((item) => {
+                      const active = launcherIcon === "custom" && launcherIconUrl === item.value;
+                      return (
+                        <button
+                          key={item.value}
+                          type="button"
+                          onClick={() => {
+                            setLauncherIcon("custom");
+                            setLauncherIconUrl(item.value);
+                          }}
+                          className={[
+                            "rounded-2xl border p-3 text-center transition",
+                            active ? "border-blue-400 bg-blue-50 shadow-sm" : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50",
+                          ].join(" ")}
+                        >
+                          <div className="mx-auto flex h-14 w-14 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-white shadow-sm">
+                            <img src={item.value} alt={item.label} className="h-full w-full object-cover" />
+                          </div>
+                          <p className="mt-3 text-xs font-semibold text-slate-900">{item.label}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
 
               <div className="grid gap-4 md:grid-cols-2">
