@@ -91,7 +91,14 @@ export function BillingOverview() {
 
       {!isLoading && data ? (
         <>
-          <PagePanel title="사용량 요약" description="토큰 사용량은 현재 결제 기간의 `llm_usage_logs`를 기준으로 집계됩니다.">
+          <PagePanel title="사용량 요약" description="토큰 사용량은 현재 결제 기간의 `llm_usage_logs`를 기준으로 집계됩니다. LLM이 실행되지 않은 fallback/일반 안내 대화는 총 토큰에 포함되지 않습니다.">
+            <div className="mb-4 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+              <p className="font-medium">토큰 집계 기준 안내</p>
+              <p className="mt-1 leading-6 text-blue-800">
+                총 토큰은 OpenAI 또는 Anthropic 호출이 실제로 실행된 대화의 `llm_usage_logs`만 합산합니다.
+                근거 부족 fallback, 일반 안내, 인사 응답처럼 LLM을 호출하지 않은 대화는 토큰 사용량에서 제외됩니다.
+              </p>
+            </div>
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <div className="rounded-2xl border border-slate-200 bg-white p-5">
                 <p className="text-sm text-slate-500">총 토큰</p>
