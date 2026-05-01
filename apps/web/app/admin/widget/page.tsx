@@ -31,6 +31,29 @@ const LAUNCHER_ICONS = [
 ] as const;
 
 const LOVE_CHAT_ICON_SRC = "/widget-icons/love-chat-icons.png";
+const DEFAULT_IMAGE_ICON_ASSETS: AdminWidgetIconAsset[] = [
+  { id: LOVE_CHAT_ICON_SRC, name: "감성 채팅", url: LOVE_CHAT_ICON_SRC, deletable: true },
+  { id: "/widget-icons/generated/blue-heart-bubble-2.png", name: "블루 하트 2", url: "/widget-icons/generated/blue-heart-bubble-2.png", deletable: true },
+  { id: "/widget-icons/generated/blue-heart-bubble.png", name: "블루 하트", url: "/widget-icons/generated/blue-heart-bubble.png", deletable: true },
+  { id: "/widget-icons/generated/code-heart-bubble.png", name: "코드 하트", url: "/widget-icons/generated/code-heart-bubble.png", deletable: true },
+  { id: "/widget-icons/generated/coral-square-heart.png", name: "코랄 하트", url: "/widget-icons/generated/coral-square-heart.png", deletable: true },
+  { id: "/widget-icons/generated/green-heart-bubble.png", name: "그린 하트", url: "/widget-icons/generated/green-heart-bubble.png", deletable: true },
+  { id: "/widget-icons/generated/outline-heart-chat.png", name: "아웃라인 하트", url: "/widget-icons/generated/outline-heart-chat.png", deletable: true },
+  { id: "/widget-icons/generated/paper-heart-cream.png", name: "페이퍼 하트", url: "/widget-icons/generated/paper-heart-cream.png", deletable: true },
+  { id: "/widget-icons/generated/peach-square-heart.png", name: "피치 하트", url: "/widget-icons/generated/peach-square-heart.png", deletable: true },
+  { id: "/widget-icons/generated/pink-heart-bubble.png", name: "핑크 하트", url: "/widget-icons/generated/pink-heart-bubble.png", deletable: true },
+  { id: "/widget-icons/generated/pixel-heart-dark.png", name: "픽셀 하트", url: "/widget-icons/generated/pixel-heart-dark.png", deletable: true },
+  { id: "/widget-icons/generated/purple-gold-heart.png", name: "퍼플 골드", url: "/widget-icons/generated/purple-gold-heart.png", deletable: true },
+  { id: "/widget-icons/generated/yellow-heart-bubble.png", name: "옐로 하트", url: "/widget-icons/generated/yellow-heart-bubble.png", deletable: true },
+];
+
+function mergeLauncherImageIcons(items: AdminWidgetIconAsset[]): AdminWidgetIconAsset[] {
+  const map = new Map<string, AdminWidgetIconAsset>();
+  for (const item of [...DEFAULT_IMAGE_ICON_ASSETS, ...items]) {
+    map.set(item.url, item);
+  }
+  return Array.from(map.values()).sort((left, right) => left.name.localeCompare(right.name, "ko"));
+}
 
 function ChatIcon() {
   return (
@@ -145,7 +168,7 @@ export default function WidgetPage() {
   const [bannerTitle, setBannerTitle] = useState("");
   const [bannerDescription, setBannerDescription] = useState("");
   const [starterQuestionsInput, setStarterQuestionsInput] = useState("");
-  const [launcherImageIcons, setLauncherImageIcons] = useState<AdminWidgetIconAsset[]>([]);
+  const [launcherImageIcons, setLauncherImageIcons] = useState<AdminWidgetIconAsset[]>(DEFAULT_IMAGE_ICON_ASSETS);
   const [launcherIconFile, setLauncherIconFile] = useState<File | null>(null);
   const [launcherIconInputKey, setLauncherIconInputKey] = useState(0);
   const [data, setData] = useState<AdminWidgetResponse | null>(null);
@@ -332,10 +355,11 @@ export default function WidgetPage() {
       try {
         const items = await listAdminWidgetIcons();
         if (!cancelled) {
-          setLauncherImageIcons(items);
+          setLauncherImageIcons(mergeLauncherImageIcons(items));
         }
       } catch (err) {
         if (!cancelled) {
+          setLauncherImageIcons(DEFAULT_IMAGE_ICON_ASSETS);
           setError(getErrorMessage(err));
         }
       }
@@ -449,7 +473,7 @@ export default function WidgetPage() {
     try {
       const created = await uploadAdminWidgetIcon(launcherIconFile);
       const nextItems = await listAdminWidgetIcons();
-      setLauncherImageIcons(nextItems);
+      setLauncherImageIcons(mergeLauncherImageIcons(nextItems));
       setLauncherIcon("custom");
       setLauncherIconUrl(created.url);
       setLauncherIconFile(null);
@@ -469,7 +493,7 @@ export default function WidgetPage() {
     try {
       await deleteAdminWidgetIcon(iconUrl);
       const nextItems = await listAdminWidgetIcons();
-      setLauncherImageIcons(nextItems);
+      setLauncherImageIcons(mergeLauncherImageIcons(nextItems));
       if (launcherIcon === "custom" && launcherIconUrl === iconUrl) {
         setLauncherIcon("chat");
         setLauncherIconUrl("");
