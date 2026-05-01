@@ -26,22 +26,11 @@ function getApiBaseUrl(): string {
   return envBaseUrl.endsWith("/") ? envBaseUrl.slice(0, -1) : envBaseUrl;
 }
 
-async function authorize(request: NextRequest): Promise<NextResponse | null> {
+function authorize(request: NextRequest): NextResponse | null {
   const authorization = request.headers.get("authorization");
-  if (!authorization) {
+  if (!authorization || !authorization.startsWith("Bearer ")) {
     return NextResponse.json({ detail: "UNAUTHORIZED" }, { status: 401 });
   }
-
-  const response = await fetch(`${getApiBaseUrl()}/admin/chatbots`, {
-    method: "GET",
-    headers: { Authorization: authorization },
-    cache: "no-store",
-  });
-
-  if (!response.ok) {
-    return NextResponse.json({ detail: "UNAUTHORIZED" }, { status: 401 });
-  }
-
   return null;
 }
 
@@ -106,68 +95,83 @@ function resolveManagedFile(url: string): string | null {
 }
 
 export async function GET(request: NextRequest) {
-  const unauthorized = await authorize(request);
+  const unauthorized = authorize(request);
   if (unauthorized) return unauthorized;
 
-  await mkdir(CUSTOM_ICON_DIR, { recursive: true });
-  const items = await collectIcons(WIDGET_ICON_ROOT);
-  return NextResponse.json({ items });
+  try {
+    await mkdir(CUSTOM_ICON_DIR, { recursive: true });
+    const items = await collectIcons(WIDGET_ICON_ROOT);
+    return NextResponse.json({ items });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "ICON_LIST_FAILED";
+    return NextResponse.json({ detail }, { status: 500 });
+  }
 }
 
 export async function POST(request: NextRequest) {
-  const unauthorized = await authorize(request);
+  const unauthorized = authorize(request);
   if (unauthorized) return unauthorized;
 
-  await mkdir(CUSTOM_ICON_DIR, { recursive: true });
-  const formData = await request.formData();
-  const file = formData.get("file");
+  try {
+    await mkdir(CUSTOM_ICON_DIR, { recursive: true });
+    const formData = await request.formData();
+    const file = formData.get("file");
 
-  if (!(file instanceof File)) {
-    return NextResponse.json({ detail: "ICON_FILE_REQUIRED" }, { status: 400 });
+    if (!(file instanceof File)) {
+      return NextResponse.json({ detail: "ICON_FILE_REQUIRED" }, { status: 400 });
+    }
+
+    const extension = path.extname(file.name || "").toLowerCase();
+    const safeExtension = ALLOWED_EXTENSIONS.has(extension) ? extension : ".png";
+    const safeBaseName = (path.basename(file.name || "widget-icon", extension) || "widget-icon")
+      .toLowerCase()
+      .replace(/[^a-z0-9-_]+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 60) || "widget-icon";
+    const fileName = `${Date.now()}-${safeBaseName}${safeExtension}`;
+    const destination = path.join(CUSTOM_ICON_DIR, fileName);
+    const bytes = Buffer.from(await file.arrayBuffer());
+
+    await writeFile(destination, bytes);
+
+    return NextResponse.json({
+      id: `/widget-icons/custom/${fileName}`,
+      name: toLabel(fileName),
+      url: `/widget-icons/custom/${fileName}`,
+      deletable: true,
+    } satisfies WidgetIconAsset);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "ICON_UPLOAD_FAILED";
+    return NextResponse.json({ detail }, { status: 500 });
   }
-
-  const extension = path.extname(file.name || "").toLowerCase();
-  const safeExtension = ALLOWED_EXTENSIONS.has(extension) ? extension : ".png";
-  const safeBaseName = (path.basename(file.name || "widget-icon", extension) || "widget-icon")
-    .toLowerCase()
-    .replace(/[^a-z0-9-_]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 60) || "widget-icon";
-  const fileName = `${Date.now()}-${safeBaseName}${safeExtension}`;
-  const destination = path.join(CUSTOM_ICON_DIR, fileName);
-  const bytes = Buffer.from(await file.arrayBuffer());
-
-  await writeFile(destination, bytes);
-
-  return NextResponse.json({
-    id: `/widget-icons/custom/${fileName}`,
-    name: toLabel(fileName),
-    url: `/widget-icons/custom/${fileName}`,
-    deletable: true,
-  } satisfies WidgetIconAsset);
 }
 
 export async function DELETE(request: NextRequest) {
-  const unauthorized = await authorize(request);
+  const unauthorized = authorize(request);
   if (unauthorized) return unauthorized;
 
-  const payload = (await request.json().catch(() => null)) as { url?: string } | null;
-  const targetUrl = payload?.url?.trim();
-  if (!targetUrl) {
-    return NextResponse.json({ detail: "ICON_URL_REQUIRED" }, { status: 400 });
-  }
+  try {
+    const payload = (await request.json().catch(() => null)) as { url?: string } | null;
+    const targetUrl = payload?.url?.trim();
+    if (!targetUrl) {
+      return NextResponse.json({ detail: "ICON_URL_REQUIRED" }, { status: 400 });
+    }
 
-  const targetFile = resolveManagedFile(targetUrl);
-  if (!targetFile) {
-    return NextResponse.json({ detail: "INVALID_ICON_URL" }, { status: 400 });
-  }
+    const targetFile = resolveManagedFile(targetUrl);
+    if (!targetFile) {
+      return NextResponse.json({ detail: "INVALID_ICON_URL" }, { status: 400 });
+    }
 
-  const currentStat = await stat(targetFile).catch(() => null);
-  if (!currentStat?.isFile()) {
-    return NextResponse.json({ detail: "ICON_NOT_FOUND" }, { status: 404 });
-  }
+    const currentStat = await stat(targetFile).catch(() => null);
+    if (!currentStat?.isFile()) {
+      return NextResponse.json({ detail: "ICON_NOT_FOUND" }, { status: 404 });
+    }
 
-  await unlink(targetFile);
-  return new NextResponse(null, { status: 204 });
+    await unlink(targetFile);
+    return new NextResponse(null, { status: 204 });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "ICON_DELETE_FAILED";
+    return NextResponse.json({ detail }, { status: 500 });
+  }
 }
