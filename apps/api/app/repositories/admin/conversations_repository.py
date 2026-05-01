@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Select, and_, func, or_, select
+from sqlalchemy import Select, func, or_, select
 from sqlalchemy.orm import Session, aliased
 
 from app.models import ChatMessage, ChatSession
@@ -34,6 +34,7 @@ def _base_sessions_stmt(*, organization_id: str) -> Select:
     latest_assistant = aliased(ChatMessage)
     return (
         select(ChatSession, latest_user, latest_assistant)
+        .select_from(ChatSession)
         .outerjoin(latest_user, latest_user.id == latest_user_id_sq)
         .outerjoin(latest_assistant, latest_assistant.id == latest_assistant_id_sq)
         .where(ChatSession.organization_id == organization_id)
