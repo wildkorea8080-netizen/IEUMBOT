@@ -18,10 +18,13 @@ const COLOR_PRESETS = [
 const LAUNCHER_ICONS = [
   { value: "chat", label: "채팅" },
   { value: "heart", label: "하트" },
+  { value: "love-chat", label: "감성 채팅" },
   { value: "shield", label: "보호" },
   { value: "leaf", label: "잎" },
   { value: "spark", label: "반짝임" },
 ] as const;
+
+const LOVE_CHAT_ICON_SRC = "/widget-icons/love-chat-icons.png";
 
 function ChatIcon() {
   return (
@@ -40,6 +43,10 @@ function HeartIcon() {
       <path d="M19.5 12.57 12 20l-7.5-7.43a4.95 4.95 0 0 1 0-7 4.95 4.95 0 0 1 7 0L12 6l.5-.43a4.95 4.95 0 0 1 7 7Z" />
     </svg>
   );
+}
+
+function LoveChatIcon() {
+  return <img src={LOVE_CHAT_ICON_SRC} alt="" className="h-full w-full rounded-full object-cover" />;
 }
 
 function ShieldIcon() {
@@ -98,6 +105,7 @@ function CloseIcon() {
 
 function getLauncherIconNode(icon: string) {
   if (icon === "heart") return <HeartIcon />;
+  if (icon === "love-chat") return <LoveChatIcon />;
   if (icon === "shield") return <ShieldIcon />;
   if (icon === "leaf") return <LeafIcon />;
   if (icon === "spark") return <SparkIcon />;

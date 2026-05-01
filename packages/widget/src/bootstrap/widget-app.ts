@@ -17,7 +17,9 @@ type Message = {
   timestamp: number;
 };
 
-type LauncherIconName = "chat" | "heart" | "shield" | "leaf" | "spark";
+type LauncherIconName = "chat" | "heart" | "love-chat" | "shield" | "leaf" | "spark";
+
+const LOVE_CHAT_ICON_SRC = "/widget-icons/love-chat-icons.png";
 
 function createElement<K extends keyof HTMLElementTagNameMap>(
   documentRef: Document,
@@ -30,6 +32,9 @@ function createElement<K extends keyof HTMLElementTagNameMap>(
 }
 
 function createIconSvg(name: LauncherIconName | "send" | "minimize" | "close"): string {
+  if (name === "love-chat") {
+    return `<img class="ieum-launcher-image" src="${LOVE_CHAT_ICON_SRC}" alt="" aria-hidden="true" />`;
+  }
   if (name === "heart") {
     return `
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -156,6 +161,7 @@ function getPresetGradient(preset?: string | null): string {
 
 function getLauncherIcon(config: WidgetPublicConfig | null): LauncherIconName {
   const icon = config?.theme?.launcherIcon;
+  if (icon === "love-chat") return icon;
   if (icon === "heart" || icon === "shield" || icon === "leaf" || icon === "spark") return icon;
   return "chat";
 }
@@ -192,7 +198,7 @@ function buildScopedStyles(primaryGradient: string): string {
   gap: 12px;
 }
 .ieum-launcher-tip {
-  max-width: min(280px, calc(100vw - 48px));
+  width: min(340px, calc(100vw - 48px));
   border: 1px solid #dbe4f0;
   border-radius: 18px;
   background: #ffffff;
@@ -209,9 +215,10 @@ function buildScopedStyles(primaryGradient: string): string {
 .ieum-launcher-tip-text {
   flex: 1;
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.6;
   color: #0f172a;
   white-space: pre-wrap;
+  word-break: keep-all;
 }
 .ieum-launcher-tip-close {
   width: 22px;
@@ -247,6 +254,13 @@ function buildScopedStyles(primaryGradient: string): string {
 .ieum-floating:hover {
   transform: scale(1.05);
   box-shadow: 0 20px 36px rgba(15, 23, 42, 0.28);
+}
+.ieum-floating .ieum-launcher-image {
+  width: 64px;
+  height: 64px;
+  border-radius: 9999px;
+  object-fit: cover;
+  display: block;
 }
 .ieum-floating svg,
 .ieum-header-icon svg,
@@ -374,7 +388,7 @@ function buildScopedStyles(primaryGradient: string): string {
   .ieum-root { right:8px; left:8px; bottom:8px; }
   .ieum-panel { width:100%; height:min(520px, calc(100vh - 16px)); }
   .ieum-bubble { max-width:84%; }
-  .ieum-launcher-tip { max-width: calc(100vw - 32px); }
+  .ieum-launcher-tip { width: calc(100vw - 32px); }
 }
 `;
 }
@@ -519,10 +533,7 @@ export class IeumWidgetApp {
     this.floatingButton.addEventListener("click", () => this.togglePanel());
     this.floatingButton.addEventListener("mouseenter", () => this.showLauncherTip());
     this.floatingButton.addEventListener("focus", () => this.showLauncherTip());
-    this.floatingButton.addEventListener("mouseleave", () => this.hideLauncherTip());
-    this.floatingButton.addEventListener("blur", () => this.hideLauncherTip());
     this.launcherTip.addEventListener("mouseenter", () => this.showLauncherTip());
-    this.launcherTip.addEventListener("mouseleave", () => this.hideLauncherTip());
     this.launcherTipClose.addEventListener("click", (event) => {
       event.stopPropagation();
       this.dismissLauncherTip();
@@ -570,7 +581,7 @@ export class IeumWidgetApp {
 
   private dismissLauncherTip() {
     this.launcherTipDismissed = true;
-    this.hideLauncherTip();
+    this.hideLauncherTip(true);
     if (!this.launcherTipStorageKey) return;
     try {
       window.localStorage.setItem(this.launcherTipStorageKey, "1");
@@ -584,7 +595,8 @@ export class IeumWidgetApp {
     this.launcherTip.classList.add("visible");
   }
 
-  private hideLauncherTip() {
+  private hideLauncherTip(force = false) {
+    if (!force) return;
     this.launcherTip.classList.remove("visible");
   }
 
@@ -606,6 +618,9 @@ export class IeumWidgetApp {
       this.launcherTipText.textContent = this.launcherHoverMessage;
       this.launcherTipStorageKey = `ieumbot_launcher_tip_dismissed:${this.options.chatbotId}`;
       this.launcherTipDismissed = this.readLauncherTipDismissed();
+      if (window.matchMedia("(max-width: 640px)").matches && !this.launcherTipDismissed) {
+        this.showLauncherTip();
+      }
       this.renderBanner();
       this.renderStarterQuestions();
       if (this.config.privacyNotice) {
@@ -697,7 +712,7 @@ export class IeumWidgetApp {
   private setOpen(value: boolean) {
     this.open = value;
     if (value) {
-      this.hideLauncherTip();
+      this.hideLauncherTip(true);
       this.ensureInitialMessage();
       this.panel.classList.add("open");
       this.launcherWrap.style.opacity = "0";
