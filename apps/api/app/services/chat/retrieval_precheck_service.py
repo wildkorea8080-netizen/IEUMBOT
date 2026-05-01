@@ -1,6 +1,7 @@
 import re
 from datetime import date
 from typing import Any
+from urllib.parse import urlparse
 
 from sqlalchemy.orm import Session
 
@@ -18,6 +19,7 @@ from app.repositories.admin.search_control_repository import (
 )
 
 TOKEN_SPLIT_REGEX = re.compile(r"[^0-9A-Za-z가-힣]+")
+URL_MARKER_REGEX = re.compile(r"\[URL\]\s+(https?://\S+)", re.IGNORECASE)
 KOREAN_PARTICLE_SUFFIXES = [
     "으로",
     "에서",
@@ -100,6 +102,56 @@ def _source_weight(source_type: str, policy: dict[str, Any]) -> float:
     if isinstance(weights, dict):
         return float(weights.get(source_type, 0.0))
     return 0.0
+
+
+def _extract_source_url(
+    *,
+    chunk: DocumentChunk,
+    document: Document,
+    version: DocumentVersion,
+) -> str | None:
+    if version.source_type == "website":
+        marker_match = URL_MARKER_REGEX.search(chunk.text_content or "")
+        if marker_match:
+            return marker_match.group(1).strip()
+
+    chunk_metadata = chunk.metadata_json if isinstance(chunk.metadata_json, dict) else {}
+    chunk_url = chunk_metadata.get("url")
+    if isinstance(chunk_url, str) and chunk_url.strip():
+        return chunk_url.strip()
+
+    document_metadata = document.metadata_json if isinstance(document.metadata_json, dict) else {}
+    document_url = document_metadata.get("url")
+    if isinstance(document_url, str) and document_url.strip():
+        return document_url.strip()
+
+    return None
+
+
+def _build_section_title(
+    *,
+    chunk: DocumentChunk,
+    document: Document,
+    version: DocumentVersion,
+    source_url: str | None,
+) -> str | None:
+    section_title = (chunk.section_title or "").strip() or None
+    if version.source_type != "website":
+        return section_title
+
+    document_title = (document.title or "").strip()
+    if section_title and section_title != document_title:
+        return section_title
+
+    if not source_url:
+        return section_title
+
+    parsed = urlparse(source_url)
+    host = parsed.netloc.strip()
+    path = (parsed.path or "/").rstrip("/") or "/"
+    query = f"?{parsed.query}" if parsed.query else ""
+    location = f"{host}{path}{query}" if host else f"{path}{query}"
+    return location or section_title
 
 
 def _matches_rule(
@@ -238,6 +290,18 @@ def retrieve_for_precheck(
             4,
         )
 
+        source_url = _extract_source_url(
+            chunk=chunk,
+            document=document,
+            version=version,
+        )
+        section_title = _build_section_title(
+            chunk=chunk,
+            document=document,
+            version=version,
+            source_url=source_url,
+        )
+
         collected.append(
             {
                 "documentId": str(document.id),
@@ -245,7 +309,8 @@ def retrieve_for_precheck(
                 "documentVersionId": str(version.id),
                 "versionLabel": f"v{version.version_number}",
                 "pageNumber": chunk.page_number,
-                "sectionTitle": chunk.section_title,
+                "sectionTitle": section_title,
+                "sourceUrl": source_url,
                 "corpusDomain": chunk.corpus_domain,
                 "sourceType": version.source_type,
                 "effectiveDate": version.effective_date.isoformat() if version.effective_date else None,
@@ -258,7 +323,7 @@ def retrieve_for_precheck(
                 "matchedBoostRuleIds": [str(rule.id) for rule in matched_boost_rules],
                 "matchedPinRuleIds": [str(rule.id) for rule in matched_pin_rules],
                 "contentSignals": {
-                    "sectionTitle": chunk.section_title or "",
+                    "sectionTitle": section_title or "",
                     "textPreview": (chunk.text_content or "")[:1200],
                 },
             }

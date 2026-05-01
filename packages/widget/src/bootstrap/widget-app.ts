@@ -130,11 +130,17 @@ function getFriendlyOutcomeLabel(outcome?: string): string | null {
 }
 
 function toCitationText(citation: ChatCitation): string {
-  const name = citation.documentName ?? "출처";
+  const name = citation.documentName?.trim() || "출처";
   const page = citation.pageNumber ? `p.${citation.pageNumber}` : null;
-  const section = citation.sectionTitle ?? null;
-  const url = citation.sourceUrl ?? null;
-  return [name, page, section, url].filter(Boolean).join(" | ");
+  const section = citation.sectionTitle?.trim() || null;
+  const url = citation.sourceUrl?.trim() || null;
+  const parts = [name];
+
+  if (page) parts.push(page);
+  if (section && section !== name && section !== url) parts.push(section);
+  if (url) parts.push(url);
+
+  return parts.join(" | ");
 }
 
 function getInstitutionLabel(config: WidgetPublicConfig | null, options: WidgetInitOptions): string {
