@@ -19,12 +19,14 @@ const LAUNCHER_ICONS = [
   { value: "chat", label: "채팅" },
   { value: "heart", label: "하트" },
   { value: "love-chat", label: "감성 채팅" },
+  { value: "custom", label: "커스텀 이미지" },
   { value: "shield", label: "보호" },
   { value: "leaf", label: "잎" },
   { value: "spark", label: "반짝임" },
 ] as const;
 
 const LOVE_CHAT_ICON_SRC = "/widget-icons/love-chat-icons.png";
+const CUSTOM_LAUNCHER_ICON_EXAMPLE = "/widget-icons/Gemini_Generated_Image_jf6w0sjf6w0sjf6w.png";
 
 function ChatIcon() {
   return (
@@ -103,7 +105,10 @@ function CloseIcon() {
   );
 }
 
-function getLauncherIconNode(icon: string) {
+function getLauncherIconNode(icon: string, iconUrl?: string) {
+  if (icon === "custom" && iconUrl?.trim()) {
+    return <img src={iconUrl.trim()} alt="" className="h-full w-full rounded-full object-cover" />;
+  }
   if (icon === "heart") return <HeartIcon />;
   if (icon === "love-chat") return <LoveChatIcon />;
   if (icon === "shield") return <ShieldIcon />;
@@ -130,6 +135,7 @@ export default function WidgetPage() {
   const [domainsInput, setDomainsInput] = useState("");
   const [launcherLabel, setLauncherLabel] = useState("");
   const [launcherIcon, setLauncherIcon] = useState("chat");
+  const [launcherIconUrl, setLauncherIconUrl] = useState("");
   const [launcherHoverMessage, setLauncherHoverMessage] = useState("");
   const [institutionName, setInstitutionName] = useState("");
   const [logoUrl, setLogoUrl] = useState("");
@@ -158,6 +164,7 @@ export default function WidgetPage() {
     bannerTitle: "",
     bannerDescription: "",
     launcherIcon: "chat",
+    launcherIconUrl: "",
     launcherHoverMessage: "",
     starterQuestions: [] as string[],
   });
@@ -194,6 +201,7 @@ export default function WidgetPage() {
         bannerTitle: bannerTitle.trim(),
         bannerDescription: bannerDescription.trim(),
         launcherIcon,
+        launcherIconUrl: launcherIconUrl.trim(),
         launcherHoverMessage: previewHoverMessage,
         starterQuestions,
       });
@@ -205,6 +213,7 @@ export default function WidgetPage() {
     colorPreset,
     introMessage,
     launcherIcon,
+    launcherIconUrl,
     logoUrl,
     previewHoverMessage,
     previewTitle,
@@ -233,6 +242,7 @@ export default function WidgetPage() {
         backgroundColor: null,
         preset: debouncedIframeState.colorPreset,
         launcherIcon: debouncedIframeState.launcherIcon,
+        launcherIconUrl: debouncedIframeState.launcherIconUrl || null,
       },
       banner: {
         title: debouncedIframeState.bannerTitle || null,
@@ -322,6 +332,7 @@ export default function WidgetPage() {
         setDomainsInput((res.allowedDomains ?? []).join(", "));
         setLauncherLabel(res.launcherLabel ?? "");
         setLauncherIcon(res.launcherIcon ?? "chat");
+        setLauncherIconUrl(res.launcherIconUrl ?? "");
         setLauncherHoverMessage(res.launcherHoverMessage ?? "");
         setInstitutionName(res.institutionName ?? "");
         setLogoUrl(res.logoUrl ?? "");
@@ -358,6 +369,7 @@ export default function WidgetPage() {
         allowedDomains,
         launcherLabel: launcherLabel.trim(),
         launcherIcon,
+        launcherIconUrl: launcherIconUrl.trim(),
         launcherHoverMessage: launcherHoverMessage.trim(),
         institutionName: institutionName.trim(),
         logoUrl: logoUrl.trim(),
@@ -520,7 +532,7 @@ export default function WidgetPage() {
 
               <div className="space-y-3">
                 <p className="text-xs font-medium text-slate-600">런처 아이콘 선택</p>
-                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
                   {LAUNCHER_ICONS.map((item) => {
                     const active = launcherIcon === item.value;
                     return (
@@ -534,13 +546,23 @@ export default function WidgetPage() {
                         ].join(" ")}
                       >
                         <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-green-500 text-white shadow-sm">
-                          {getLauncherIconNode(item.value)}
+                          {getLauncherIconNode(item.value, item.value === "custom" ? launcherIconUrl : undefined)}
                         </div>
                         <p className="mt-3 text-xs font-semibold text-slate-900">{item.label}</p>
                       </button>
                     );
                   })}
                 </div>
+                <label className="space-y-1">
+                  <span className="text-xs font-medium text-slate-600">커스텀 런처 아이콘 URL</span>
+                  <input
+                    value={launcherIconUrl}
+                    onChange={(event) => setLauncherIconUrl(event.target.value)}
+                    placeholder={CUSTOM_LAUNCHER_ICON_EXAMPLE}
+                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  />
+                  <p className="text-xs text-slate-500">예: /widget-icons/Gemini_Generated_Image_jf6w0sjf6w0sjf6w.png</p>
+                </label>
               </div>
 
               <div className="grid gap-4 md:grid-cols-2">
@@ -636,7 +658,7 @@ export default function WidgetPage() {
                   </div>
 
                   <div className="absolute bottom-6 right-6 flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-green-500 text-white shadow-lg transition hover:scale-105 hover:shadow-xl">
-                    {getLauncherIconNode(launcherIcon)}
+                    {getLauncherIconNode(launcherIcon, launcherIconUrl)}
                   </div>
 
                   <div className="absolute right-5 top-5 flex w-full max-w-[340px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_10px_30px_rgba(0,0,0,0.15)]">

@@ -17,7 +17,7 @@ type Message = {
   timestamp: number;
 };
 
-type LauncherIconName = "chat" | "heart" | "love-chat" | "shield" | "leaf" | "spark";
+type LauncherIconName = "chat" | "heart" | "love-chat" | "custom" | "shield" | "leaf" | "spark";
 
 const LOVE_CHAT_ICON_SRC = "/widget-icons/love-chat-icons.png";
 
@@ -31,7 +31,10 @@ function createElement<K extends keyof HTMLElementTagNameMap>(
   return element;
 }
 
-function createIconSvg(name: LauncherIconName | "send" | "minimize" | "close"): string {
+function createIconSvg(name: LauncherIconName | "send" | "minimize" | "close", customIconUrl?: string | null): string {
+  if (name === "custom" && customIconUrl?.trim()) {
+    return `<img class="ieum-launcher-image" src="${customIconUrl.trim()}" alt="" aria-hidden="true" />`;
+  }
   if (name === "love-chat") {
     return `<img class="ieum-launcher-image" src="${LOVE_CHAT_ICON_SRC}" alt="" aria-hidden="true" />`;
   }
@@ -161,6 +164,7 @@ function getPresetGradient(preset?: string | null): string {
 
 function getLauncherIcon(config: WidgetPublicConfig | null): LauncherIconName {
   const icon = config?.theme?.launcherIcon;
+  if (icon === "custom" && config?.theme?.launcherIconUrl?.trim()) return "custom";
   if (icon === "love-chat") return icon;
   if (icon === "heart" || icon === "shield" || icon === "leaf" || icon === "spark") return icon;
   return "chat";
@@ -613,7 +617,10 @@ export class IeumWidgetApp {
       } else {
         this.headerIconNode.innerHTML = createIconSvg("heart");
       }
-      this.floatingButton.innerHTML = createIconSvg(getLauncherIcon(this.config));
+      this.floatingButton.innerHTML = createIconSvg(
+        getLauncherIcon(this.config),
+        this.config.theme?.launcherIconUrl,
+      );
       this.launcherHoverMessage = getLauncherHoverMessage(this.config, this.options) ?? "";
       this.launcherTipText.textContent = this.launcherHoverMessage;
       this.launcherTipStorageKey = `ieumbot_launcher_tip_dismissed:${this.options.chatbotId}`;

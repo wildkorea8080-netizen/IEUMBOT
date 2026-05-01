@@ -118,6 +118,7 @@ def get_widget_public_config(
     background_color = theme.get("backgroundColor") or theme.get("background_color")
     preset = theme.get("widgetColorPreset") or theme.get("widget_color_preset")
     launcher_icon = theme.get("widgetLauncherIcon") or theme.get("widget_launcher_icon")
+    launcher_icon_url = theme.get("widgetLauncherIconUrl") or theme.get("widget_launcher_icon_url")
     launcher_hover_message = theme.get("widgetLauncherHoverMessage") or theme.get("widget_launcher_hover_message")
     institution_name = theme.get("widgetInstitutionName") or theme.get("widget_institution_name")
     logo_url = theme.get("widgetLogoUrl") or theme.get("widget_logo_url")
@@ -151,6 +152,7 @@ def get_widget_public_config(
             background_color=background_color if isinstance(background_color, str) else None,
             preset=preset if isinstance(preset, str) else None,
             launcher_icon=launcher_icon if isinstance(launcher_icon, str) else None,
+            launcher_icon_url=launcher_icon_url if isinstance(launcher_icon_url, str) else None,
         ),
         banner=WidgetBanner(
             title=banner_title if isinstance(banner_title, str) else None,

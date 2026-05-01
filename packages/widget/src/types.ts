@@ -23,6 +23,7 @@ export type WidgetPublicConfig = {
     backgroundColor?: string | null;
     preset?: string | null;
     launcherIcon?: string | null;
+    launcherIconUrl?: string | null;
   };
   banner: {
     title?: string | null;

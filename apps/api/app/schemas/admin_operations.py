@@ -129,6 +129,7 @@ class AdminWidgetResponse(ApiSchema):
     intro_message: str | None = None
     color_preset: str | None = None
     launcher_icon: str | None = None
+    launcher_icon_url: str | None = None
     launcher_hover_message: str | None = None
     banner_title: str | None = None
     banner_description: str | None = None
@@ -153,6 +154,7 @@ class AdminWidgetUpdateRequest(ApiSchema):
     intro_message: str | None = None
     color_preset: str | None = None
     launcher_icon: str | None = None
+    launcher_icon_url: str | None = None
     launcher_hover_message: str | None = None
     banner_title: str | None = None
     banner_description: str | None = None

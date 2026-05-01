@@ -178,6 +178,7 @@ export type AdminWidgetResponse = {
   introMessage?: string | null;
   colorPreset?: string | null;
   launcherIcon?: string | null;
+  launcherIconUrl?: string | null;
   launcherHoverMessage?: string | null;
   bannerTitle?: string | null;
   bannerDescription?: string | null;

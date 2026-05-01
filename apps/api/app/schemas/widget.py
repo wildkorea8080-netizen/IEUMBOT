@@ -22,6 +22,7 @@ class WidgetTheme(ApiSchema):
     background_color: str | None = None
     preset: str | None = None
     launcher_icon: str | None = None
+    launcher_icon_url: str | None = None
 
 
 class WidgetBanner(ApiSchema):

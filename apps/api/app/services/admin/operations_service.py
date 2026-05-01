@@ -552,6 +552,9 @@ def get_widget_service(
         intro_message=theme.get("widgetIntroMessage") if isinstance(theme.get("widgetIntroMessage"), str) else None,
         color_preset=theme.get("widgetColorPreset") if isinstance(theme.get("widgetColorPreset"), str) else None,
         launcher_icon=theme.get("widgetLauncherIcon") if isinstance(theme.get("widgetLauncherIcon"), str) else None,
+        launcher_icon_url=(
+            theme.get("widgetLauncherIconUrl") if isinstance(theme.get("widgetLauncherIconUrl"), str) else None
+        ),
         launcher_hover_message=(
             theme.get("widgetLauncherHoverMessage")
             if isinstance(theme.get("widgetLauncherHoverMessage"), str)
@@ -615,6 +618,8 @@ def patch_widget_service(
         theme["widgetColorPreset"] = body.color_preset.strip() or None
     if body.launcher_icon is not None:
         theme["widgetLauncherIcon"] = body.launcher_icon.strip() or None
+    if body.launcher_icon_url is not None:
+        theme["widgetLauncherIconUrl"] = body.launcher_icon_url.strip() or None
     if body.launcher_hover_message is not None:
         theme["widgetLauncherHoverMessage"] = body.launcher_hover_message.strip() or None
     if body.banner_title is not None:
@@ -657,6 +662,9 @@ def patch_widget_service(
         intro_message=theme.get("widgetIntroMessage") if isinstance(theme.get("widgetIntroMessage"), str) else None,
         color_preset=theme.get("widgetColorPreset") if isinstance(theme.get("widgetColorPreset"), str) else None,
         launcher_icon=theme.get("widgetLauncherIcon") if isinstance(theme.get("widgetLauncherIcon"), str) else None,
+        launcher_icon_url=(
+            theme.get("widgetLauncherIconUrl") if isinstance(theme.get("widgetLauncherIconUrl"), str) else None
+        ),
         launcher_hover_message=(
             theme.get("widgetLauncherHoverMessage")
             if isinstance(theme.get("widgetLauncherHoverMessage"), str)
