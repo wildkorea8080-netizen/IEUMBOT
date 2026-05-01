@@ -192,6 +192,13 @@ export type AdminWidgetResponse = {
   updatedAt: string;
 };
 
+export type AdminWidgetIconAsset = {
+  id: string;
+  name: string;
+  url: string;
+  deletable: boolean;
+};
+
 export type AdminChatLogItem = {
   id: string;
   requestId?: string | null;

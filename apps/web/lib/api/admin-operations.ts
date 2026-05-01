@@ -7,6 +7,7 @@ import type {
   AdminChatbotsResponse,
   AdminChatLogsResponse,
   AdminDocumentsResponse,
+  AdminWidgetIconAsset,
   AdminWidgetResponse,
   DashboardQuestionTypeItem,
   DashboardRecentChatItem,
@@ -236,4 +237,60 @@ export async function patchAdminWidget(chatbotId: string, body: {
     method: "PATCH",
     body,
   });
+}
+
+export async function listAdminWidgetIcons(): Promise<AdminWidgetIconAsset[]> {
+  const token = getAdminAccessToken();
+  const response = await fetch("/api/admin/widget-icons", {
+    method: "GET",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    credentials: "include",
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    if (response.status === 401) clearAdminAccessToken();
+    throw new Error(`아이콘 목록을 불러오지 못했습니다. (${response.status})`);
+  }
+
+  const payload = (await response.json()) as { items?: AdminWidgetIconAsset[] };
+  return Array.isArray(payload.items) ? payload.items : [];
+}
+
+export async function uploadAdminWidgetIcon(file: File): Promise<AdminWidgetIconAsset> {
+  const token = getAdminAccessToken();
+  const formData = new FormData();
+  formData.set("file", file);
+
+  const response = await fetch("/api/admin/widget-icons", {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: formData,
+    credentials: "include",
+  });
+
+  if (!response.ok) {
+    if (response.status === 401) clearAdminAccessToken();
+    throw new Error(`아이콘 업로드에 실패했습니다. (${response.status})`);
+  }
+
+  return (await response.json()) as AdminWidgetIconAsset;
+}
+
+export async function deleteAdminWidgetIcon(url: string): Promise<void> {
+  const token = getAdminAccessToken();
+  const response = await fetch("/api/admin/widget-icons", {
+    method: "DELETE",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ url }),
+    credentials: "include",
+  });
+
+  if (!response.ok) {
+    if (response.status === 401) clearAdminAccessToken();
+    throw new Error(`아이콘 삭제에 실패했습니다. (${response.status})`);
+  }
 }

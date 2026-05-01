@@ -4,8 +4,15 @@ import { useEffect, useMemo, useState } from "react";
 
 import { PagePanel } from "../../../components/ui/page-panel";
 import { ApiClientError } from "../../../lib/api";
-import { getAdminChatbots, getAdminWidget, patchAdminWidget } from "../../../lib/api/admin-operations";
-import type { AdminChatbotItem, AdminWidgetResponse } from "../../../lib/api/admin-operations-types";
+import {
+  deleteAdminWidgetIcon,
+  getAdminChatbots,
+  getAdminWidget,
+  listAdminWidgetIcons,
+  patchAdminWidget,
+  uploadAdminWidgetIcon,
+} from "../../../lib/api/admin-operations";
+import type { AdminChatbotItem, AdminWidgetIconAsset, AdminWidgetResponse } from "../../../lib/api/admin-operations-types";
 
 const COLOR_PRESETS = [
   { value: "default", label: "기본 공공기관", preview: "from-blue-600 to-green-500" },
@@ -18,29 +25,12 @@ const COLOR_PRESETS = [
 const LAUNCHER_ICONS = [
   { value: "chat", label: "채팅" },
   { value: "heart", label: "하트" },
-  { value: "love-chat", label: "감성 채팅" },
-  { value: "custom", label: "커스텀 이미지" },
   { value: "shield", label: "보호" },
   { value: "leaf", label: "잎" },
   { value: "spark", label: "반짝임" },
 ] as const;
 
 const LOVE_CHAT_ICON_SRC = "/widget-icons/love-chat-icons.png";
-const CUSTOM_LAUNCHER_ICON_EXAMPLE = "/widget-icons/Gemini_Generated_Image_jf6w0sjf6w0sjf6w.png";
-const IMAGE_LAUNCHER_ICON_SET = [
-  { value: "/widget-icons/generated/pink-heart-bubble.png", label: "핑크 하트" },
-  { value: "/widget-icons/generated/blue-heart-bubble.png", label: "블루 하트" },
-  { value: "/widget-icons/generated/purple-gold-heart.png", label: "퍼플 골드" },
-  { value: "/widget-icons/generated/green-heart-bubble.png", label: "그린 하트" },
-  { value: "/widget-icons/generated/coral-square-heart.png", label: "코랄 하트" },
-  { value: "/widget-icons/generated/peach-square-heart.png", label: "피치 하트" },
-  { value: "/widget-icons/generated/yellow-heart-bubble.png", label: "옐로 하트" },
-  { value: "/widget-icons/generated/code-heart-bubble.png", label: "코드 하트" },
-  { value: "/widget-icons/generated/blue-heart-bubble-2.png", label: "블루 하트 2" },
-  { value: "/widget-icons/generated/pixel-heart-dark.png", label: "픽셀 하트" },
-  { value: "/widget-icons/generated/paper-heart-cream.png", label: "페이퍼 하트" },
-  { value: "/widget-icons/generated/outline-heart-chat.png", label: "아웃라인 하트" },
-] as const;
 
 function ChatIcon() {
   return (
@@ -59,10 +49,6 @@ function HeartIcon() {
       <path d="M19.5 12.57 12 20l-7.5-7.43a4.95 4.95 0 0 1 0-7 4.95 4.95 0 0 1 7 0L12 6l.5-.43a4.95 4.95 0 0 1 7 7Z" />
     </svg>
   );
-}
-
-function LoveChatIcon() {
-  return <img src={LOVE_CHAT_ICON_SRC} alt="" className="h-full w-full rounded-full object-cover" />;
 }
 
 function ShieldIcon() {
@@ -124,7 +110,6 @@ function getLauncherIconNode(icon: string, iconUrl?: string) {
     return <img src={iconUrl.trim()} alt="" className="h-full w-full rounded-full object-cover" />;
   }
   if (icon === "heart") return <HeartIcon />;
-  if (icon === "love-chat") return <LoveChatIcon />;
   if (icon === "shield") return <ShieldIcon />;
   if (icon === "leaf") return <LeafIcon />;
   if (icon === "spark") return <SparkIcon />;
@@ -160,10 +145,15 @@ export default function WidgetPage() {
   const [bannerTitle, setBannerTitle] = useState("");
   const [bannerDescription, setBannerDescription] = useState("");
   const [starterQuestionsInput, setStarterQuestionsInput] = useState("");
+  const [launcherImageIcons, setLauncherImageIcons] = useState<AdminWidgetIconAsset[]>([]);
+  const [launcherIconFile, setLauncherIconFile] = useState<File | null>(null);
+  const [launcherIconInputKey, setLauncherIconInputKey] = useState(0);
   const [data, setData] = useState<AdminWidgetResponse | null>(null);
   const [isBooting, setIsBooting] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isUploadingIcon, setIsUploadingIcon] = useState(false);
+  const [deletingIconUrl, setDeletingIconUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [debouncedIframeState, setDebouncedIframeState] = useState({
@@ -191,6 +181,10 @@ export default function WidgetPage() {
   const selectedChatbot = useMemo(
     () => chatbots.find((item) => item.id === selectedChatbotId) ?? null,
     [chatbots, selectedChatbotId],
+  );
+  const selectedManagedIcon = useMemo(
+    () => launcherImageIcons.find((item) => item.url === launcherIconUrl) ?? null,
+    [launcherIconUrl, launcherImageIcons],
   );
 
   const previewTitle = institutionName.trim() || selectedChatbot?.name || "기관";
@@ -333,6 +327,26 @@ export default function WidgetPage() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    const loadLauncherIcons = async () => {
+      try {
+        const items = await listAdminWidgetIcons();
+        if (!cancelled) {
+          setLauncherImageIcons(items);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(getErrorMessage(err));
+        }
+      }
+    };
+    void loadLauncherIcons();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!selectedChatbotId) return;
     let cancelled = false;
     const loadWidget = async () => {
@@ -345,8 +359,18 @@ export default function WidgetPage() {
         setData(res);
         setDomainsInput((res.allowedDomains ?? []).join(", "));
         setLauncherLabel(res.launcherLabel ?? "");
-        setLauncherIcon(res.launcherIcon ?? "chat");
-        setLauncherIconUrl(res.launcherIconUrl ?? "");
+        const nextLauncherIcon =
+          res.launcherIcon === "love-chat"
+            ? "custom"
+            : res.launcherIcon === "custom" && !(res.launcherIconUrl ?? "").trim()
+              ? "chat"
+              : (res.launcherIcon ?? "chat");
+        const nextLauncherIconUrl =
+          res.launcherIcon === "love-chat"
+            ? LOVE_CHAT_ICON_SRC
+            : (res.launcherIconUrl ?? "");
+        setLauncherIcon(nextLauncherIcon);
+        setLauncherIconUrl(nextLauncherIconUrl);
         setLauncherHoverMessage(res.launcherHoverMessage ?? "");
         setInstitutionName(res.institutionName ?? "");
         setLogoUrl(res.logoUrl ?? "");
@@ -414,6 +438,47 @@ export default function WidgetPage() {
       setSuccess(nextValue ? "위젯을 활성화했습니다." : "위젯을 비활성화했습니다.");
     } catch (err) {
       setError(getErrorMessage(err));
+    }
+  };
+
+  const handleLauncherIconUpload = async () => {
+    if (!launcherIconFile) return;
+    setIsUploadingIcon(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const created = await uploadAdminWidgetIcon(launcherIconFile);
+      const nextItems = await listAdminWidgetIcons();
+      setLauncherImageIcons(nextItems);
+      setLauncherIcon("custom");
+      setLauncherIconUrl(created.url);
+      setLauncherIconFile(null);
+      setLauncherIconInputKey((current) => current + 1);
+      setSuccess("런처 아이콘을 등록했습니다.");
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setIsUploadingIcon(false);
+    }
+  };
+
+  const handleLauncherIconDelete = async (iconUrl: string) => {
+    setDeletingIconUrl(iconUrl);
+    setError(null);
+    setSuccess(null);
+    try {
+      await deleteAdminWidgetIcon(iconUrl);
+      const nextItems = await listAdminWidgetIcons();
+      setLauncherImageIcons(nextItems);
+      if (launcherIcon === "custom" && launcherIconUrl === iconUrl) {
+        setLauncherIcon("chat");
+        setLauncherIconUrl("");
+      }
+      setSuccess("런처 아이콘을 삭제했습니다.");
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setDeletingIconUrl(null);
     }
   };
 
@@ -560,49 +625,75 @@ export default function WidgetPage() {
                         ].join(" ")}
                       >
                         <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-green-500 text-white shadow-sm">
-                          {getLauncherIconNode(item.value, item.value === "custom" ? launcherIconUrl : undefined)}
+                          {getLauncherIconNode(item.value)}
                         </div>
                         <p className="mt-3 text-xs font-semibold text-slate-900">{item.label}</p>
                       </button>
                     );
                   })}
-                </div>
-                <label className="space-y-1">
-                  <span className="text-xs font-medium text-slate-600">커스텀 런처 아이콘 URL</span>
-                  <input
-                    value={launcherIconUrl}
-                    onChange={(event) => setLauncherIconUrl(event.target.value)}
-                    placeholder={CUSTOM_LAUNCHER_ICON_EXAMPLE}
-                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                  />
-                  <p className="text-xs text-slate-500">예: /widget-icons/Gemini_Generated_Image_jf6w0sjf6w0sjf6w.png</p>
-                </label>
-                <div className="space-y-2">
-                  <p className="text-xs font-medium text-slate-600">업로드 이미지 아이콘 세트</p>
-                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                    {IMAGE_LAUNCHER_ICON_SET.map((item) => {
-                      const active = launcherIcon === "custom" && launcherIconUrl === item.value;
-                      return (
+                  {launcherImageIcons.map((item) => {
+                    const active = launcherIcon === "custom" && launcherIconUrl === item.url;
+                    return (
+                      <div
+                        key={item.url}
+                        className={[
+                          "relative rounded-2xl border p-3 text-center transition",
+                          active ? "border-blue-400 bg-blue-50 shadow-sm" : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50",
+                        ].join(" ")}
+                      >
                         <button
-                          key={item.value}
                           type="button"
                           onClick={() => {
                             setLauncherIcon("custom");
-                            setLauncherIconUrl(item.value);
+                            setLauncherIconUrl(item.url);
                           }}
-                          className={[
-                            "rounded-2xl border p-3 text-center transition",
-                            active ? "border-blue-400 bg-blue-50 shadow-sm" : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50",
-                          ].join(" ")}
+                          className="block w-full"
                         >
                           <div className="mx-auto flex h-14 w-14 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-white shadow-sm">
-                            <img src={item.value} alt={item.label} className="h-full w-full object-cover" />
+                            <img src={item.url} alt={item.name} className="h-full w-full object-cover" />
                           </div>
-                          <p className="mt-3 text-xs font-semibold text-slate-900">{item.label}</p>
+                          <p className="mt-3 line-clamp-2 text-xs font-semibold text-slate-900">{item.name}</p>
                         </button>
-                      );
-                    })}
+                        {item.deletable ? (
+                          <button
+                            type="button"
+                            onClick={() => void handleLauncherIconDelete(item.url)}
+                            disabled={deletingIconUrl === item.url}
+                            className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+                            aria-label={`${item.name} 삭제`}
+                          >
+                            <CloseIcon />
+                          </button>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+                {launcherIcon === "custom" && launcherIconUrl && !selectedManagedIcon ? (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                    현재 선택된 아이콘 URL은 관리 목록에 없습니다. 새 아이콘을 업로드하거나 다른 아이콘을 선택해 주세요.
                   </div>
+                ) : null}
+                <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4">
+                  <p className="text-xs font-medium text-slate-700">파일 첨부로 런처 아이콘 추가</p>
+                  <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-center">
+                    <input
+                      key={launcherIconInputKey}
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
+                      onChange={(event) => setLauncherIconFile(event.target.files?.[0] ?? null)}
+                      className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-full file:border-0 file:bg-slate-200 file:px-4 file:py-2 file:text-sm file:font-medium file:text-slate-700 hover:file:bg-slate-300"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void handleLauncherIconUpload()}
+                      disabled={!launcherIconFile || isUploadingIcon}
+                      className="rounded-full bg-blue-700 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                    >
+                      {isUploadingIcon ? "업로드 중..." : "아이콘 등록"}
+                    </button>
+                  </div>
+                  <p className="mt-2 text-xs text-slate-500">등록한 아이콘은 바로 런처 아이콘 목록에 추가되고 선택하거나 삭제할 수 있습니다.</p>
                 </div>
               </div>
 
