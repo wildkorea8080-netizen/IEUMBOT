@@ -278,6 +278,11 @@ def _guess_file_name_from_url(url: str) -> str:
     return name or url
 
 
+def _guess_mime_type_from_name(name: str | None) -> str:
+    suffix = Path(name or "").suffix.lower()
+    return ATTACHMENT_MIME_HINTS.get(suffix, "application/octet-stream")
+
+
 def _is_attachment_url(url: str) -> bool:
     return _guess_file_type_from_url(url) in ATTACHMENT_FILE_EXTENSIONS
 
@@ -952,7 +957,7 @@ def _document_detail(doc: Document, version: DocumentVersion | None, job: Ingest
     item = _document_item(doc, version, job)
     metadata = dict(doc.metadata_json or {})
     return KnowledgeDetailResponse(
-        **item.model_dump(),
+        **item.model_dump(exclude={"effective_date", "expiration_date", "department"}),
         file_name=(version.file_name if version else None),
         source_path=(version.storage_key if version else None),
         last_indexed_at=item.indexed_at,
@@ -1267,6 +1272,12 @@ async def create_file_knowledge_service(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="EMPTY_FILE")
     KNOWLEDGE_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
     file_suffix = Path(file.filename or "upload.bin").suffix or ".bin"
+    upload_headers = getattr(file, "headers", None)
+    upload_content_type = (
+        upload_headers.get("content-type")
+        if upload_headers is not None and hasattr(upload_headers, "get")
+        else None
+    ) or _guess_mime_type_from_name(file.filename)
     storage_name = f"{uuid.uuid4()}{file_suffix}"
     storage_path = KNOWLEDGE_STORAGE_DIR / storage_name
     storage_path.write_bytes(content)
@@ -1300,7 +1311,7 @@ async def create_file_knowledge_service(
         file_name=file.filename or storage_name,
         file_size_bytes=len(content),
         storage_key=str(storage_path),
-        mime_type=file.content_type or "application/octet-stream",
+        mime_type=upload_content_type,
         source_type="file",
         corpus_domain=doc.corpus_domain,
         effective_date=_parse_date(effective_date, "effective_date"),
