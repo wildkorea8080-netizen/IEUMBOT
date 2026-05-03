@@ -21,6 +21,18 @@ type LauncherIconName = "chat" | "heart" | "love-chat" | "custom" | "shield" | "
 
 const LOVE_CHAT_ICON_SRC = "/widget-icons/love-chat-icons.png";
 
+function escapeHtmlAttribute(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function renderLauncherImage(url: string): string {
+  return `<img class="ieum-launcher-image" src="${escapeHtmlAttribute(url.trim())}" alt="" aria-hidden="true" />`;
+}
+
 function createElement<K extends keyof HTMLElementTagNameMap>(
   documentRef: Document,
   tag: K,
@@ -33,10 +45,10 @@ function createElement<K extends keyof HTMLElementTagNameMap>(
 
 function createIconSvg(name: LauncherIconName | "send" | "minimize" | "close", customIconUrl?: string | null): string {
   if (name === "custom" && customIconUrl?.trim()) {
-    return `<img class="ieum-launcher-image" src="${customIconUrl.trim()}" alt="" aria-hidden="true" />`;
+    return renderLauncherImage(customIconUrl);
   }
   if (name === "love-chat") {
-    return `<img class="ieum-launcher-image" src="${LOVE_CHAT_ICON_SRC}" alt="" aria-hidden="true" />`;
+    return renderLauncherImage(LOVE_CHAT_ICON_SRC);
   }
   if (name === "heart") {
     return `
@@ -261,6 +273,11 @@ function buildScopedStyles(primaryGradient: string): string {
   box-shadow: 0 14px 30px rgba(37, 99, 235, 0.28);
   transition: transform .18s ease, box-shadow .18s ease, opacity .18s ease;
 }
+.ieum-floating.ieum-floating-loading {
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(.96);
+}
 .ieum-floating:hover {
   transform: scale(1.05);
   box-shadow: 0 20px 36px rgba(15, 23, 42, 0.28);
@@ -269,8 +286,9 @@ function buildScopedStyles(primaryGradient: string): string {
   width: 64px;
   height: 64px;
   border-radius: 9999px;
-  object-fit: cover;
+  object-fit: contain;
   display: block;
+  background: transparent;
 }
 .ieum-floating svg,
 .ieum-header-icon svg,
@@ -474,6 +492,7 @@ export class IeumWidgetApp {
     this.floatingButton.title = options.launcherLabel ?? "챗봇 열기";
     this.floatingButton.setAttribute("aria-label", options.launcherLabel ?? "챗봇 열기");
     this.floatingButton.innerHTML = createIconSvg("chat");
+    this.floatingButton.classList.add("ieum-floating-loading");
 
     this.titleNode.textContent = headerDisplayName(null, options);
     this.loadingRow.innerHTML = `
@@ -653,6 +672,8 @@ export class IeumWidgetApp {
         text: "초기 설정을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.",
         timestamp: Date.now(),
       });
+    } finally {
+      this.floatingButton.classList.remove("ieum-floating-loading");
     }
   }
 

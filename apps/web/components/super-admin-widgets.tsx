@@ -63,7 +63,7 @@ const EMPTY_FORM: WidgetFormState = {
   isActive: true,
 };
 
-const DEFAULT_WIDGET_API_BASE_URL = "https://ieumbot-api.onrender.com/api";
+const DEFAULT_WIDGET_API_BASE_URL = "/backend-api";
 
 function buildInstallScript(chatbotId: string): string {
   return [
