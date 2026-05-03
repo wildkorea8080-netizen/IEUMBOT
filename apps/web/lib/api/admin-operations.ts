@@ -20,6 +20,36 @@ import type {
   KnowledgeWebsiteCreateRequest,
 } from "./admin-operations-types";
 
+function formatUnknownApiDetail(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) {
+    const messages = value
+      .map((item) => {
+        if (typeof item === "string") return item;
+        if (item && typeof item === "object") {
+          const detail = "msg" in item && typeof item.msg === "string" ? item.msg : undefined;
+          const location = Array.isArray((item as { loc?: unknown }).loc)
+            ? ((item as { loc?: unknown[] }).loc ?? []).join(".")
+            : undefined;
+          if (location && detail) return `${location}: ${detail}`;
+          if (detail) return detail;
+        }
+        return undefined;
+      })
+      .filter((item): item is string => Boolean(item));
+    return messages.length > 0 ? messages.join(", ") : undefined;
+  }
+  if (value && typeof value === "object") {
+    if ("message" in value && typeof value.message === "string") return value.message;
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+  return undefined;
+}
+
 export async function getDashboardSummary(): Promise<DashboardSummaryResponse> {
   return apiClient.request<DashboardSummaryResponse>("/admin/dashboard");
 }
@@ -168,8 +198,9 @@ export async function uploadKnowledgeFile(body: {
     }
     let detail = `API request failed (${response.status})`;
     try {
-      const payload = (await response.json()) as { detail?: string };
-      if (payload.detail) detail = payload.detail;
+      const payload = (await response.json()) as { detail?: unknown };
+      const parsed = formatUnknownApiDetail(payload.detail);
+      if (parsed) detail = parsed;
     } catch {
       // ignore
     }
