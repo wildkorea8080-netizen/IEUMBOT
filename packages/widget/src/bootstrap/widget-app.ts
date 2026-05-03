@@ -617,6 +617,14 @@ export class IeumWidgetApp {
     }
   }
 
+  private clearInitialWelcomeForDirectQuestion() {
+    if (this.messages.some((message) => message.role === "user")) return;
+    const filtered = this.messages.filter((message) => !message.id.startsWith("assistant_welcome_"));
+    if (filtered.length === this.messages.length) return;
+    this.messages = filtered;
+    this.renderMessages();
+  }
+
   private readLauncherTipDismissed() {
     if (!this.launcherTipStorageKey) return false;
     try {
@@ -867,6 +875,7 @@ export class IeumWidgetApp {
     if (this.sending) return;
     const question = this.input.value.trim();
     if (!question) return;
+    this.clearInitialWelcomeForDirectQuestion();
 
     this.lastFailedQuestion = null;
     this.input.value = "";

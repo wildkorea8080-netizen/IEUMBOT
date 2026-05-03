@@ -14,6 +14,8 @@ alembic/versions/20260425_0010_system_announcements_maintenance.py
 alembic/versions/20260425_0011_billing_plans.py
 alembic/versions/20260425_0012_notifications.py
 alembic/versions/20260425_0013_auto_enforcement.py
+alembic/versions/20260427_0014_admin_must_change_password.py
+alembic/versions/20260427_0015_end_users.py
 app/__init__.py
 app/main.py
 app/api/__init__.py
@@ -37,6 +39,7 @@ app/api/admin/router.py
 app/api/admin/search_control_router.py
 app/api/admin/security_router.py
 app/api/admin/usage_router.py
+app/api/admin/users_router.py
 app/api/auth/__init__.py
 app/api/auth/router.py
 app/api/chat/__init__.py
@@ -94,6 +97,7 @@ app/models/system_announcements.py
 app/models/system_api_configs.py
 app/models/system_integrations.py
 app/models/system_maintenance.py
+app/models/users.py
 app/models/web_sources.py
 app/models/widget_deployments.py
 app/repositories/__init__.py
@@ -109,6 +113,7 @@ app/repositories/admin/operations_repository.py
 app/repositories/admin/search_control_repository.py
 app/repositories/admin/security_repository.py
 app/repositories/admin/usage_repository.py
+app/repositories/admin/users_repository.py
 app/repositories/auth/__init__.py
 app/repositories/auth/admin_auth_repository.py
 app/repositories/chat/__init__.py
@@ -129,6 +134,7 @@ app/repositories/super_admin/organizations_repository.py
 app/schemas/__init__.py
 app/schemas/admin_operations.py
 app/schemas/admin_search.py
+app/schemas/admin_users.py
 app/schemas/answer_settings.py
 app/schemas/audit_logs.py
 app/schemas/auth.py
@@ -174,6 +180,7 @@ app/services/admin/scope_service.py
 app/services/admin/search_control_service.py
 app/services/admin/security_service.py
 app/services/admin/usage_service.py
+app/services/admin/users_service.py
 app/services/auth/__init__.py
 app/services/chat/__init__.py
 app/services/chat/answer_generation_service.py

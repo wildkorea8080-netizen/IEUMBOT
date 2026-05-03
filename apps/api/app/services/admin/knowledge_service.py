@@ -48,6 +48,8 @@ SENSITIVE_PATTERNS = [
 USER_AGENT = "IEUMBOTCrawler/1.0 (+https://ieumbot.local)"
 DEFAULT_CRAWL_PAGE_LIMIT = 12
 MAX_CRAWL_PAGE_LIMIT = 100
+PDF_TEXT_SUFFICIENT_LENGTH = 48
+PDF_OCR_DPI = 220
 SKIP_FILE_EXTENSIONS = {
     ".jpg",
     ".jpeg",
@@ -622,19 +624,32 @@ def _extract_hwpx_text(file_bytes: bytes) -> str:
         return ""
 
 
-def _extract_pdf_text_best_effort(file_bytes: bytes) -> str:
-    parts: list[str] = []
-    try:
-        import pypdf  # type: ignore
+def _normalize_text_blocks(parts: list[str]) -> str:
+    normalized_parts: list[str] = []
+    seen: set[str] = set()
+    for part in parts:
+        cleaned = _strip_binary_noise(part)
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        normalized_parts.append(cleaned)
+    return "\n".join(normalized_parts).strip()
 
-        reader = pypdf.PdfReader(BytesIO(file_bytes))
-        for page in reader.pages:
-            text = _strip_binary_noise(page.extract_text() or "")
-            if text:
-                parts.append(text)
-        return "\n".join(parts).strip()
-    except Exception:  # noqa: BLE001
-        pass
+
+def _extract_pdf_text_via_pypdf(file_bytes: bytes) -> str:
+    parts: list[str] = []
+    import pypdf  # type: ignore
+
+    reader = pypdf.PdfReader(BytesIO(file_bytes))
+    for page in reader.pages:
+        text = _strip_binary_noise(page.extract_text() or "")
+        if text:
+            parts.append(text)
+    return _normalize_text_blocks(parts)
+
+
+def _extract_pdf_text_via_streams(file_bytes: bytes) -> str:
+    parts: list[str] = []
 
     def append_strings(payload: bytes) -> None:
         for match in re.findall(rb"\(([^()]*)\)", payload):
@@ -652,14 +667,70 @@ def _extract_pdf_text_best_effort(file_bytes: bytes) -> str:
     append_strings(file_bytes)
     for stream_match in re.finditer(rb"stream\r?\n(.*?)\r?\nendstream", file_bytes, re.DOTALL):
         payload = stream_match.group(1)
-        for candidate in (payload,):
-            append_strings(candidate)
+        append_strings(payload)
         try:
             inflated = zlib.decompress(payload)
             append_strings(inflated)
         except Exception:  # noqa: BLE001
             continue
-    return "\n".join(parts).strip()
+    return _normalize_text_blocks(parts)
+
+
+def _extract_pdf_text_via_ocr(file_bytes: bytes) -> str:
+    try:
+        import pytesseract  # type: ignore
+        from pdf2image import convert_from_bytes  # type: ignore
+        from PIL import ImageOps  # type: ignore
+    except Exception:  # noqa: BLE001
+        return ""
+
+    try:
+        images = convert_from_bytes(
+            file_bytes,
+            dpi=PDF_OCR_DPI,
+            fmt="png",
+            thread_count=1,
+        )
+    except Exception:  # noqa: BLE001
+        return ""
+
+    parts: list[str] = []
+    for image in images:
+        prepared = ImageOps.autocontrast(ImageOps.grayscale(image))
+        binary = prepared.point(lambda value: 255 if value > 170 else 0)
+        recognized = ""
+        for lang in ("kor+eng", "eng"):
+            try:
+                recognized = pytesseract.image_to_string(binary, lang=lang)
+            except Exception:  # noqa: BLE001
+                continue
+            if _strip_binary_noise(recognized):
+                break
+        cleaned = _strip_binary_noise(recognized)
+        if cleaned:
+            parts.append(cleaned)
+
+    return _normalize_text_blocks(parts)
+
+
+def _extract_pdf_text_best_effort(file_bytes: bytes) -> str:
+    try:
+        extracted = _extract_pdf_text_via_pypdf(file_bytes)
+        if len(extracted) >= PDF_TEXT_SUFFICIENT_LENGTH:
+            return extracted
+    except Exception:  # noqa: BLE001
+        extracted = ""
+
+    stream_text = _extract_pdf_text_via_streams(file_bytes)
+    combined = _normalize_text_blocks([extracted, stream_text])
+    if len(combined) >= PDF_TEXT_SUFFICIENT_LENGTH:
+        return combined
+
+    ocr_text = _extract_pdf_text_via_ocr(file_bytes)
+    if ocr_text:
+        return _normalize_text_blocks([combined, ocr_text])
+
+    return combined
 
 
 def _extract_hwp_text_best_effort(file_bytes: bytes) -> str:
