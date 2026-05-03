@@ -428,11 +428,28 @@ export function KnowledgeManagement() {
                       <td className="px-3 py-4 text-slate-700">{item.field ?? "-"}</td>
                       <td className="px-3 py-4">
                         <div className="space-y-2">
-                          <div className="font-medium text-slate-900">{item.title}</div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <div className="font-medium text-slate-900">{item.title}</div>
+                            {item.isWebsiteAttachment ? (
+                              <span className="rounded-full bg-violet-100 px-2 py-1 text-[11px] font-medium text-violet-700">
+                                웹사이트 첨부파일
+                              </span>
+                            ) : null}
+                          </div>
                           <p className="text-xs leading-5 text-slate-500">{item.summary ?? "-"}</p>
                           <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
                             <span className="rounded-full bg-slate-100 px-2 py-1">{sourceTypeLabel(item.sourceType)}</span>
                             {item.sourceLabel ? <span className="truncate">{item.sourceLabel}</span> : null}
+                            {item.isWebsiteAttachment && item.parentWebsiteUrl ? (
+                              <a
+                                href={item.parentWebsiteUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="truncate text-violet-700 hover:underline"
+                              >
+                                원본 웹사이트
+                              </a>
+                            ) : null}
                             {item.sensitiveDetected ? (
                               <span className="rounded-full bg-rose-100 px-2 py-1 text-rose-700">민감</span>
                             ) : null}

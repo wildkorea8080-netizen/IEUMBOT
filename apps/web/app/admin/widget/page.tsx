@@ -131,8 +131,11 @@ function CloseIcon() {
 }
 
 function getLauncherIconNode(icon: string, iconUrl?: string) {
+  if (icon === "love-chat") {
+    return <img src={LOVE_CHAT_ICON_SRC} alt="" className="h-full w-full rounded-full object-contain drop-shadow-[0_14px_24px_rgba(15,23,42,0.18)]" />;
+  }
   if (icon === "custom" && iconUrl?.trim()) {
-    return <img src={iconUrl.trim()} alt="" className="h-full w-full rounded-full object-cover" />;
+    return <img src={iconUrl.trim()} alt="" className="h-full w-full rounded-full object-contain drop-shadow-[0_14px_24px_rgba(15,23,42,0.18)]" />;
   }
   if (icon === "heart") return <HeartIcon />;
   if (icon === "shield") return <ShieldIcon />;
@@ -218,6 +221,8 @@ export default function WidgetPage() {
 
   const previewTitle = institutionName.trim() || selectedChatbot?.name || "기관";
   const previewLauncher = launcherLabel.trim() || "챗봇 열기";
+  const previewUsesImageLauncher =
+    launcherIcon === "love-chat" || (launcherIcon === "custom" && launcherIconUrl.trim().length > 0);
   const previewIntro =
     introMessage.trim() ||
     `안녕하세요\n${previewTitle} AI 챗봇입니다.\n\n궁금하신 내용을 입력해주시면\n빠르게 안내해드리겠습니다.`;
@@ -819,7 +824,13 @@ export default function WidgetPage() {
                     <p className="pr-6 text-sm leading-6 text-slate-700">{previewHoverMessage}</p>
                   </div>
 
-                  <div className="absolute bottom-6 right-6 flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-green-500 text-white shadow-lg transition hover:scale-105 hover:shadow-xl">
+                  <div
+                    className={`absolute bottom-6 right-6 flex h-16 w-16 items-center justify-center rounded-full transition hover:scale-105 ${
+                      previewUsesImageLauncher
+                        ? "bg-transparent text-transparent shadow-none"
+                        : "bg-gradient-to-br from-blue-600 to-green-500 text-white shadow-lg hover:shadow-xl"
+                    }`}
+                  >
                     {getLauncherIconNode(launcherIcon, launcherIconUrl)}
                   </div>
 

@@ -65,6 +65,8 @@ export type KnowledgeItem = {
   ingestionStatus?: string | null;
   ingestionProgressPercent?: number | null;
   isActive: boolean;
+  isWebsiteAttachment: boolean;
+  parentWebsiteUrl?: string | null;
 };
 
 export type KnowledgeDetail = KnowledgeItem & {

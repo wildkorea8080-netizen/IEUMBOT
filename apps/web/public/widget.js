@@ -151,6 +151,9 @@ ${C(t,e)} AI \uCC57\uBD07\uC785\uB2C8\uB2E4.
   display: block;
   background: transparent;
 }
+.ieum-floating.ieum-floating-image .ieum-launcher-image {
+  filter: drop-shadow(0 14px 24px rgba(15, 23, 42, 0.18));
+}
 .ieum-floating svg,
 .ieum-header-icon svg,
 .ieum-header-icon img,

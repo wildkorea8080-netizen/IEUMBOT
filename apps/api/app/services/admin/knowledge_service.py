@@ -246,7 +246,7 @@ def _fetch_binary_resource(url: str) -> tuple[bytes, str | None]:
 
 
 def _serialize_attachment_items(
-    items: list[dict[str, str | int | bool | None]],
+    items: list[dict[str, object]],
 ) -> list[dict[str, str | int | bool | None]]:
     normalized_items: list[dict[str, str | int | bool | None]] = []
     for item in items:
@@ -265,6 +265,262 @@ def _serialize_attachment_items(
             }
         )
     return normalized_items
+
+
+def _write_extracted_text_to_storage(file_name: str, extracted_text: str) -> Path:
+    KNOWLEDGE_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+    suffix = Path(file_name or "document.txt").suffix.lower()
+    storage_suffix = f"{suffix}.txt" if suffix else ".txt"
+    storage_name = f"{uuid.uuid4()}{storage_suffix}"
+    storage_path = KNOWLEDGE_STORAGE_DIR / storage_name
+    storage_path.write_text(extracted_text, encoding="utf-8")
+    return storage_path
+
+
+def _ingest_document_version_content(
+    db: Session,
+    *,
+    organization_id: str,
+    chatbot_id: str,
+    document: Document,
+    version: DocumentVersion,
+    job: IngestionJob | None,
+    file_name: str,
+    file_bytes: bytes,
+    content_type: str | None,
+    metadata_updates: dict | None = None,
+) -> None:
+    now = datetime.now(UTC)
+    if job is not None:
+        job.status = "processing"
+        job.current_step = "extracting"
+        job.progress_percent = 20
+        job.started_at = now
+        job.attempt_count = (job.attempt_count or 0) + 1
+    version.status = "processing"
+    db.flush()
+
+    extracted_text, detected_file_type = _extract_document_text(file_name, file_bytes, content_type)
+    extracted_text = extracted_text.strip()
+    if not extracted_text:
+        version.status = "failed"
+        version.error_code = "EMPTY_DOCUMENT_TEXT"
+        version.error_message = "문서에서 색인 가능한 텍스트를 추출하지 못했습니다."
+        document.status = "failed"
+        if job is not None:
+            job.status = "failed"
+            job.current_step = "failed"
+            job.progress_percent = 100
+            job.error_code = "EMPTY_DOCUMENT_TEXT"
+            job.error_message = version.error_message
+            job.finished_at = now
+        return
+
+    if job is not None:
+        job.current_step = "chunking"
+        job.progress_percent = 55
+    db.execute(delete(DocumentChunk).where(DocumentChunk.document_id == document.id))
+    for previous_version in document.versions:
+        if previous_version.id != version.id:
+            previous_version.is_active = False
+    db.flush()
+
+    storage_path = _write_extracted_text_to_storage(file_name, extracted_text)
+    version.storage_key = str(storage_path)
+    version.file_size_bytes = len(file_bytes)
+    version.mime_type = content_type or ATTACHMENT_MIME_HINTS.get(detected_file_type, "application/octet-stream")
+    if version.source_type == "text":
+        version.mime_type = "text/plain"
+    version.checksum_sha256 = sha256(extracted_text.encode("utf-8")).hexdigest()
+    version.error_code = None
+    version.error_message = None
+
+    chunks = _split_text_chunks(extracted_text)
+    if not chunks:
+        version.status = "failed"
+        version.error_code = "EMPTY_DOCUMENT_CHUNKS"
+        version.error_message = "문서에서 생성된 청크가 없습니다."
+        document.status = "failed"
+        if job is not None:
+            job.status = "failed"
+            job.current_step = "failed"
+            job.progress_percent = 100
+            job.error_code = "EMPTY_DOCUMENT_CHUNKS"
+            job.error_message = version.error_message
+            job.finished_at = now
+        return
+
+    merged_metadata = {
+        **dict(document.metadata_json or {}),
+        **(metadata_updates or {}),
+        "summary": _truncate_preview(extracted_text, 220) or file_name,
+        "content_preview": _truncate_preview(extracted_text, 220),
+        "sensitive_detected": _detect_sensitive(extracted_text),
+    }
+    document.metadata_json = merged_metadata
+    document.description = _truncate_preview(extracted_text, 220)
+    document.status = "active"
+    document.processed_at = now
+    document.current_version_id = version.id
+
+    for index, chunk_text in enumerate(chunks, start=1):
+        db.add(
+            DocumentChunk(
+                organization_id=uuid.UUID(organization_id),
+                document_id=document.id,
+                chatbot_id=uuid.UUID(chatbot_id),
+                document_version_id=version.id,
+                chunk_order=index,
+                page_number=None,
+                section_title=document.title,
+                corpus_domain=version.corpus_domain,
+                text_content=chunk_text,
+                metadata_json={**merged_metadata, "sourceType": merged_metadata.get("sourceType") or version.source_type},
+                token_count=len(chunk_text.split()),
+                content_hash=sha256(chunk_text.encode("utf-8")).hexdigest(),
+            )
+        )
+
+    version.file_name = file_name
+    version.processed_at = now
+    version.status = "completed"
+    version.is_active = True
+    if job is not None:
+        job.status = "completed"
+        job.current_step = "completed"
+        job.progress_percent = 100
+        job.error_code = None
+        job.error_message = None
+        job.finished_at = now
+
+
+def _sync_web_source_attachment_documents(
+    db: Session,
+    *,
+    organization_id: str,
+    chatbot_id: str,
+    web_source: WebSource,
+    web_metadata: dict,
+    attachment_items: list[dict[str, object]],
+) -> None:
+    now = datetime.now(UTC)
+    existing_docs = _list_web_source_attachment_documents(
+        db,
+        organization_id=organization_id,
+        chatbot_id=chatbot_id,
+        web_source_id=str(web_source.id),
+    )
+    existing_by_url = {
+        str(doc.metadata_json.get("attachment_url")): doc
+        for doc in existing_docs
+        if doc.metadata_json.get("attachment_url")
+    }
+    current_urls = {
+        str(item.get("url"))
+        for item in attachment_items
+        if item.get("url")
+    }
+
+    for doc in existing_docs:
+        attachment_url = str(doc.metadata_json.get("attachment_url") or "")
+        if attachment_url and attachment_url not in current_urls:
+            doc.deleted_at = now
+            doc.status = "deprecated"
+
+    for item in attachment_items:
+        attachment_url = str(item.get("url") or "").strip()
+        if not attachment_url:
+            continue
+        file_name = str(item.get("file_name") or _guess_file_name_from_url(attachment_url))
+        extracted_text = str(item.get("extracted_text") or "").strip()
+        file_type = str(item.get("file_type") or _guess_file_type_from_url(attachment_url))
+        mime_type = str(item.get("mime_type") or ATTACHMENT_MIME_HINTS.get(file_type) or "application/octet-stream")
+        existing = existing_by_url.get(attachment_url)
+
+        if existing is None:
+            existing = Document(
+                organization_id=uuid.UUID(organization_id),
+                chatbot_id=uuid.UUID(chatbot_id),
+                title=file_name,
+                category=web_metadata.get("category"),
+                corpus_domain="official_website_indexed",
+                description=_truncate_preview(extracted_text, 220),
+                status="active",
+                uploaded_at=now,
+                metadata_json={
+                    "sourceType": "website_attachment",
+                    "web_source_id": str(web_source.id),
+                    "attachment_url": attachment_url,
+                    "parent_website_url": web_source.base_url,
+                    "field": web_metadata.get("field"),
+                    "tags": _parse_tags(web_metadata.get("tags")),
+                    "memo": web_metadata.get("memo"),
+                    "department": web_metadata.get("department"),
+                    "summary": _truncate_preview(extracted_text, 220) or file_name,
+                    "sensitive_detected": _detect_sensitive(extracted_text),
+                },
+            )
+            db.add(existing)
+            db.flush()
+        else:
+            existing.deleted_at = None
+            existing.title = file_name
+            existing.category = web_metadata.get("category")
+            existing.corpus_domain = "official_website_indexed"
+            existing.description = _truncate_preview(extracted_text, 220)
+            existing.status = "active"
+            existing.metadata_json = {
+                **dict(existing.metadata_json or {}),
+                "sourceType": "website_attachment",
+                "web_source_id": str(web_source.id),
+                "attachment_url": attachment_url,
+                "parent_website_url": web_source.base_url,
+                "field": web_metadata.get("field"),
+                "tags": _parse_tags(web_metadata.get("tags")),
+                "memo": web_metadata.get("memo"),
+                "department": web_metadata.get("department"),
+                "summary": _truncate_preview(extracted_text, 220) or file_name,
+                "sensitive_detected": _detect_sensitive(extracted_text),
+            }
+            db.execute(delete(DocumentChunk).where(DocumentChunk.document_id == existing.id))
+            for previous_version in existing.versions:
+                previous_version.is_active = False
+            db.flush()
+
+        next_version_number = max((version.version_number for version in existing.versions), default=0) + 1
+        version = DocumentVersion(
+            organization_id=uuid.UUID(organization_id),
+            document_id=existing.id,
+            chatbot_id=uuid.UUID(chatbot_id),
+            version_number=next_version_number,
+            file_name=file_name,
+            file_size_bytes=int(item.get("raw_file_size_bytes") or len(extracted_text.encode("utf-8"))),
+            storage_key="",
+            mime_type=mime_type,
+            source_type="file",
+            corpus_domain="official_website_indexed",
+            issuing_department=web_metadata.get("department"),
+            status="queued",
+        )
+        db.add(version)
+        db.flush()
+        _ingest_document_version_content(
+            db,
+            organization_id=organization_id,
+            chatbot_id=chatbot_id,
+            document=existing,
+            version=version,
+            job=None,
+            file_name=file_name,
+            file_bytes=extracted_text.encode("utf-8"),
+            content_type="text/plain",
+            metadata_updates={
+                "sourceType": "website_attachment",
+                "web_source_id": str(web_source.id),
+                "attachment_url": attachment_url,
+                "parent_website_url": web_source.base_url,
+            },
+        )
 
 
 def _guess_file_type_from_url(url: str) -> str:
@@ -442,6 +698,17 @@ def _extract_attachment_text(file_url: str, file_bytes: bytes, content_type: str
     return "", file_type
 
 
+def _extract_document_text(file_name: str, file_bytes: bytes, content_type: str | None) -> tuple[str, str]:
+    file_type = Path(file_name or "upload.bin").suffix.lower()
+    normalized_content_type = content_type or ATTACHMENT_MIME_HINTS.get(file_type)
+    if file_type in {".txt", ".md", ".csv", ".json", ".xml", ".html", ".htm"}:
+        return file_bytes.decode("utf-8", errors="ignore").strip(), file_type
+    if normalized_content_type and normalized_content_type.startswith(TEXTISH_MIME_PREFIXES):
+        return file_bytes.decode("utf-8", errors="ignore").strip(), file_type
+    synthetic_url = f"https://local-upload.invalid/{file_name}"
+    return _extract_attachment_text(synthetic_url, file_bytes, normalized_content_type)
+
+
 def _canonicalize_website_url(url: str) -> str:
     normalized, _fragment = urldefrag(url.strip())
     parsed = urlparse(normalized)
@@ -584,6 +851,23 @@ def _find_web_source_document(
     return db.execute(stmt).scalar_one_or_none()
 
 
+def _list_web_source_attachment_documents(
+    db: Session,
+    *,
+    organization_id: str,
+    chatbot_id: str,
+    web_source_id: str,
+) -> list[Document]:
+    stmt = select(Document).where(
+        Document.organization_id == uuid.UUID(organization_id),
+        Document.chatbot_id == uuid.UUID(chatbot_id),
+        Document.deleted_at.is_(None),
+        Document.metadata_json["sourceType"].astext == "website_attachment",
+        Document.metadata_json["web_source_id"].astext == web_source_id,
+    )
+    return list(db.execute(stmt).scalars().all())
+
+
 def _set_job_failed(
     *,
     web_source: WebSource,
@@ -604,8 +888,8 @@ def _set_job_failed(
 
 def _collect_attachment_contents(
     attachment_urls: list[str],
-) -> tuple[list[dict[str, str | int | bool | None]], list[str]]:
-    attachment_items: list[dict[str, str | int | bool | None]] = []
+) -> tuple[list[dict[str, object]], list[str]]:
+    attachment_items: list[dict[str, object]] = []
     attachment_text_blocks: list[str] = []
 
     for url in attachment_urls:
@@ -639,6 +923,8 @@ def _collect_attachment_contents(
                     "extracted": extracted,
                     "extraction_status": status,
                     "error_message": None,
+                    "extracted_text": extracted_text.strip(),
+                    "raw_file_size_bytes": len(payload),
                 }
             )
         except HTTPError as exc:
@@ -652,6 +938,8 @@ def _collect_attachment_contents(
                     "extracted": False,
                     "extraction_status": "failed",
                     "error_message": f"HTTP_{exc.code}",
+                    "extracted_text": "",
+                    "raw_file_size_bytes": 0,
                 }
             )
         except Exception as exc:  # noqa: BLE001
@@ -665,6 +953,8 @@ def _collect_attachment_contents(
                     "extracted": False,
                     "extraction_status": "failed",
                     "error_message": str(exc),
+                    "extracted_text": "",
+                    "raw_file_size_bytes": 0,
                 }
             )
 
@@ -725,6 +1015,14 @@ def _ingest_web_source_content(
     db.flush()
 
     attachment_files, attachment_text_blocks = _collect_attachment_contents(attachment_urls)
+    _sync_web_source_attachment_documents(
+        db,
+        organization_id=organization_id,
+        chatbot_id=chatbot_id,
+        web_source=web_source,
+        web_metadata=dict(web_source.metadata_json or {}),
+        attachment_items=attachment_files,
+    )
     attachment_files = _serialize_attachment_items(attachment_files)
     combined_text = extracted_text.strip()
     if attachment_text_blocks:
@@ -913,6 +1211,7 @@ def _normalize_status(base_status: str | None, *, is_active: bool, ingestion_sta
 def _document_item(doc: Document, version: DocumentVersion | None, job: IngestionJob | None) -> KnowledgeItem:
     metadata = dict(doc.metadata_json or {})
     tags = _parse_tags(metadata.get("tags"))
+    is_website_attachment = metadata.get("sourceType") == "website_attachment"
     source_type = "text" if version and version.source_type == "text" else "file"
     source_label = version.file_name if version else None
     summary = metadata.get("summary") or _truncate_preview(metadata.get("content_preview"))
@@ -950,6 +1249,8 @@ def _document_item(doc: Document, version: DocumentVersion | None, job: Ingestio
         ingestion_status=(job.status if job else version.status if version else None),
         ingestion_progress_percent=(job.progress_percent if job else None),
         is_active=is_active,
+        is_website_attachment=bool(is_website_attachment),
+        parent_website_url=metadata.get("parent_website_url"),
     )
 
 
@@ -1209,6 +1510,32 @@ def reindex_knowledge_service(
             metadata_json={"trigger": "admin_reindex"},
         )
         db.add(job)
+        db.flush()
+        if version is not None:
+            storage_path = Path(version.storage_key)
+            if storage_path.exists():
+                _ingest_document_version_content(
+                    db,
+                    organization_id=organization_id,
+                    chatbot_id=str(doc.chatbot_id),
+                    document=doc,
+                    version=version,
+                    job=job,
+                    file_name=version.file_name,
+                    file_bytes=storage_path.read_bytes(),
+                    content_type=version.mime_type,
+                )
+            else:
+                version.status = "failed"
+                version.error_code = "DOCUMENT_STORAGE_MISSING"
+                version.error_message = "재색인할 원본 파일을 찾지 못했습니다."
+                doc.status = "failed"
+                job.status = "failed"
+                job.current_step = "failed"
+                job.progress_percent = 100
+                job.error_code = "DOCUMENT_STORAGE_MISSING"
+                job.error_message = version.error_message
+                job.finished_at = datetime.now(UTC)
         db.commit()
         return get_knowledge_service(db, principal=principal, knowledge_id=knowledge_id)
 
@@ -1335,6 +1662,19 @@ async def create_file_knowledge_service(
         metadata_json={"sourceType": "file"},
     )
     db.add(job)
+    db.flush()
+    _ingest_document_version_content(
+        db,
+        organization_id=organization_id,
+        chatbot_id=str(chatbot.id),
+        document=doc,
+        version=version,
+        job=job,
+        file_name=file.filename or storage_name,
+        file_bytes=content,
+        content_type=upload_content_type,
+        metadata_updates={"sourceType": "file"},
+    )
     db.commit()
     return get_knowledge_service(db, principal=principal, knowledge_id=str(doc.id))
 
@@ -1408,6 +1748,19 @@ def create_text_knowledge_service(
         metadata_json={"sourceType": "text"},
     )
     db.add(job)
+    db.flush()
+    _ingest_document_version_content(
+        db,
+        organization_id=organization_id,
+        chatbot_id=str(chatbot.id),
+        document=doc,
+        version=version,
+        job=job,
+        file_name=f"{body.title.strip()}.txt",
+        file_bytes=body.content.encode("utf-8"),
+        content_type="text/plain",
+        metadata_updates={"sourceType": "text"},
+    )
     db.commit()
     return get_knowledge_service(db, principal=principal, knowledge_id=str(doc.id))
 

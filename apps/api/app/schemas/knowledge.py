@@ -43,6 +43,8 @@ class KnowledgeItem(ApiSchema):
     ingestion_status: str | None = None
     ingestion_progress_percent: int | None = None
     is_active: bool = True
+    is_website_attachment: bool = False
+    parent_website_url: str | None = None
 
 
 class KnowledgeListResponse(ApiSchema):
