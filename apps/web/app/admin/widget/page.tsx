@@ -33,6 +33,18 @@ const LAUNCHER_ICONS = [
 const LOVE_CHAT_ICON_SRC = "/widget-icons/love-chat-icons.png";
 const DEFAULT_IMAGE_ICON_ASSETS: AdminWidgetIconAsset[] = [
   { id: LOVE_CHAT_ICON_SRC, name: "감성 채팅", url: LOVE_CHAT_ICON_SRC, deletable: true },
+  { id: "/widget-icons/generated/1.png", name: "아이콘 1", url: "/widget-icons/generated/1.png", deletable: true },
+  { id: "/widget-icons/generated/2.png", name: "아이콘 2", url: "/widget-icons/generated/2.png", deletable: true },
+  { id: "/widget-icons/generated/3.png", name: "아이콘 3", url: "/widget-icons/generated/3.png", deletable: true },
+  { id: "/widget-icons/generated/4.png", name: "아이콘 4", url: "/widget-icons/generated/4.png", deletable: true },
+  { id: "/widget-icons/generated/5.png", name: "아이콘 5", url: "/widget-icons/generated/5.png", deletable: true },
+  { id: "/widget-icons/generated/6.png", name: "아이콘 6", url: "/widget-icons/generated/6.png", deletable: true },
+  { id: "/widget-icons/generated/7.png", name: "아이콘 7", url: "/widget-icons/generated/7.png", deletable: true },
+  { id: "/widget-icons/generated/8.png", name: "아이콘 8", url: "/widget-icons/generated/8.png", deletable: true },
+  { id: "/widget-icons/generated/9.png", name: "아이콘 9", url: "/widget-icons/generated/9.png", deletable: true },
+  { id: "/widget-icons/generated/10.png", name: "아이콘 10", url: "/widget-icons/generated/10.png", deletable: true },
+  { id: "/widget-icons/generated/11.png", name: "아이콘 11", url: "/widget-icons/generated/11.png", deletable: true },
+  { id: "/widget-icons/generated/12.png", name: "아이콘 12", url: "/widget-icons/generated/12.png", deletable: true },
   { id: "/widget-icons/generated/blue-heart-bubble-2.png", name: "블루 하트 2", url: "/widget-icons/generated/blue-heart-bubble-2.png", deletable: true },
   { id: "/widget-icons/generated/blue-heart-bubble.png", name: "블루 하트", url: "/widget-icons/generated/blue-heart-bubble.png", deletable: true },
   { id: "/widget-icons/generated/code-heart-bubble.png", name: "코드 하트", url: "/widget-icons/generated/code-heart-bubble.png", deletable: true },
