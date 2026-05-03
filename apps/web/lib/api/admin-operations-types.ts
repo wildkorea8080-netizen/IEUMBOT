@@ -76,6 +76,17 @@ export type KnowledgeDetail = KnowledgeItem & {
   excludedPaths?: string[];
   crawledUrls?: string[];
   crawledPageCount?: number | null;
+  attachmentFiles?: Array<{
+    url?: string | null;
+    fileName?: string | null;
+    fileType?: string | null;
+    mimeType?: string | null;
+    textLength?: number | null;
+    extracted?: boolean | null;
+    extractionStatus?: string | null;
+    errorMessage?: string | null;
+  }>;
+  attachmentFileCount?: number | null;
 };
 
 export type KnowledgeListResponse = {

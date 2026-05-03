@@ -1,13 +1,17 @@
 import re
 import ssl
 import uuid
+import zlib
 from datetime import UTC, date, datetime
 from hashlib import sha256
 from html.parser import HTMLParser
+from io import BytesIO
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urldefrag, urljoin, urlparse
 from urllib.request import HTTPSHandler, ProxyHandler, Request, build_opener
+from xml.etree import ElementTree as ET
+from zipfile import BadZipFile, ZipFile
 
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import delete, select
@@ -51,8 +55,10 @@ SKIP_FILE_EXTENSIONS = {
     ".gif",
     ".svg",
     ".webp",
-    ".pdf",
     ".zip",
+}
+ATTACHMENT_FILE_EXTENSIONS = {
+    ".pdf",
     ".xls",
     ".xlsx",
     ".ppt",
@@ -60,7 +66,22 @@ SKIP_FILE_EXTENSIONS = {
     ".doc",
     ".docx",
     ".hwp",
+    ".hwpx",
 }
+
+TEXTISH_MIME_PREFIXES = ("text/",)
+ATTACHMENT_MIME_HINTS = {
+    ".pdf": "application/pdf",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".doc": "application/msword",
+    ".xls": "application/vnd.ms-excel",
+    ".ppt": "application/vnd.ms-powerpoint",
+    ".hwp": "application/x-hwp",
+    ".hwpx": "application/x-hwpx",
+}
+UNSUPPORTED_ATTACHMENT_FILE_TYPES = {".doc", ".xls", ".ppt"}
 
 
 class _HTMLTextExtractor(HTMLParser):
@@ -206,6 +227,194 @@ def _fetch_website_page(url: str) -> tuple[str, str, list[str]]:
     return html, extractor.get_text(), extractor.get_links()
 
 
+def _fetch_binary_resource(url: str) -> tuple[bytes, str | None]:
+    request = Request(
+        url,
+        headers={
+            "User-Agent": USER_AGENT,
+            "Accept": "*/*",
+        },
+    )
+    opener = build_opener(
+        ProxyHandler({}),
+        HTTPSHandler(context=ssl.create_default_context()),
+    )
+    with opener.open(request, timeout=20) as response:
+        content_type = response.headers.get_content_type()
+        payload = response.read()
+    return payload, content_type
+
+
+def _guess_file_type_from_url(url: str) -> str:
+    path = (urlparse(url).path or "").lower()
+    return Path(path).suffix.lower()
+
+
+def _guess_file_name_from_url(url: str) -> str:
+    path = urlparse(url).path or ""
+    name = Path(path).name
+    return name or url
+
+
+def _is_attachment_url(url: str) -> bool:
+    return _guess_file_type_from_url(url) in ATTACHMENT_FILE_EXTENSIONS
+
+
+def _strip_binary_noise(value: str) -> str:
+    normalized = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]+", " ", value)
+    normalized = re.sub(r"\s+", " ", normalized)
+    return normalized.strip()
+
+
+def _collect_xml_text(raw_bytes: bytes) -> str:
+    try:
+        root = ET.fromstring(raw_bytes)
+    except ET.ParseError:
+        return ""
+    parts: list[str] = []
+    for element in root.iter():
+        text = _strip_binary_noise(element.text or "")
+        if text:
+            parts.append(text)
+    return "\n".join(parts).strip()
+
+
+def _extract_docx_text(file_bytes: bytes) -> str:
+    try:
+        with ZipFile(BytesIO(file_bytes)) as archive:
+            parts: list[str] = []
+            for name in archive.namelist():
+                if not name.startswith("word/") or not name.endswith(".xml"):
+                    continue
+                text = _collect_xml_text(archive.read(name))
+                if text:
+                    parts.append(text)
+            return "\n".join(parts).strip()
+    except BadZipFile:
+        return ""
+
+
+def _extract_xlsx_text(file_bytes: bytes) -> str:
+    try:
+        with ZipFile(BytesIO(file_bytes)) as archive:
+            parts: list[str] = []
+            for name in archive.namelist():
+                if not name.startswith("xl/") or not name.endswith(".xml"):
+                    continue
+                text = _collect_xml_text(archive.read(name))
+                if text:
+                    parts.append(text)
+            return "\n".join(parts).strip()
+    except BadZipFile:
+        return ""
+
+
+def _extract_pptx_text(file_bytes: bytes) -> str:
+    try:
+        with ZipFile(BytesIO(file_bytes)) as archive:
+            parts: list[str] = []
+            for name in archive.namelist():
+                if not name.startswith("ppt/") or not name.endswith(".xml"):
+                    continue
+                text = _collect_xml_text(archive.read(name))
+                if text:
+                    parts.append(text)
+            return "\n".join(parts).strip()
+    except BadZipFile:
+        return ""
+
+
+def _extract_hwpx_text(file_bytes: bytes) -> str:
+    try:
+        with ZipFile(BytesIO(file_bytes)) as archive:
+            parts: list[str] = []
+            for name in archive.namelist():
+                if not name.endswith(".xml"):
+                    continue
+                text = _collect_xml_text(archive.read(name))
+                if text:
+                    parts.append(text)
+            return "\n".join(parts).strip()
+    except BadZipFile:
+        return ""
+
+
+def _extract_pdf_text_best_effort(file_bytes: bytes) -> str:
+    parts: list[str] = []
+    try:
+        import pypdf  # type: ignore
+
+        reader = pypdf.PdfReader(BytesIO(file_bytes))
+        for page in reader.pages:
+            text = _strip_binary_noise(page.extract_text() or "")
+            if text:
+                parts.append(text)
+        return "\n".join(parts).strip()
+    except Exception:  # noqa: BLE001
+        pass
+
+    def append_strings(payload: bytes) -> None:
+        for match in re.findall(rb"\(([^()]*)\)", payload):
+            try:
+                decoded = match.decode("utf-8")
+            except UnicodeDecodeError:
+                try:
+                    decoded = match.decode("utf-16le")
+                except UnicodeDecodeError:
+                    decoded = match.decode("latin1", errors="ignore")
+            cleaned = _strip_binary_noise(decoded)
+            if len(cleaned) >= 2:
+                parts.append(cleaned)
+
+    append_strings(file_bytes)
+    for stream_match in re.finditer(rb"stream\r?\n(.*?)\r?\nendstream", file_bytes, re.DOTALL):
+        payload = stream_match.group(1)
+        for candidate in (payload,):
+            append_strings(candidate)
+        try:
+            inflated = zlib.decompress(payload)
+            append_strings(inflated)
+        except Exception:  # noqa: BLE001
+            continue
+    return "\n".join(parts).strip()
+
+
+def _extract_hwp_text_best_effort(file_bytes: bytes) -> str:
+    parts: list[str] = []
+    for encoding in ("utf-16le", "utf-8", "cp949", "latin1"):
+        try:
+            decoded = file_bytes.decode(encoding, errors="ignore")
+        except Exception:  # noqa: BLE001
+            continue
+        matches = re.findall(r"[가-힣A-Za-z0-9][가-힣A-Za-z0-9\s\-\.,:/()]{8,}", decoded)
+        for match in matches:
+            cleaned = _strip_binary_noise(match)
+            if len(cleaned) >= 8:
+                parts.append(cleaned)
+        if parts:
+            break
+    return "\n".join(parts).strip()
+
+
+def _extract_attachment_text(file_url: str, file_bytes: bytes, content_type: str | None) -> tuple[str, str]:
+    file_type = _guess_file_type_from_url(file_url)
+    if file_type == ".pdf":
+        return _extract_pdf_text_best_effort(file_bytes), file_type
+    if file_type == ".docx":
+        return _extract_docx_text(file_bytes), file_type
+    if file_type == ".xlsx":
+        return _extract_xlsx_text(file_bytes), file_type
+    if file_type == ".pptx":
+        return _extract_pptx_text(file_bytes), file_type
+    if file_type == ".hwpx":
+        return _extract_hwpx_text(file_bytes), file_type
+    if file_type == ".hwp":
+        return _extract_hwp_text_best_effort(file_bytes), file_type
+    if content_type and content_type.startswith(TEXTISH_MIME_PREFIXES):
+        return _strip_binary_noise(file_bytes.decode("utf-8", errors="ignore")), file_type
+    return "", file_type
+
+
 def _canonicalize_website_url(url: str) -> str:
     normalized, _fragment = urldefrag(url.strip())
     parsed = urlparse(normalized)
@@ -260,6 +469,8 @@ def _normalize_crawl_url(base_url: str, href: str) -> str | None:
     lowered_path = parsed.path.lower()
     if any(lowered_path.endswith(ext) for ext in SKIP_FILE_EXTENSIONS):
         return None
+    if any(lowered_path.endswith(ext) for ext in ATTACHMENT_FILE_EXTENSIONS):
+        return absolute
     return absolute
 
 
@@ -276,13 +487,15 @@ def _crawl_website(
     crawl_depth: int,
     max_pages: int,
     excluded_paths: list[str] | None,
-) -> tuple[str, str, list[str]]:
+) -> tuple[str, str, list[str], list[str]]:
     parsed_root = urlparse(base_url)
     root_hostname = parsed_root.hostname or ""
     normalized_excluded = _normalize_excluded_paths(excluded_paths)
     queue: list[tuple[str, int]] = [(base_url, 0)]
     visited: set[str] = set()
     crawled_urls: list[str] = []
+    attachment_urls: list[str] = []
+    attachment_seen: set[str] = set()
     text_blocks: list[str] = []
     html_blocks: list[str] = []
 
@@ -318,9 +531,14 @@ def _crawl_website(
             normalized_path = urlparse(normalized).path or "/"
             if any(normalized_path.startswith(path) for path in normalized_excluded):
                 continue
+            if _is_attachment_url(normalized):
+                if normalized not in attachment_seen:
+                    attachment_seen.add(normalized)
+                    attachment_urls.append(normalized)
+                continue
             queue.append((normalized, depth + 1))
 
-    return "\n\n".join(html_blocks), "\n\n".join(text_blocks).strip(), crawled_urls
+    return "\n\n".join(html_blocks), "\n\n".join(text_blocks).strip(), crawled_urls, attachment_urls
 
 
 def _find_web_source_document(
@@ -357,6 +575,75 @@ def _set_job_failed(
     job.finished_at = now
 
 
+def _collect_attachment_contents(
+    attachment_urls: list[str],
+) -> tuple[list[dict[str, str | int | bool | None]], list[str]]:
+    attachment_items: list[dict[str, str | int | bool | None]] = []
+    attachment_text_blocks: list[str] = []
+
+    for url in attachment_urls:
+        file_name = _guess_file_name_from_url(url)
+        file_type = _guess_file_type_from_url(url)
+        mime_type = ATTACHMENT_MIME_HINTS.get(file_type)
+        try:
+            payload, detected_content_type = _fetch_binary_resource(url)
+            if detected_content_type:
+                mime_type = detected_content_type
+            extracted_text, detected_file_type = _extract_attachment_text(url, payload, mime_type)
+            if detected_file_type:
+                file_type = detected_file_type
+            extracted = bool(extracted_text.strip())
+            status = (
+                "completed"
+                if extracted
+                else "unsupported"
+                if file_type in UNSUPPORTED_ATTACHMENT_FILE_TYPES
+                else "empty"
+            )
+            if extracted:
+                attachment_text_blocks.append(f"[ATTACHMENT] {file_name}\n[URL] {url}\n{extracted_text.strip()}")
+            attachment_items.append(
+                {
+                    "url": url,
+                    "file_name": file_name,
+                    "file_type": file_type,
+                    "mime_type": mime_type,
+                    "text_length": len(extracted_text.strip()),
+                    "extracted": extracted,
+                    "extraction_status": status,
+                    "error_message": None,
+                }
+            )
+        except HTTPError as exc:
+            attachment_items.append(
+                {
+                    "url": url,
+                    "file_name": file_name,
+                    "file_type": file_type,
+                    "mime_type": mime_type,
+                    "text_length": 0,
+                    "extracted": False,
+                    "extraction_status": "failed",
+                    "error_message": f"HTTP_{exc.code}",
+                }
+            )
+        except Exception as exc:  # noqa: BLE001
+            attachment_items.append(
+                {
+                    "url": url,
+                    "file_name": file_name,
+                    "file_type": file_type,
+                    "mime_type": mime_type,
+                    "text_length": 0,
+                    "extracted": False,
+                    "extraction_status": "failed",
+                    "error_message": str(exc),
+                }
+            )
+
+    return attachment_items, attachment_text_blocks
+
+
 def _ingest_web_source_content(
     db: Session,
     *,
@@ -375,7 +662,7 @@ def _ingest_web_source_content(
 
     try:
         crawl_page_limit = _resolve_crawl_page_limit(web_source.metadata_json)
-        html, extracted_text, crawled_urls = _crawl_website(
+        html, extracted_text, crawled_urls, attachment_urls = _crawl_website(
             web_source.base_url,
             crawl_depth=web_source.crawl_depth,
             max_pages=crawl_page_limit,
@@ -406,12 +693,21 @@ def _ingest_web_source_content(
         )
         return
 
-    if not extracted_text.strip():
+    job.current_step = "fetching_attachments"
+    job.progress_percent = 35
+    db.flush()
+
+    attachment_files, attachment_text_blocks = _collect_attachment_contents(attachment_urls)
+    combined_text = extracted_text.strip()
+    if attachment_text_blocks:
+        combined_text = "\n\n".join([combined_text, *attachment_text_blocks]).strip()
+
+    if not combined_text.strip():
         _set_job_failed(
             web_source=web_source,
             job=job,
             error_code="EMPTY_WEBSITE_CONTENT",
-            error_message="웹사이트 본문을 추출하지 못했습니다.",
+            error_message="웹사이트 본문과 첨부파일 텍스트를 추출하지 못했습니다.",
         )
         return
 
@@ -420,7 +716,7 @@ def _ingest_web_source_content(
     db.flush()
 
     web_metadata = dict(web_source.metadata_json or {})
-    content_hash = sha256(extracted_text.encode("utf-8")).hexdigest()
+    content_hash = sha256(combined_text.encode("utf-8")).hexdigest()
     document = _find_web_source_document(
         db,
         organization_id=organization_id,
@@ -435,7 +731,7 @@ def _ingest_web_source_content(
             title=web_source.name,
             category=web_metadata.get("category"),
             corpus_domain="official_website_indexed",
-            description=_truncate_preview(extracted_text, 220),
+            description=_truncate_preview(combined_text, 220),
             status="active",
             uploaded_at=now,
             metadata_json={
@@ -446,10 +742,12 @@ def _ingest_web_source_content(
                 "tags": _parse_tags(web_metadata.get("tags")),
                 "memo": web_metadata.get("memo"),
                 "department": web_metadata.get("department"),
-                "summary": _truncate_preview(extracted_text, 220) or web_source.base_url,
-                "sensitive_detected": _detect_sensitive(extracted_text),
+                "summary": _truncate_preview(combined_text, 220) or web_source.base_url,
+                "sensitive_detected": _detect_sensitive(combined_text),
                 "crawled_urls": crawled_urls,
                 "crawl_page_limit": crawl_page_limit,
+                "attachment_files": attachment_files,
+                "attachment_file_count": len(attachment_files),
             },
         )
         db.add(document)
@@ -458,7 +756,7 @@ def _ingest_web_source_content(
         document.title = web_source.name
         document.category = web_metadata.get("category")
         document.corpus_domain = "official_website_indexed"
-        document.description = _truncate_preview(extracted_text, 220)
+        document.description = _truncate_preview(combined_text, 220)
         document.status = "active"
         document.processed_at = now
         document.metadata_json = {
@@ -470,10 +768,12 @@ def _ingest_web_source_content(
             "tags": _parse_tags(web_metadata.get("tags")),
             "memo": web_metadata.get("memo"),
             "department": web_metadata.get("department"),
-            "summary": _truncate_preview(extracted_text, 220) or web_source.base_url,
-            "sensitive_detected": _detect_sensitive(extracted_text),
+            "summary": _truncate_preview(combined_text, 220) or web_source.base_url,
+            "sensitive_detected": _detect_sensitive(combined_text),
             "crawled_urls": crawled_urls,
             "crawl_page_limit": crawl_page_limit,
+            "attachment_files": attachment_files,
+            "attachment_file_count": len(attachment_files),
         }
         for version in document.versions:
             version.is_active = False
@@ -484,7 +784,7 @@ def _ingest_web_source_content(
     storage_name = f"{uuid.uuid4()}.html.txt"
     storage_path = KNOWLEDGE_STORAGE_DIR / storage_name
     KNOWLEDGE_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
-    storage_path.write_text(extracted_text, encoding="utf-8")
+    storage_path.write_text(combined_text, encoding="utf-8")
 
     version = DocumentVersion(
         organization_id=uuid.UUID(organization_id),
@@ -505,7 +805,7 @@ def _ingest_web_source_content(
     db.add(version)
     db.flush()
 
-    chunks = _split_text_chunks(extracted_text)
+    chunks = _split_text_chunks(combined_text)
     if not chunks:
         _set_job_failed(
             web_source=web_source,
@@ -553,12 +853,14 @@ def _ingest_web_source_content(
     web_source.last_error_message = None
     web_source.metadata_json = {
         **web_metadata,
-        "summary": _truncate_preview(extracted_text, 220) or web_source.base_url,
-        "sensitive_detected": _detect_sensitive(extracted_text),
+        "summary": _truncate_preview(combined_text, 220) or web_source.base_url,
+        "sensitive_detected": _detect_sensitive(combined_text),
         "indexed_chunk_count": len(chunks),
         "crawled_urls": crawled_urls,
         "crawled_page_count": len(crawled_urls),
         "crawl_page_limit": crawl_page_limit,
+        "attachment_files": attachment_files,
+        "attachment_file_count": len(attachment_files),
     }
     job.status = "completed"
     job.current_step = "completed"
@@ -680,6 +982,8 @@ def _website_detail(web_source: WebSource, job: IngestionJob | None) -> Knowledg
         excluded_paths=_normalize_excluded_paths(list(web_source.excluded_paths or [])),
         crawled_urls=list(metadata.get("crawled_urls") or []),
         crawled_page_count=metadata.get("crawled_page_count"),
+        attachment_files=list(metadata.get("attachment_files") or []),
+        attachment_file_count=metadata.get("attachment_file_count"),
     )
 
 

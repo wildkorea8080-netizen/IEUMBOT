@@ -642,6 +642,10 @@ export function KnowledgeManagement() {
                         {detail.crawledPageCount ?? 0} / {detail.crawlPageLimit ?? "-"}
                       </div>
                       <div>
+                        <strong className="mr-2 text-slate-900">첨부 파일 수</strong>
+                        {detail.attachmentFileCount ?? detail.attachmentFiles?.length ?? 0}
+                      </div>
+                      <div>
                         <strong className="mr-2 text-slate-900">제외 경로</strong>
                         {detail.excludedPaths && detail.excludedPaths.length > 0 ? detail.excludedPaths.join(", ") : "-"}
                       </div>
@@ -652,6 +656,54 @@ export function KnowledgeManagement() {
                     {detail.errorMessage ?? "-"}
                   </div>
                 </div>
+
+                {detail.sourceType === "website" ? (
+                  <div className="rounded-2xl border border-slate-200">
+                    <div className="border-b border-slate-200 px-4 py-3">
+                      <h4 className="text-sm font-semibold text-slate-900">수집된 첨부파일 목록</h4>
+                      <p className="mt-1 text-xs text-slate-500">
+                        웹사이트 내부 링크에서 수집한 문서 파일과 텍스트 추출 결과입니다.
+                      </p>
+                    </div>
+                    <div className="max-h-72 overflow-y-auto px-4 py-3">
+                      {detail.attachmentFiles && detail.attachmentFiles.length > 0 ? (
+                        <ul className="space-y-2">
+                          {detail.attachmentFiles.map((file, index) => (
+                            <li
+                              key={`${file.url ?? file.fileName ?? "attachment"}-${index}`}
+                              className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs text-slate-700"
+                            >
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-medium text-slate-900">{file.fileName ?? "첨부파일"}</span>
+                                {file.fileType ? <span className="rounded-full bg-slate-200 px-2 py-0.5">{file.fileType}</span> : null}
+                                <span
+                                  className={`rounded-full px-2 py-0.5 ${
+                                    file.extracted ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
+                                  }`}
+                                >
+                                  {file.extracted ? "추출 완료" : file.extractionStatus === "failed" ? "추출 실패" : "추출 없음"}
+                                </span>
+                                {typeof file.textLength === "number" ? (
+                                  <span className="text-slate-500">텍스트 {file.textLength.toLocaleString()}자</span>
+                                ) : null}
+                              </div>
+                              {file.url ? (
+                                <a href={file.url} target="_blank" rel="noreferrer" className="mt-2 block break-all hover:text-blue-700 hover:underline">
+                                  {file.url}
+                                </a>
+                              ) : null}
+                              {file.errorMessage ? <div className="mt-2 text-rose-600">{file.errorMessage}</div> : null}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+                          아직 수집된 첨부파일 정보가 없습니다.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : null}
 
                 {detail.sourceType === "website" ? (
                   <div className="rounded-2xl border border-slate-200">

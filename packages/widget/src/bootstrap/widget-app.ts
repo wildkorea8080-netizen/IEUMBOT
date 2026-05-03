@@ -188,6 +188,10 @@ function getLauncherIcon(config: WidgetPublicConfig | null): LauncherIconName {
   return "chat";
 }
 
+function isImageLauncherIcon(icon: LauncherIconName, customIconUrl?: string | null): boolean {
+  return icon === "love-chat" || (icon === "custom" && !!customIconUrl?.trim());
+}
+
 function getLauncherHoverMessage(config: WidgetPublicConfig | null, options: WidgetInitOptions): string | null {
   const explicit = config?.launcherHoverMessage?.trim();
   if (explicit) return explicit;
@@ -281,6 +285,14 @@ function buildScopedStyles(primaryGradient: string): string {
 .ieum-floating:hover {
   transform: scale(1.05);
   box-shadow: 0 20px 36px rgba(15, 23, 42, 0.28);
+}
+.ieum-floating.ieum-floating-image {
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+}
+.ieum-floating.ieum-floating-image:hover {
+  box-shadow: none;
 }
 .ieum-floating .ieum-launcher-image {
   width: 64px;
@@ -492,7 +504,9 @@ export class IeumWidgetApp {
     this.floatingButton.type = "button";
     this.floatingButton.title = options.launcherLabel ?? "챗봇 열기";
     this.floatingButton.setAttribute("aria-label", options.launcherLabel ?? "챗봇 열기");
+    this.floatingButton.replaceChildren();
     this.floatingButton.innerHTML = createIconSvg("chat");
+    this.floatingButton.classList.remove("ieum-floating-image");
     this.floatingButton.classList.add("ieum-floating-loading");
 
     this.titleNode.textContent = headerDisplayName(null, options);
@@ -643,10 +657,11 @@ export class IeumWidgetApp {
       } else {
         this.headerIconNode.innerHTML = createIconSvg("heart");
       }
-      this.floatingButton.innerHTML = createIconSvg(
-        getLauncherIcon(this.config),
-        this.config.theme?.launcherIconUrl,
-      );
+      const launcherIcon = getLauncherIcon(this.config);
+      const launcherIconUrl = this.config.theme?.launcherIconUrl;
+      this.floatingButton.replaceChildren();
+      this.floatingButton.innerHTML = createIconSvg(launcherIcon, launcherIconUrl);
+      this.floatingButton.classList.toggle("ieum-floating-image", isImageLauncherIcon(launcherIcon, launcherIconUrl));
       this.launcherHoverMessage = getLauncherHoverMessage(this.config, this.options) ?? "";
       this.launcherTipText.textContent = this.launcherHoverMessage;
       this.launcherTipStorageKey = `ieumbot_launcher_tip_dismissed:${this.options.chatbotId}`;

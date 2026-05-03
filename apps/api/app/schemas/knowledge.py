@@ -8,6 +8,17 @@ KnowledgeSourceGroup = Literal["file_text", "website"]
 KnowledgeSourceType = Literal["file", "text", "website"]
 
 
+class KnowledgeAttachmentItem(ApiSchema):
+    url: str | None = None
+    file_name: str | None = None
+    file_type: str | None = None
+    mime_type: str | None = None
+    text_length: int | None = None
+    extracted: bool | None = None
+    extraction_status: str | None = None
+    error_message: str | None = None
+
+
 class KnowledgeItem(ApiSchema):
     id: str
     source_group: KnowledgeSourceGroup
@@ -47,6 +58,8 @@ class KnowledgeDetailResponse(KnowledgeItem):
     excluded_paths: list[str] = Field(default_factory=list)
     crawled_urls: list[str] = Field(default_factory=list)
     crawled_page_count: int | None = None
+    attachment_files: list[KnowledgeAttachmentItem] = Field(default_factory=list)
+    attachment_file_count: int | None = None
 
 
 class KnowledgeUpsertRequest(ApiSchema):
