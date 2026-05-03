@@ -15,7 +15,14 @@ export async function initIeumWidget(options: WidgetInitOptions): Promise<void> 
   if (!options?.chatbotId) {
     throw new Error("WIDGET_INIT_REQUIRES_CHATBOT_ID");
   }
-  const key = `${options.chatbotId}:${options.apiBaseUrl ?? ""}`;
+  const key = options.chatbotId;
+  const existingRoots = Array.from(document.querySelectorAll<HTMLElement>('[data-ieumbot-widget-root="true"]'));
+  for (const root of existingRoots) {
+    if (root.getAttribute("data-ieumbot-chatbot-id") === options.chatbotId) {
+      root.remove();
+    }
+  }
+  mountedKeys.delete(key);
   if (mountedKeys.has(key)) {
     return;
   }

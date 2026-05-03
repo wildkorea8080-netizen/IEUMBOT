@@ -463,6 +463,7 @@ export class IeumWidgetApp {
     this.api = new WidgetApiClient(normalizeApiBaseUrl(options.apiBaseUrl));
     this.host = document.createElement("div");
     this.host.setAttribute("data-ieumbot-widget-root", "true");
+    this.host.setAttribute("data-ieumbot-chatbot-id", options.chatbotId);
     this.shadow = this.host.attachShadow({ mode: "open" });
     this.root = createElement(document, "div", "ieum-root");
     this.launcherWrap = createElement(document, "div", "ieum-launcher-wrap");
