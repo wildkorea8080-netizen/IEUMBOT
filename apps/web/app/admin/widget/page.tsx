@@ -31,6 +31,31 @@ const LAUNCHER_ICONS = [
 ] as const;
 
 const LOVE_CHAT_ICON_SRC = "/widget-icons/love-chat-icons.png";
+const DEFAULT_GENERATED_ICON_ASSETS: AdminWidgetIconAsset[] = [
+  { id: "/widget-icons/generated/pink-heart-bubble.png", name: "핑크 하트", url: "/widget-icons/generated/pink-heart-bubble.png", deletable: false },
+  { id: "/widget-icons/generated/blue-heart-bubble.png", name: "블루 하트", url: "/widget-icons/generated/blue-heart-bubble.png", deletable: false },
+  { id: "/widget-icons/generated/purple-gold-heart.png", name: "퍼플 골드", url: "/widget-icons/generated/purple-gold-heart.png", deletable: false },
+  { id: "/widget-icons/generated/green-heart-bubble.png", name: "그린 하트", url: "/widget-icons/generated/green-heart-bubble.png", deletable: false },
+  { id: "/widget-icons/generated/coral-square-heart.png", name: "코랄 하트", url: "/widget-icons/generated/coral-square-heart.png", deletable: false },
+  { id: "/widget-icons/generated/peach-square-heart.png", name: "피치 하트", url: "/widget-icons/generated/peach-square-heart.png", deletable: false },
+  { id: "/widget-icons/generated/yellow-heart-bubble.png", name: "옐로 하트", url: "/widget-icons/generated/yellow-heart-bubble.png", deletable: false },
+  { id: "/widget-icons/generated/code-heart-bubble.png", name: "코드 하트", url: "/widget-icons/generated/code-heart-bubble.png", deletable: false },
+  { id: "/widget-icons/generated/blue-heart-bubble-2.png", name: "블루 하트 2", url: "/widget-icons/generated/blue-heart-bubble-2.png", deletable: false },
+  { id: "/widget-icons/generated/pixel-heart-dark.png", name: "픽셀 하트", url: "/widget-icons/generated/pixel-heart-dark.png", deletable: false },
+  { id: "/widget-icons/generated/paper-heart-cream.png", name: "페이퍼 하트", url: "/widget-icons/generated/paper-heart-cream.png", deletable: false },
+  { id: "/widget-icons/generated/outline-heart-chat.png", name: "아웃라인 하트", url: "/widget-icons/generated/outline-heart-chat.png", deletable: false },
+];
+
+function mergeVisibleLauncherIcons(items: AdminWidgetIconAsset[]): AdminWidgetIconAsset[] {
+  const map = new Map<string, AdminWidgetIconAsset>();
+  for (const item of DEFAULT_GENERATED_ICON_ASSETS) {
+    map.set(item.url, item);
+  }
+  for (const item of items) {
+    map.set(item.url, item);
+  }
+  return Array.from(map.values());
+}
 
 function ChatIcon() {
   return (
@@ -182,9 +207,13 @@ export default function WidgetPage() {
     () => chatbots.find((item) => item.id === selectedChatbotId) ?? null,
     [chatbots, selectedChatbotId],
   );
+  const visibleLauncherImageIcons = useMemo(
+    () => mergeVisibleLauncherIcons(launcherImageIcons),
+    [launcherImageIcons],
+  );
   const selectedManagedIcon = useMemo(
-    () => launcherImageIcons.find((item) => item.url === launcherIconUrl) ?? null,
-    [launcherIconUrl, launcherImageIcons],
+    () => visibleLauncherImageIcons.find((item) => item.url === launcherIconUrl) ?? null,
+    [launcherIconUrl, visibleLauncherImageIcons],
   );
 
   const previewTitle = institutionName.trim() || selectedChatbot?.name || "기관";
@@ -632,7 +661,7 @@ export default function WidgetPage() {
                       </button>
                     );
                   })}
-                  {launcherImageIcons.map((item) => {
+                  {visibleLauncherImageIcons.map((item) => {
                     const active = launcherIcon === "custom" && launcherIconUrl === item.url;
                     return (
                       <div
