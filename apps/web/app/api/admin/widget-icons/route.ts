@@ -7,7 +7,51 @@ const WEB_PUBLIC_ROOT = path.join(process.cwd(), "apps", "web", "public");
 const WIDGET_ICON_ROOT = path.join(WEB_PUBLIC_ROOT, "widget-icons");
 const CUSTOM_ICON_DIR = path.join(WIDGET_ICON_ROOT, "custom");
 const ALLOWED_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"]);
-const EXCLUDED_FILES = new Set(["appswebpublicwidget-icons.png"]);
+const EXCLUDED_FILES = new Set([
+  "appswebpublicwidget-icons.png",
+  "blue-heart-bubble-2.png",
+  "blue-heart-bubble.png",
+  "code-heart-bubble.png",
+  "coral-square-heart.png",
+  "green-heart-bubble.png",
+  "outline-heart-chat.png",
+  "paper-heart-cream.png",
+  "peach-square-heart.png",
+  "pink-heart-bubble.png",
+  "pixel-heart-dark.png",
+  "purple-gold-heart.png",
+  "yellow-heart-bubble.png",
+]);
+const DEFAULT_ICON_NAME_MAP: Record<string, string> = {
+  "love-chat-icons.png": "기본 아이콘",
+  "1.png": "핑크 하트 말풍선",
+  "2.png": "블루 하트 말풍선",
+  "3.png": "퍼플 골드 하트",
+  "4.png": "그린 하트 말풍선",
+  "5.png": "코랄 하트 카드",
+  "6.png": "피치 하트 카드",
+  "7.png": "옐로 하트 말풍선",
+  "8.png": "코드 하트 말풍선",
+  "9.png": "딥블루 하트 말풍선",
+  "10.png": "네온 픽셀 하트",
+  "11.png": "크림 페이퍼 하트",
+  "12.png": "라인 하트 말풍선",
+};
+const DEFAULT_ICON_ORDER: Record<string, number> = {
+  "love-chat-icons.png": 0,
+  "1.png": 1,
+  "2.png": 2,
+  "3.png": 3,
+  "4.png": 4,
+  "5.png": 5,
+  "6.png": 6,
+  "7.png": 7,
+  "8.png": 8,
+  "9.png": 9,
+  "10.png": 10,
+  "11.png": 11,
+  "12.png": 12,
+};
 
 export const runtime = "nodejs";
 
@@ -36,6 +80,9 @@ function authorize(request: NextRequest): NextResponse | null {
 }
 
 function toLabel(fileName: string): string {
+  if (DEFAULT_ICON_NAME_MAP[fileName]) {
+    return DEFAULT_ICON_NAME_MAP[fileName];
+  }
   return fileName
     .replace(path.extname(fileName), "")
     .replace(/[-_]+/g, " ")
@@ -76,7 +123,16 @@ async function collectIcons(dirPath: string): Promise<WidgetIconAsset[]> {
     });
   }
 
-  return items.sort((left, right) => left.name.localeCompare(right.name, "ko"));
+  return items.sort((left, right) => {
+    const leftBase = path.basename(left.url);
+    const rightBase = path.basename(right.url);
+    const leftOrder = DEFAULT_ICON_ORDER[leftBase] ?? 999;
+    const rightOrder = DEFAULT_ICON_ORDER[rightBase] ?? 999;
+    if (leftOrder !== rightOrder) {
+      return leftOrder - rightOrder;
+    }
+    return left.name.localeCompare(right.name, "ko");
+  });
 }
 
 function resolveManagedFile(url: string): string | null {

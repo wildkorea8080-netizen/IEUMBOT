@@ -31,41 +31,6 @@ const LAUNCHER_ICONS = [
 ] as const;
 
 const LOVE_CHAT_ICON_SRC = "/widget-icons/love-chat-icons.png";
-const DEFAULT_IMAGE_ICON_ASSETS: AdminWidgetIconAsset[] = [
-  { id: LOVE_CHAT_ICON_SRC, name: "감성 채팅", url: LOVE_CHAT_ICON_SRC, deletable: true },
-  { id: "/widget-icons/generated/1.png", name: "아이콘 1", url: "/widget-icons/generated/1.png", deletable: true },
-  { id: "/widget-icons/generated/2.png", name: "아이콘 2", url: "/widget-icons/generated/2.png", deletable: true },
-  { id: "/widget-icons/generated/3.png", name: "아이콘 3", url: "/widget-icons/generated/3.png", deletable: true },
-  { id: "/widget-icons/generated/4.png", name: "아이콘 4", url: "/widget-icons/generated/4.png", deletable: true },
-  { id: "/widget-icons/generated/5.png", name: "아이콘 5", url: "/widget-icons/generated/5.png", deletable: true },
-  { id: "/widget-icons/generated/6.png", name: "아이콘 6", url: "/widget-icons/generated/6.png", deletable: true },
-  { id: "/widget-icons/generated/7.png", name: "아이콘 7", url: "/widget-icons/generated/7.png", deletable: true },
-  { id: "/widget-icons/generated/8.png", name: "아이콘 8", url: "/widget-icons/generated/8.png", deletable: true },
-  { id: "/widget-icons/generated/9.png", name: "아이콘 9", url: "/widget-icons/generated/9.png", deletable: true },
-  { id: "/widget-icons/generated/10.png", name: "아이콘 10", url: "/widget-icons/generated/10.png", deletable: true },
-  { id: "/widget-icons/generated/11.png", name: "아이콘 11", url: "/widget-icons/generated/11.png", deletable: true },
-  { id: "/widget-icons/generated/12.png", name: "아이콘 12", url: "/widget-icons/generated/12.png", deletable: true },
-  { id: "/widget-icons/generated/blue-heart-bubble-2.png", name: "블루 하트 2", url: "/widget-icons/generated/blue-heart-bubble-2.png", deletable: true },
-  { id: "/widget-icons/generated/blue-heart-bubble.png", name: "블루 하트", url: "/widget-icons/generated/blue-heart-bubble.png", deletable: true },
-  { id: "/widget-icons/generated/code-heart-bubble.png", name: "코드 하트", url: "/widget-icons/generated/code-heart-bubble.png", deletable: true },
-  { id: "/widget-icons/generated/coral-square-heart.png", name: "코랄 하트", url: "/widget-icons/generated/coral-square-heart.png", deletable: true },
-  { id: "/widget-icons/generated/green-heart-bubble.png", name: "그린 하트", url: "/widget-icons/generated/green-heart-bubble.png", deletable: true },
-  { id: "/widget-icons/generated/outline-heart-chat.png", name: "아웃라인 하트", url: "/widget-icons/generated/outline-heart-chat.png", deletable: true },
-  { id: "/widget-icons/generated/paper-heart-cream.png", name: "페이퍼 하트", url: "/widget-icons/generated/paper-heart-cream.png", deletable: true },
-  { id: "/widget-icons/generated/peach-square-heart.png", name: "피치 하트", url: "/widget-icons/generated/peach-square-heart.png", deletable: true },
-  { id: "/widget-icons/generated/pink-heart-bubble.png", name: "핑크 하트", url: "/widget-icons/generated/pink-heart-bubble.png", deletable: true },
-  { id: "/widget-icons/generated/pixel-heart-dark.png", name: "픽셀 하트", url: "/widget-icons/generated/pixel-heart-dark.png", deletable: true },
-  { id: "/widget-icons/generated/purple-gold-heart.png", name: "퍼플 골드", url: "/widget-icons/generated/purple-gold-heart.png", deletable: true },
-  { id: "/widget-icons/generated/yellow-heart-bubble.png", name: "옐로 하트", url: "/widget-icons/generated/yellow-heart-bubble.png", deletable: true },
-];
-
-function mergeLauncherImageIcons(items: AdminWidgetIconAsset[]): AdminWidgetIconAsset[] {
-  const map = new Map<string, AdminWidgetIconAsset>();
-  for (const item of [...DEFAULT_IMAGE_ICON_ASSETS, ...items]) {
-    map.set(item.url, item);
-  }
-  return Array.from(map.values()).sort((left, right) => left.name.localeCompare(right.name, "ko"));
-}
 
 function ChatIcon() {
   return (
@@ -180,7 +145,7 @@ export default function WidgetPage() {
   const [bannerTitle, setBannerTitle] = useState("");
   const [bannerDescription, setBannerDescription] = useState("");
   const [starterQuestionsInput, setStarterQuestionsInput] = useState("");
-  const [launcherImageIcons, setLauncherImageIcons] = useState<AdminWidgetIconAsset[]>(DEFAULT_IMAGE_ICON_ASSETS);
+  const [launcherImageIcons, setLauncherImageIcons] = useState<AdminWidgetIconAsset[]>([]);
   const [launcherIconFile, setLauncherIconFile] = useState<File | null>(null);
   const [launcherIconInputKey, setLauncherIconInputKey] = useState(0);
   const [data, setData] = useState<AdminWidgetResponse | null>(null);
@@ -367,11 +332,11 @@ export default function WidgetPage() {
       try {
         const items = await listAdminWidgetIcons();
         if (!cancelled) {
-          setLauncherImageIcons(mergeLauncherImageIcons(items));
+          setLauncherImageIcons(items);
         }
       } catch (err) {
         if (!cancelled) {
-          setLauncherImageIcons(DEFAULT_IMAGE_ICON_ASSETS);
+          setLauncherImageIcons([]);
           setError(getErrorMessage(err));
         }
       }
@@ -485,7 +450,7 @@ export default function WidgetPage() {
     try {
       const created = await uploadAdminWidgetIcon(launcherIconFile);
       const nextItems = await listAdminWidgetIcons();
-      setLauncherImageIcons(mergeLauncherImageIcons(nextItems));
+      setLauncherImageIcons(nextItems);
       setLauncherIcon("custom");
       setLauncherIconUrl(created.url);
       setLauncherIconFile(null);
@@ -505,7 +470,7 @@ export default function WidgetPage() {
     try {
       await deleteAdminWidgetIcon(iconUrl);
       const nextItems = await listAdminWidgetIcons();
-      setLauncherImageIcons(mergeLauncherImageIcons(nextItems));
+      setLauncherImageIcons(nextItems);
       if (launcherIcon === "custom" && launcherIconUrl === iconUrl) {
         setLauncherIcon("chat");
         setLauncherIconUrl("");
