@@ -245,6 +245,28 @@ def _fetch_binary_resource(url: str) -> tuple[bytes, str | None]:
     return payload, content_type
 
 
+def _serialize_attachment_items(
+    items: list[dict[str, str | int | bool | None]],
+) -> list[dict[str, str | int | bool | None]]:
+    normalized_items: list[dict[str, str | int | bool | None]] = []
+    for item in items:
+        normalized_items.append(
+            {
+                "url": str(item.get("url")) if item.get("url") is not None else None,
+                "file_name": str(item.get("file_name")) if item.get("file_name") is not None else None,
+                "file_type": str(item.get("file_type")) if item.get("file_type") is not None else None,
+                "mime_type": str(item.get("mime_type")) if item.get("mime_type") is not None else None,
+                "text_length": int(item.get("text_length")) if item.get("text_length") is not None else None,
+                "extracted": bool(item.get("extracted")) if item.get("extracted") is not None else None,
+                "extraction_status": (
+                    str(item.get("extraction_status")) if item.get("extraction_status") is not None else None
+                ),
+                "error_message": str(item.get("error_message")) if item.get("error_message") is not None else None,
+            }
+        )
+    return normalized_items
+
+
 def _guess_file_type_from_url(url: str) -> str:
     path = (urlparse(url).path or "").lower()
     return Path(path).suffix.lower()
@@ -698,6 +720,7 @@ def _ingest_web_source_content(
     db.flush()
 
     attachment_files, attachment_text_blocks = _collect_attachment_contents(attachment_urls)
+    attachment_files = _serialize_attachment_items(attachment_files)
     combined_text = extracted_text.strip()
     if attachment_text_blocks:
         combined_text = "\n\n".join([combined_text, *attachment_text_blocks]).strip()
@@ -1202,13 +1225,21 @@ def reindex_knowledge_service(
         )
         db.add(job)
         db.flush()
-        _ingest_web_source_content(
-            db,
-            organization_id=organization_id,
-            chatbot_id=str(web_source.chatbot_id),
-            web_source=web_source,
-            job=job,
-        )
+        try:
+            _ingest_web_source_content(
+                db,
+                organization_id=organization_id,
+                chatbot_id=str(web_source.chatbot_id),
+                web_source=web_source,
+                job=job,
+            )
+        except Exception as exc:  # noqa: BLE001
+            _set_job_failed(
+                web_source=web_source,
+                job=job,
+                error_code="WEB_SOURCE_REINDEX_FAILED",
+                error_message=str(exc),
+            )
         db.commit()
         return get_knowledge_service(db, principal=principal, knowledge_id=knowledge_id)
 
