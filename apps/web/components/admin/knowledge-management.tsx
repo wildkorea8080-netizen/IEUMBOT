@@ -103,6 +103,7 @@ export function KnowledgeManagement() {
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const categories = useMemo(
     () => Array.from(new Set(items.map((item) => item.category).filter(Boolean))).sort(),
@@ -155,6 +156,7 @@ export function KnowledgeManagement() {
     if (!detail || !editor) return;
     setIsSaving(true);
     setError(null);
+    setNotice(options?.reindexAfterSave ? "저장 후 재색인 중입니다..." : "저장 중입니다...");
     try {
       const response = await patchKnowledge(detail.id, {
         title: editor.title,
@@ -175,6 +177,13 @@ export function KnowledgeManagement() {
       const nextDetail = options?.reindexAfterSave ? await reindexKnowledge(detail.id) : response;
       setDetail(nextDetail);
       setEditor(toEditor(nextDetail));
+      setNotice(
+        options?.reindexAfterSave
+          ? `재색인이 완료되었습니다. 마지막 색인: ${
+              nextDetail.lastIndexedAt ? new Date(nextDetail.lastIndexedAt).toLocaleString("ko-KR") : "방금"
+            }`
+          : "저장되었습니다.",
+      );
       await load();
     } catch (saveError) {
       setError(getErrorMessage(saveError));
@@ -187,6 +196,7 @@ export function KnowledgeManagement() {
     if (selectedIds.length === 0) return;
     setIsSaving(true);
     setError(null);
+    setNotice(action === "delete" ? "선택 항목을 삭제 중입니다..." : "선택 항목을 비활성화 중입니다...");
     try {
       for (const knowledgeId of selectedIds) {
         if (action === "delete") {
@@ -198,6 +208,7 @@ export function KnowledgeManagement() {
       setSelectedIds([]);
       setDetail(null);
       setEditor(null);
+      setNotice(action === "delete" ? "선택 항목이 삭제되었습니다." : "선택 항목이 비활성화되었습니다.");
       await load();
     } catch (actionError) {
       setError(getErrorMessage(actionError));
@@ -213,17 +224,40 @@ export function KnowledgeManagement() {
   ) => {
     setIsSaving(true);
     setError(null);
+    if (action === "reindex") {
+      setNotice("재색인 중입니다...");
+    } else if (action === "delete") {
+      setNotice("삭제 중입니다...");
+    } else {
+      setNotice(isActive ? "비활성화 중입니다..." : "활성화 중입니다...");
+    }
     try {
       if (action === "toggle") {
         await patchKnowledge(knowledgeId, { isActive: !isActive });
       } else if (action === "delete") {
         await deleteKnowledge(knowledgeId);
       } else {
-        await reindexKnowledge(knowledgeId);
+        const refreshed = await reindexKnowledge(knowledgeId);
+        if (detail?.id === knowledgeId) {
+          setDetail(refreshed);
+          setEditor(toEditor(refreshed));
+        }
+        setNotice(
+          `재색인이 완료되었습니다. 마지막 색인: ${
+            refreshed.lastIndexedAt ? new Date(refreshed.lastIndexedAt).toLocaleString("ko-KR") : "방금"
+          }`,
+        );
+        await load();
+        return;
       }
       if (detail?.id === knowledgeId) {
         setDetail(null);
         setEditor(null);
+      }
+      if (action === "delete") {
+        setNotice("삭제되었습니다.");
+      } else if (action === "toggle") {
+        setNotice(isActive ? "비활성화되었습니다." : "활성화되었습니다.");
       }
       await load();
     } catch (actionError) {
@@ -345,6 +379,7 @@ export function KnowledgeManagement() {
         </div>
 
         {error ? <p className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
+        {notice ? <p className="mt-4 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">{notice}</p> : null}
         {isLoading ? <p className="mt-4 text-sm text-slate-500">목록을 불러오는 중입니다.</p> : null}
 
         {!isLoading ? (
