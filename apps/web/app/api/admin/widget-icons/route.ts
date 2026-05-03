@@ -9,18 +9,6 @@ const CUSTOM_ICON_DIR = path.join(WIDGET_ICON_ROOT, "custom");
 const ALLOWED_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"]);
 const EXCLUDED_FILES = new Set([
   "appswebpublicwidget-icons.png",
-  "blue-heart-bubble-2.png",
-  "blue-heart-bubble.png",
-  "code-heart-bubble.png",
-  "coral-square-heart.png",
-  "green-heart-bubble.png",
-  "outline-heart-chat.png",
-  "paper-heart-cream.png",
-  "peach-square-heart.png",
-  "pink-heart-bubble.png",
-  "pixel-heart-dark.png",
-  "purple-gold-heart.png",
-  "yellow-heart-bubble.png",
 ]);
 const DEFAULT_ICON_NAME_MAP: Record<string, string> = {
   "love-chat-icons.png": "기본 아이콘",
@@ -36,6 +24,18 @@ const DEFAULT_ICON_NAME_MAP: Record<string, string> = {
   "10.png": "네온 픽셀 하트",
   "11.png": "크림 페이퍼 하트",
   "12.png": "라인 하트 말풍선",
+  "pink-heart-bubble.png": "핑크 하트",
+  "blue-heart-bubble.png": "블루 하트",
+  "purple-gold-heart.png": "퍼플 골드",
+  "green-heart-bubble.png": "그린 하트",
+  "coral-square-heart.png": "코랄 하트",
+  "peach-square-heart.png": "피치 하트",
+  "yellow-heart-bubble.png": "옐로 하트",
+  "code-heart-bubble.png": "코드 하트",
+  "blue-heart-bubble-2.png": "블루 하트 2",
+  "pixel-heart-dark.png": "픽셀 하트",
+  "paper-heart-cream.png": "페이퍼 하트",
+  "outline-heart-chat.png": "아웃라인 하트",
 };
 const DEFAULT_ICON_ORDER: Record<string, number> = {
   "love-chat-icons.png": 0,
