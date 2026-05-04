@@ -331,6 +331,17 @@ def _resolve_reindex_storage_path(document: Document, version: DocumentVersion) 
     return None
 
 
+def _rebuild_text_from_existing_chunks(db: Session, document: Document, version: DocumentVersion) -> str:
+    stmt = (
+        select(DocumentChunk.text_content)
+        .where(DocumentChunk.document_id == document.id)
+        .where(DocumentChunk.document_version_id == version.id)
+        .order_by(DocumentChunk.chunk_order.asc())
+    )
+    chunks = [str(value or "").strip() for value in db.execute(stmt).scalars().all()]
+    return "\n\n".join(chunk for chunk in chunks if chunk).strip()
+
+
 def _ingest_document_version_content(
     db: Session,
     *,
@@ -1809,6 +1820,13 @@ def reindex_knowledge_service(
                 content_type = version.mime_type
                 if str(storage_path).endswith(".txt") and not content_type.startswith("text/"):
                     content_type = "text/plain"
+                file_bytes = storage_path.read_bytes()
+            else:
+                rebuilt_text = _rebuild_text_from_existing_chunks(db, doc, version)
+                content_type = "text/plain"
+                file_bytes = rebuilt_text.encode("utf-8")
+
+            if file_bytes:
                 _ingest_document_version_content(
                     db,
                     organization_id=organization_id,
@@ -1817,13 +1835,13 @@ def reindex_knowledge_service(
                     version=version,
                     job=job,
                     file_name=version.file_name,
-                    file_bytes=storage_path.read_bytes(),
+                    file_bytes=file_bytes,
                     content_type=content_type,
                 )
             else:
                 version.status = "failed"
                 version.error_code = "DOCUMENT_STORAGE_MISSING"
-                version.error_message = "재색인할 원본 파일 또는 추출 텍스트를 찾지 못했습니다."
+                version.error_message = "재색인할 원본 파일, 추출 텍스트 또는 기존 청크를 찾지 못했습니다."
                 doc.status = "failed"
                 job.status = "failed"
                 job.current_step = "failed"
