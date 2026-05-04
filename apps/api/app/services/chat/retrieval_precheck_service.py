@@ -22,6 +22,8 @@ from app.services.embedding_service import generate_embedding
 
 TOKEN_SPLIT_REGEX = re.compile(r"[^0-9A-Za-z가-힣]+")
 URL_MARKER_REGEX = re.compile(r"\[URL\]\s+(https?://\S+)", re.IGNORECASE)
+CONTACT_QUERY_TERMS = {"연락처", "전화", "전화번호", "문의처", "담당자", "담당부서"}
+CONTACT_EXPANSION_TERMS = ["연락처", "전화", "전화번호", "문의처", "담당자", "담당부서", "사업관리실"]
 KOREAN_PARTICLE_SUFFIXES = [
     "으로",
     "에서",
@@ -85,6 +87,8 @@ def _expand_tokens(tokens: list[str], synonyms: list[SynonymDictionary]) -> list
                 expanded.add(synonym)
             if row.is_bidirectional and token == synonym:
                 expanded.add(canonical)
+    if expanded.intersection(CONTACT_QUERY_TERMS):
+        expanded.update(CONTACT_EXPANSION_TERMS)
     return sorted(expanded)
 
 

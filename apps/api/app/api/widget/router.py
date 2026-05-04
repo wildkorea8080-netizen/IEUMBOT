@@ -83,7 +83,7 @@ def _build_after_hours_message(chatbot: ChatbotSetting) -> str | None:
 @router.get("/config/{chatbot_id}", response_model=WidgetPublicConfigResponse)
 def get_widget_public_config(
     chatbot_id: str,
-    db: Session = Depends(get_db_session),
+    db: Session = Depends(get_db_session),  # noqa: B008
 ) -> WidgetPublicConfigResponse:
     chatbot_stmt = select(ChatbotSetting).where(
         ChatbotSetting.id == chatbot_id,
@@ -120,6 +120,7 @@ def get_widget_public_config(
     launcher_icon = theme.get("widgetLauncherIcon") or theme.get("widget_launcher_icon")
     launcher_icon_url = theme.get("widgetLauncherIconUrl") or theme.get("widget_launcher_icon_url")
     launcher_hover_message = theme.get("widgetLauncherHoverMessage") or theme.get("widget_launcher_hover_message")
+    chatbot_display_name = theme.get("widgetChatbotName") or theme.get("widget_chatbot_name")
     institution_name = theme.get("widgetInstitutionName") or theme.get("widget_institution_name")
     logo_url = theme.get("widgetLogoUrl") or theme.get("widget_logo_url")
     intro_message = theme.get("widgetIntroMessage") or theme.get("widget_intro_message")
@@ -139,7 +140,9 @@ def get_widget_public_config(
 
     return WidgetPublicConfigResponse(
         chatbot_id=str(chatbot.id),
-        chatbot_name=chatbot.name,
+        chatbot_name=chatbot_display_name.strip()
+        if isinstance(chatbot_display_name, str) and chatbot_display_name.strip()
+        else chatbot.name,
         institution_name=institution_name if isinstance(institution_name, str) else None,
         logo_url=logo_url if isinstance(logo_url, str) else None,
         intro_message=resolved_intro_message,

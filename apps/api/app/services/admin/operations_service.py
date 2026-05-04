@@ -547,6 +547,9 @@ def get_widget_service(
         position=widget.position,
         launcher_label=widget.launcher_label,
         welcome_message=widget.welcome_message,
+        chatbot_display_name=(
+            theme.get("widgetChatbotName") if isinstance(theme.get("widgetChatbotName"), str) else None
+        ),
         institution_name=theme.get("widgetInstitutionName") if isinstance(theme.get("widgetInstitutionName"), str) else None,
         logo_url=theme.get("widgetLogoUrl") if isinstance(theme.get("widgetLogoUrl"), str) else None,
         intro_message=theme.get("widgetIntroMessage") if isinstance(theme.get("widgetIntroMessage"), str) else None,
@@ -608,6 +611,8 @@ def patch_widget_service(
         widget.welcome_message = body.welcome_message.strip() or None
     chatbot = ensure_chatbot_in_scope(db, principal=principal, chatbot_id=chatbot_id)
     theme = dict(chatbot.theme or {}) if isinstance(chatbot.theme, dict) else {}
+    if body.chatbot_display_name is not None:
+        theme["widgetChatbotName"] = body.chatbot_display_name.strip() or None
     if body.institution_name is not None:
         theme["widgetInstitutionName"] = body.institution_name.strip() or None
     if body.logo_url is not None:
@@ -657,6 +662,9 @@ def patch_widget_service(
         position=widget.position,
         launcher_label=widget.launcher_label,
         welcome_message=widget.welcome_message,
+        chatbot_display_name=(
+            theme.get("widgetChatbotName") if isinstance(theme.get("widgetChatbotName"), str) else None
+        ),
         institution_name=theme.get("widgetInstitutionName") if isinstance(theme.get("widgetInstitutionName"), str) else None,
         logo_url=theme.get("widgetLogoUrl") if isinstance(theme.get("widgetLogoUrl"), str) else None,
         intro_message=theme.get("widgetIntroMessage") if isinstance(theme.get("widgetIntroMessage"), str) else None,

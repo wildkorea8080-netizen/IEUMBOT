@@ -164,6 +164,7 @@ export default function WidgetPage() {
   const [launcherIcon, setLauncherIcon] = useState("chat");
   const [launcherIconUrl, setLauncherIconUrl] = useState("");
   const [launcherHoverMessage, setLauncherHoverMessage] = useState("");
+  const [chatbotDisplayName, setChatbotDisplayName] = useState("");
   const [institutionName, setInstitutionName] = useState("");
   const [logoUrl, setLogoUrl] = useState("");
   const [introMessage, setIntroMessage] = useState("");
@@ -187,6 +188,7 @@ export default function WidgetPage() {
   const [debouncedIframeState, setDebouncedIframeState] = useState({
     selectedChatbotId: "",
     chatbotName: "",
+    chatbotDisplayName: "",
     institutionName: "",
     logoUrl: "",
     introMessage: "",
@@ -219,22 +221,24 @@ export default function WidgetPage() {
     [launcherIconUrl, visibleLauncherImageIcons],
   );
 
-  const previewTitle = institutionName.trim() || selectedChatbot?.name || "기관";
+  const previewInstitutionName = institutionName.trim() || "기관";
+  const previewChatbotName = chatbotDisplayName.trim() || selectedChatbot?.name || previewInstitutionName;
   const previewLauncher = launcherLabel.trim() || "챗봇 열기";
   const previewUsesImageLauncher =
     launcherIcon === "love-chat" || (launcherIcon === "custom" && launcherIconUrl.trim().length > 0);
   const previewIntro =
     introMessage.trim() ||
-    `안녕하세요\n${previewTitle} AI 챗봇입니다.\n\n궁금하신 내용을 입력해주시면\n빠르게 안내해드리겠습니다.`;
+    `안녕하세요\n${previewChatbotName} AI 챗봇입니다.\n\n궁금하신 내용을 입력해주시면\n빠르게 안내해드리겠습니다.`;
   const previewHoverMessage =
-    launcherHoverMessage.trim() || `AI챗봇 ${previewTitle}예요. 무엇을 도와드릴까요?`;
+    launcherHoverMessage.trim() || `AI챗봇 ${previewInstitutionName}예요. 무엇을 도와드릴까요?`;
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
       setDebouncedIframeState({
         selectedChatbotId,
-        chatbotName: selectedChatbot?.name ?? previewTitle,
-        institutionName: previewTitle,
+        chatbotName: previewChatbotName,
+        chatbotDisplayName: previewChatbotName,
+        institutionName: previewInstitutionName,
         logoUrl: logoUrl.trim(),
         introMessage: introMessage.trim(),
         themeColor: themeColor.trim() || "#2563EB",
@@ -247,7 +251,7 @@ export default function WidgetPage() {
         launcherHoverMessage: previewHoverMessage,
         starterQuestions,
       });
-    }, 350);
+    }, 3000);
     return () => window.clearTimeout(timeout);
   }, [
     bannerDescription,
@@ -258,7 +262,8 @@ export default function WidgetPage() {
     launcherIconUrl,
     logoUrl,
     previewHoverMessage,
-    previewTitle,
+    previewChatbotName,
+    previewInstitutionName,
     selectedChatbot?.name,
     selectedChatbotId,
     starterQuestions,
@@ -407,6 +412,7 @@ export default function WidgetPage() {
         setLauncherIcon(nextLauncherIcon);
         setLauncherIconUrl(nextLauncherIconUrl);
         setLauncherHoverMessage(res.launcherHoverMessage ?? "");
+        setChatbotDisplayName(res.chatbotDisplayName ?? "");
         setInstitutionName(res.institutionName ?? "");
         setLogoUrl(res.logoUrl ?? "");
         setIntroMessage(res.introMessage ?? "");
@@ -444,6 +450,7 @@ export default function WidgetPage() {
         launcherIcon,
         launcherIconUrl: launcherIconUrl.trim(),
         launcherHoverMessage: launcherHoverMessage.trim(),
+        chatbotDisplayName: chatbotDisplayName.trim(),
         institutionName: institutionName.trim(),
         logoUrl: logoUrl.trim(),
         introMessage: introMessage.trim(),
@@ -641,6 +648,10 @@ export default function WidgetPage() {
                 <label className="space-y-1">
                   <span className="text-xs font-medium text-slate-600">기관명</span>
                   <input value={institutionName} onChange={(event) => setInstitutionName(event.target.value)} placeholder="해외농업길라잡이" className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-xs font-medium text-slate-600">챗봇명</span>
+                  <input value={chatbotDisplayName} onChange={(event) => setChatbotDisplayName(event.target.value)} placeholder={selectedChatbot?.name ?? "AI 상담 챗봇"} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
                 </label>
               </div>
 
@@ -840,7 +851,7 @@ export default function WidgetPage() {
                         <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white/15">
                           {logoUrl.trim() ? <img src={logoUrl.trim()} alt="기관 로고" className="h-5 w-5 rounded-full object-contain" /> : <ChatIcon />}
                         </div>
-                        <div className="truncate text-sm font-semibold">{`AI 챗봇 ${previewTitle}`}</div>
+                        <div className="truncate text-sm font-semibold">{`AI 챗봇 ${previewChatbotName}`}</div>
                       </div>
                       <div className="flex items-center gap-1">
                         <button type="button" className="flex h-8 w-8 items-center justify-center rounded-full bg-white/15"><MinimizeIcon /></button>

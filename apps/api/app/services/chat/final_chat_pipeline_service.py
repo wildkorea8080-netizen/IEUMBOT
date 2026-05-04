@@ -1,3 +1,4 @@
+import re
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -76,6 +77,9 @@ DISSATISFACTION_KEYWORDS = [
     "wrong answer",
     "this is wrong",
 ]
+CONTACT_QUESTION_KEYWORDS = ["연락처", "전화", "전화번호", "문의처", "담당자", "담당부서"]
+CONTACT_LINE_KEYWORDS = ["문의처", "연락처", "전화", "전화번호", "담당자", "담당부서", "담당"]
+PHONE_NUMBER_REGEX = re.compile(r"(?:\d{2,3}[-.)]\d{3,4}[-.)]\d{4}|\d{2,3}\.\d{3,4}\.\d{4})")
 
 
 def _normalize_text(value: str) -> str:
@@ -131,6 +135,75 @@ def _is_dissatisfied(question: str) -> bool:
     if not normalized:
         return False
     return any(keyword in normalized for keyword in DISSATISFACTION_KEYWORDS)
+
+
+def _is_contact_question(question: str) -> bool:
+    normalized = _normalize_text(question)
+    return any(keyword in normalized for keyword in CONTACT_QUESTION_KEYWORDS)
+
+
+def _compact_contact_line(line: str) -> str:
+    compact = " ".join(line.replace("☎", "").split())
+    compact = re.sub(r"\s+([:：])\s+", r"\1 ", compact)
+    phone_match = PHONE_NUMBER_REGEX.search(compact)
+    if phone_match:
+        preferred_keywords = ["문의처", "연락처", "담당자 전화번호", "전화번호", "담당자"]
+        contact_positions = [compact.find(keyword) for keyword in preferred_keywords if keyword in compact]
+        contact_positions = [position for position in contact_positions if position >= 0]
+        if contact_positions:
+            start_anchor = min(contact_positions)
+            end = min(len(compact), phone_match.end() + 80)
+            compact = compact[start_anchor:end].strip()
+        elif len(compact) > 220:
+            start = max(0, phone_match.start() - 40)
+            end = min(len(compact), phone_match.end() + 80)
+            compact = compact[start:end].strip()
+    return compact.strip(" -")
+
+
+def _extract_contact_answer_from_candidates(
+    *,
+    question: str,
+    candidates: list[dict[str, Any]],
+    citation_display_mode: str,
+) -> str | None:
+    if not _is_contact_question(question):
+        return None
+
+    contact_items: list[tuple[int, str]] = []
+    for source_index, item in enumerate(candidates[:5], start=1):
+        preview = str(item.get("contentSignals", {}).get("textPreview", "") or "")
+        lines = [line.strip() for line in preview.splitlines() if line.strip()]
+        if len(lines) <= 1:
+            lines = [part.strip() for part in re.split(r"(?<=[.。])\s+|[•○❍]\s*", preview) if part.strip()]
+
+        for line in lines:
+            if not PHONE_NUMBER_REGEX.search(line):
+                continue
+            if not any(keyword in line for keyword in CONTACT_LINE_KEYWORDS):
+                continue
+            contact_items.append((source_index, _compact_contact_line(line)))
+
+    if not contact_items:
+        return None
+
+    seen: set[str] = set()
+    unique_items: list[tuple[int, str]] = []
+    for source_index, line in contact_items:
+        key = re.sub(r"\s+", " ", line)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_items.append((source_index, line))
+        if len(unique_items) >= 3:
+            break
+
+    lines: list[str] = []
+    for source_index, line in unique_items:
+        citation = "" if citation_display_mode == "hidden" else f" [S{source_index}]"
+        lines.append(f"- {line}{citation}")
+
+    return "민간환경조사 담당자 연락처는 다음 근거에서 확인됩니다.\n" + "\n".join(lines)
 
 
 def _conversation_tone_summary(
@@ -276,6 +349,11 @@ def run_final_chat_pipeline(
         candidates=retrieval_output["candidates"],
         citation_display_mode=answer_settings.answer_format.citation_display_mode,
     )
+    direct_contact_answer = _extract_contact_answer_from_candidates(
+        question=body.question,
+        candidates=retrieval_output["candidates"],
+        citation_display_mode=answer_settings.answer_format.citation_display_mode,
+    )
 
     answer_text = ""
     warnings: list[str] = []
@@ -297,7 +375,10 @@ def run_final_chat_pipeline(
         and decision not in {"restricted", "conflict"}
     )
 
-    if abusive_detected:
+    if direct_contact_answer and not abusive_detected:
+        outcome = "answered"
+        answer_text = direct_contact_answer
+    elif abusive_detected:
         outcome = "restricted"
         answer_text = str(
             policy_decision.get("safeMessage")

@@ -160,7 +160,7 @@ function getInstitutionLabel(config: WidgetPublicConfig | null, options: WidgetI
 }
 
 function headerDisplayName(config: WidgetPublicConfig | null, options: WidgetInitOptions): string {
-  const preferred = getInstitutionLabel(config, options);
+  const preferred = options.title?.trim() || config?.chatbotName?.trim() || getInstitutionLabel(config, options);
   return preferred.startsWith("AI 챗봇") ? preferred : `AI 챗봇 ${preferred}`;
 }
 

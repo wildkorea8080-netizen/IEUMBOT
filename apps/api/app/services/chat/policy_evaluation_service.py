@@ -20,6 +20,7 @@ SLOT_KEYWORDS = {
     "기간": ["기간", "기한", "마감", "일정"],
     "대상": ["대상", "신청자", "지원자"],
     "방법": ["방법", "절차", "신청", "접수"],
+    "연락처": ["연락처", "전화", "전화번호", "문의처", "담당자", "담당부서"],
 }
 GREETING_KEYWORDS = [
     "안녕",
@@ -65,6 +66,7 @@ ABUSIVE_KEYWORDS = {
     "low": ["짜증", "답답", "별로", "이상하네"],
 }
 DOMAIN_KEYWORDS = [
+    "민간환경조사",
     "해외농업",
     "농업개발",
     "해외 농업",
@@ -86,6 +88,12 @@ def _contains_any(text: str, keywords: list[str]) -> bool:
 
 
 STRUCTURED_QUESTION_KEYWORDS = [
+    "연락처",
+    "전화",
+    "전화번호",
+    "문의처",
+    "담당자",
+    "담당부서",
     "신청",
     "접수",
     "절차",
@@ -165,6 +173,11 @@ def _is_overview_question(question: str) -> bool:
     return _contains_any(normalized, OVERVIEW_QUESTION_KEYWORDS)
 
 
+def _is_contact_question(question: str) -> bool:
+    normalized = _normalize_question(question)
+    return _contains_any(normalized, SLOT_KEYWORDS["연락처"])
+
+
 def _has_substantive_question_signal(question: str) -> bool:
     normalized = _normalize_question(question)
     if not normalized:
@@ -238,10 +251,13 @@ def evaluate_answer_policy(context: dict[str, Any]) -> dict[str, Any]:
     small_talk_detected = _is_small_talk(question)
     structured_question = _is_structured_question(question)
     overview_question = _is_overview_question(question)
+    contact_question = _is_contact_question(question)
     abusive_severity = str(context.get("abusiveSeverity") or _abuse_severity_from_question(question) or "")
     abusive_detected = bool(abusive_severity)
     repeated_user_dissatisfaction = bool(context.get("repeatedUserDissatisfaction"))
-    effective_min_valid_sources = 1 if overview_question and not structured_question else min_valid_sources
+    effective_min_valid_sources = (
+        1 if contact_question or (overview_question and not structured_question) else min_valid_sources
+    )
 
     for item in candidates:
         combined_score = float(item.get("combinedScore", 0.0))
@@ -277,7 +293,12 @@ def evaluate_answer_policy(context: dict[str, Any]) -> dict[str, Any]:
 
     coverage = _coverage_score(referenceable_candidates)
     covered_slots = sum(1 for covered in coverage.values() if covered)
-    if structured_question and len(referenceable_candidates) < effective_min_valid_sources and covered_slots < 2:
+    required_covered_slots = 1 if contact_question else 2
+    if (
+        structured_question
+        and len(referenceable_candidates) < effective_min_valid_sources
+        and covered_slots < required_covered_slots
+    ):
         missing_evidence = True
 
     conflict_detected = _detect_conflict(referenceable_candidates)
@@ -323,6 +344,7 @@ def evaluate_answer_policy(context: dict[str, Any]) -> dict[str, Any]:
         "domainKeywordMatched": bool(domain_keyword_matched),
         "structuredQuestion": bool(structured_question),
         "overviewQuestion": bool(overview_question),
+        "contactQuestion": bool(contact_question),
         "unrelatedQuestion": bool(unrelated_question),
         "topCombinedScore": float(top_combined_score),
     }

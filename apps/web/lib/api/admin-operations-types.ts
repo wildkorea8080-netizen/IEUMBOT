@@ -208,6 +208,7 @@ export type AdminWidgetResponse = {
   position?: string | null;
   launcherLabel?: string | null;
   welcomeMessage?: string | null;
+  chatbotDisplayName?: string | null;
   institutionName?: string | null;
   logoUrl?: string | null;
   introMessage?: string | null;
