@@ -40,6 +40,8 @@ type WebsiteFormState = {
   title: string;
   url: string;
   crawlPageLimit: string;
+  crawlAllPages: boolean;
+  includeAttachments: boolean;
   excludedPaths: string;
   category: string;
   field: string;
@@ -66,7 +68,9 @@ function emptyWebsiteForm(chatbotId = ""): WebsiteFormState {
     chatbotId,
     title: "",
     url: "",
-    crawlPageLimit: "12",
+    crawlPageLimit: "300",
+    crawlAllPages: true,
+    includeAttachments: true,
     excludedPaths: "",
     category: "",
     field: "",
@@ -350,7 +354,9 @@ export function KnowledgeRegister() {
         chatbotId: websiteForm.chatbotId,
         url: websiteForm.url,
         title: websiteForm.title,
-        crawlPageLimit: Number(websiteForm.crawlPageLimit) || 12,
+        crawlPageLimit: Number(websiteForm.crawlPageLimit) || 300,
+        crawlAllPages: websiteForm.crawlAllPages,
+        includeAttachments: websiteForm.includeAttachments,
         excludedPaths: parseExcludedPaths(websiteForm.excludedPaths),
         category: websiteForm.category || undefined,
         field: websiteForm.field || undefined,
@@ -546,13 +552,33 @@ export function KnowledgeRegister() {
                 <input
                   type="number"
                   min={1}
-                  max={100}
+                  max={1000}
                   value={websiteForm.crawlPageLimit}
                   onChange={(event) =>
                     setWebsiteForm((current) => ({ ...current, crawlPageLimit: event.target.value }))
                   }
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                 />
+              </label>
+              <label className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                <input
+                  type="checkbox"
+                  checked={websiteForm.crawlAllPages}
+                  onChange={(event) =>
+                    setWebsiteForm((current) => ({ ...current, crawlAllPages: event.target.checked }))
+                  }
+                />
+                <span className="text-sm font-medium text-slate-700">같은 도메인의 하위 페이지 전체 수집</span>
+              </label>
+              <label className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                <input
+                  type="checkbox"
+                  checked={websiteForm.includeAttachments}
+                  onChange={(event) =>
+                    setWebsiteForm((current) => ({ ...current, includeAttachments: event.target.checked }))
+                  }
+                />
+                <span className="text-sm font-medium text-slate-700">링크된 PDF/문서 첨부파일도 색인</span>
               </label>
               <label className="space-y-2">
                 <span className="text-sm font-medium text-slate-700">카테고리</span>

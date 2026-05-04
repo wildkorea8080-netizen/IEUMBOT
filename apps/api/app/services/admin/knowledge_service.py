@@ -52,7 +52,9 @@ SENSITIVE_PATTERNS = [
 SOURCE_URL_MARKER_REGEX = re.compile(r"\[URL\]\s+(https?://\S+)", re.IGNORECASE)
 USER_AGENT = "IEUMBOTCrawler/1.0 (+https://ieumbot.local)"
 DEFAULT_CRAWL_PAGE_LIMIT = 12
-MAX_CRAWL_PAGE_LIMIT = 100
+DEFAULT_FULL_SITE_CRAWL_PAGE_LIMIT = 300
+MAX_CRAWL_PAGE_LIMIT = 1000
+FULL_SITE_CRAWL_DEPTH = 50
 PDF_TEXT_SUFFICIENT_LENGTH = 48
 PDF_OCR_DPI = 220
 PDF_TEXT_MIN_LETTER_RATIO = 0.55
@@ -310,6 +312,23 @@ def _write_extracted_text_to_storage(file_name: str, extracted_text: str) -> Pat
     storage_path = KNOWLEDGE_STORAGE_DIR / storage_name
     storage_path.write_text(extracted_text, encoding="utf-8")
     return storage_path
+
+
+def _resolve_reindex_storage_path(document: Document, version: DocumentVersion) -> Path | None:
+    metadata = dict(document.metadata_json or {})
+    candidate_values = [
+        metadata.get("original_storage_key"),
+        version.storage_key,
+        metadata.get("extracted_text_storage_key"),
+    ]
+    for value in candidate_values:
+        candidate = str(value or "").strip()
+        if not candidate:
+            continue
+        path = Path(candidate)
+        if path.is_file():
+            return path
+    return None
 
 
 def _ingest_document_version_content(
@@ -874,12 +893,35 @@ def _normalize_excluded_paths(paths: list[str] | None) -> list[str]:
 
 
 def _resolve_crawl_page_limit(metadata: dict | None) -> int:
-    raw_value = (metadata or {}).get("crawl_page_limit")
+    metadata_dict = metadata or {}
+    raw_value = metadata_dict.get("crawl_page_limit")
+    crawl_all_pages = _resolve_crawl_all_pages(metadata_dict)
     try:
-        value = int(raw_value)
+        default_limit = (
+            DEFAULT_FULL_SITE_CRAWL_PAGE_LIMIT
+            if crawl_all_pages
+            else DEFAULT_CRAWL_PAGE_LIMIT
+        )
+        value = int(raw_value or default_limit)
+        if crawl_all_pages and "crawl_all_pages" not in metadata_dict and value == DEFAULT_CRAWL_PAGE_LIMIT:
+            value = DEFAULT_FULL_SITE_CRAWL_PAGE_LIMIT
     except (TypeError, ValueError):
-        value = DEFAULT_CRAWL_PAGE_LIMIT
+        value = DEFAULT_FULL_SITE_CRAWL_PAGE_LIMIT if crawl_all_pages else DEFAULT_CRAWL_PAGE_LIMIT
     return max(1, min(value, MAX_CRAWL_PAGE_LIMIT))
+
+
+def _resolve_crawl_all_pages(metadata: dict | None) -> bool:
+    value = (metadata or {}).get("crawl_all_pages")
+    if value is None:
+        return True
+    return bool(value)
+
+
+def _resolve_include_attachments(metadata: dict | None) -> bool:
+    value = (metadata or {}).get("include_attachments")
+    if value is None:
+        return True
+    return bool(value)
 
 
 def _normalize_crawl_url(base_url: str, href: str) -> str | None:
@@ -903,17 +945,50 @@ def _same_domain(url: str, hostname: str) -> bool:
     return bool(target) and (target == root or target.endswith(f".{root}"))
 
 
+def _collect_sitemap_urls(base_url: str, hostname: str, *, limit: int) -> list[str]:
+    parsed = urlparse(base_url)
+    sitemap_url = f"{parsed.scheme}://{parsed.netloc}/sitemap.xml"
+    try:
+        payload, _content_type = _fetch_binary_resource(sitemap_url)
+    except Exception:  # noqa: BLE001
+        return []
+
+    try:
+        root = ET.fromstring(payload)
+    except ET.ParseError:
+        return []
+
+    urls: list[str] = []
+    seen: set[str] = set()
+    for element in root.iter():
+        if not element.tag.lower().endswith("loc") or not element.text:
+            continue
+        normalized = _normalize_crawl_url(base_url, element.text.strip())
+        if not normalized or normalized in seen or not _same_domain(normalized, hostname):
+            continue
+        if _is_attachment_url(normalized):
+            continue
+        seen.add(normalized)
+        urls.append(normalized)
+        if len(urls) >= limit:
+            break
+    return urls
+
+
 def _crawl_website(
     base_url: str,
     *,
     crawl_depth: int,
     max_pages: int,
     excluded_paths: list[str] | None,
+    crawl_all_pages: bool,
+    include_attachments: bool,
 ) -> tuple[str, str, list[str], list[str]]:
     parsed_root = urlparse(base_url)
     root_hostname = parsed_root.hostname or ""
     normalized_excluded = _normalize_excluded_paths(excluded_paths)
-    queue: list[tuple[str, int]] = [(base_url, 0)]
+    sitemap_urls = _collect_sitemap_urls(base_url, root_hostname, limit=max_pages) if root_hostname else []
+    queue: list[tuple[str, int]] = [(base_url, 0), *((url, 1) for url in sitemap_urls if url != base_url)]
     visited: set[str] = set()
     crawled_urls: list[str] = []
     attachment_urls: list[str] = []
@@ -921,7 +996,7 @@ def _crawl_website(
     text_blocks: list[str] = []
     html_blocks: list[str] = []
 
-    max_depth = max(0, crawl_depth)
+    max_depth = FULL_SITE_CRAWL_DEPTH if crawl_all_pages else max(0, crawl_depth)
     page_limit = max(1, min(max_pages, MAX_CRAWL_PAGE_LIMIT))
 
     while queue and len(crawled_urls) < page_limit:
@@ -956,7 +1031,8 @@ def _crawl_website(
             if _is_attachment_url(normalized):
                 if normalized not in attachment_seen:
                     attachment_seen.add(normalized)
-                    attachment_urls.append(normalized)
+                    if include_attachments:
+                        attachment_urls.append(normalized)
                 continue
             queue.append((normalized, depth + 1))
 
@@ -1111,11 +1187,15 @@ def _ingest_web_source_content(
 
     try:
         crawl_page_limit = _resolve_crawl_page_limit(web_source.metadata_json)
+        crawl_all_pages = _resolve_crawl_all_pages(web_source.metadata_json)
+        include_attachments = _resolve_include_attachments(web_source.metadata_json)
         html, extracted_text, crawled_urls, attachment_urls = _crawl_website(
             web_source.base_url,
             crawl_depth=web_source.crawl_depth,
             max_pages=crawl_page_limit,
             excluded_paths=list(web_source.excluded_paths or []),
+            crawl_all_pages=crawl_all_pages,
+            include_attachments=include_attachments,
         )
     except HTTPError as exc:
         _set_job_failed(
@@ -1146,7 +1226,9 @@ def _ingest_web_source_content(
     job.progress_percent = 35
     db.flush()
 
-    attachment_files, attachment_text_blocks = _collect_attachment_contents(attachment_urls)
+    attachment_files, attachment_text_blocks = (
+        _collect_attachment_contents(attachment_urls) if include_attachments else ([], [])
+    )
     _sync_web_source_attachment_documents(
         db,
         organization_id=organization_id,
@@ -1204,6 +1286,8 @@ def _ingest_web_source_content(
                 "sensitive_detected": _detect_sensitive(combined_text),
                 "crawled_urls": crawled_urls,
                 "crawl_page_limit": crawl_page_limit,
+                "crawl_all_pages": crawl_all_pages,
+                "include_attachments": include_attachments,
                 "attachment_files": attachment_files,
                 "attachment_file_count": len(attachment_files),
             },
@@ -1230,6 +1314,8 @@ def _ingest_web_source_content(
             "sensitive_detected": _detect_sensitive(combined_text),
             "crawled_urls": crawled_urls,
             "crawl_page_limit": crawl_page_limit,
+            "crawl_all_pages": crawl_all_pages,
+            "include_attachments": include_attachments,
             "attachment_files": attachment_files,
             "attachment_file_count": len(attachment_files),
         }
@@ -1322,6 +1408,8 @@ def _ingest_web_source_content(
         "crawled_urls": crawled_urls,
         "crawled_page_count": len(crawled_urls),
         "crawl_page_limit": crawl_page_limit,
+        "crawl_all_pages": crawl_all_pages,
+        "include_attachments": include_attachments,
         "attachment_files": attachment_files,
         "attachment_file_count": len(attachment_files),
     }
@@ -1446,6 +1534,8 @@ def _website_detail(web_source: WebSource, job: IngestionJob | None) -> Knowledg
         source_path=web_source.base_url,
         last_indexed_at=item.indexed_at,
         crawl_page_limit=_resolve_crawl_page_limit(metadata),
+        crawl_all_pages=_resolve_crawl_all_pages(metadata),
+        include_attachments=_resolve_include_attachments(metadata),
         excluded_paths=_normalize_excluded_paths(list(web_source.excluded_paths or [])),
         crawled_urls=list(metadata.get("crawled_urls") or []),
         crawled_page_count=metadata.get("crawled_page_count"),
@@ -1601,6 +1691,10 @@ def _apply_common_metadata(metadata: dict, body: KnowledgeUpsertRequest) -> dict
         next_metadata["expiration_date"] = body.expiration_date
     if body.crawl_page_limit is not None:
         next_metadata["crawl_page_limit"] = max(1, min(int(body.crawl_page_limit), MAX_CRAWL_PAGE_LIMIT))
+    if body.crawl_all_pages is not None:
+        next_metadata["crawl_all_pages"] = bool(body.crawl_all_pages)
+    if body.include_attachments is not None:
+        next_metadata["include_attachments"] = bool(body.include_attachments)
     return next_metadata
 
 
@@ -1710,12 +1804,11 @@ def reindex_knowledge_service(
         db.add(job)
         db.flush()
         if version is not None:
-            raw_storage_key = (
-                str((doc.metadata_json or {}).get("original_storage_key") or "").strip()
-                or version.storage_key
-            )
-            storage_path = Path(raw_storage_key)
-            if storage_path.exists():
+            storage_path = _resolve_reindex_storage_path(doc, version)
+            if storage_path is not None:
+                content_type = version.mime_type
+                if str(storage_path).endswith(".txt") and not content_type.startswith("text/"):
+                    content_type = "text/plain"
                 _ingest_document_version_content(
                     db,
                     organization_id=organization_id,
@@ -1725,12 +1818,12 @@ def reindex_knowledge_service(
                     job=job,
                     file_name=version.file_name,
                     file_bytes=storage_path.read_bytes(),
-                    content_type=version.mime_type,
+                    content_type=content_type,
                 )
             else:
                 version.status = "failed"
                 version.error_code = "DOCUMENT_STORAGE_MISSING"
-                version.error_message = "재색인할 원본 파일을 찾지 못했습니다."
+                version.error_message = "재색인할 원본 파일 또는 추출 텍스트를 찾지 못했습니다."
                 doc.status = "failed"
                 job.status = "failed"
                 job.current_step = "failed"
@@ -1993,6 +2086,8 @@ def create_website_knowledge_service(
 
     excluded_paths = _normalize_excluded_paths(body.excluded_paths)
     crawl_page_limit = max(1, min(body.crawl_page_limit, MAX_CRAWL_PAGE_LIMIT))
+    crawl_all_pages = bool(body.crawl_all_pages)
+    include_attachments = bool(body.include_attachments)
 
     web_source = WebSource(
         organization_id=uuid.UUID(organization_id),
@@ -2012,6 +2107,8 @@ def create_website_knowledge_service(
             "summary": canonical_url,
             "sensitive_detected": False,
             "crawl_page_limit": crawl_page_limit,
+            "crawl_all_pages": crawl_all_pages,
+            "include_attachments": include_attachments,
         },
     )
     db.add(web_source)

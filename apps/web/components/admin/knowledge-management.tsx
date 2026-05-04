@@ -75,6 +75,8 @@ type EditorState = {
   expirationDate: string;
   department: string;
   crawlPageLimit: string;
+  crawlAllPages: boolean;
+  includeAttachments: boolean;
   excludedPaths: string;
   isActive: boolean;
 };
@@ -89,7 +91,9 @@ function toEditor(detail: KnowledgeDetail): EditorState {
     effectiveDate: detail.effectiveDate ?? "",
     expirationDate: detail.expirationDate ?? "",
     department: detail.department ?? "",
-    crawlPageLimit: detail.crawlPageLimit ? String(detail.crawlPageLimit) : "",
+    crawlPageLimit: detail.crawlPageLimit ? String(detail.crawlPageLimit) : "300",
+    crawlAllPages: detail.crawlAllPages ?? true,
+    includeAttachments: detail.includeAttachments ?? true,
     excludedPaths: (detail.excludedPaths ?? []).join("\n"),
     isActive: detail.isActive,
   };
@@ -189,6 +193,8 @@ export function KnowledgeManagement() {
           detail.sourceType === "website" && editor.crawlPageLimit
             ? Number(editor.crawlPageLimit)
             : undefined,
+        crawlAllPages: detail.sourceType === "website" ? editor.crawlAllPages : undefined,
+        includeAttachments: detail.sourceType === "website" ? editor.includeAttachments : undefined,
         excludedPaths: detail.sourceType === "website" ? splitLines(editor.excludedPaths) : undefined,
         isActive: editor.isActive,
       });
@@ -653,7 +659,7 @@ export function KnowledgeManagement() {
                         <input
                           type="number"
                           min={1}
-                          max={100}
+                          max={1000}
                           value={editor.crawlPageLimit}
                           onChange={(event) =>
                             setEditor((current) =>
@@ -662,6 +668,30 @@ export function KnowledgeManagement() {
                           }
                           className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                         />
+                      </label>
+                      <label className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                        <input
+                          type="checkbox"
+                          checked={editor.crawlAllPages}
+                          onChange={(event) =>
+                            setEditor((current) =>
+                              current ? { ...current, crawlAllPages: event.target.checked } : current,
+                            )
+                          }
+                        />
+                        <span className="text-sm font-medium text-slate-700">같은 도메인의 하위 페이지 전체 수집</span>
+                      </label>
+                      <label className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                        <input
+                          type="checkbox"
+                          checked={editor.includeAttachments}
+                          onChange={(event) =>
+                            setEditor((current) =>
+                              current ? { ...current, includeAttachments: event.target.checked } : current,
+                            )
+                          }
+                        />
+                        <span className="text-sm font-medium text-slate-700">링크된 PDF/문서 첨부파일도 색인</span>
                       </label>
                       <label className="space-y-2 md:col-span-2">
                         <span className="text-sm font-medium text-slate-700">제외 경로</span>
@@ -718,6 +748,14 @@ export function KnowledgeManagement() {
                       <div>
                         <strong className="mr-2 text-slate-900">크롤링 페이지 수</strong>
                         {detail.crawledPageCount ?? 0} / {detail.crawlPageLimit ?? "-"}
+                      </div>
+                      <div>
+                        <strong className="mr-2 text-slate-900">하위 페이지 전체 수집</strong>
+                        {detail.crawlAllPages ?? true ? "사용" : "미사용"}
+                      </div>
+                      <div>
+                        <strong className="mr-2 text-slate-900">첨부파일 색인</strong>
+                        {detail.includeAttachments ?? true ? "사용" : "미사용"}
                       </div>
                       <div>
                         <strong className="mr-2 text-slate-900">첨부 파일 수</strong>

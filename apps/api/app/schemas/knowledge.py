@@ -59,6 +59,8 @@ class KnowledgeDetailResponse(KnowledgeItem):
     last_indexed_at: str | None = None
     extraction_method: str | None = None
     crawl_page_limit: int | None = None
+    crawl_all_pages: bool = True
+    include_attachments: bool = True
     excluded_paths: list[str] = Field(default_factory=list)
     crawled_urls: list[str] = Field(default_factory=list)
     crawled_page_count: int | None = None
@@ -75,7 +77,9 @@ class KnowledgeUpsertRequest(ApiSchema):
     effective_date: str | None = None
     expiration_date: str | None = None
     department: str | None = None
-    crawl_page_limit: int | None = Field(default=None, ge=1, le=100)
+    crawl_page_limit: int | None = Field(default=None, ge=1, le=1000)
+    crawl_all_pages: bool | None = None
+    include_attachments: bool | None = None
     excluded_paths: list[str] | None = None
     is_active: bool | None = None
 
@@ -96,7 +100,9 @@ class KnowledgeWebsiteCreateRequest(ApiSchema):
     chatbot_id: str
     url: str
     title: str
-    crawl_page_limit: int = Field(default=12, ge=1, le=100)
+    crawl_page_limit: int = Field(default=300, ge=1, le=1000)
+    crawl_all_pages: bool = True
+    include_attachments: bool = True
     excluded_paths: list[str] = Field(default_factory=list)
     category: str | None = None
     field: str | None = None

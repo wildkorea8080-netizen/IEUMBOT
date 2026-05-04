@@ -76,6 +76,8 @@ export type KnowledgeDetail = KnowledgeItem & {
   lastIndexedAt?: string | null;
   extractionMethod?: string | null;
   crawlPageLimit?: number | null;
+  crawlAllPages?: boolean;
+  includeAttachments?: boolean;
   excludedPaths?: string[];
   crawledUrls?: string[];
   crawledPageCount?: number | null;
@@ -169,6 +171,8 @@ export type KnowledgeWebsiteCreateRequest = {
   url: string;
   title: string;
   crawlPageLimit: number;
+  crawlAllPages: boolean;
+  includeAttachments: boolean;
   excludedPaths: string[];
   category?: string;
   field?: string;
@@ -187,6 +191,8 @@ export type KnowledgeUpdateRequest = {
   expirationDate?: string;
   department?: string;
   crawlPageLimit?: number;
+  crawlAllPages?: boolean;
+  includeAttachments?: boolean;
   excludedPaths?: string[];
   isActive?: boolean;
 };
