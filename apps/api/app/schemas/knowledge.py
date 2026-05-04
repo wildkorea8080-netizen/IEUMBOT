@@ -15,6 +15,7 @@ class KnowledgeAttachmentItem(ApiSchema):
     mime_type: str | None = None
     text_length: int | None = None
     extracted: bool | None = None
+    extraction_method: str | None = None
     extraction_status: str | None = None
     error_message: str | None = None
 
@@ -56,6 +57,7 @@ class KnowledgeDetailResponse(KnowledgeItem):
     url: str | None = None
     source_path: str | None = None
     last_indexed_at: str | None = None
+    extraction_method: str | None = None
     crawl_page_limit: int | None = None
     excluded_paths: list[str] = Field(default_factory=list)
     crawled_urls: list[str] = Field(default_factory=list)
@@ -101,3 +103,17 @@ class KnowledgeWebsiteCreateRequest(ApiSchema):
     tags: list[str] = Field(default_factory=list)
     memo: str | None = None
     department: str | None = None
+
+
+class KnowledgeRuntimeDependencyItem(ApiSchema):
+    installed: bool
+    path: str | None = None
+    detail: str | None = None
+
+
+class KnowledgeRuntimeStatusResponse(ApiSchema):
+    ocr_ready: bool
+    scanned_pdf_ready: bool
+    python_packages: dict[str, KnowledgeRuntimeDependencyItem]
+    system_binaries: dict[str, KnowledgeRuntimeDependencyItem]
+    notes: list[str] = Field(default_factory=list)

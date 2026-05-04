@@ -1,4 +1,5 @@
 import re
+import shutil
 import ssl
 import uuid
 import zlib
@@ -29,6 +30,8 @@ from app.schemas.knowledge import (
     KnowledgeDetailResponse,
     KnowledgeItem,
     KnowledgeListResponse,
+    KnowledgeRuntimeDependencyItem,
+    KnowledgeRuntimeStatusResponse,
     KnowledgeTextCreateRequest,
     KnowledgeUpsertRequest,
     KnowledgeWebsiteCreateRequest,
@@ -50,6 +53,9 @@ DEFAULT_CRAWL_PAGE_LIMIT = 12
 MAX_CRAWL_PAGE_LIMIT = 100
 PDF_TEXT_SUFFICIENT_LENGTH = 48
 PDF_OCR_DPI = 220
+PDF_TEXT_MIN_LETTER_RATIO = 0.55
+PDF_TEXT_MIN_WORDS = 12
+PDF_TEXT_ALLOWED_CHAR_REGEX = re.compile(r"[0-9A-Za-z가-힣\s\.,:/()%\-·&]")
 SKIP_FILE_EXTENSIONS = {
     ".jpg",
     ".jpeg",
@@ -260,6 +266,7 @@ def _serialize_attachment_items(
                 "mime_type": str(item.get("mime_type")) if item.get("mime_type") is not None else None,
                 "text_length": int(item.get("text_length")) if item.get("text_length") is not None else None,
                 "extracted": bool(item.get("extracted")) if item.get("extracted") is not None else None,
+                "extraction_method": str(item.get("extraction_method")) if item.get("extraction_method") is not None else None,
                 "extraction_status": (
                     str(item.get("extraction_status")) if item.get("extraction_status") is not None else None
                 ),
@@ -302,7 +309,7 @@ def _ingest_document_version_content(
     version.status = "processing"
     db.flush()
 
-    extracted_text, detected_file_type = _extract_document_text(file_name, file_bytes, content_type)
+    extracted_text, detected_file_type, extraction_method = _extract_document_text(file_name, file_bytes, content_type)
     extracted_text = extracted_text.strip()
     if not extracted_text:
         version.status = "failed"
@@ -327,8 +334,9 @@ def _ingest_document_version_content(
             previous_version.is_active = False
     db.flush()
 
-    storage_path = _write_extracted_text_to_storage(file_name, extracted_text)
-    version.storage_key = str(storage_path)
+    extracted_text_storage_path = _write_extracted_text_to_storage(file_name, extracted_text)
+    if version.source_type != "file":
+        version.storage_key = str(extracted_text_storage_path)
     version.file_size_bytes = len(file_bytes)
     version.mime_type = content_type or ATTACHMENT_MIME_HINTS.get(detected_file_type, "application/octet-stream")
     if version.source_type == "text":
@@ -358,6 +366,8 @@ def _ingest_document_version_content(
         "summary": _truncate_preview(extracted_text, 220) or file_name,
         "content_preview": _truncate_preview(extracted_text, 220),
         "sensitive_detected": _detect_sensitive(extracted_text),
+        "extracted_text_storage_key": str(extracted_text_storage_path),
+        "extraction_method": extraction_method,
     }
     document.metadata_json = merged_metadata
     document.description = _truncate_preview(extracted_text, 220)
@@ -636,6 +646,24 @@ def _normalize_text_blocks(parts: list[str]) -> str:
     return "\n".join(normalized_parts).strip()
 
 
+def _pdf_text_quality_metrics(text: str) -> tuple[float, int]:
+    cleaned = _strip_binary_noise(text)
+    if not cleaned:
+        return 0.0, 0
+    allowed_count = len(PDF_TEXT_ALLOWED_CHAR_REGEX.findall(cleaned))
+    total_count = len(cleaned)
+    word_count = len([token for token in cleaned.split() if token])
+    return (allowed_count / max(total_count, 1)), word_count
+
+
+def _is_viable_pdf_text(text: str) -> bool:
+    cleaned = _strip_binary_noise(text)
+    if len(cleaned) < PDF_TEXT_SUFFICIENT_LENGTH:
+        return False
+    letter_ratio, word_count = _pdf_text_quality_metrics(cleaned)
+    return letter_ratio >= PDF_TEXT_MIN_LETTER_RATIO and word_count >= PDF_TEXT_MIN_WORDS
+
+
 def _extract_pdf_text_via_pypdf(file_bytes: bytes) -> str:
     parts: list[str] = []
     import pypdf  # type: ignore
@@ -713,24 +741,24 @@ def _extract_pdf_text_via_ocr(file_bytes: bytes) -> str:
     return _normalize_text_blocks(parts)
 
 
-def _extract_pdf_text_best_effort(file_bytes: bytes) -> str:
+def _extract_pdf_text_best_effort(file_bytes: bytes) -> tuple[str, str]:
     try:
         extracted = _extract_pdf_text_via_pypdf(file_bytes)
-        if len(extracted) >= PDF_TEXT_SUFFICIENT_LENGTH:
-            return extracted
+        if _is_viable_pdf_text(extracted):
+            return extracted, "text"
     except Exception:  # noqa: BLE001
         extracted = ""
 
     stream_text = _extract_pdf_text_via_streams(file_bytes)
     combined = _normalize_text_blocks([extracted, stream_text])
-    if len(combined) >= PDF_TEXT_SUFFICIENT_LENGTH:
-        return combined
+    if _is_viable_pdf_text(combined):
+        return combined, "text"
 
     ocr_text = _extract_pdf_text_via_ocr(file_bytes)
-    if ocr_text:
-        return _normalize_text_blocks([combined, ocr_text])
+    if _is_viable_pdf_text(ocr_text):
+        return _normalize_text_blocks([ocr_text]), "ocr"
 
-    return combined
+    return "", "failed"
 
 
 def _extract_hwp_text_best_effort(file_bytes: bytes) -> str:
@@ -750,32 +778,33 @@ def _extract_hwp_text_best_effort(file_bytes: bytes) -> str:
     return "\n".join(parts).strip()
 
 
-def _extract_attachment_text(file_url: str, file_bytes: bytes, content_type: str | None) -> tuple[str, str]:
+def _extract_attachment_text(file_url: str, file_bytes: bytes, content_type: str | None) -> tuple[str, str, str]:
     file_type = _guess_file_type_from_url(file_url)
     if file_type == ".pdf":
-        return _extract_pdf_text_best_effort(file_bytes), file_type
+        extracted_text, extraction_method = _extract_pdf_text_best_effort(file_bytes)
+        return extracted_text, file_type, extraction_method
     if file_type == ".docx":
-        return _extract_docx_text(file_bytes), file_type
+        return _extract_docx_text(file_bytes), file_type, "text"
     if file_type == ".xlsx":
-        return _extract_xlsx_text(file_bytes), file_type
+        return _extract_xlsx_text(file_bytes), file_type, "text"
     if file_type == ".pptx":
-        return _extract_pptx_text(file_bytes), file_type
+        return _extract_pptx_text(file_bytes), file_type, "text"
     if file_type == ".hwpx":
-        return _extract_hwpx_text(file_bytes), file_type
+        return _extract_hwpx_text(file_bytes), file_type, "text"
     if file_type == ".hwp":
-        return _extract_hwp_text_best_effort(file_bytes), file_type
+        return _extract_hwp_text_best_effort(file_bytes), file_type, "text"
     if content_type and content_type.startswith(TEXTISH_MIME_PREFIXES):
-        return _strip_binary_noise(file_bytes.decode("utf-8", errors="ignore")), file_type
-    return "", file_type
+        return _strip_binary_noise(file_bytes.decode("utf-8", errors="ignore")), file_type, "text"
+    return "", file_type, "failed"
 
 
-def _extract_document_text(file_name: str, file_bytes: bytes, content_type: str | None) -> tuple[str, str]:
+def _extract_document_text(file_name: str, file_bytes: bytes, content_type: str | None) -> tuple[str, str, str]:
     file_type = Path(file_name or "upload.bin").suffix.lower()
     normalized_content_type = content_type or ATTACHMENT_MIME_HINTS.get(file_type)
     if file_type in {".txt", ".md", ".csv", ".json", ".xml", ".html", ".htm"}:
-        return file_bytes.decode("utf-8", errors="ignore").strip(), file_type
+        return file_bytes.decode("utf-8", errors="ignore").strip(), file_type, "text"
     if normalized_content_type and normalized_content_type.startswith(TEXTISH_MIME_PREFIXES):
-        return file_bytes.decode("utf-8", errors="ignore").strip(), file_type
+        return file_bytes.decode("utf-8", errors="ignore").strip(), file_type, "text"
     synthetic_url = f"https://local-upload.invalid/{file_name}"
     return _extract_attachment_text(synthetic_url, file_bytes, normalized_content_type)
 
@@ -971,7 +1000,7 @@ def _collect_attachment_contents(
             payload, detected_content_type = _fetch_binary_resource(url)
             if detected_content_type:
                 mime_type = detected_content_type
-            extracted_text, detected_file_type = _extract_attachment_text(url, payload, mime_type)
+            extracted_text, detected_file_type, extraction_method = _extract_attachment_text(url, payload, mime_type)
             if detected_file_type:
                 file_type = detected_file_type
             extracted = bool(extracted_text.strip())
@@ -992,6 +1021,7 @@ def _collect_attachment_contents(
                     "mime_type": mime_type,
                     "text_length": len(extracted_text.strip()),
                     "extracted": extracted,
+                    "extraction_method": extraction_method,
                     "extraction_status": status,
                     "error_message": None,
                     "extracted_text": extracted_text.strip(),
@@ -1007,6 +1037,7 @@ def _collect_attachment_contents(
                     "mime_type": mime_type,
                     "text_length": 0,
                     "extracted": False,
+                    "extraction_method": "failed",
                     "extraction_status": "failed",
                     "error_message": f"HTTP_{exc.code}",
                     "extracted_text": "",
@@ -1022,6 +1053,7 @@ def _collect_attachment_contents(
                     "mime_type": mime_type,
                     "text_length": 0,
                     "extracted": False,
+                    "extraction_method": "failed",
                     "extraction_status": "failed",
                     "error_message": str(exc),
                     "extracted_text": "",
@@ -1333,6 +1365,7 @@ def _document_detail(doc: Document, version: DocumentVersion | None, job: Ingest
         file_name=(version.file_name if version else None),
         source_path=(version.storage_key if version else None),
         last_indexed_at=item.indexed_at,
+        extraction_method=(metadata.get("extraction_method") if isinstance(metadata.get("extraction_method"), str) else None),
         effective_date=_iso_date(version.effective_date if version else None) or metadata.get("effective_date"),
         expiration_date=_iso_date(version.expiration_date if version else None) or metadata.get("expiration_date"),
         department=(version.issuing_department if version else None) or metadata.get("department"),
@@ -1412,6 +1445,66 @@ def _matches_filter(item: KnowledgeItem, *, category: str | None, field: str | N
     if status_filter and item.status != status_filter:
         return False
     return True
+
+
+def _check_python_package(module_name: str) -> KnowledgeRuntimeDependencyItem:
+    try:
+        module = __import__(module_name)
+        module_path = getattr(module, "__file__", None)
+        return KnowledgeRuntimeDependencyItem(installed=True, path=str(module_path) if module_path else None)
+    except Exception as exc:  # noqa: BLE001
+        return KnowledgeRuntimeDependencyItem(installed=False, detail=f"{exc.__class__.__name__}: {exc}")
+
+
+def _check_system_binary(binary_name: str) -> KnowledgeRuntimeDependencyItem:
+    resolved_path = shutil.which(binary_name)
+    if resolved_path:
+        return KnowledgeRuntimeDependencyItem(installed=True, path=resolved_path)
+    return KnowledgeRuntimeDependencyItem(installed=False, detail="NOT_FOUND")
+
+
+def get_knowledge_runtime_status_service(*, principal: AdminPrincipal) -> KnowledgeRuntimeStatusResponse:
+    require_institution_organization_id(principal)
+
+    python_packages = {
+        "pypdf": _check_python_package("pypdf"),
+        "pdf2image": _check_python_package("pdf2image"),
+        "pytesseract": _check_python_package("pytesseract"),
+        "PIL": _check_python_package("PIL"),
+    }
+    system_binaries = {
+        "tesseract": _check_system_binary("tesseract"),
+        "pdftoppm": _check_system_binary("pdftoppm"),
+        "pdfinfo": _check_system_binary("pdfinfo"),
+    }
+
+    ocr_ready = (
+        python_packages["pdf2image"].installed
+        and python_packages["pytesseract"].installed
+        and python_packages["PIL"].installed
+        and system_binaries["tesseract"].installed
+        and system_binaries["pdftoppm"].installed
+        and system_binaries["pdfinfo"].installed
+    )
+    scanned_pdf_ready = python_packages["pypdf"].installed and ocr_ready
+
+    notes: list[str] = []
+    if not scanned_pdf_ready:
+        notes.append("이미지형 스캔 PDF는 Tesseract OCR과 Poppler(pdftoppm, pdfinfo)가 모두 있어야 정상 색인됩니다.")
+    if not python_packages["pypdf"].installed:
+        notes.append("텍스트형 PDF 추출용 pypdf Python 패키지가 필요합니다.")
+    if not system_binaries["tesseract"].installed:
+        notes.append("Tesseract 실행 파일이 없어 OCR을 실행할 수 없습니다.")
+    if not (system_binaries["pdftoppm"].installed and system_binaries["pdfinfo"].installed):
+        notes.append("Poppler 실행 파일(pdftoppm, pdfinfo)이 없어 PDF를 OCR용 이미지로 변환할 수 없습니다.")
+
+    return KnowledgeRuntimeStatusResponse(
+        ocr_ready=bool(ocr_ready),
+        scanned_pdf_ready=bool(scanned_pdf_ready),
+        python_packages=python_packages,
+        system_binaries=system_binaries,
+        notes=notes,
+    )
 
 
 def list_knowledge_service(
@@ -1583,7 +1676,11 @@ def reindex_knowledge_service(
         db.add(job)
         db.flush()
         if version is not None:
-            storage_path = Path(version.storage_key)
+            raw_storage_key = (
+                str((doc.metadata_json or {}).get("original_storage_key") or "").strip()
+                or version.storage_key
+            )
+            storage_path = Path(raw_storage_key)
             if storage_path.exists():
                 _ingest_document_version_content(
                     db,
@@ -1696,6 +1793,7 @@ async def create_file_knowledge_service(
             "effective_date": effective_date,
             "summary": file.filename,
             "sensitive_detected": False,
+            "original_storage_key": str(storage_path),
         },
     )
     db.add(doc)

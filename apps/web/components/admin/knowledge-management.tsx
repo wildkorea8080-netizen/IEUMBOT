@@ -9,10 +9,16 @@ import {
   deleteKnowledge,
   getKnowledgeDetail,
   getKnowledgeList,
+  getKnowledgeRuntimeStatus,
   patchKnowledge,
   reindexKnowledge,
 } from "../../lib/api/admin-operations";
-import type { KnowledgeDetail, KnowledgeItem, KnowledgeSourceGroup } from "../../lib/api/admin-operations-types";
+import type {
+  KnowledgeDetail,
+  KnowledgeItem,
+  KnowledgeRuntimeStatus,
+  KnowledgeSourceGroup,
+} from "../../lib/api/admin-operations-types";
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof ApiClientError) {
@@ -43,6 +49,13 @@ function sourceTypeLabel(sourceType: string): string {
   if (sourceType === "text") return "텍스트";
   if (sourceType === "website") return "웹사이트";
   return "파일";
+}
+
+function extractionMethodLabel(method?: string | null): string {
+  if (method === "text") return "text";
+  if (method === "ocr") return "ocr";
+  if (method === "failed") return "failed";
+  return "-";
 }
 
 function splitTags(value: string): string[] {
@@ -104,6 +117,7 @@ export function KnowledgeManagement() {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [runtimeStatus, setRuntimeStatus] = useState<KnowledgeRuntimeStatus | null>(null);
 
   const categories = useMemo(
     () => Array.from(new Set(items.map((item) => item.category).filter(Boolean))).sort(),
@@ -118,14 +132,18 @@ export function KnowledgeManagement() {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await getKnowledgeList({
-        sourceGroup,
-        q: query.trim() || undefined,
-        category: category || undefined,
-        field: field || undefined,
-        status: status || undefined,
-      });
+      const [response, runtime] = await Promise.all([
+        getKnowledgeList({
+          sourceGroup,
+          q: query.trim() || undefined,
+          category: category || undefined,
+          field: field || undefined,
+          status: status || undefined,
+        }),
+        getKnowledgeRuntimeStatus(),
+      ]);
       setItems(response.items);
+      setRuntimeStatus(runtime);
       setSelectedIds((current) => current.filter((id) => response.items.some((item) => item.id === id)));
     } catch (loadError) {
       setError(getErrorMessage(loadError));
@@ -624,6 +642,10 @@ export function KnowledgeManagement() {
                       className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                     />
                   </label>
+                  <div>
+                    <strong className="mr-2 text-slate-900">OCR 준비 상태</strong>
+                    {runtimeStatus ? (runtimeStatus.scannedPdfReady ? "스캔 PDF 처리 가능" : "스캔 PDF 처리 미완료") : "-"}
+                  </div>
                   {detail.sourceType === "website" ? (
                     <>
                       <label className="space-y-2">
@@ -682,6 +704,10 @@ export function KnowledgeManagement() {
                   <div>
                     <strong className="mr-2 text-slate-900">파일 또는 URL</strong>
                     {detail.fileName ?? detail.url ?? "-"}
+                  </div>
+                  <div>
+                    <strong className="mr-2 text-slate-900">PDF 추출 방식</strong>
+                    {extractionMethodLabel(detail.extractionMethod)}
                   </div>
                   <div>
                     <strong className="mr-2 text-slate-900">민감 정보</strong>

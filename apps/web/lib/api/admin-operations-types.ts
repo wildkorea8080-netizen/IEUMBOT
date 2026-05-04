@@ -74,6 +74,7 @@ export type KnowledgeDetail = KnowledgeItem & {
   url?: string | null;
   sourcePath?: string | null;
   lastIndexedAt?: string | null;
+  extractionMethod?: string | null;
   crawlPageLimit?: number | null;
   excludedPaths?: string[];
   crawledUrls?: string[];
@@ -85,6 +86,7 @@ export type KnowledgeDetail = KnowledgeItem & {
     mimeType?: string | null;
     textLength?: number | null;
     extracted?: boolean | null;
+    extractionMethod?: string | null;
     extractionStatus?: string | null;
     errorMessage?: string | null;
   }>;
@@ -93,6 +95,20 @@ export type KnowledgeDetail = KnowledgeItem & {
 
 export type KnowledgeListResponse = {
   items: KnowledgeItem[];
+};
+
+export type KnowledgeRuntimeDependencyItem = {
+  installed: boolean;
+  path?: string | null;
+  detail?: string | null;
+};
+
+export type KnowledgeRuntimeStatus = {
+  ocrReady: boolean;
+  scannedPdfReady: boolean;
+  pythonPackages: Record<string, KnowledgeRuntimeDependencyItem>;
+  systemBinaries: Record<string, KnowledgeRuntimeDependencyItem>;
+  notes: string[];
 };
 
 export type AdminChatbotItem = {

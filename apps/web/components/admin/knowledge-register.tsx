@@ -11,9 +11,14 @@ import {
   createKnowledgeText,
   createKnowledgeWebsite,
   getAdminChatbots,
+  getKnowledgeRuntimeStatus,
   uploadKnowledgeFile,
 } from "../../lib/api/admin-operations";
-import type { AdminChatbotItem, KnowledgeDetail } from "../../lib/api/admin-operations-types";
+import type {
+  AdminChatbotItem,
+  KnowledgeDetail,
+  KnowledgeRuntimeStatus,
+} from "../../lib/api/admin-operations-types";
 
 type CommonFormState = {
   chatbotId: string;
@@ -245,14 +250,17 @@ export function KnowledgeRegister() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<KnowledgeDetail | null>(null);
+  const [runtimeStatus, setRuntimeStatus] = useState<KnowledgeRuntimeStatus | null>(null);
 
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
         const response = await getAdminChatbots();
+        const runtime = await getKnowledgeRuntimeStatus();
         if (!mounted) return;
         setChatbots(response.items);
+        setRuntimeStatus(runtime);
         const defaultChatbotId = response.items[0]?.id ?? "";
         setFileForm(emptyCommonForm(defaultChatbotId));
         setTextForm({ ...emptyCommonForm(defaultChatbotId), content: "" });
@@ -365,6 +373,52 @@ export function KnowledgeRegister() {
         title="지식 등록"
         description="파일, 텍스트, 공식 웹사이트를 등록하고 바로 수집 상태를 추적합니다."
       >
+        {runtimeStatus ? (
+          <div
+            className={`mb-4 rounded-2xl border px-4 py-3 text-sm ${
+              runtimeStatus.scannedPdfReady
+                ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                : "border-amber-200 bg-amber-50 text-amber-800"
+            }`}
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <strong>PDF OCR 상태</strong>
+              <span
+                className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                  runtimeStatus.scannedPdfReady ? "bg-emerald-600 text-white" : "bg-amber-600 text-white"
+                }`}
+              >
+                {runtimeStatus.scannedPdfReady ? "스캔 PDF 처리 가능" : "스캔 PDF 처리 미완료"}
+              </span>
+            </div>
+            <div className="mt-2 grid gap-2 md:grid-cols-2">
+              <div>
+                <p className="font-medium">Python 패키지</p>
+                <p className="mt-1">
+                  pypdf {runtimeStatus.pythonPackages.pypdf?.installed ? "OK" : "MISSING"} / pdf2image{" "}
+                  {runtimeStatus.pythonPackages.pdf2image?.installed ? "OK" : "MISSING"} / pytesseract{" "}
+                  {runtimeStatus.pythonPackages.pytesseract?.installed ? "OK" : "MISSING"} / Pillow{" "}
+                  {runtimeStatus.pythonPackages.PIL?.installed ? "OK" : "MISSING"}
+                </p>
+              </div>
+              <div>
+                <p className="font-medium">시스템 도구</p>
+                <p className="mt-1">
+                  tesseract {runtimeStatus.systemBinaries.tesseract?.installed ? "OK" : "MISSING"} / pdftoppm{" "}
+                  {runtimeStatus.systemBinaries.pdftoppm?.installed ? "OK" : "MISSING"} / pdfinfo{" "}
+                  {runtimeStatus.systemBinaries.pdfinfo?.installed ? "OK" : "MISSING"}
+                </p>
+              </div>
+            </div>
+            {runtimeStatus.notes.length > 0 ? (
+              <ul className="mt-3 list-disc space-y-1 pl-5">
+                {runtimeStatus.notes.map((note) => (
+                  <li key={note}>{note}</li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
         <div className="grid gap-4 lg:grid-cols-3">
           <RegisterTypeButton
             title="파일 업로드"

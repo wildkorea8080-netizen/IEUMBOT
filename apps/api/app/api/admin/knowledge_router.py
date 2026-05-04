@@ -6,6 +6,7 @@ from app.db import get_db_session
 from app.schemas.knowledge import (
     KnowledgeDetailResponse,
     KnowledgeListResponse,
+    KnowledgeRuntimeStatusResponse,
     KnowledgeTextCreateRequest,
     KnowledgeUpsertRequest,
     KnowledgeWebsiteCreateRequest,
@@ -15,6 +16,7 @@ from app.services.admin.knowledge_service import (
     create_text_knowledge_service,
     create_website_knowledge_service,
     delete_knowledge_service,
+    get_knowledge_runtime_status_service,
     get_knowledge_service,
     list_knowledge_service,
     patch_knowledge_service,
@@ -43,6 +45,13 @@ def admin_list_knowledge(
         field=field,
         status_filter=status_filter,
     )
+
+
+@router.get("/knowledge/runtime-status", response_model=KnowledgeRuntimeStatusResponse)
+def admin_get_knowledge_runtime_status(
+    principal: AdminPrincipal = Depends(require_institution_admin_auth),
+) -> KnowledgeRuntimeStatusResponse:
+    return get_knowledge_runtime_status_service(principal=principal)
 
 
 @router.post("/knowledge/upload", response_model=KnowledgeDetailResponse)
