@@ -39,6 +39,7 @@ class WidgetPublicConfigResponse(ApiSchema):
     welcome_message: str
     privacy_notice: str | None = None
     citation_mode: str
+    citation_presentation: str | None = None
     theme: WidgetTheme
     banner: WidgetBanner
     starter_questions: list[str]

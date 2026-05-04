@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import type { FormEvent, KeyboardEvent } from "react";
 
 import { PagePanel } from "../../../components/ui/page-panel";
 import { ApiClientError } from "../../../lib/api";
@@ -137,6 +138,13 @@ export default function TestChatPage() {
     }
   }
 
+  function handleQuestionKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.nativeEvent.isComposing) return;
+    if (event.key !== "Enter" || event.shiftKey) return;
+    event.preventDefault();
+    event.currentTarget.form?.requestSubmit();
+  }
+
   return (
     <div className="space-y-4">
       <PagePanel
@@ -185,6 +193,7 @@ export default function TestChatPage() {
             <textarea
               value={question}
               onChange={(event) => setQuestion(event.target.value)}
+              onKeyDown={handleQuestionKeyDown}
               rows={3}
               placeholder="질문을 입력하고 전송하세요."
               className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"

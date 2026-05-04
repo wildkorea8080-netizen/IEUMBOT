@@ -17,6 +17,7 @@ export type WidgetPublicConfig = {
   welcomeMessage: string;
   privacyNotice?: string | null;
   citationMode: string;
+  citationPresentation?: string | null;
   theme: {
     primaryColor?: string | null;
     textColor?: string | null;

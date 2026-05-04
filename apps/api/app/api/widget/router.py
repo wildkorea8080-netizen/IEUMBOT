@@ -127,6 +127,7 @@ def get_widget_public_config(
     banner_title = theme.get("widgetBannerTitle") or theme.get("widget_banner_title")
     banner_description = theme.get("widgetBannerDescription") or theme.get("widget_banner_description")
     starter_questions = theme.get("widgetStarterQuestions") or theme.get("widget_starter_questions")
+    citation_presentation = theme.get("aiCitationPresentation") or theme.get("ai_citation_presentation")
 
     after_hours = _is_after_hours(chatbot.business_hours or {}, organization.timezone)
     operating_message = _build_after_hours_message(chatbot) if after_hours else None
@@ -149,6 +150,7 @@ def get_widget_public_config(
         welcome_message=resolved_welcome_message,
         privacy_notice=chatbot.privacy_notice,
         citation_mode=chatbot.citation_mode,
+        citation_presentation=citation_presentation if isinstance(citation_presentation, str) else None,
         theme=WidgetTheme(
             primary_color=primary_color if isinstance(primary_color, str) else None,
             text_color=text_color if isinstance(text_color, str) else None,

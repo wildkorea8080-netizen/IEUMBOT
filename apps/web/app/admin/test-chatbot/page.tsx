@@ -2,7 +2,7 @@
 
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import type { FormEvent } from "react";
+import type { FormEvent, KeyboardEvent } from "react";
 
 import { PagePanel } from "../../../components/ui/page-panel";
 import { ApiClientError } from "../../../lib/api";
@@ -108,6 +108,13 @@ export default function AdminTestChatbotPage() {
     }
   }
 
+  function handleQuestionKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.nativeEvent.isComposing) return;
+    if (event.key !== "Enter" || event.shiftKey) return;
+    event.preventDefault();
+    event.currentTarget.form?.requestSubmit();
+  }
+
   return (
     <div className="space-y-4">
       <PagePanel title="챗봇 테스트" description="위젯 없이 기관관리자 권한으로 챗봇 응답을 테스트합니다.">
@@ -178,6 +185,7 @@ export default function AdminTestChatbotPage() {
               <textarea
                 value={question}
                 onChange={(event) => setQuestion(event.target.value)}
+                onKeyDown={handleQuestionKeyDown}
                 placeholder="메시지를 입력하세요."
                 rows={3}
                 disabled={!selectedChatbotId || isSending}

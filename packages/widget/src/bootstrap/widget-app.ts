@@ -158,6 +158,10 @@ function toCitationText(citation: ChatCitation, institutionName?: string | null)
   return parts.join(" | ");
 }
 
+function shouldFoldCitations(config: WidgetPublicConfig | null): boolean {
+  return config?.citationPresentation === "folded" || config?.citationMode === "compact";
+}
+
 function getInstitutionLabel(config: WidgetPublicConfig | null, options: WidgetInitOptions): string {
   return options.title?.trim() || config?.institutionName?.trim() || config?.chatbotName?.trim() || "기관";
 }
@@ -405,6 +409,11 @@ function buildScopedStyles(primaryGradient: string): string {
 .ieum-outcome-note, .ieum-citations-title, .ieum-citation { font-size:11px; color:#475569; }
 .ieum-citations-title { margin-bottom:4px; font-weight:700; }
 .ieum-citation { line-height:1.45; margin-bottom:3px; }
+.ieum-citations-folded summary { cursor:pointer; font-size:11px; font-weight:700; color:#475569; list-style:none; }
+.ieum-citations-folded summary::-webkit-details-marker { display:none; }
+.ieum-citations-folded summary::after { content:" 펼치기"; font-weight:500; color:#64748b; }
+.ieum-citations-folded[open] summary { margin-bottom:4px; }
+.ieum-citations-folded[open] summary::after { content:" 접기"; }
 .ieum-loading {
   display:none; align-self:flex-start; max-width:75%; margin:0 16px 12px; border-radius:16px; padding:12px 14px;
   background:#fff; color:#64748b; box-shadow:0 2px 6px rgba(0,0,0,.05); font-size:18px; line-height:1;
@@ -829,9 +838,14 @@ export class IeumWidgetApp {
           bubble.appendChild(note);
         }
         if (message.citations && message.citations.length > 0) {
-          const citationWrap = createElement(document, "div", "ieum-citations");
-          const title = createElement(document, "div", "ieum-citations-title");
-          title.textContent = "출처";
+          const folded = shouldFoldCitations(this.config);
+          const citationWrap = createElement(
+            document,
+            folded ? "details" : "div",
+            folded ? "ieum-citations ieum-citations-folded" : "ieum-citations",
+          );
+          const title = createElement(document, folded ? "summary" : "div", "ieum-citations-title");
+          title.textContent = folded ? `출처 ${Math.min(message.citations.length, 5)}건` : "출처";
           citationWrap.appendChild(title);
           for (const citation of message.citations.slice(0, 5)) {
             const line = createElement(document, "div", "ieum-citation");
