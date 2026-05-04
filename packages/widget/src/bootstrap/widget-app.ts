@@ -132,6 +132,10 @@ function asCitationArray(value: unknown): ChatCitation[] {
   return Array.isArray(value) ? (value as ChatCitation[]) : [];
 }
 
+function isUrlLikeCitationPart(value: string): boolean {
+  return /^https?:\/\//i.test(value) || /^[\w.-]+\.[a-z]{2,}(?:\/|\?|$)/i.test(value);
+}
+
 function getFriendlyOutcomeLabel(outcome?: string): string | null {
   if (!outcome || outcome === "answered") return null;
   if (outcome === "insufficient_evidence") return "확인 가능한 참고 내용이 부족해 일반 안내로 전환했습니다.";
@@ -141,16 +145,15 @@ function getFriendlyOutcomeLabel(outcome?: string): string | null {
   return null;
 }
 
-function toCitationText(citation: ChatCitation): string {
+function toCitationText(citation: ChatCitation, institutionName?: string | null): string {
+  const institution = institutionName?.trim() || null;
   const name = citation.documentName?.trim() || "출처";
   const page = citation.pageNumber ? `p.${citation.pageNumber}` : null;
   const section = citation.sectionTitle?.trim() || null;
-  const url = citation.sourceUrl?.trim() || null;
-  const parts = [name];
+  const parts = institution && institution !== name ? [institution, name] : [name];
 
   if (page) parts.push(page);
-  if (section && section !== name && section !== url) parts.push(section);
-  if (url) parts.push(url);
+  if (section && section !== name && !isUrlLikeCitationPart(section)) parts.push(section);
 
   return parts.join(" | ");
 }
@@ -832,7 +835,7 @@ export class IeumWidgetApp {
           citationWrap.appendChild(title);
           for (const citation of message.citations.slice(0, 5)) {
             const line = createElement(document, "div", "ieum-citation");
-            line.textContent = toCitationText(citation);
+            line.textContent = toCitationText(citation, this.config?.institutionName);
             citationWrap.appendChild(line);
           }
           bubble.appendChild(citationWrap);

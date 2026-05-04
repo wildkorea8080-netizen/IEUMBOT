@@ -24,6 +24,20 @@ TOKEN_SPLIT_REGEX = re.compile(r"[^0-9A-Za-z가-힣]+")
 URL_MARKER_REGEX = re.compile(r"\[URL\]\s+(https?://\S+)", re.IGNORECASE)
 CONTACT_QUERY_TERMS = {"연락처", "전화", "전화번호", "문의처", "담당자", "담당부서"}
 CONTACT_EXPANSION_TERMS = ["연락처", "전화", "전화번호", "문의처", "담당자", "담당부서", "사업관리실"]
+QUALIFICATION_QUERY_TERMS = {"자격", "자격요건", "지원자격", "신청자격", "요건", "대상"}
+QUALIFICATION_EXPANSION_TERMS = [
+    "자격",
+    "자격요건",
+    "지원자격",
+    "신청자격",
+    "선발자격",
+    "지원대상",
+    "교육대상",
+    "응시연령",
+    "학력제한",
+]
+OVERSEAS_INTERN_QUERY_TERMS = {"해외인턴", "인턴"}
+OVERSEAS_INTERN_EXPANSION_TERMS = ["해외인턴", "해외 인턴", "인턴사원", "인턴신청기업", "인턴기업"]
 KOREAN_PARTICLE_SUFFIXES = [
     "으로",
     "에서",
@@ -89,6 +103,10 @@ def _expand_tokens(tokens: list[str], synonyms: list[SynonymDictionary]) -> list
                 expanded.add(canonical)
     if expanded.intersection(CONTACT_QUERY_TERMS):
         expanded.update(CONTACT_EXPANSION_TERMS)
+    if expanded.intersection(QUALIFICATION_QUERY_TERMS):
+        expanded.update(QUALIFICATION_EXPANSION_TERMS)
+    if expanded.intersection(OVERSEAS_INTERN_QUERY_TERMS):
+        expanded.update(OVERSEAS_INTERN_EXPANSION_TERMS)
     return sorted(expanded)
 
 

@@ -80,6 +80,17 @@ DISSATISFACTION_KEYWORDS = [
 CONTACT_QUESTION_KEYWORDS = ["연락처", "전화", "전화번호", "문의처", "담당자", "담당부서"]
 CONTACT_LINE_KEYWORDS = ["문의처", "연락처", "전화", "전화번호", "담당자", "담당부서", "담당"]
 PHONE_NUMBER_REGEX = re.compile(r"(?:\d{2,3}[-.)]\d{3,4}[-.)]\d{4}|\d{2,3}\.\d{3,4}\.\d{4})")
+OVERSEAS_INTERN_KEYWORDS = ["해외인턴", "해외 인턴", "인턴사원"]
+QUALIFICATION_QUESTION_KEYWORDS = [
+    "자격",
+    "자격요건",
+    "지원자격",
+    "신청자격",
+    "선발자격",
+    "요건",
+    "대상",
+]
+INTERN_QUALIFICATION_ANCHORS = ["인턴사원 선발자격 및 인원", "인턴사원", "선발자격"]
 
 
 def _normalize_text(value: str) -> str:
@@ -140,6 +151,13 @@ def _is_dissatisfied(question: str) -> bool:
 def _is_contact_question(question: str) -> bool:
     normalized = _normalize_text(question)
     return any(keyword in normalized for keyword in CONTACT_QUESTION_KEYWORDS)
+
+
+def _is_overseas_intern_qualification_question(question: str) -> bool:
+    normalized = _normalize_text(question)
+    return any(keyword in normalized for keyword in OVERSEAS_INTERN_KEYWORDS) and any(
+        keyword in normalized for keyword in QUALIFICATION_QUESTION_KEYWORDS
+    )
 
 
 def _compact_contact_line(line: str) -> str:
@@ -204,6 +222,62 @@ def _extract_contact_answer_from_candidates(
         lines.append(f"- {line}{citation}")
 
     return "민간환경조사 담당자 연락처는 다음 근거에서 확인됩니다.\n" + "\n".join(lines)
+
+
+def _clean_qualification_value(line: str) -> str:
+    return " ".join(line.replace("※", "").split()).strip(" :-")
+
+
+def _extract_overseas_intern_qualification_answer(
+    *,
+    question: str,
+    candidates: list[dict[str, Any]],
+    citation_display_mode: str,
+) -> str | None:
+    if not _is_overseas_intern_qualification_question(question):
+        return None
+
+    for source_index, item in enumerate(candidates[:8], start=1):
+        preview = str(item.get("contentSignals", {}).get("textPreview", "") or "")
+        if not any(anchor in preview for anchor in INTERN_QUALIFICATION_ANCHORS):
+            continue
+
+        lines = [_clean_qualification_value(line) for line in preview.splitlines()]
+        lines = [line for line in lines if line]
+        start_index = next(
+            (
+                index
+                for index, line in enumerate(lines)
+                if "인턴사원 선발자격" in line or line == "인턴사원"
+            ),
+            0,
+        )
+        window = lines[start_index : start_index + 14]
+
+        selected: list[str] = []
+        for line in window:
+            if any(
+                marker in line
+                for marker in [
+                    "선발인원",
+                    "취업 의지가 분명한 자",
+                    "응시연령",
+                    "학 력",
+                    "학력",
+                    "현지에서 근무 가능한 자",
+                    "기업 자체선발",
+                ]
+            ):
+                selected.append(line)
+
+        if not selected:
+            continue
+
+        citation = "" if citation_display_mode == "hidden" else f" [S{source_index}]"
+        bullets = "\n".join(f"- {line}" for line in selected[:6])
+        return f"해외인턴 인턴사원 선발자격은 다음과 같습니다.{citation}\n{bullets}"
+
+    return None
 
 
 def _conversation_tone_summary(
@@ -354,6 +428,11 @@ def run_final_chat_pipeline(
         candidates=retrieval_output["candidates"],
         citation_display_mode=answer_settings.answer_format.citation_display_mode,
     )
+    direct_intern_qualification_answer = _extract_overseas_intern_qualification_answer(
+        question=body.question,
+        candidates=retrieval_output["candidates"],
+        citation_display_mode=answer_settings.answer_format.citation_display_mode,
+    )
 
     answer_text = ""
     warnings: list[str] = []
@@ -375,7 +454,10 @@ def run_final_chat_pipeline(
         and decision not in {"restricted", "conflict"}
     )
 
-    if direct_contact_answer and not abusive_detected:
+    if direct_intern_qualification_answer and not abusive_detected:
+        outcome = "answered"
+        answer_text = direct_intern_qualification_answer
+    elif direct_contact_answer and not abusive_detected:
         outcome = "answered"
         answer_text = direct_contact_answer
     elif abusive_detected:
