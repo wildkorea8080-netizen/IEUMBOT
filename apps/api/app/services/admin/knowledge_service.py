@@ -42,12 +42,14 @@ from app.services.admin.scope_service import (
     ensure_web_source_in_scope,
     require_institution_organization_id,
 )
+from app.services.embedding_service import generate_embedding
 
 KNOWLEDGE_STORAGE_DIR = Path(__file__).resolve().parents[3] / "storage" / "knowledge"
 SENSITIVE_PATTERNS = [
     re.compile(r"\b\d{6}-\d{7}\b"),
     re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),
 ]
+SOURCE_URL_MARKER_REGEX = re.compile(r"\[URL\]\s+(https?://\S+)", re.IGNORECASE)
 USER_AGENT = "IEUMBOTCrawler/1.0 (+https://ieumbot.local)"
 DEFAULT_CRAWL_PAGE_LIMIT = 12
 MAX_CRAWL_PAGE_LIMIT = 100
@@ -215,6 +217,30 @@ def _split_text_chunks(text: str, *, chunk_size: int = 900, overlap: int = 120) 
     return chunks
 
 
+def _split_website_chunks(combined_text: str, *, default_title: str) -> list[dict[str, str | None]]:
+    items: list[dict[str, str | None]] = []
+    blocks = [block.strip() for block in re.split(r"\n{2,}", combined_text.strip()) if block.strip()]
+    for block in blocks:
+        marker = SOURCE_URL_MARKER_REGEX.search(block)
+        source_url = marker.group(1).strip() if marker else None
+        first_line = block.splitlines()[0].strip() if block.splitlines() else default_title
+        section_title = first_line if first_line.startswith("[ATTACHMENT]") else default_title
+        for chunk_text in _split_text_chunks(block):
+            items.append(
+                {
+                    "text": chunk_text,
+                    "url": source_url,
+                    "section_title": section_title,
+                }
+            )
+    if items:
+        return items
+    return [
+        {"text": chunk_text, "url": None, "section_title": default_title}
+        for chunk_text in _split_text_chunks(combined_text)
+    ]
+
+
 def _fetch_website_page(url: str) -> tuple[str, str, list[str]]:
     request = Request(
         url,
@@ -376,6 +402,7 @@ def _ingest_document_version_content(
     document.current_version_id = version.id
 
     for index, chunk_text in enumerate(chunks, start=1):
+        embedding = generate_embedding(db, f"{document.title}\n{chunk_text}")
         db.add(
             DocumentChunk(
                 organization_id=uuid.UUID(organization_id),
@@ -388,6 +415,7 @@ def _ingest_document_version_content(
                 corpus_domain=version.corpus_domain,
                 text_content=chunk_text,
                 metadata_json={**merged_metadata, "sourceType": merged_metadata.get("sourceType") or version.source_type},
+                embedding=embedding,
                 token_count=len(chunk_text.split()),
                 content_hash=sha256(chunk_text.encode("utf-8")).hexdigest(),
             )
@@ -946,6 +974,7 @@ def _find_web_source_document(
         Document.organization_id == uuid.UUID(organization_id),
         Document.chatbot_id == uuid.UUID(chatbot_id),
         Document.deleted_at.is_(None),
+        Document.metadata_json["sourceType"].astext == "website",
         Document.metadata_json["web_source_id"].astext == web_source_id,
     )
     return db.execute(stmt).scalar_one_or_none()
@@ -1234,7 +1263,7 @@ def _ingest_web_source_content(
     db.add(version)
     db.flush()
 
-    chunks = _split_text_chunks(combined_text)
+    chunks = _split_website_chunks(combined_text, default_title=web_source.name)
     if not chunks:
         _set_job_failed(
             web_source=web_source,
@@ -1247,7 +1276,11 @@ def _ingest_web_source_content(
         version.error_message = "색인 가능한 웹사이트 텍스트가 없습니다."
         return
 
-    for index, chunk_text in enumerate(chunks, start=1):
+    for index, chunk_item in enumerate(chunks, start=1):
+        chunk_text = str(chunk_item["text"] or "")
+        chunk_url = str(chunk_item["url"] or web_source.base_url)
+        section_title = str(chunk_item["section_title"] or web_source.name)
+        embedding = generate_embedding(db, f"{section_title}\n{chunk_text}")
         db.add(
             DocumentChunk(
                 organization_id=uuid.UUID(organization_id),
@@ -1256,14 +1289,15 @@ def _ingest_web_source_content(
                 document_version_id=version.id,
                 chunk_order=index,
                 page_number=None,
-                section_title=web_source.name,
+                section_title=section_title,
                 corpus_domain="official_website_indexed",
                 text_content=chunk_text,
                 metadata_json={
                     "sourceType": "website",
                     "web_source_id": str(web_source.id),
-                    "url": web_source.base_url,
+                    "url": chunk_url,
                 },
+                embedding=embedding,
                 token_count=len(chunk_text.split()),
                 content_hash=sha256(chunk_text.encode("utf-8")).hexdigest(),
             )

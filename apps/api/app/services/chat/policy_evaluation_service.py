@@ -165,18 +165,36 @@ def _is_overview_question(question: str) -> bool:
     return _contains_any(normalized, OVERVIEW_QUESTION_KEYWORDS)
 
 
+def _has_substantive_question_signal(question: str) -> bool:
+    normalized = _normalize_question(question)
+    if not normalized:
+        return False
+    return (
+        _contains_any(normalized, STRUCTURED_QUESTION_KEYWORDS)
+        or _contains_any(normalized, OVERVIEW_QUESTION_KEYWORDS)
+        or _contains_any(normalized, DOMAIN_KEYWORDS)
+        or "?" in normalized
+    )
+
+
 def _is_greeting(question: str) -> bool:
     normalized = _normalize_question(question)
     if not normalized:
         return False
     if normalized in {"hi", "hello", "hey", "안녕", "안녕하세요"}:
         return True
+    if _has_substantive_question_signal(normalized):
+        return False
+    if len(normalized) > 24:
+        return False
     return any(keyword in normalized for keyword in GREETING_KEYWORDS)
 
 
 def _is_gratitude(question: str) -> bool:
     normalized = _normalize_question(question)
     if not normalized:
+        return False
+    if _has_substantive_question_signal(normalized):
         return False
     return any(keyword in normalized for keyword in GRATITUDE_KEYWORDS)
 

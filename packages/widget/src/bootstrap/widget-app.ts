@@ -580,7 +580,9 @@ export class IeumWidgetApp {
     this.floatingButton.addEventListener("click", () => this.togglePanel());
     this.floatingButton.addEventListener("mouseenter", () => this.showLauncherTip());
     this.floatingButton.addEventListener("focus", () => this.showLauncherTip());
+    this.floatingButton.addEventListener("blur", () => this.hideLauncherTip());
     this.launcherTip.addEventListener("mouseenter", () => this.showLauncherTip());
+    this.launcherWrap.addEventListener("mouseleave", () => this.hideLauncherTip());
     this.launcherTipClose.addEventListener("click", (event) => {
       event.stopPropagation();
       this.dismissLauncherTip();
@@ -636,7 +638,7 @@ export class IeumWidgetApp {
 
   private dismissLauncherTip() {
     this.launcherTipDismissed = true;
-    this.hideLauncherTip(true);
+    this.hideLauncherTip();
     if (!this.launcherTipStorageKey) return;
     try {
       window.localStorage.setItem(this.launcherTipStorageKey, "1");
@@ -645,13 +647,13 @@ export class IeumWidgetApp {
     }
   }
 
-  private showLauncherTip() {
-    if (this.open || this.launcherTipDismissed || !this.launcherHoverMessage.trim()) return;
+  private showLauncherTip(options: { respectDismissed?: boolean } = {}) {
+    if (this.open || !this.launcherHoverMessage.trim()) return;
+    if (options.respectDismissed && this.launcherTipDismissed) return;
     this.launcherTip.classList.add("visible");
   }
 
-  private hideLauncherTip(force = false) {
-    if (!force) return;
+  private hideLauncherTip() {
     this.launcherTip.classList.remove("visible");
   }
 
@@ -678,7 +680,7 @@ export class IeumWidgetApp {
       this.launcherTipStorageKey = `ieumbot_launcher_tip_dismissed:${this.options.chatbotId}`;
       this.launcherTipDismissed = this.readLauncherTipDismissed();
       if (window.matchMedia("(max-width: 640px)").matches && !this.launcherTipDismissed) {
-        this.showLauncherTip();
+        this.showLauncherTip({ respectDismissed: true });
       }
       this.renderBanner();
       this.renderStarterQuestions();
@@ -773,7 +775,7 @@ export class IeumWidgetApp {
   private setOpen(value: boolean) {
     this.open = value;
     if (value) {
-      this.hideLauncherTip(true);
+      this.hideLauncherTip();
       this.ensureInitialMessage();
       this.panel.classList.add("open");
       this.launcherWrap.style.opacity = "0";

@@ -232,8 +232,9 @@ def fetch_retrieval_candidates(
     source_types: list[str] | None,
     include_inactive: bool,
     limit_count: int,
+    query_embedding: list[float] | None = None,
 ) -> list[tuple[DocumentChunk, Document, DocumentVersion]]:
-    stmt = (
+    base_stmt = (
         select(DocumentChunk, Document, DocumentVersion)
         .join(Document, DocumentChunk.document_id == Document.id)
         .join(DocumentVersion, DocumentChunk.document_version_id == DocumentVersion.id)
@@ -248,14 +249,15 @@ def fetch_retrieval_candidates(
     )
 
     if corpus_domains:
-        stmt = stmt.where(DocumentChunk.corpus_domain.in_(corpus_domains))
+        base_stmt = base_stmt.where(DocumentChunk.corpus_domain.in_(corpus_domains))
     if source_types:
-        stmt = stmt.where(DocumentVersion.source_type.in_(source_types))
+        base_stmt = base_stmt.where(DocumentVersion.source_type.in_(source_types))
 
     today = date.today()
     if not include_inactive:
-        stmt = stmt.where(
+        base_stmt = base_stmt.where(
             Document.status == "active",
+            DocumentVersion.status == "completed",
             DocumentVersion.is_active.is_(True),
             DocumentVersion.is_search_suppressed.is_(False),
             or_(DocumentVersion.effective_date.is_(None), DocumentVersion.effective_date <= today),
@@ -268,13 +270,44 @@ def fetch_retrieval_candidates(
         token_clauses.append(func.lower(DocumentChunk.text_content).like(pattern))
         token_clauses.append(func.lower(func.coalesce(DocumentChunk.section_title, "")).like(pattern))
         token_clauses.append(func.lower(Document.title).like(pattern))
+
+    rows: list[tuple[DocumentChunk, Document, DocumentVersion]] = []
+    seen_chunk_ids: set[str] = set()
+
     if token_clauses:
-        stmt = stmt.where(or_(*token_clauses))
+        lexical_stmt = base_stmt.where(or_(*token_clauses)).order_by(
+            DocumentVersion.document_priority.asc(),
+            DocumentVersion.version_number.desc(),
+            DocumentChunk.chunk_order.asc(),
+        ).limit(limit_count)
+        for row in db.execute(lexical_stmt).all():
+            chunk = row[0]
+            seen_chunk_ids.add(str(chunk.id))
+            rows.append(row)
 
-    stmt = stmt.order_by(
-        DocumentVersion.document_priority.asc(),
-        DocumentVersion.version_number.desc(),
-        DocumentChunk.chunk_order.asc(),
-    ).limit(limit_count)
+    if query_embedding:
+        vector_stmt = (
+            base_stmt.where(DocumentChunk.embedding.is_not(None))
+            .order_by(
+                DocumentChunk.embedding.cosine_distance(query_embedding),
+                DocumentVersion.document_priority.asc(),
+                DocumentVersion.version_number.desc(),
+            )
+            .limit(limit_count)
+        )
+        for row in db.execute(vector_stmt).all():
+            chunk = row[0]
+            if str(chunk.id) in seen_chunk_ids:
+                continue
+            seen_chunk_ids.add(str(chunk.id))
+            rows.append(row)
 
-    return list(db.execute(stmt).all())
+    if not rows:
+        fallback_stmt = base_stmt.order_by(
+            DocumentVersion.document_priority.asc(),
+            DocumentVersion.version_number.desc(),
+            DocumentChunk.chunk_order.asc(),
+        ).limit(limit_count)
+        rows = list(db.execute(fallback_stmt).all())
+
+    return rows[:limit_count]

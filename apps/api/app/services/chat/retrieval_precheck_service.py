@@ -1,3 +1,4 @@
+import math
 import re
 from datetime import date
 from typing import Any
@@ -17,6 +18,7 @@ from app.repositories.admin.search_control_repository import (
     list_active_rules,
     list_active_synonyms,
 )
+from app.services.embedding_service import generate_embedding
 
 TOKEN_SPLIT_REGEX = re.compile(r"[^0-9A-Za-z가-힣]+")
 URL_MARKER_REGEX = re.compile(r"\[URL\]\s+(https?://\S+)", re.IGNORECASE)
@@ -84,6 +86,21 @@ def _expand_tokens(tokens: list[str], synonyms: list[SynonymDictionary]) -> list
             if row.is_bidirectional and token == synonym:
                 expanded.add(canonical)
     return sorted(expanded)
+
+
+def _cosine_similarity(left: list[float] | None, right: list[float] | None) -> float:
+    if not left or not right or len(left) != len(right):
+        return 0.0
+    dot = 0.0
+    left_norm = 0.0
+    right_norm = 0.0
+    for left_value, right_value in zip(left, right, strict=False):
+        dot += float(left_value) * float(right_value)
+        left_norm += float(left_value) * float(left_value)
+        right_norm += float(right_value) * float(right_value)
+    if left_norm <= 0 or right_norm <= 0:
+        return 0.0
+    return max(0.0, min(1.0, dot / (math.sqrt(left_norm) * math.sqrt(right_norm))))
 
 
 def _corpus_weight(corpus_domain: str, policy: dict[str, Any]) -> float:
@@ -190,6 +207,7 @@ def retrieve_for_precheck(
 
     synonyms = list_active_synonyms(db, organization_id, chatbot_id)
     expanded_tokens = _normalize_token_variants(_expand_tokens(tokens, synonyms))
+    query_embedding = generate_embedding(db, question)
 
     rules = list_active_rules(db, organization_id, chatbot_id)
     exclude_rules = [rule for rule in rules if rule.rule_type == "exclude"]
@@ -205,6 +223,7 @@ def retrieve_for_precheck(
         source_types=None,
         include_inactive=False,
         limit_count=max(50, top_k * 8),
+        query_embedding=query_embedding,
     )
 
     today = date.today()
@@ -233,7 +252,7 @@ def retrieve_for_precheck(
             or token in (document.title or "").lower()
         ]
         keyword_score = round(len(matched_keywords) / max(len(expanded_tokens), 1), 4)
-        vector_score = 0.0  # placeholder for future embedding score
+        vector_score = round(_cosine_similarity(query_embedding, chunk.embedding), 4)
 
         version_signal = round(
             max(0.0, (200.0 - float(version.document_priority)) / 200.0)
@@ -280,8 +299,8 @@ def retrieve_for_precheck(
         is_pinned = bool(matched_pin_rules)
 
         combined_score = round(
-            (keyword_score * 0.6)
-            + (vector_score * 0.2)
+            (keyword_score * 0.45)
+            + (vector_score * 0.35)
             + (corpus_signal * 0.05)
             + (source_signal * 0.05)
             + (version_signal * 0.1)
