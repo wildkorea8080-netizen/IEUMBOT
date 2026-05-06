@@ -97,6 +97,44 @@ def _normalize_text(value: str) -> str:
     return " ".join(value.strip().lower().split())
 
 
+def _simple_natural_response(question: str, *, user_turn_count: int) -> tuple[str, str] | None:
+    normalized = _normalize_text(question)
+    if not normalized:
+        return None
+
+    has_business_signal = any(
+        keyword in normalized
+        for keyword in [
+            "사업",
+            "지원",
+            "교육",
+            "일정",
+            "자격",
+            "조건",
+            "신청",
+            "방법",
+            "서류",
+            "문의",
+            "연락",
+            "센터",
+            "기관",
+            "?",
+        ]
+    )
+    if has_business_signal:
+        return None
+
+    if normalized in {"안녕", "안녕하세요", "반갑습니다", "반가워", "hi", "hello", "hey"}:
+        return ("answered", GREETING_RESPONSE)
+    if any(keyword in normalized for keyword in ["고마워", "고맙습니다", "감사", "thank you", "thanks"]):
+        return ("answered", THANKS_RESPONSE)
+    if len(normalized) <= 30 and any(
+        keyword in normalized for keyword in ["뭐해", "잘 지내", "괜찮아", "심심", "농담", "how are you"]
+    ):
+        return ("answered", SMALL_TALK_FIRST_RESPONSE if user_turn_count <= 0 else SMALL_TALK_REDIRECT_RESPONSE)
+    return None
+
+
 def _build_public_runtime_trace(
     *,
     normalized_query: str,
@@ -346,6 +384,113 @@ def _run_grounded_generation(
     )
 
 
+def _persist_immediate_response(
+    db: Session,
+    *,
+    body: PreAnswerRequest,
+    chatbot: Any,
+    session: Any,
+    session_token: str,
+    normalized_query: str,
+    stream_mode: str,
+    tone_summary: dict[str, Any],
+    outcome: str,
+    answer_text: str,
+    reason: str,
+) -> ChatRuntimeResponse:
+    request_id = f"chat_run_{uuid.uuid4().hex[:16]}"
+    if session is None:
+        session = create_chat_session(
+            db,
+            organization_id=str(chatbot.organization_id),
+            chatbot_id=str(chatbot.id),
+            session_token=session_token,
+            source_url=body.source_url,
+        )
+    elif body.source_url and not session.source_url:
+        session.source_url = body.source_url
+
+    user_message = create_chat_message(
+        db,
+        organization_id=str(chatbot.organization_id),
+        chatbot_id=str(chatbot.id),
+        session_id=str(session.id),
+        request_id=request_id,
+        role="user",
+        content=body.question,
+        status="completed",
+        model_name=None,
+        result_type=None,
+        normalized_query=normalized_query,
+        retrieved_documents=[],
+        selected_sources=[],
+        final_decision={},
+        validation_signals={},
+        metadata_json={"conversationTone": tone_summary},
+    )
+    assistant_message = create_chat_message(
+        db,
+        organization_id=str(chatbot.organization_id),
+        chatbot_id=str(chatbot.id),
+        session_id=str(session.id),
+        request_id=request_id,
+        role="assistant",
+        content=answer_text,
+        status="completed",
+        model_name=None,
+        result_type=outcome,
+        normalized_query=normalized_query,
+        retrieved_documents=[],
+        selected_sources=[],
+        final_decision={"decision": "allow", "reason": reason, "flags": {"immediateResponse": True}},
+        validation_signals={"immediateResponse": True},
+        metadata_json={"conversationTone": tone_summary},
+    )
+
+    create_audit_log(
+        db,
+        organization_id=str(chatbot.organization_id),
+        admin_id=None,
+        action="chat.final_pipeline.executed",
+        target_type="chatbot",
+        target_id=str(chatbot.id),
+        result="success",
+        request_id=request_id,
+        metadata_json={
+            "outcome": outcome,
+            "streamMode": stream_mode,
+            "llmExecuted": False,
+            "llmErrorCode": None,
+            "policyDecision": "allow",
+            "reason": reason,
+            "retrievalSummary": [],
+            "citationSummary": [],
+        },
+    )
+
+    session.last_message_at = datetime.now(UTC)
+    db.commit()
+
+    return ChatRuntimeResponse(
+        request_id=request_id,
+        chatbot_id=str(chatbot.id),
+        outcome=outcome,
+        answer={"text": answer_text, "warnings": []},
+        citations=[],
+        policy_decision={},
+        trace=_build_public_runtime_trace(
+            normalized_query=normalized_query,
+            llm_executed=False,
+            llm_error_code=None,
+            stream_mode=stream_mode,
+            user_message_id=str(user_message.id),
+            assistant_message_id=str(assistant_message.id),
+            session_id=str(session.id),
+            session_token=session_token,
+        ),
+    )
+
+
 def run_final_chat_pipeline(
     db: Session,
     *,
@@ -360,6 +505,23 @@ def run_final_chat_pipeline(
 
     normalized_query = body.normalized_query or normalize_query(body.question)
     session_token = body.session_token or f"session_{uuid.uuid4().hex[:20]}"
+    immediate_response = _simple_natural_response(body.question, user_turn_count=0)
+    if immediate_response is not None:
+        outcome, answer_text = immediate_response
+        return _persist_immediate_response(
+            db,
+            body=body,
+            chatbot=chatbot,
+            session=None,
+            session_token=session_token,
+            normalized_query=normalized_query,
+            stream_mode=stream_mode,
+            tone_summary=_conversation_tone_summary(question=body.question, recent_messages=[]),
+            outcome=outcome,
+            answer_text=answer_text,
+            reason="simple_natural_conversation",
+        )
+
     session = get_chat_session_by_token(
         db,
         organization_id=str(chatbot.organization_id),
@@ -608,12 +770,13 @@ def run_final_chat_pipeline(
             else None
         ),
     )
-    create_citations(
-        db,
-        organization_id=str(chatbot.organization_id),
-        chat_message_id=str(assistant_message.id),
-        citations=citations,
-    )
+    if citations:
+        create_citations(
+            db,
+            organization_id=str(chatbot.organization_id),
+            chat_message_id=str(assistant_message.id),
+            citations=citations,
+        )
 
     create_audit_log(
         db,

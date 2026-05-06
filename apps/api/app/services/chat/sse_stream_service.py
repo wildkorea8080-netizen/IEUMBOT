@@ -10,6 +10,11 @@ from app.services.chat.final_chat_pipeline_service import run_final_chat_pipelin
 
 logger = logging.getLogger(__name__)
 
+SAFE_CHAT_ERROR_MESSAGE = (
+    "현재 자동 답변 처리에 일시적인 문제가 있습니다. 잠시 후 다시 시도해 주시거나, "
+    "질문을 조금 더 구체적으로 남겨주시면 확인 가능한 범위에서 다시 안내해 드릴게요."
+)
+
 
 def _to_sse_event(event: str, payload: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
@@ -50,14 +55,16 @@ def generate_chat_sse_stream(
         response = run_final_chat_pipeline(db, body=body, stream_mode="sse")
     except Exception:
         logger.exception("Chat SSE pipeline failed", extra={"chatbot_id": body.chatbot_id})
+        db.rollback()
         yield _to_sse_event(
-            "error",
+            "fallback",
             {
-                "code": "STREAM_PIPELINE_FAILED",
-                "message": "요청 처리 중 오류가 발생했습니다.",
+                "outcome": "insufficient_evidence",
+                "message": SAFE_CHAT_ERROR_MESSAGE,
+                "warnings": ["CHAT_PIPELINE_RECOVERED_FROM_ERROR"],
             },
         )
-        yield _to_sse_event("done", {"outcome": "error"})
+        yield _to_sse_event("done", {"outcome": "insufficient_evidence", "sessionToken": body.session_token})
         return
 
     if response.outcome == "answered":

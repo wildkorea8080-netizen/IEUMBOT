@@ -69,7 +69,6 @@ def create_chat_session(
     )
     db.add(row)
     db.flush()
-    db.refresh(row)
     return row
 
 
@@ -123,7 +122,6 @@ def create_chat_message(
     )
     db.add(row)
     db.flush()
-    db.refresh(row)
     return row
 
 

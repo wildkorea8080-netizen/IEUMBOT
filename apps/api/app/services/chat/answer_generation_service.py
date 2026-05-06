@@ -7,11 +7,11 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.schemas.answer_settings import AnswerSettings
-from app.services.llm_api_config_runtime_service import resolve_runtime_api_config
 from app.repositories.super_admin.api_configs_repository import create_llm_usage_log
-from app.services.notification_service import maybe_notify_api_error
+from app.schemas.answer_settings import AnswerSettings
 from app.services.enforcement_service import evaluate_api_error_spike_for_chatbot
+from app.services.llm_api_config_runtime_service import resolve_runtime_api_config
+from app.services.notification_service import maybe_notify_api_error
 
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
 ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages"
@@ -98,7 +98,7 @@ def _post_json(
         headers=headers,
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=25) as response:
+    with urllib.request.urlopen(req, timeout=18) as response:
         body = response.read().decode("utf-8")
     return json.loads(body)
 

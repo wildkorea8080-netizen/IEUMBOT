@@ -9,6 +9,7 @@ from app.repositories.super_admin.api_configs_repository import (
 )
 
 logger = logging.getLogger(__name__)
+_invalid_encrypted_config_ids: set[str] = set()
 
 
 @dataclass
@@ -25,20 +26,26 @@ class ResolvedLLMApiConfig:
 def resolve_runtime_api_config(db) -> ResolvedLLMApiConfig | None:
     config = get_default_active_api_config(db) or get_latest_active_api_config(db)
     if config is not None:
-        try:
-            api_key = decrypt_secret(config.api_key_encrypted)
-        except ValueError:
-            logger.exception("Failed to decrypt active LLM API config", extra={"api_config_id": str(config.id)})
+        config_id = str(config.id)
+        if config_id in _invalid_encrypted_config_ids:
+            config = None
         else:
-            return ResolvedLLMApiConfig(
-                source="system_api_config",
-                provider=config.provider,
-                api_key=api_key,
-                base_url=config.base_url,
-                default_model=config.default_model,
-                embedding_model=config.embedding_model,
-                api_config_id=str(config.id),
-            )
+            try:
+                api_key = decrypt_secret(config.api_key_encrypted)
+            except ValueError:
+                _invalid_encrypted_config_ids.add(config_id)
+                logger.warning("Failed to decrypt active LLM API config", extra={"api_config_id": config_id})
+                config = None
+            else:
+                return ResolvedLLMApiConfig(
+                    source="system_api_config",
+                    provider=config.provider,
+                    api_key=api_key,
+                    base_url=config.base_url,
+                    default_model=config.default_model,
+                    embedding_model=config.embedding_model,
+                    api_config_id=config_id,
+                )
 
     if settings.api_openai_api_key:
         return ResolvedLLMApiConfig(

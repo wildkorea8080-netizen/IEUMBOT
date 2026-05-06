@@ -20,6 +20,8 @@ type Message = {
 type LauncherIconName = "chat" | "heart" | "love-chat" | "custom" | "shield" | "leaf" | "spark";
 
 const LOVE_CHAT_ICON_SRC = "/widget-icons/love-chat-icons.png";
+const CHAT_RECOVERY_MESSAGE =
+  "현재 자동 답변 처리에 일시적인 문제가 있습니다. 잠시 후 다시 시도해 주시거나, 질문을 조금 더 구체적으로 남겨주시면 확인 가능한 범위에서 다시 안내해 드릴게요.";
 
 function escapeHtmlAttribute(value: string): string {
   return value
@@ -522,7 +524,6 @@ export class IeumWidgetApp {
     this.floatingButton.replaceChildren();
     this.floatingButton.innerHTML = createIconSvg("chat");
     this.floatingButton.classList.remove("ieum-floating-image");
-    this.floatingButton.classList.add("ieum-floating-loading");
 
     this.titleNode.textContent = headerDisplayName(null, options);
     this.loadingRow.innerHTML = `
@@ -609,7 +610,8 @@ export class IeumWidgetApp {
       }
     });
 
-    await this.loadConfig();
+    this.ensureInitialMessage();
+    void this.loadConfig();
     if (this.options.openOnLoad) this.setOpen(true);
   }
 
@@ -705,6 +707,9 @@ export class IeumWidgetApp {
       if (this.config.runtime?.chatStreamEndpoint) this.chatStreamEndpoint = this.config.runtime.chatStreamEndpoint;
       this.sseEnabled =
         asBoolean(this.config.runtime?.sseEnabled) === true || this.config.runtime?.streamingMode === "sse_preferred";
+      if (this.messages.length === 1 && this.messages[0]?.id.startsWith("assistant_welcome_")) {
+        this.messages = [];
+      }
       this.ensureInitialMessage();
     } catch {
       this.pushMessage({
@@ -932,7 +937,7 @@ export class IeumWidgetApp {
       this.pushMessage({
         id: `system_send_error_${Date.now()}`,
         role: "system",
-        text: "요청 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.",
+        text: CHAT_RECOVERY_MESSAGE,
         timestamp: Date.now(),
       });
     } finally {
@@ -1031,8 +1036,12 @@ export class IeumWidgetApp {
         this.lastFailedQuestion = question;
         return true;
       }
-      this.removeMessage(draftMessageId);
-      return false;
+      this.updateMessage(draftMessageId, {
+        text: CHAT_RECOVERY_MESSAGE,
+        outcome: "insufficient_evidence",
+      });
+      this.lastFailedQuestion = question;
+      return true;
     }
   }
 

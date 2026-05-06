@@ -67,7 +67,7 @@ def generate_embedding(db: Session, text: str) -> list[float] | None:
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=20) as response:
+        with urllib.request.urlopen(request, timeout=6) as response:
             body = response.read().decode("utf-8")
         response_json = json.loads(body)
     except (urllib.error.URLError, json.JSONDecodeError, TimeoutError):
