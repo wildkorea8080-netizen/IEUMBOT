@@ -9,7 +9,7 @@ from app.repositories.super_admin.api_configs_repository import (
 )
 
 logger = logging.getLogger(__name__)
-_invalid_encrypted_config_ids: set[str] = set()
+_invalid_encrypted_config_fingerprints: dict[str, str] = {}
 
 
 @dataclass
@@ -25,22 +25,23 @@ class ResolvedLLMApiConfig:
 
 def clear_runtime_api_config_cache(config_id: str | None = None) -> None:
     if config_id is None:
-        _invalid_encrypted_config_ids.clear()
+        _invalid_encrypted_config_fingerprints.clear()
         return
-    _invalid_encrypted_config_ids.discard(config_id)
+    _invalid_encrypted_config_fingerprints.pop(config_id, None)
 
 
 def resolve_runtime_api_config(db) -> ResolvedLLMApiConfig | None:
     config = get_default_active_api_config(db) or get_latest_active_api_config(db)
     if config is not None:
         config_id = str(config.id)
-        if config_id in _invalid_encrypted_config_ids:
+        encrypted_fingerprint = config.api_key_encrypted
+        if _invalid_encrypted_config_fingerprints.get(config_id) == encrypted_fingerprint:
             config = None
         else:
             try:
                 api_key = decrypt_secret(config.api_key_encrypted)
             except ValueError:
-                _invalid_encrypted_config_ids.add(config_id)
+                _invalid_encrypted_config_fingerprints[config_id] = encrypted_fingerprint
                 logger.warning("Failed to decrypt active LLM API config", extra={"api_config_id": config_id})
                 config = None
             else:
