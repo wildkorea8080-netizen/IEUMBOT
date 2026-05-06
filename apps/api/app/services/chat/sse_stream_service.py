@@ -1,4 +1,5 @@
 import json
+import logging
 from collections.abc import Generator
 
 from sqlalchemy.orm import Session
@@ -6,6 +7,8 @@ from sqlalchemy.orm import Session
 from app.schemas.chat_policy import PreAnswerRequest
 from app.schemas.chat_runtime import ChatRuntimeResponse
 from app.services.chat.final_chat_pipeline_service import run_final_chat_pipeline
+
+logger = logging.getLogger(__name__)
 
 
 def _to_sse_event(event: str, payload: dict) -> str:
@@ -46,6 +49,7 @@ def generate_chat_sse_stream(
     try:
         response = run_final_chat_pipeline(db, body=body, stream_mode="sse")
     except Exception:
+        logger.exception("Chat SSE pipeline failed", extra={"chatbot_id": body.chatbot_id})
         yield _to_sse_event(
             "error",
             {
