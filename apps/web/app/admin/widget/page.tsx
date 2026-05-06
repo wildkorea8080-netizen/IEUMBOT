@@ -152,6 +152,17 @@ function getErrorMessage(error: unknown): string {
   return "요청 처리 중 오류가 발생했습니다.";
 }
 
+function getRuntimeKeyStatusLabel(status?: string | null) {
+  if (status === "valid") return "복호화 가능";
+  if (status === "invalid_encryption") return "복호화 실패";
+  if (status === "missing") return "키 없음";
+  return "확인 필요";
+}
+
+function getSecretConfiguredLabel(configured?: boolean) {
+  return configured ? "설정됨" : "미설정";
+}
+
 function gradientClass(preset: string) {
   return COLOR_PRESETS.find((item) => item.value === preset)?.preview ?? "from-blue-600 to-green-500";
 }
@@ -607,6 +618,28 @@ export default function WidgetPage() {
                     <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700">
                       source: {data.runtimeSource ?? "-"}
                     </span>
+                    <span
+                      className={[
+                        "rounded-full border px-3 py-1 text-xs font-medium",
+                        data.runtimeKeyStatus === "valid"
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                          : data.runtimeKeyStatus === "invalid_encryption"
+                            ? "border-rose-200 bg-rose-50 text-rose-700"
+                            : "border-amber-200 bg-amber-50 text-amber-700",
+                      ].join(" ")}
+                    >
+                      key: {getRuntimeKeyStatusLabel(data.runtimeKeyStatus)}
+                    </span>
+                    <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700">
+                      secret: {getSecretConfiguredLabel(data.runtimeSecretConfigured)}
+                    </span>
+                  </div>
+                  {data.runtimeKeyDetail ? <p className="mt-2 text-xs text-slate-500">{data.runtimeKeyDetail}</p> : null}
+                  <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
+                    <p className="font-semibold text-slate-900">점검 체크리스트</p>
+                    <p className="mt-1">1. 관리 화면과 채팅 서버가 같은 DB를 보고 있는지 확인</p>
+                    <p className="mt-1">2. `API_API_CONFIG_ENCRYPTION_SECRET`이 채팅 서버와 관리 서버에서 같은지 확인</p>
+                    <p className="mt-1">3. 위 상태가 `복호화 가능`이어야 LLM 답변이 정상 생성됨</p>
                   </div>
                 </div>
                 {data.runtimeProvider === "openai" ? (

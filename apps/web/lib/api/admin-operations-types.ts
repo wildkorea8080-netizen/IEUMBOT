@@ -222,6 +222,9 @@ export type AdminWidgetResponse = {
   runtimeProvider?: string | null;
   runtimeModel?: string | null;
   runtimeSource?: string | null;
+  runtimeKeyStatus?: string | null;
+  runtimeKeyDetail?: string | null;
+  runtimeSecretConfigured?: boolean;
   runtimeModelRecommended: boolean;
   installScript?: string | null;
   createdAt: string;

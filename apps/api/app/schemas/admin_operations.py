@@ -138,6 +138,9 @@ class AdminWidgetResponse(ApiSchema):
     runtime_provider: str | None = None
     runtime_model: str | None = None
     runtime_source: str | None = None
+    runtime_key_status: str | None = None
+    runtime_key_detail: str | None = None
+    runtime_secret_configured: bool = False
     runtime_model_recommended: bool = False
     install_script: str | None = None
     created_at: str

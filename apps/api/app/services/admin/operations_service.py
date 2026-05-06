@@ -53,7 +53,10 @@ from app.services.admin.scope_service import (
     require_institution_organization_id,
 )
 from app.services.limits_service import check_chatbot_limit
-from app.services.llm_api_config_runtime_service import resolve_runtime_api_config
+from app.services.llm_api_config_runtime_service import (
+    inspect_runtime_api_config_status,
+    resolve_runtime_api_config,
+)
 from app.services.settings.answer_settings_service import get_effective_answer_settings_for_runtime
 from app.services.widget_install_script import build_widget_install_script
 
@@ -533,6 +536,7 @@ def get_widget_service(
         runtime_api.default_model if runtime_api is not None else None
     )
     runtime_source = runtime_api.source if runtime_api is not None else None
+    runtime_status = inspect_runtime_api_config_status(db)
     runtime_model_recommended = (
         runtime_provider == "openai" and str(runtime_model or "").strip() in RECOMMENDED_OPENAI_MODELS
     )
@@ -577,6 +581,9 @@ def get_widget_service(
         runtime_provider=runtime_provider,
         runtime_model=runtime_model,
         runtime_source=runtime_source,
+        runtime_key_status=runtime_status.status,
+        runtime_key_detail=runtime_status.detail,
+        runtime_secret_configured=runtime_status.secret_configured,
         runtime_model_recommended=runtime_model_recommended,
         install_script=install_script,
         created_at=widget.created_at.isoformat(),
@@ -648,6 +655,7 @@ def patch_widget_service(
         runtime_api.default_model if runtime_api is not None else None
     )
     runtime_source = runtime_api.source if runtime_api is not None else None
+    runtime_status = inspect_runtime_api_config_status(db)
     runtime_model_recommended = (
         runtime_provider == "openai" and str(runtime_model or "").strip() in RECOMMENDED_OPENAI_MODELS
     )
@@ -692,6 +700,9 @@ def patch_widget_service(
         runtime_provider=runtime_provider,
         runtime_model=runtime_model,
         runtime_source=runtime_source,
+        runtime_key_status=runtime_status.status,
+        runtime_key_detail=runtime_status.detail,
+        runtime_secret_configured=runtime_status.secret_configured,
         runtime_model_recommended=runtime_model_recommended,
         install_script=install_script,
         created_at=widget.created_at.isoformat(),
