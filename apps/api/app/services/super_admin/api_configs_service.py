@@ -34,6 +34,7 @@ from app.schemas.super_admin_api_configs import (
     SuperAdminApiUsageErrorsResponse,
     SuperAdminApiUsageSummaryResponse,
 )
+from app.services.llm_api_config_runtime_service import clear_runtime_api_config_cache
 
 ALLOWED_PROVIDERS = {"openai", "azure_openai", "anthropic", "custom"}
 
@@ -59,11 +60,15 @@ def _normalize_display_name(value: str) -> str:
     return normalized
 
 
-def _to_item(row: SystemApiConfig) -> SuperAdminApiConfigItem:
+def _masked_key_status(row: SystemApiConfig) -> tuple[str, str]:
     try:
-        masked_key = mask_secret(decrypt_secret(row.api_key_encrypted))
-    except Exception:
-        masked_key = "masked"
+        return mask_secret(decrypt_secret(row.api_key_encrypted)), "valid"
+    except ValueError:
+        return "복호화 실패 - API 키를 다시 저장해 주세요", "invalid_encryption"
+
+
+def _to_item(row: SystemApiConfig) -> SuperAdminApiConfigItem:
+    masked_key, key_status = _masked_key_status(row)
     return SuperAdminApiConfigItem(
         id=str(row.id),
         provider=row.provider,
@@ -74,6 +79,7 @@ def _to_item(row: SystemApiConfig) -> SuperAdminApiConfigItem:
         is_active=row.is_active,
         is_default=row.is_default,
         masked_key=masked_key,
+        key_status=key_status,
         monthly_budget_limit=row.monthly_budget_limit,
         memo=row.memo,
         created_at=row.created_at.isoformat(),
@@ -158,6 +164,7 @@ def create_api_config_service(
         metadata_json={"provider": row.provider, "displayName": row.display_name, "isDefault": row.is_default},
     )
     db.commit()
+    clear_runtime_api_config_cache(str(row.id))
     db.refresh(row)
     item = _to_item(row)
     item.masked_key = mask_secret(api_key)
@@ -176,6 +183,10 @@ def update_api_config_service(
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API_CONFIG_NOT_FOUND")
 
+    _, current_key_status = _masked_key_status(row)
+    if current_key_status == "invalid_encryption" and not (body.api_key and body.api_key.strip()):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="API_KEY_REENCRYPT_REQUIRED")
+
     if body.is_default:
         unset_default_api_configs(db, exclude_config_id=config_id)
 
@@ -185,6 +196,7 @@ def update_api_config_service(
         row.display_name = _normalize_display_name(body.display_name)
     if body.api_key is not None and body.api_key.strip():
         row.api_key_encrypted = encrypt_secret(body.api_key.strip())
+        clear_runtime_api_config_cache(config_id)
     if body.base_url is not None:
         row.base_url = body.base_url.strip() or None
     if body.default_model is not None:
@@ -208,6 +220,7 @@ def update_api_config_service(
         metadata_json={"provider": row.provider, "displayName": row.display_name},
     )
     db.commit()
+    clear_runtime_api_config_cache(config_id)
     db.refresh(row)
     item = _to_item(row)
     if body.api_key:
@@ -223,6 +236,7 @@ def activate_api_config_service(db: Session, *, principal: AdminPrincipal, confi
     row.is_active = True
     _audit(db, principal=principal, action="super_admin.api_config.activate", target_id=str(row.id), metadata_json={})
     db.commit()
+    clear_runtime_api_config_cache(config_id)
     db.refresh(row)
     return _to_item(row)
 
@@ -236,6 +250,7 @@ def deactivate_api_config_service(db: Session, *, principal: AdminPrincipal, con
     row.is_default = False
     _audit(db, principal=principal, action="super_admin.api_config.deactivate", target_id=str(row.id), metadata_json={})
     db.commit()
+    clear_runtime_api_config_cache(config_id)
     db.refresh(row)
     return _to_item(row)
 
@@ -250,6 +265,7 @@ def set_default_api_config_service(db: Session, *, principal: AdminPrincipal, co
     row.is_active = True
     _audit(db, principal=principal, action="super_admin.api_config.set_default", target_id=str(row.id), metadata_json={})
     db.commit()
+    clear_runtime_api_config_cache(config_id)
     db.refresh(row)
     return _to_item(row)
 
@@ -268,6 +284,7 @@ def delete_api_config_service(db: Session, *, principal: AdminPrincipal, config_
     )
     db.delete(row)
     db.commit()
+    clear_runtime_api_config_cache(config_id)
     return {"status": "deleted"}
 
 

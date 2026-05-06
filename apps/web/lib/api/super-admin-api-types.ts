@@ -8,6 +8,7 @@ export type SuperAdminApiConfigItem = {
   isActive: boolean;
   isDefault: boolean;
   maskedKey: string;
+  keyStatus?: "valid" | "invalid_encryption" | string;
   monthlyBudgetLimit?: string | number | null;
   memo?: string | null;
   createdAt: string;
@@ -85,4 +86,3 @@ export type SuperAdminApiUsageErrorItem = {
 export type SuperAdminApiUsageErrorsResponse = {
   items: SuperAdminApiUsageErrorItem[];
 };
-

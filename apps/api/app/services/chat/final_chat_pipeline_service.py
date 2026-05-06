@@ -357,6 +357,147 @@ def _conversation_tone_summary(
     }
 
 
+def _split_candidate_preview(preview: str) -> list[str]:
+    normalized = re.sub(r"\[URL\]\s+https?://\S+", "", preview or "", flags=re.IGNORECASE)
+    parts = re.split(r"\n+|\s+/\s+|(?<=[.!?。])\s+", normalized)
+    cleaned: list[str] = []
+    for part in parts:
+        line = " ".join(part.split()).strip(" -·")
+        if not line or len(line) < 2:
+            continue
+        cleaned.append(line)
+    return cleaned
+
+
+def _is_overview_business_question(question: str) -> bool:
+    normalized = _normalize_text(question)
+    return any(keyword in normalized for keyword in ["주요 사업", "주요사업", "사업", "소개", "어떤 일", "무슨 일"])
+
+
+def _extract_business_items(lines: list[str]) -> list[str]:
+    stop_keywords = ["관련법령", "해외시장정보", "해외농업투자정보", "자원개발신고", "소통알림", "협회소개"]
+    skip_terms = {
+        "주요사업",
+        "KOREA OADS",
+        "세계 속의 우리농업!",
+        "해외농업자원개발협회가 함꼐 합니다.",
+        "바로가기 메뉴",
+        "본문 바로가기",
+        "주메뉴 바로가기",
+        "검색",
+        "KOR",
+        "ENG",
+        "메뉴",
+        "닫기",
+    }
+    seen: set[str] = set()
+    items: list[str] = []
+    inside_business_section = False
+    for line in lines:
+        if "주요사업" in line:
+            inside_business_section = True
+            continue
+        if inside_business_section and any(keyword in line for keyword in stop_keywords):
+            break
+        if not inside_business_section:
+            continue
+        if line in skip_terms or len(line) > 60:
+            continue
+        key = line.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        items.append(line)
+        if len(items) >= 30:
+            break
+    return items
+
+
+def _build_business_overview_from_lines(lines: list[str]) -> list[str]:
+    available = set(lines)
+    grouped_items = [
+        ("인력양성", ["지역분야별 특화교육", "국제곡물 전문가 교육", "진출기업 보수교육", "해외인턴"]),
+        ("조사지원", ["민간환경조사"]),
+        ("컨설팅", ["상시 컨설팅"]),
+        ("해외농업연계 국제개발협력 지원사업", []),
+        ("해외농업개척조사", []),
+        ("포럼/워크숍", ["비즈니스 다이얼로그", "행사소개", "행사소식"]),
+        ("해외농업 전문관", []),
+        ("융자지원", []),
+        ("국내반입 및 투자촉진 지원", []),
+        ("할당관세/수입권공매", []),
+        ("안전성 검사", []),
+        ("개발도상국 투자보증보험 지원", []),
+    ]
+
+    bullets: list[str] = []
+    for title, children in grouped_items:
+        if title not in available and not any(child in available for child in children):
+            continue
+        matched_children = [child for child in children if child in available]
+        if matched_children:
+            bullets.append(f"{title}: {', '.join(matched_children)}")
+        else:
+            bullets.append(title)
+    return bullets
+
+
+def _build_extractive_answer_from_candidates(
+    *,
+    question: str,
+    candidates: list[dict[str, Any]],
+    citation_display_mode: str,
+) -> str | None:
+    if not candidates:
+        return None
+
+    if _is_overview_business_question(question):
+        best_source_index = 1
+        best_business_items: list[str] = []
+        for source_index, item in enumerate(candidates[:8], start=1):
+            preview = str(item.get("contentSignals", {}).get("textPreview", "") or "")
+            lines = _split_candidate_preview(preview)
+            business_items = _extract_business_items(lines)
+            grouped_items = _build_business_overview_from_lines(business_items)
+            selected_items = grouped_items or business_items
+            if len(selected_items) > len(best_business_items):
+                best_source_index = source_index
+                best_business_items = selected_items
+
+        if best_business_items:
+            citation = "" if citation_display_mode == "hidden" else f" [S{best_source_index}]"
+            bullets = "\n".join(f"- {item}" for item in best_business_items[:12])
+            return (
+                f"확인된 자료 기준으로 주요 사업은 다음과 같습니다.{citation}\n\n"
+                f"{bullets}\n\n"
+                "사업별 세부 대상, 신청 방법, 일정은 공고와 운영 시기에 따라 달라질 수 있어 "
+                "해당 사업 공고를 함께 확인하는 것이 좋습니다."
+            )
+
+    selected: list[tuple[int, str]] = []
+    seen_lines: set[str] = set()
+    for source_index, item in enumerate(candidates[:3], start=1):
+        preview = str(item.get("contentSignals", {}).get("textPreview", "") or "")
+        for line in _split_candidate_preview(preview):
+            if line in seen_lines or len(line) < 12 or len(line) > 220:
+                continue
+            seen_lines.add(line)
+            selected.append((source_index, line))
+            if len(selected) >= 4:
+                break
+        if len(selected) >= 4:
+            break
+
+    if not selected:
+        return None
+
+    bullets = []
+    for source_index, line in selected:
+        source_marker = "" if citation_display_mode == "hidden" else f" [S{source_index}]"
+        bullets.append(f"- {line}{source_marker}")
+    return "확인된 자료에서 다음 내용을 찾았습니다.\n\n" + "\n".join(bullets)
+
+
 def _run_grounded_generation(
     db: Session,
     *,
@@ -655,6 +796,22 @@ def run_final_chat_pipeline(
             if guardrail_eval.get("requiresWarningNotice"):
                 warnings.append("최신 기준이나 공고 조건에 따라 결과가 달라질 수 있으므로 담당 부서 확인이 필요합니다.")
             outcome = "answered"
+        elif llm_error_code and has_referenceable_candidates:
+            extractive_answer = _build_extractive_answer_from_candidates(
+                question=body.question,
+                candidates=retrieval_output["candidates"],
+                citation_display_mode=answer_settings.answer_format.citation_display_mode,
+            )
+            if extractive_answer:
+                outcome = "answered"
+                answer_text = extractive_answer
+                warnings.append("자동 생성 답변을 만들 수 없어 색인된 근거에서 확인되는 내용으로 안내했습니다.")
+            else:
+                fallback = build_fallback_response(policy_decision=policy_decision, answer_settings=answer_settings)
+                outcome = fallback["outcome"] if fallback["outcome"] != "answered" else "escalate"
+                answer_text = fallback["text"]
+                warnings = fallback.get("warnings", [])
+                warnings.append("자동 응답 처리 중 오류가 있어 안전 안내 문구로 전환했습니다.")
         elif (
             decision in {"insufficient_evidence", "conflict", "escalate"}
             and not policy_flags.get("unrelatedQuestion")

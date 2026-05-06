@@ -13,6 +13,7 @@ class SuperAdminApiConfigItem(ApiSchema):
     is_active: bool
     is_default: bool
     masked_key: str
+    key_status: str = "valid"
     monthly_budget_limit: Decimal | None = None
     memo: str | None = None
     created_at: str

@@ -23,6 +23,13 @@ class ResolvedLLMApiConfig:
     api_config_id: str | None
 
 
+def clear_runtime_api_config_cache(config_id: str | None = None) -> None:
+    if config_id is None:
+        _invalid_encrypted_config_ids.clear()
+        return
+    _invalid_encrypted_config_ids.discard(config_id)
+
+
 def resolve_runtime_api_config(db) -> ResolvedLLMApiConfig | None:
     config = get_default_active_api_config(db) or get_latest_active_api_config(db)
     if config is not None:

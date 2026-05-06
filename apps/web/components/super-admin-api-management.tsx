@@ -82,6 +82,10 @@ function toRequest(form: FormState): SuperAdminApiConfigUpsertRequest {
   };
 }
 
+function isInvalidEncryption(item: SuperAdminApiConfigItem | null): boolean {
+  return item?.keyStatus === "invalid_encryption";
+}
+
 export function SuperAdminApiManagement() {
   const [items, setItems] = useState<SuperAdminApiConfigItem[]>([]);
   const [selectedId, setSelectedId] = useState<string>("new");
@@ -135,6 +139,11 @@ export function SuperAdminApiManagement() {
         await createSuperAdminApiConfig(toRequest(form));
         setMessage("API 설정을 생성했습니다.");
       } else {
+        if (isInvalidEncryption(selectedItem) && !form.apiKey.trim()) {
+          setError("현재 API 키를 복호화할 수 없습니다. 실제 API 키를 다시 입력한 뒤 저장해 주세요.");
+          setIsSaving(false);
+          return;
+        }
         await patchSuperAdminApiConfig(selectedId, toRequest(form));
         setMessage("API 설정을 수정했습니다.");
       }
@@ -212,6 +221,11 @@ export function SuperAdminApiManagement() {
                   {item.provider} / {item.defaultModel ?? "-"}
                 </p>
                 <p className="mt-1 text-xs text-slate-500">마스킹 키: {item.maskedKey}</p>
+                {isInvalidEncryption(item) ? (
+                  <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700">
+                    저장된 키를 현재 암호화 설정으로 읽을 수 없습니다. 이 항목을 선택한 뒤 API 키를 다시 입력하고 저장하세요.
+                  </p>
+                ) : null}
               </button>
             ))}
           </div>
@@ -252,6 +266,11 @@ export function SuperAdminApiManagement() {
                 {selectedItem ? (
                   <span className="mt-1 block text-xs text-slate-500">
                     현재 원본 키는 표시되지 않습니다. 마스킹 키: {selectedItem.maskedKey}
+                  </span>
+                ) : null}
+                {isInvalidEncryption(selectedItem) ? (
+                  <span className="mt-2 block rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                    현재 저장된 API 키는 복호화할 수 없어 챗봇 답변 생성에 사용할 수 없습니다. 새 API 키를 입력하고 저장하면 현재 암호화 secret으로 다시 저장되며 즉시 런타임에 반영됩니다.
                   </span>
                 ) : null}
               </label>
