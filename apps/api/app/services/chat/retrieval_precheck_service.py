@@ -37,6 +37,9 @@ MAX_PROMPT_CHUNKS = 5
 MAX_CHUNKS_PER_KNOWLEDGE_ITEM = 2
 MAX_CHUNKS_PER_SOURCE_URL = 2
 POLICY_KEYWORD_BOOST = 0.12
+SEMANTIC_RESCUE_VECTOR_SCORE = 0.32
+SEMANTIC_STRONG_VECTOR_SCORE = 0.38
+SEMANTIC_SCORE_FLOOR = 0.30
 POLICY_KEYWORD_BOOST_TERMS = ("융자", "지원", "조건", "신청", "대상", "자부담", "금리", "사업비")
 NOISE_SECTION_PENALTY = 0.20
 NOISE_SECTION_TERMS = (
@@ -95,6 +98,37 @@ EDUCATION_CHUNK_TERMS = (
 )
 CONTACT_QUERY_TERMS_FOR_TOPIC = ("연락처", "전화", "전화번호", "문의처", "담당자", "담당부서")
 CONTACT_CHUNK_TERMS_FOR_TOPIC = ("문의처", "연락처", "전화", "전화번호", "담당자", "담당부서", "담당")
+ENVIRONMENT_SURVEY_QUERY_TERMS = ("민간환경조사", "민간 환경조사", "환경조사")
+QUALIFICATION_TOPIC_QUERY_TERMS = ("지원자격", "신청자격", "자격", "자격요건", "지원대상", "대상", "조건", "요건")
+ENVIRONMENT_SURVEY_CHUNK_TERMS = (
+    "민간환경조사",
+    "민간 환경조사",
+    "조사지원",
+    "민간 중심 사업계획 공모",
+    "사업계획 공모",
+    "우수사업모델",
+    "타당성 조사비",
+    "조사비용",
+    "항공료",
+    "전문가 인건비",
+    "민관협력",
+    "PPP",
+)
+QUALIFICATION_CHUNK_TERMS = (
+    "지원자격",
+    "신청자격",
+    "자격요건",
+    "지원대상",
+    "사업대상",
+    "지원 대상",
+    "대상",
+    "공모",
+    "선정",
+    "선정 및",
+    "총 2개 사업",
+    "50%",
+    "자부담",
+)
 OVERVIEW_QUERY_TERMS = (
     "소개",
     "주요 사업",
@@ -414,6 +448,24 @@ def _official_policy_boost(question_text: str, chunk_text: str) -> tuple[float, 
     return OFFICIAL_POLICY_BOOST, matched
 
 
+def _semantic_evidence_adjustment(
+    *,
+    vector_score: float | None,
+    keyword_score: float,
+    combined_score: float,
+    source_type: str,
+) -> tuple[float, bool, str | None]:
+    if vector_score is None:
+        return combined_score, False, None
+    if source_type not in {"website", "document", "file", "text"}:
+        return combined_score, False, None
+    if vector_score >= SEMANTIC_STRONG_VECTOR_SCORE:
+        return max(combined_score, SEMANTIC_SCORE_FLOOR), True, "strong_vector"
+    if vector_score >= SEMANTIC_RESCUE_VECTOR_SCORE and keyword_score > 0:
+        return max(combined_score, SEMANTIC_SCORE_FLOOR), True, "vector_with_lexical_overlap"
+    return combined_score, False, None
+
+
 def _overview_boost(question_text: str, chunk_text: str, location_text: str) -> tuple[float, list[str], float, list[str]]:
     overview_query, _ = _is_overview_query(question_text)
     if not overview_query:
@@ -439,6 +491,24 @@ def _topic_quality_adjustment(question_text: str, chunk_text: str) -> tuple[floa
 
     is_business_report_query = any(term in question_text for term in BUSINESS_REPORT_QUERY_TERMS)
     is_contact_query = any(term in question_text for term in CONTACT_QUERY_TERMS_FOR_TOPIC)
+    is_environment_survey_query = any(term in question_text for term in ENVIRONMENT_SURVEY_QUERY_TERMS)
+    is_qualification_query = any(term in question_text for term in QUALIFICATION_TOPIC_QUERY_TERMS)
+    if is_environment_survey_query:
+        survey_matches = [term for term in ENVIRONMENT_SURVEY_CHUNK_TERMS if term.lower() in chunk_text]
+        qualification_matches = [term for term in QUALIFICATION_CHUNK_TERMS if term.lower() in chunk_text]
+        education_matches = [term for term in EDUCATION_CHUNK_TERMS if term in chunk_text]
+        if survey_matches and (not is_qualification_query or qualification_matches):
+            boost = max(boost, TOPIC_ALIGNMENT_BOOST)
+            boost_terms.extend(survey_matches[:4])
+            if is_qualification_query:
+                boost_terms.extend(qualification_matches[:4])
+        elif survey_matches:
+            boost = max(boost, TOPIC_ALIGNMENT_BOOST * 0.5)
+            boost_terms.extend(survey_matches[:4])
+        if education_matches and not survey_matches:
+            penalty = max(penalty, TOPIC_MISMATCH_PENALTY)
+            penalty_terms.extend(education_matches[:4])
+
     if is_business_report_query:
         business_matches = [term for term in BUSINESS_REPORT_CHUNK_TERMS if term in chunk_text]
         education_matches = [term for term in EDUCATION_CHUNK_TERMS if term in chunk_text]
@@ -500,6 +570,8 @@ def _empty_retrieval_output(
         "keywordBoostApplied": False,
         "noisePenaltyApplied": False,
         "policyBoostApplied": False,
+        "semanticEvidenceApplied": False,
+        "semanticRescued": False,
         "overviewBoostApplied": False,
         "overviewTerms": [],
         "overviewThreshold": None,
@@ -555,6 +627,7 @@ def _apply_prompt_selection(
     section_diversity_applied = False
     rescued_by_top1_rule = False
     overview_rescued = False
+    semantic_rescued = False
     rescue_score = OVERVIEW_TOP1_RESCUE_SCORE if overview_query else TOP1_RESCUE_SCORE
 
     for index, item in enumerate(candidates):
@@ -562,15 +635,26 @@ def _apply_prompt_selection(
         score = float(item.get("combinedScore") or 0.0)
         dynamic_threshold = float(item.get("dynamicThreshold") or threshold)
         threshold_passed = score >= dynamic_threshold
-        rescued = index == 0 and score >= rescue_score and not threshold_passed
+        semantic_rescue_candidate = bool(item.get("semanticEvidenceApplied")) and score >= max(
+            SEMANTIC_SCORE_FLOOR,
+            dynamic_threshold - 0.08,
+        )
+        rescued = (
+            index == 0
+            and (score >= rescue_score or semantic_rescue_candidate)
+            and not threshold_passed
+        )
         if rescued:
             rescued_by_top1_rule = True
             if overview_query:
                 overview_rescued = True
+            if semantic_rescue_candidate:
+                semantic_rescued = True
         item["thresholdPassed"] = threshold_passed
         item["dynamicThreshold"] = dynamic_threshold
         item["rescuedByTop1Rule"] = rescued
         item["overviewRescued"] = bool(overview_query and rescued)
+        item["semanticRescued"] = bool(semantic_rescue_candidate and rescued)
         item["usedInPrompt"] = False
         if not threshold_passed and not rescued:
             continue
@@ -602,7 +686,14 @@ def _apply_prompt_selection(
         item["usedInPrompt"] = True
         prompt_candidates.append(item)
 
-    return prompt_candidates, source_diversity_applied, rescued_by_top1_rule, section_diversity_applied, overview_rescued
+    return (
+        prompt_candidates,
+        source_diversity_applied,
+        rescued_by_top1_rule,
+        section_diversity_applied,
+        overview_rescued,
+        semantic_rescued,
+    )
 
 
 def search_relevant_chunks(
@@ -777,8 +868,8 @@ def search_relevant_chunks(
         is_pinned = bool(matched_pin_rules)
 
         combined_score = round(
-            (keyword_score * 0.45)
-            + ((vector_score or 0.0) * 0.35)
+            (keyword_score * 0.30)
+            + ((vector_score or 0.0) * 0.50)
             + (corpus_signal * 0.05)
             + (source_signal * 0.05)
             + (version_signal * 0.1)
@@ -828,6 +919,13 @@ def search_relevant_chunks(
             combined_score = round(max(combined_score - noise_penalty, 0.0), 4)
         if topic_penalty:
             combined_score = round(max(combined_score - topic_penalty, 0.0), 4)
+        combined_score, semantic_evidence_applied, semantic_evidence_reason = _semantic_evidence_adjustment(
+            vector_score=vector_score,
+            keyword_score=keyword_score,
+            combined_score=combined_score,
+            source_type=version.source_type,
+        )
+        combined_score = round(combined_score, 4)
         citation_eligible = not (bool(noise_penalty) and combined_score < 0.50)
 
         collected.append(
@@ -870,6 +968,9 @@ def search_relevant_chunks(
                 "noisePenaltyValue": noise_penalty,
                 "noisePenaltyTerms": noise_penalty_terms,
                 "scoreBeforeQualityAdjustments": score_before_quality_adjustments,
+                "semanticEvidenceApplied": semantic_evidence_applied,
+                "semanticEvidenceReason": semantic_evidence_reason,
+                "semanticRescued": False,
                 "citationEligible": citation_eligible,
                 "sectionDuplicateSkipped": False,
                 "isPinned": is_pinned,
@@ -900,6 +1001,7 @@ def search_relevant_chunks(
         rescued_by_top1_rule,
         section_diversity_applied,
         overview_rescued,
+        semantic_rescued,
     ) = _apply_prompt_selection(
         ranked,
         threshold=threshold,
@@ -909,6 +1011,7 @@ def search_relevant_chunks(
     keyword_boost_applied = any(bool(item.get("keywordBoostApplied")) for item in ranked)
     noise_penalty_applied = any(bool(item.get("noisePenaltyApplied")) for item in ranked)
     policy_boost_applied = any(bool(item.get("policyBoostApplied")) for item in ranked)
+    semantic_evidence_applied = any(bool(item.get("semanticEvidenceApplied")) for item in ranked)
     overview_boost_applied = any(bool(item.get("overviewBoostApplied")) for item in ranked)
     topic_boost_applied = any(bool(item.get("topicBoostApplied")) for item in ranked)
     topic_penalty_applied = any(bool(item.get("topicPenaltyApplied")) for item in ranked)
@@ -976,6 +1079,8 @@ def search_relevant_chunks(
             "noisePenaltyTerms": noise_penalty_terms,
             "policyBoostApplied": policy_boost_applied,
             "policyBoostTerms": policy_boost_terms,
+            "semanticEvidenceApplied": semantic_evidence_applied,
+            "semanticRescued": semantic_rescued,
             "overviewBoostApplied": overview_boost_applied,
             "overviewTerms": overview_terms,
             "overviewThreshold": dynamic_threshold if overview_query else None,

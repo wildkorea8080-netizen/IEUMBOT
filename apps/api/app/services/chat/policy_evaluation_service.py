@@ -253,6 +253,7 @@ def evaluate_answer_policy(context: dict[str, Any]) -> dict[str, Any]:
     outdated_risk = False
     citation_ready_count = 0
     top_combined_score = 0.0
+    semantic_evidence_count = 0
     domain_keyword_matched = _contains_any(question, DOMAIN_KEYWORDS)
     greeting_detected = _is_greeting(question)
     gratitude_detected = _is_gratitude(question)
@@ -294,6 +295,8 @@ def evaluate_answer_policy(context: dict[str, Any]) -> dict[str, Any]:
 
         if is_effective_ok and is_not_expired:
             referenceable_candidates.append(item)
+            if item.get("semanticEvidenceApplied") or item.get("semanticRescued"):
+                semantic_evidence_count += 1
             if item.get("documentVersionId") and (item.get("pageNumber") is not None or item.get("sectionTitle")):
                 citation_ready_count += 1
     evidence_empty = len(candidates) == 0
@@ -306,6 +309,7 @@ def evaluate_answer_policy(context: dict[str, Any]) -> dict[str, Any]:
         structured_question
         and len(referenceable_candidates) < effective_min_valid_sources
         and covered_slots < required_covered_slots
+        and semantic_evidence_count == 0
     ):
         missing_evidence = True
 
@@ -355,6 +359,7 @@ def evaluate_answer_policy(context: dict[str, Any]) -> dict[str, Any]:
         "contactQuestion": bool(contact_question),
         "unrelatedQuestion": bool(unrelated_question),
         "topCombinedScore": float(top_combined_score),
+        "semanticEvidenceCount": int(semantic_evidence_count),
     }
 
     guardrail_eval = evaluate_guardrails(
