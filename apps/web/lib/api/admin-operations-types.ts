@@ -131,6 +131,12 @@ export type KnowledgeItem = {
   memo?: string | null;
   summary?: string | null;
   status: "queued" | "processing" | "completed" | "failed" | "inactive" | string;
+  /** Recommended display value: accounts for stale jobs, partial embeddings, etc. */
+  displayStatus?: string | null;
+  /** True if this item has chunks AND embeddings and can be searched. */
+  canSearch?: boolean;
+  /** Human-readable warnings about indexing health (partial embeddings, stale job, etc.). */
+  healthWarnings?: string[];
   sourceLabel?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -151,6 +157,9 @@ export type KnowledgeItem = {
   ingestionJobId?: string | null;
   ingestionStatus?: string | null;
   ingestionProgressPercent?: number | null;
+  staleRecovered: boolean;
+  recoveryAction?: string | null;
+  reindexRequired: boolean;
   isActive: boolean;
   isWebsiteAttachment: boolean;
   parentWebsiteUrl?: string | null;

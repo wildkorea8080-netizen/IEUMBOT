@@ -4,7 +4,7 @@ import ssl
 import uuid
 import zlib
 import logging
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from hashlib import sha256
 from html.parser import HTMLParser
 from io import BytesIO
@@ -73,6 +73,9 @@ PDF_OCR_DPI = 220
 PDF_TEXT_MIN_LETTER_RATIO = 0.55
 PDF_TEXT_MIN_WORDS = 12
 PDF_TEXT_ALLOWED_CHAR_REGEX = re.compile(r"[0-9A-Za-z가-힣\s\.,:/()%\-·&]")
+MOJIBAKE_MARKER_REGEX = re.compile(r"(?:�|ì|ë|í|ê|ä|å|æ|媛|蹂|諛|쒖|섏|덈|듬)")
+STALE_QUEUED_AFTER = timedelta(minutes=10)
+STALE_PROCESSING_AFTER = timedelta(minutes=30)
 SKIP_FILE_EXTENSIONS = {
     ".jpg",
     ".jpeg",
@@ -618,6 +621,42 @@ def _summarize_embedding_error(error_counts: dict[str, int]) -> tuple[str, str]:
     return error_code, "임베딩 생성 중 오류가 발생했습니다."
 
 
+def _log_ingest_status(
+    *,
+    knowledge_id: uuid.UUID,
+    source_type: str,
+    old_status: str | None,
+    new_status: str,
+    chunk_count: int,
+    embedding_count: int,
+    reason: str,
+) -> None:
+    logger.info(
+        "[INGEST_STATUS] knowledge_id=%s source_type=%s old_status=%s new_status=%s chunk_count=%s embedding_count=%s reason=%s",
+        knowledge_id,
+        source_type,
+        old_status or "",
+        new_status,
+        chunk_count,
+        embedding_count,
+        reason,
+    )
+
+
+def _log_ingest_recovery(
+    *,
+    knowledge_id: uuid.UUID,
+    action: str,
+    reason: str,
+) -> None:
+    logger.warning(
+        "[INGEST_RECOVERY] knowledge_id=%s action=%s reason=%s",
+        knowledge_id,
+        action,
+        reason,
+    )
+
+
 def _log_knowledge_diag(
     *,
     item_id: uuid.UUID,
@@ -894,6 +933,7 @@ def _ingest_document_version_content(
     metadata_updates: dict | None = None,
 ) -> None:
     now = datetime.now(UTC)
+    old_version_status = version.status
     if job is not None:
         job.status = "processing"
         job.current_step = "extracting"
@@ -905,22 +945,43 @@ def _ingest_document_version_content(
 
     extracted_text, detected_file_type, extraction_method = _extract_document_text(file_name, file_bytes, content_type)
     extracted_text = extracted_text.strip()
+    if detected_file_type == ".pdf" and extracted_text and _looks_like_mojibake_text(extracted_text):
+        extracted_text = ""
+        extraction_method = "failed"
+        if metadata_updates is not None:
+            metadata_updates = {
+                **metadata_updates,
+                "pdf_warning": "MOJIBAKE_TEXT_DETECTED",
+            }
     if not extracted_text:
         version.status = "failed"
-        version.error_code = "EMPTY_DOCUMENT_TEXT"
+        version.error_code = "MOJIBAKE_TEXT_DETECTED" if detected_file_type == ".pdf" and extraction_method == "failed" else "EMPTY_DOCUMENT_TEXT"
         version.extracted_text_length = 0
         version.chunk_count = 0
         version.embedding_count = 0
         version.processed_at = now
-        version.error_message = "문서에서 색인 가능한 텍스트를 추출하지 못했습니다."
+        version.error_message = (
+            "PDF 텍스트가 깨져 색인하지 않았습니다. OCR 환경 또는 원본 PDF를 확인해 주세요."
+            if version.error_code == "MOJIBAKE_TEXT_DETECTED"
+            else "문서에서 색인 가능한 텍스트를 추출하지 못했습니다."
+        )
         document.status = "failed"
         if job is not None:
             job.status = "failed"
             job.current_step = "failed"
             job.progress_percent = 100
-            job.error_code = "EMPTY_DOCUMENT_TEXT"
+            job.error_code = version.error_code
             job.error_message = version.error_message
             job.finished_at = now
+        _log_ingest_status(
+            knowledge_id=document.id,
+            source_type=version.source_type,
+            old_status=old_version_status,
+            new_status=version.status,
+            chunk_count=0,
+            embedding_count=0,
+            reason=version.error_code or "EMPTY_DOCUMENT_TEXT",
+        )
         _log_knowledge_diag(
             item_id=document.id,
             source_type=version.source_type,
@@ -969,6 +1030,15 @@ def _ingest_document_version_content(
             job.error_code = "EMPTY_DOCUMENT_CHUNKS"
             job.error_message = version.error_message
             job.finished_at = now
+        _log_ingest_status(
+            knowledge_id=document.id,
+            source_type=version.source_type,
+            old_status=old_version_status,
+            new_status=version.status,
+            chunk_count=0,
+            embedding_count=0,
+            reason=version.error_code or "EMPTY_DOCUMENT_CHUNKS",
+        )
         _log_knowledge_diag(
             item_id=document.id,
             source_type=version.source_type,
@@ -1062,6 +1132,15 @@ def _ingest_document_version_content(
         job.error_code = version.error_code
         job.error_message = version.error_message
         job.finished_at = now
+    _log_ingest_status(
+        knowledge_id=document.id,
+        source_type=version.source_type,
+        old_status=old_version_status,
+        new_status=version.status,
+        chunk_count=version.chunk_count or 0,
+        embedding_count=version.embedding_count or 0,
+        reason=version.error_code or "completed",
+    )
     _log_knowledge_diag(
         item_id=document.id,
         source_type=version.source_type,
@@ -1340,6 +1419,22 @@ def _is_viable_pdf_text(text: str) -> bool:
         return False
     letter_ratio, word_count = _pdf_text_quality_metrics(cleaned)
     return letter_ratio >= PDF_TEXT_MIN_LETTER_RATIO and word_count >= PDF_TEXT_MIN_WORDS
+
+
+def _looks_like_mojibake_text(text: str) -> bool:
+    cleaned = _strip_binary_noise(text)
+    if not cleaned:
+        return False
+    marker_count = len(MOJIBAKE_MARKER_REGEX.findall(cleaned))
+    if "�" in cleaned:
+        return True
+    marker_ratio = marker_count / max(len(cleaned), 1)
+    korean_count = len(KOREAN_TEXT_REGEX.findall(cleaned))
+    if marker_ratio >= 0.015 and korean_count < max(20, len(cleaned) * 0.08):
+        return True
+    if marker_count >= 20 and korean_count < marker_count:
+        return True
+    return False
 
 
 def _extract_pdf_text_via_pypdf(file_bytes: bytes) -> str:
@@ -1798,6 +1893,15 @@ def _set_job_failed(
     job.error_code = error_code
     job.error_message = error_message
     job.finished_at = now
+    _log_ingest_status(
+        knowledge_id=web_source.id,
+        source_type="website",
+        old_status=None,
+        new_status="failed",
+        chunk_count=web_source.chunk_count or 0,
+        embedding_count=web_source.embedding_count or 0,
+        reason=error_code,
+    )
     _log_knowledge_diag(
         item_id=web_source.id,
         source_type="website",
@@ -1896,6 +2000,7 @@ def _ingest_web_source_content(
     job: IngestionJob,
 ) -> None:
     now = datetime.now(UTC)
+    old_web_status = web_source.status
     job.status = "processing"
     job.current_step = "fetching"
     job.progress_percent = 10
@@ -2234,6 +2339,15 @@ def _ingest_web_source_content(
     job.error_code = version.error_code
     job.error_message = version.error_message
     job.finished_at = now
+    _log_ingest_status(
+        knowledge_id=web_source.id,
+        source_type="website",
+        old_status=old_web_status,
+        new_status=version.status,
+        chunk_count=web_source.chunk_count or 0,
+        embedding_count=web_source.embedding_count or 0,
+        reason=version.error_code or "completed",
+    )
     _log_knowledge_diag(
         item_id=web_source.id,
         source_type="website",
@@ -2259,6 +2373,297 @@ def _normalize_status(base_status: str | None, *, is_active: bool, ingestion_sta
     return "completed"
 
 
+def _counts_terminal_status(
+    *,
+    extracted_text_length: int | None,
+    chunk_count: int | None,
+    embedding_count: int | None,
+    base_status: str | None,
+    ingestion_status: str | None,
+    is_active: bool,
+) -> str:
+    chunks = int(chunk_count or 0)
+    embeddings = int(embedding_count or 0)
+    base = (base_status or "").lower()
+    ingestion = (ingestion_status or "").lower()
+    # explicit failure wins first
+    if base == "failed" or ingestion in {"failed", "error"}:
+        return "failed"
+    # searchable = completed regardless of text_len
+    if chunks > 0 and embeddings > 0:
+        return "completed"
+    if not is_active:
+        return "inactive"
+    # active job still running (no chunks yet)
+    if chunks == 0 and embeddings == 0 and ingestion in {"queued", "pending"}:
+        return "queued"
+    if chunks == 0 and embeddings == 0 and ingestion in {"processing", "running"}:
+        return "processing"
+    # chunks exist but no embeddings
+    if chunks > 0 and embeddings == 0:
+        return "failed"
+    return _normalize_status(base_status, is_active=is_active, ingestion_status=ingestion_status)
+
+
+def _compute_display_status(
+    *,
+    db_status: str,
+    job: "IngestionJob | None",
+    chunk_count: int,
+    embedding_count: int,
+    now: datetime,
+) -> tuple[str, list[str]]:
+    """Return (displayStatus, healthWarnings).
+
+    Priority:
+    1. Searchable data (chunk>0, embedding>0) → completed (job status shown as warning only)
+    2. No searchable data + active non-stale job → queued/processing
+    3. chunk>0, embedding==0 → needs_reindex
+    4. stale job without index → stale_failed
+    5. db_status fallback
+    """
+    warnings: list[str] = []
+    job_status = (job.status or "").lower() if job else ""
+    stale, _ = _is_stale_job(job, now=now)
+
+    # Searchable data wins over any job status — show completed, job progress is secondary
+    if chunk_count > 0 and embedding_count > 0:
+        if embedding_count < chunk_count:
+            warnings.append(f"일부 임베딩 누락: {embedding_count}/{chunk_count}")
+        if job_status in {"processing", "running"} and not stale:
+            warnings.append("재색인 처리 중입니다. 이전 데이터로 검색 가능합니다.")
+        elif job_status in {"queued", "pending"} and not stale:
+            warnings.append("재색인 대기 중입니다. 이전 데이터로 검색 가능합니다.")
+        return "completed", warnings
+
+    # No searchable data → show active job status
+    if job_status in {"processing", "running"} and not stale:
+        return "processing", warnings
+    if job_status in {"queued", "pending"} and not stale:
+        return "queued", warnings
+
+    # Chunks without embeddings
+    if chunk_count > 0 and embedding_count == 0:
+        warnings.append("임베딩이 없어 검색이 불가합니다. 재색인이 필요합니다.")
+        return "needs_reindex", warnings
+
+    # Stale job with no usable index
+    if stale:
+        warnings.append("이전 색인 작업이 시간 초과되었습니다. 재색인이 필요합니다.")
+        return "stale_failed", warnings
+
+    if db_status == "failed":
+        return "failed", warnings
+
+    return db_status or "queued", warnings
+
+
+def _log_ingest_health(
+    *,
+    knowledge_id: "uuid.UUID",
+    db_status: str,
+    job_status: str | None,
+    display_status: str,
+    chunk_count: int,
+    embedding_count: int,
+    reason: str,
+) -> None:
+    logger.info(
+        "[INGEST_HEALTH] knowledge_id=%s db_status=%s job_status=%s display_status=%s chunk_count=%s embedding_count=%s reason=%s",
+        knowledge_id,
+        db_status,
+        job_status or "",
+        display_status,
+        chunk_count,
+        embedding_count,
+        reason,
+    )
+
+
+def _job_recovery_action(job: IngestionJob | None) -> str | None:
+    metadata = dict(job.metadata_json or {}) if job else {}
+    action = metadata.get("staleRecovery")
+    return action if isinstance(action, str) and action else None
+
+
+def _is_reindex_required(
+    *,
+    status_value: str,
+    extracted_text_length: int | None,
+    chunk_count: int | None,
+    embedding_count: int | None,
+) -> bool:
+    text_len = int(extracted_text_length or 0)
+    chunks = int(chunk_count or 0)
+    embeddings = int(embedding_count or 0)
+    if status_value == "failed":
+        return True
+    if status_value in {"queued", "processing"}:
+        return False
+    if text_len == 0 or chunks == 0 or embeddings == 0:
+        return True
+    return embeddings < chunks
+
+
+def _is_stale_job(job: IngestionJob | None, *, now: datetime) -> tuple[bool, str]:
+    if job is None:
+        return False, ""
+    job_status = (job.status or "").lower()
+    if job_status == "queued":
+        reference = job.created_at or now
+        if now - reference >= STALE_QUEUED_AFTER:
+            return True, "queued_timeout"
+    if job_status == "processing":
+        reference = job.started_at or job.created_at or now
+        if now - reference >= STALE_PROCESSING_AFTER:
+            return True, "processing_timeout"
+    return False, ""
+
+
+def _mark_job_completed_from_existing(job: IngestionJob | None, *, now: datetime, message: str) -> None:
+    if job is None or (job.status or "").lower() not in {"queued", "pending", "processing", "running"}:
+        return
+    job.status = "completed"
+    job.current_step = "completed"
+    job.progress_percent = 100
+    job.error_code = None
+    job.error_message = None
+    job.finished_at = now
+    metadata = dict(job.metadata_json or {})
+    metadata["staleRecovery"] = "completed_from_existing_chunks"
+    metadata["staleRecoveryMessage"] = message
+    job.metadata_json = metadata
+
+
+def _mark_job_failed_stale(job: IngestionJob | None, *, now: datetime, message: str) -> None:
+    if job is None or (job.status or "").lower() not in {"queued", "pending", "processing", "running"}:
+        return
+    job.status = "failed"
+    job.current_step = "failed"
+    job.progress_percent = 100
+    job.error_code = "STALE_INGESTION_JOB"
+    job.error_message = message
+    job.finished_at = now
+    metadata = dict(job.metadata_json or {})
+    metadata["staleRecovery"] = "failed_stale"
+    metadata["staleRecoveryMessage"] = message
+    job.metadata_json = metadata
+
+
+def _recover_document_ingest_state(doc: Document, version: DocumentVersion | None, job: IngestionJob | None) -> bool:
+    if version is None:
+        return False
+    now = datetime.now(UTC)
+    old_status = version.status
+    stale, stale_reason = _is_stale_job(job, now=now)
+    chunks = int(version.chunk_count or 0)
+    embeddings = int(version.embedding_count or 0)
+    # searchable = chunks AND embeddings both present (text_len not required)
+    has_existing_index = chunks > 0 and embeddings > 0
+    source_type = version.source_type or "file"
+
+    should_complete_from_existing = has_existing_index and (
+        stale
+        or (job is None and (version.status or "").lower() in {"queued", "processing"})
+    )
+    if should_complete_from_existing:
+        version.status = "completed"
+        version.error_code = None
+        version.error_message = None
+        version.processed_at = version.processed_at or doc.processed_at or now
+        version.is_active = True
+        doc.status = "active"
+        doc.processed_at = doc.processed_at or version.processed_at
+        _mark_job_completed_from_existing(job, now=now, message="chunk/embedding already exist")
+        _log_ingest_recovery(knowledge_id=doc.id, action="completed_from_existing_chunks", reason="chunk_embedding_counts_present")
+        _log_ingest_status(
+            knowledge_id=doc.id,
+            source_type=source_type,
+            old_status=old_status,
+            new_status=version.status,
+            chunk_count=chunks,
+            embedding_count=embeddings,
+            reason="completed_from_existing_chunks",
+        )
+        return True
+
+    # stale job with no usable index → mark failed so user can reindex
+    if stale and (chunks == 0 or embeddings == 0):
+        message = "색인 작업이 제한 시간을 초과했습니다. 재색인이 필요합니다."
+        version.status = "failed"
+        version.error_code = "STALE_INGESTION_JOB"
+        version.error_message = message
+        version.processed_at = now
+        doc.status = "failed"
+        doc.processed_at = now
+        _mark_job_failed_stale(job, now=now, message=message)
+        _log_ingest_recovery(knowledge_id=doc.id, action="failed_stale", reason=stale_reason)
+        _log_ingest_status(
+            knowledge_id=doc.id,
+            source_type=source_type,
+            old_status=old_status,
+            new_status=version.status,
+            chunk_count=chunks,
+            embedding_count=embeddings,
+            reason=stale_reason,
+        )
+        return True
+    return False
+
+
+def _recover_web_ingest_state(web_source: WebSource, job: IngestionJob | None) -> bool:
+    now = datetime.now(UTC)
+    old_status = web_source.status
+    stale, stale_reason = _is_stale_job(job, now=now)
+    chunks = int(web_source.chunk_count or 0)
+    embeddings = int(web_source.embedding_count or 0)
+    # searchable = chunks AND embeddings both present (text_len not required)
+    has_existing_index = chunks > 0 and embeddings > 0
+
+    should_complete_from_existing = has_existing_index and (
+        stale
+        or (job is None and (web_source.status or "").lower() in {"queued", "processing"})
+    )
+    if should_complete_from_existing:
+        web_source.status = "active"
+        web_source.last_error_code = None
+        web_source.last_error_message = None
+        web_source.last_synced_at = web_source.last_synced_at or now
+        _mark_job_completed_from_existing(job, now=now, message="chunk/embedding already exist")
+        _log_ingest_recovery(knowledge_id=web_source.id, action="completed_from_existing_chunks", reason="chunk_embedding_counts_present")
+        _log_ingest_status(
+            knowledge_id=web_source.id,
+            source_type="website",
+            old_status=old_status,
+            new_status="completed",
+            chunk_count=chunks,
+            embedding_count=embeddings,
+            reason="completed_from_existing_chunks",
+        )
+        return True
+
+    # stale job with no usable index → mark failed so user can reindex
+    if stale and (chunks == 0 or embeddings == 0):
+        message = "색인 작업이 제한 시간을 초과했습니다. 재색인이 필요합니다."
+        web_source.status = "failed"
+        web_source.last_error_code = "STALE_INGESTION_JOB"
+        web_source.last_error_message = message
+        web_source.last_synced_at = now
+        _mark_job_failed_stale(job, now=now, message=message)
+        _log_ingest_recovery(knowledge_id=web_source.id, action="failed_stale", reason=stale_reason)
+        _log_ingest_status(
+            knowledge_id=web_source.id,
+            source_type="website",
+            old_status=old_status,
+            new_status="failed",
+            chunk_count=chunks,
+            embedding_count=embeddings,
+            reason=stale_reason,
+        )
+        return True
+    return False
+
+
 def _document_item(doc: Document, version: DocumentVersion | None, job: IngestionJob | None) -> KnowledgeItem:
     metadata = dict(doc.metadata_json or {})
     tags = _parse_tags(metadata.get("tags"))
@@ -2269,7 +2674,37 @@ def _document_item(doc: Document, version: DocumentVersion | None, job: Ingestio
     if not summary:
         summary = _truncate_preview(doc.description) or _truncate_preview(metadata.get("memo")) or source_label
     is_active = bool(version.is_active) if version else doc.status not in {"inactive", "deprecated"}
-    status_value = _normalize_status(doc.status, is_active=is_active, ingestion_status=(job.status if job else version.status if version else None))
+    ingestion_status = job.status if job else version.status if version else None
+    extracted_text_length = version.extracted_text_length if version else 0
+    chunk_count = int(version.chunk_count or 0) if version else 0
+    embedding_count = int(version.embedding_count or 0) if version else 0
+    status_value = _counts_terminal_status(
+        extracted_text_length=extracted_text_length,
+        chunk_count=chunk_count,
+        embedding_count=embedding_count,
+        base_status=doc.status,
+        ingestion_status=ingestion_status,
+        is_active=is_active,
+    )
+    now = datetime.now(UTC)
+    display_status, health_warnings = _compute_display_status(
+        db_status=status_value,
+        job=job,
+        chunk_count=chunk_count,
+        embedding_count=embedding_count,
+        now=now,
+    )
+    can_search = chunk_count > 0 and embedding_count > 0
+    if display_status != status_value:
+        _log_ingest_health(
+            knowledge_id=doc.id,
+            db_status=status_value,
+            job_status=ingestion_status,
+            display_status=display_status,
+            chunk_count=chunk_count,
+            embedding_count=embedding_count,
+            reason="display_differs_from_db",
+        )
     error_message = (job.error_message if job and job.error_message else None) or (version.error_message if version else None)
     indexed_at = None
     if version and version.processed_at:
@@ -2288,6 +2723,9 @@ def _document_item(doc: Document, version: DocumentVersion | None, job: Ingestio
         memo=metadata.get("memo"),
         summary=summary,
         status=status_value,
+        display_status=display_status,
+        can_search=can_search,
+        health_warnings=health_warnings,
         source_label=source_label,
         created_at=doc.created_at.isoformat(),
         updated_at=doc.updated_at.isoformat(),
@@ -2297,17 +2735,25 @@ def _document_item(doc: Document, version: DocumentVersion | None, job: Ingestio
         department=(version.issuing_department if version else None) or metadata.get("department"),
         sensitive_detected=bool(metadata.get("sensitive_detected", False)),
         error_message=error_message,
-        extracted_text_length=version.extracted_text_length if version else 0,
-        chunk_count=version.chunk_count if version else 0,
-        embedding_count=version.embedding_count if version else 0,
+        extracted_text_length=extracted_text_length,
+        chunk_count=chunk_count,
+        embedding_count=embedding_count,
         last_processed_at=indexed_at,
         file_name=version.file_name if version else None,
         source_url=source_url if isinstance(source_url, str) else None,
         final_url=metadata.get("final_url") if isinstance(metadata.get("final_url"), str) else None,
         http_status_code=metadata.get("http_status_code") if isinstance(metadata.get("http_status_code"), int) else None,
         ingestion_job_id=(str(job.id) if job else None),
-        ingestion_status=(job.status if job else version.status if version else None),
+        ingestion_status=ingestion_status,
         ingestion_progress_percent=(job.progress_percent if job else None),
+        stale_recovered=bool(_job_recovery_action(job)),
+        recovery_action=_job_recovery_action(job),
+        reindex_required=_is_reindex_required(
+            status_value=status_value,
+            extracted_text_length=extracted_text_length,
+            chunk_count=chunk_count,
+            embedding_count=embedding_count,
+        ),
         is_active=is_active,
         is_website_attachment=bool(is_website_attachment),
         parent_website_url=metadata.get("parent_website_url"),
@@ -2331,8 +2777,37 @@ def _document_detail(doc: Document, version: DocumentVersion | None, job: Ingest
 
 def _website_item(web_source: WebSource, job: IngestionJob | None) -> KnowledgeItem:
     metadata = dict(web_source.metadata_json or {})
-    is_active = web_source.status == "active"
-    status_value = _normalize_status(web_source.status, is_active=is_active, ingestion_status=(job.status if job else None))
+    # is_active: whether the source is enabled by the admin (not derived from indexing status)
+    is_active = not web_source.is_deleted and web_source.status not in {"inactive", "deprecated"}
+    chunk_count = int(web_source.chunk_count or 0)
+    embedding_count = int(web_source.embedding_count or 0)
+    status_value = _counts_terminal_status(
+        extracted_text_length=web_source.extracted_text_length or 0,
+        chunk_count=chunk_count,
+        embedding_count=embedding_count,
+        base_status=web_source.status,
+        ingestion_status=(job.status if job else None),
+        is_active=is_active,
+    )
+    now = datetime.now(UTC)
+    display_status, health_warnings = _compute_display_status(
+        db_status=status_value,
+        job=job,
+        chunk_count=chunk_count,
+        embedding_count=embedding_count,
+        now=now,
+    )
+    can_search = chunk_count > 0 and embedding_count > 0
+    if display_status != status_value:
+        _log_ingest_health(
+            knowledge_id=web_source.id,
+            db_status=status_value,
+            job_status=(job.status if job else None),
+            display_status=display_status,
+            chunk_count=chunk_count,
+            embedding_count=embedding_count,
+            reason="display_differs_from_db",
+        )
     return KnowledgeItem(
         id=str(web_source.id),
         source_group="website",
@@ -2344,6 +2819,9 @@ def _website_item(web_source: WebSource, job: IngestionJob | None) -> KnowledgeI
         memo=metadata.get("memo"),
         summary=metadata.get("summary") or _truncate_preview(metadata.get("memo")) or web_source.base_url,
         status=status_value,
+        display_status=display_status,
+        can_search=can_search,
+        health_warnings=health_warnings,
         source_label=web_source.base_url,
         created_at=web_source.created_at.isoformat(),
         updated_at=web_source.updated_at.isoformat(),
@@ -2354,8 +2832,8 @@ def _website_item(web_source: WebSource, job: IngestionJob | None) -> KnowledgeI
         sensitive_detected=bool(metadata.get("sensitive_detected", False)),
         error_message=(job.error_message if job and job.error_message else None) or web_source.last_error_message,
         extracted_text_length=web_source.extracted_text_length or 0,
-        chunk_count=web_source.chunk_count or 0,
-        embedding_count=web_source.embedding_count or 0,
+        chunk_count=chunk_count,
+        embedding_count=embedding_count,
         last_processed_at=(web_source.last_synced_at.isoformat() if web_source.last_synced_at else None),
         file_name=None,
         source_url=web_source.base_url,
@@ -2364,6 +2842,14 @@ def _website_item(web_source: WebSource, job: IngestionJob | None) -> KnowledgeI
         ingestion_job_id=(str(job.id) if job else None),
         ingestion_status=(job.status if job else None),
         ingestion_progress_percent=(job.progress_percent if job else None),
+        stale_recovered=bool(_job_recovery_action(job)),
+        recovery_action=_job_recovery_action(job),
+        reindex_required=_is_reindex_required(
+            status_value=status_value,
+            extracted_text_length=web_source.extracted_text_length or 0,
+            chunk_count=chunk_count,
+            embedding_count=embedding_count,
+        ),
         is_active=is_active,
     )
 
@@ -2486,16 +2972,21 @@ def list_knowledge_service(
 ) -> KnowledgeListResponse:
     organization_id = require_institution_organization_id(principal)
     items: list[KnowledgeItem] = []
+    recovered = False
     if source_group in {None, "", "file_text"}:
         for doc, version, job in list_document_knowledge_rows(db, organization_id=organization_id):
+            recovered = _recover_document_ingest_state(doc, version, job) or recovered
             item = _document_item(doc, version, job)
             if _matches_query(item, query) and _matches_filter(item, category=category, field=field, status_filter=status_filter):
                 items.append(item)
     if source_group in {None, "", "website"}:
         for web_source, job in list_web_source_knowledge_rows(db, organization_id=organization_id):
+            recovered = _recover_web_ingest_state(web_source, job) or recovered
             item = _website_item(web_source, job)
             if _matches_query(item, query) and _matches_filter(item, category=category, field=field, status_filter=status_filter):
                 items.append(item)
+    if recovered:
+        db.commit()
     items.sort(key=lambda item: item.updated_at, reverse=True)
     return KnowledgeListResponse(items=items)
 
@@ -2525,9 +3016,13 @@ def get_knowledge_service(
     organization_id = require_institution_organization_id(principal)
     document_row = get_document_knowledge_row(db, organization_id=organization_id, knowledge_id=knowledge_id)
     if document_row is not None:
+        if _recover_document_ingest_state(document_row[0], document_row[1], document_row[2]):
+            db.commit()
         return _document_detail(document_row[0], document_row[1], document_row[2])
     web_source_row = get_web_source_knowledge_row(db, organization_id=organization_id, knowledge_id=knowledge_id)
     if web_source_row is not None:
+        if _recover_web_ingest_state(web_source_row[0], web_source_row[1]):
+            db.commit()
         return _website_detail(web_source_row[0], web_source_row[1])
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="KNOWLEDGE_NOT_FOUND")
 
@@ -2655,17 +3150,37 @@ def _mark_reindex_failed(
     if job.web_source_id is not None:
         web_source = db.get(WebSource, job.web_source_id)
         if web_source is not None:
+            old_status = web_source.status
             web_source.status = "failed"
             web_source.last_synced_at = now
             web_source.last_error_code = error_code
             web_source.last_error_message = error_message
+            _log_ingest_status(
+                knowledge_id=web_source.id,
+                source_type="website",
+                old_status=old_status,
+                new_status="failed",
+                chunk_count=web_source.chunk_count or 0,
+                embedding_count=web_source.embedding_count or 0,
+                reason=error_code,
+            )
     if job.document_version_id is not None:
         version = db.get(DocumentVersion, job.document_version_id)
         if version is not None:
+            old_status = version.status
             version.status = "failed"
             version.error_code = error_code
             version.error_message = error_message
             version.processed_at = now
+            _log_ingest_status(
+                knowledge_id=version.document_id,
+                source_type=version.source_type or "file",
+                old_status=old_status,
+                new_status="failed",
+                chunk_count=version.chunk_count or 0,
+                embedding_count=version.embedding_count or 0,
+                reason=error_code,
+            )
     if job.document_id is not None:
         document = db.get(Document, job.document_id)
         if document is not None:

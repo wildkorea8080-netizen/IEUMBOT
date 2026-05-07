@@ -31,6 +31,10 @@ class KnowledgeItem(ApiSchema):
     memo: str | None = None
     summary: str | None = None
     status: str
+    # displayStatus: the recommended value for UI (accounts for stale jobs, partial embeddings, etc.)
+    display_status: str | None = None
+    can_search: bool = False
+    health_warnings: list[str] = Field(default_factory=list)
     source_label: str | None = None
     created_at: str
     updated_at: str
@@ -51,6 +55,9 @@ class KnowledgeItem(ApiSchema):
     ingestion_job_id: str | None = None
     ingestion_status: str | None = None
     ingestion_progress_percent: int | None = None
+    stale_recovered: bool = False
+    recovery_action: str | None = None
+    reindex_required: bool = False
     is_active: bool = True
     is_website_attachment: bool = False
     parent_website_url: str | None = None

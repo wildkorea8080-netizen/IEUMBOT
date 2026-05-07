@@ -30,9 +30,14 @@ function getErrorMessage(error: unknown): string {
   return "지식 정보를 처리하지 못했습니다.";
 }
 
+function effectiveStatus(item: KnowledgeItem): string {
+  return item.displayStatus ?? item.status;
+}
+
 function statusClass(status: string): string {
   if (status === "completed" || status === "ready") return "bg-emerald-100 text-emerald-700";
-  if (status === "failed") return "bg-red-100 text-red-700";
+  if (status === "failed" || status === "stale_failed") return "bg-red-100 text-red-700";
+  if (status === "needs_reindex") return "bg-orange-100 text-orange-700";
   if (status === "inactive") return "bg-slate-200 text-slate-700";
   return "bg-amber-100 text-amber-700";
 }
@@ -42,6 +47,8 @@ function statusLabel(status: string): string {
   if (status === "processing") return "처리 중";
   if (status === "completed" || status === "ready") return "완료";
   if (status === "failed") return "실패";
+  if (status === "stale_failed") return "처리 시간 초과";
+  if (status === "needs_reindex") return "재색인 필요";
   if (status === "inactive") return "비활성";
   return status;
 }
@@ -75,24 +82,33 @@ function formatDateTime(value?: string | null): string {
 }
 
 function getDiagnosticWarnings(item: KnowledgeItem): string[] {
-  const warnings: string[] = [];
+  // Prefer server-computed healthWarnings, supplement with client-side checks.
+  const warnings: string[] = [...(item.healthWarnings ?? [])];
   const createdAt = new Date(item.createdAt).getTime();
-  if (item.status === "queued" && Number.isFinite(createdAt) && Date.now() - createdAt > 5 * 60 * 1000) {
+  const ds = effectiveStatus(item);
+
+  if (item.recoveryAction === "completed_from_existing_chunks" && !warnings.some((w) => w.includes("복구"))) {
+    warnings.push("기존 청크/임베딩 기준으로 상태를 완료로 복구했습니다.");
+  }
+  if (item.recoveryAction === "failed_stale" && !warnings.some((w) => w.includes("초과"))) {
+    warnings.push("오래된 색인 작업이 실패로 정리되었습니다.");
+  }
+  if (item.reindexRequired && ds !== "needs_reindex" && !warnings.some((w) => w.includes("재색인"))) {
+    warnings.push("재색인이 필요합니다.");
+  }
+  if (ds === "queued" && Number.isFinite(createdAt) && Date.now() - createdAt > 5 * 60 * 1000) {
     warnings.push("처리 대기 상태가 오래 지속되고 있습니다.");
   }
-  if ((item.status === "completed" || item.status === "ready") && (item.chunkCount ?? 0) === 0) {
+  if ((ds === "completed" || ds === "ready") && (item.chunkCount ?? 0) === 0) {
     warnings.push("청크가 생성되지 않았습니다.");
   }
-  if ((item.status === "completed" || item.status === "ready") && (item.embeddingCount ?? 0) === 0) {
+  if ((ds === "completed" || ds === "ready") && (item.embeddingCount ?? 0) === 0) {
     warnings.push("임베딩이 생성되지 않았습니다.");
   }
-  if ((item.embeddingCount ?? 0) < (item.chunkCount ?? 0)) {
-    warnings.push("일부 청크의 임베딩이 누락되었습니다.");
-  }
-  if ((item.extractedTextLength ?? 0) < 300) {
+  if ((item.extractedTextLength ?? 0) < 300 && (item.chunkCount ?? 0) === 0) {
     warnings.push("추출된 텍스트가 너무 적습니다.");
   }
-  return warnings;
+  return [...new Set(warnings)];
 }
 
 type EditorState = {
@@ -518,10 +534,24 @@ export function KnowledgeManagement() {
                       </td>
                       <td className="px-3 py-4">
                         <div className="space-y-2">
-                          <span className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${statusClass(item.status)}`}>
-                            {statusLabel(item.status)}
+                          <span className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${statusClass(effectiveStatus(item))}`}>
+                            {statusLabel(effectiveStatus(item))}
                           </span>
-                          {item.ingestionStatus ? <div className="text-xs text-slate-500">{item.ingestionStatus}</div> : null}
+                          {item.canSearch ? (
+                            <span className="inline-flex rounded-full bg-emerald-50 px-2 py-1 text-xs text-emerald-700">
+                              검색 가능
+                            </span>
+                          ) : null}
+                          {item.staleRecovered ? (
+                            <span className="inline-flex rounded-full bg-sky-50 px-2 py-1 text-xs text-sky-700">
+                              상태 복구됨
+                            </span>
+                          ) : null}
+                          {(item.reindexRequired || effectiveStatus(item) === "needs_reindex" || effectiveStatus(item) === "stale_failed") ? (
+                            <span className="inline-flex rounded-full bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700">
+                              재색인 필요
+                            </span>
+                          ) : null}
                         </div>
                       </td>
                       <td className="px-3 py-4 text-slate-600">{formatCount(item.extractedTextLength)}</td>
@@ -771,6 +801,18 @@ export function KnowledgeManagement() {
                   <div>
                     <strong className="mr-2 text-slate-900">상태</strong>
                     {statusLabel(detail.status)}
+                  </div>
+                  <div>
+                    <strong className="mr-2 text-slate-900">색인 Job 상태</strong>
+                    {detail.ingestionStatus ?? "-"}
+                  </div>
+                  <div>
+                    <strong className="mr-2 text-slate-900">상태 복구</strong>
+                    {detail.recoveryAction ?? "-"}
+                  </div>
+                  <div>
+                    <strong className="mr-2 text-slate-900">재색인 필요</strong>
+                    {detail.reindexRequired ? "필요" : "없음"}
                   </div>
                   <div>
                     <strong className="mr-2 text-slate-900">생성일</strong>
