@@ -53,6 +53,14 @@ SENSITIVE_PATTERNS = [
     re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),
 ]
 SOURCE_URL_MARKER_REGEX = re.compile(r"\[URL\]\s+(https?://\S+)", re.IGNORECASE)
+CLIENT_REDIRECT_REGEX = re.compile(
+    r"""(?:location(?:\.href|\.replace)?\s*=\s*|location\.replace\s*\()\s*["']([^"']+)["']""",
+    re.IGNORECASE,
+)
+META_REFRESH_REGEX = re.compile(
+    r"""<meta[^>]+http-equiv=["']?refresh["']?[^>]+content=["'][^"']*url=([^"']+)["']""",
+    re.IGNORECASE,
+)
 USER_AGENT = "IEUMBOTCrawler/1.0 (+https://ieumbot.local)"
 DEFAULT_CRAWL_PAGE_LIMIT = 12
 DEFAULT_FULL_SITE_CRAWL_PAGE_LIMIT = 300
@@ -97,45 +105,308 @@ ATTACHMENT_MIME_HINTS = {
     ".hwpx": "application/x-hwpx",
 }
 UNSUPPORTED_ATTACHMENT_FILE_TYPES = {".doc", ".xls", ".ppt"}
+HTML_REMOVED_TAGS = {
+    "script",
+    "style",
+    "nav",
+    "footer",
+    "header",
+    "aside",
+    "noscript",
+    "form",
+    "button",
+    "select",
+    "option",
+    "iframe",
+    "svg",
+}
+HTML_BLOCK_TAGS = {
+    "address",
+    "article",
+    "br",
+    "dd",
+    "div",
+    "dl",
+    "dt",
+    "figcaption",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "li",
+    "main",
+    "p",
+    "section",
+    "table",
+    "td",
+    "th",
+    "tr",
+    "ul",
+    "ol",
+}
+HTML_CONTENT_SELECTORS = (
+    ("main", "tag", "main"),
+    ("article", "tag", "article"),
+    ('[role="main"]', "role", "main"),
+    (".content", "class", "content"),
+    (".contents", "class", "contents"),
+    ("#content", "id", "content"),
+    ("#contents", "id", "contents"),
+    ("body", "tag", "body"),
+)
+NAVIGATION_KEYWORDS = (
+    "바로가기 메뉴",
+    "본문 바로가기",
+    "주메뉴 바로가기",
+    "메뉴 닫기",
+    "사이트맵",
+    "KOR",
+    "ENG",
+    "검색",
+    "더보기",
+    "자세히 보기",
+    "이전글",
+    "다음글",
+    "개인정보처리방침",
+    "TEL",
+    "FAX",
+    "Copyright",
+    "주소",
+)
+NAVIGATION_KEYWORDS_NORMALIZED = tuple(keyword.lower() for keyword in NAVIGATION_KEYWORDS)
+MENU_LINE_KEYWORDS = (
+    "신청서 내역 조회",
+    "주요사업",
+    "세계 속의 우리농업",
+    "인력양성",
+    "지역분야별 특화교육",
+    "국제곡물 전문가 교육",
+    "진출기업 보수교육",
+    "해외인턴",
+    "조사지원",
+    "민간환경조사",
+    "컨설팅",
+    "상시 컨설팅",
+    "포럼/워크숍",
+    "해외농업 전문관",
+    "융자지원",
+    "국내반입 및 투자촉진 지원",
+    "관련법령",
+    "해외시장정보",
+    "국가정보",
+    "동향정보",
+    "해외시장뉴스",
+    "통계정보",
+    "해외농업투자정보",
+    "ODA 정보",
+    "자원개발신고",
+    "소통알림",
+    "공지사항",
+    "사업공고",
+    "해외진출 상담문의",
+    "사이버홍보",
+    "포토뉴스",
+    "홍보자료",
+    "Q&A",
+    "FAQ",
+    "협회소개",
+    "인사말",
+    "조직도",
+    "회원사 소개",
+    "회원사 현황",
+    "찾아오시는 길",
+    "인기글",
+    "손가락을 이용해 좌우로",
+)
+MENU_LINE_KEYWORDS_NORMALIZED = tuple(keyword.lower() for keyword in MENU_LINE_KEYWORDS)
+PHONE_OR_FOOTER_REGEX = re.compile(
+    r"(?:\b(?:TEL|FAX)\b|(?:전화|팩스)\s*[:：]?\s*\d{2,4}[-.\s)]?\d{3,4}[-.\s]?\d{4}|Copyright|주소\s*[:：]?)",
+    re.IGNORECASE,
+)
+KOREAN_TEXT_REGEX = re.compile(r"[가-힣]")
+KOREAN_SENTENCE_REGEX = re.compile(r"[가-힣][^.!?。！？\n]{8,}[.!?。！？]")
+PUNCTUATION_REGEX = re.compile(r"[.!?。！？]")
 
 
 class _HTMLTextExtractor(HTMLParser):
     def __init__(self) -> None:
         super().__init__()
         self._skip_depth = 0
-        self._chunks: list[str] = []
+        self._tag_stack: list[tuple[str, dict[str, str]]] = []
+        self._candidate_stack: list[str] = []
+        self._candidate_chunks: dict[str, list[str]] = {selector[0]: [] for selector in HTML_CONTENT_SELECTORS}
+        self._candidate_link_chars: dict[str, int] = {selector[0]: 0 for selector in HTML_CONTENT_SELECTORS}
         self._links: list[str] = []
+        self._title_chunks: list[str] = []
+        self._in_title = False
+        self._link_depth = 0
+        self.removed_navigation_lines = 0
+        self.extraction_method = "body"
+        self.navigation_removed = True
 
     def handle_starttag(self, tag: str, attrs) -> None:  # type: ignore[override]
-        if tag in {"script", "style", "noscript"}:
+        tag = tag.lower()
+        normalized_attrs = {str(key).lower(): str(value or "") for key, value in attrs}
+        if tag in HTML_REMOVED_TAGS:
             self._skip_depth += 1
             return
-        if tag == "a" and self._skip_depth == 0:
-            href = dict(attrs).get("href")
+        if self._skip_depth > 0:
+            return
+
+        self._tag_stack.append((tag, normalized_attrs))
+        if tag == "title":
+            self._in_title = True
+        if tag == "a":
+            self._link_depth += 1
+            href = normalized_attrs.get("href")
             if isinstance(href, str) and href.strip():
                 self._links.append(href.strip())
-        if self._skip_depth == 0 and tag in {"p", "br", "div", "section", "article", "li", "h1", "h2", "h3"}:
-            self._chunks.append("\n")
+
+        for selector_name, selector_type, selector_value in HTML_CONTENT_SELECTORS:
+            if self._matches_content_selector(tag, normalized_attrs, selector_type, selector_value):
+                self._candidate_stack.append(selector_name)
+                self._candidate_chunks[selector_name].append("\n")
+        if tag in HTML_BLOCK_TAGS:
+            self._append_text("\n")
 
     def handle_endtag(self, tag: str) -> None:  # type: ignore[override]
-        if tag in {"script", "style", "noscript"} and self._skip_depth > 0:
+        tag = tag.lower()
+        if tag in HTML_REMOVED_TAGS and self._skip_depth > 0:
             self._skip_depth -= 1
             return
-        if self._skip_depth == 0 and tag in {"p", "div", "section", "article", "li"}:
-            self._chunks.append("\n")
+        if self._skip_depth > 0:
+            return
+
+        if tag == "title":
+            self._in_title = False
+        if tag == "a" and self._link_depth > 0:
+            self._link_depth -= 1
+        if tag in HTML_BLOCK_TAGS:
+            self._append_text("\n")
+
+        if self._tag_stack:
+            current_tag, current_attrs = self._tag_stack.pop()
+            for selector_name, selector_type, selector_value in reversed(HTML_CONTENT_SELECTORS):
+                if current_tag == tag and self._matches_content_selector(
+                    current_tag,
+                    current_attrs,
+                    selector_type,
+                    selector_value,
+                ):
+                    for index in range(len(self._candidate_stack) - 1, -1, -1):
+                        if self._candidate_stack[index] == selector_name:
+                            del self._candidate_stack[index]
+                            break
 
     def handle_data(self, data: str) -> None:  # type: ignore[override]
-        if self._skip_depth == 0:
-            self._chunks.append(data)
+        if self._skip_depth > 0:
+            return
+        if self._in_title:
+            self._title_chunks.append(data)
+        self._append_text(data)
+
+    def _append_text(self, text: str) -> None:
+        if not self._candidate_stack:
+            return
+        for selector_name in self._candidate_stack:
+            self._candidate_chunks[selector_name].append(text)
+            if self._link_depth > 0:
+                self._candidate_link_chars[selector_name] += len(text.strip())
+
+    def _matches_content_selector(
+        self,
+        tag: str,
+        attrs: dict[str, str],
+        selector_type: str,
+        selector_value: str,
+    ) -> bool:
+        if selector_type == "tag":
+            return tag == selector_value
+        if selector_type == "role":
+            return attrs.get("role", "").lower() == selector_value
+        if selector_type == "id":
+            return attrs.get("id", "").lower() == selector_value
+        if selector_type == "class":
+            classes = {item.strip().lower() for item in attrs.get("class", "").split() if item.strip()}
+            return selector_value in classes
+        return False
+
+    def _normalize_candidate_text(self, text: str) -> tuple[str, int]:
+        lines = [" ".join(line.split()) for line in text.splitlines()]
+        normalized_lines: list[str] = []
+        removed_navigation_lines = 0
+        previous_line = ""
+        for line in lines:
+            if not line:
+                continue
+            if _is_navigation_line(line):
+                removed_navigation_lines += 1
+                continue
+            if line == previous_line:
+                removed_navigation_lines += 1
+                continue
+            normalized_lines.append(line)
+            previous_line = line
+        return "\n".join(normalized_lines).strip(), removed_navigation_lines
+
+    def _score_candidate(self, text: str, link_chars: int) -> float:
+        if not text:
+            return -100.0
+        text_length = len(text)
+        korean_chars = len(KOREAN_TEXT_REGEX.findall(text))
+        korean_sentence_count = len(KOREAN_SENTENCE_REGEX.findall(text))
+        punctuation_bonus = 1.5 if PUNCTUATION_REGEX.search(text) else 0.0
+        nav_keyword_hits = _count_navigation_keyword_hits(text)
+        nav_ratio = nav_keyword_hits / max(1, len(text.split()))
+        link_ratio = link_chars / max(1, text_length)
+        if text_length < 80 or korean_chars < 20:
+            return -50.0
+        return (
+            korean_sentence_count * 4.0
+            + punctuation_bonus
+            + min(text_length / 1200, 3.0)
+            + min(korean_chars / 400, 2.0)
+            - nav_ratio * 35.0
+            - link_ratio * 20.0
+        )
 
     def get_text(self) -> str:
-        text = "".join(self._chunks)
-        lines = [" ".join(line.split()) for line in text.splitlines()]
-        normalized = "\n".join(line for line in lines if line)
-        return normalized.strip()
+        best_selector = "body"
+        best_text = ""
+        best_score = -100.0
+        removed_navigation_lines = 0
+        scored_candidates: list[tuple[str, str, float, int]] = []
+        for selector_name, _selector_type, _selector_value in HTML_CONTENT_SELECTORS:
+            raw_text = "".join(self._candidate_chunks.get(selector_name, []))
+            candidate_text, removed_count = self._normalize_candidate_text(raw_text)
+            link_chars = self._candidate_link_chars.get(selector_name, 0)
+            score = self._score_candidate(candidate_text, link_chars)
+            scored_candidates.append((selector_name, candidate_text, score, removed_count))
+            if score > best_score:
+                best_score = score
+                best_selector = selector_name
+                best_text = candidate_text
+                removed_navigation_lines = removed_count
+        for selector_name, candidate_text, score, removed_count in scored_candidates:
+            if selector_name == "body":
+                continue
+            if score >= -5.0 and len(candidate_text) >= 100 and _navigation_line_ratio(candidate_text) < 0.45:
+                best_selector = selector_name
+                best_text = candidate_text
+                removed_navigation_lines = removed_count
+                break
+        self.removed_navigation_lines = removed_navigation_lines
+        self.extraction_method = best_selector
+        return best_text.strip()
 
     def get_links(self) -> list[str]:
         return self._links[:]
+
+    def get_title(self) -> str | None:
+        title = " ".join("".join(self._title_chunks).split()).strip()
+        return title or None
 
 
 def _parse_date(value: str | None, field_name: str) -> date | None:
@@ -184,6 +455,107 @@ def _detect_sensitive(text: str | None) -> bool:
     if not text:
         return False
     return any(pattern.search(text) for pattern in SENSITIVE_PATTERNS)
+
+
+def _count_navigation_keyword_hits(text: str) -> int:
+    lowered = text.lower()
+    return sum(lowered.count(keyword) for keyword in NAVIGATION_KEYWORDS_NORMALIZED)
+
+
+def _is_navigation_line(line: str) -> bool:
+    compact = " ".join(line.split()).strip()
+    if not compact:
+        return True
+    lowered = compact.lower()
+    if any(keyword in lowered for keyword in NAVIGATION_KEYWORDS_NORMALIZED):
+        return True
+    if PHONE_OR_FOOTER_REGEX.search(compact):
+        return True
+    if len(compact) <= 48 and any(keyword == lowered for keyword in MENU_LINE_KEYWORDS_NORMALIZED):
+        return True
+    if len(compact) <= 70 and any(keyword in lowered for keyword in MENU_LINE_KEYWORDS_NORMALIZED):
+        if not PUNCTUATION_REGEX.search(compact) and not re.search(r"\d", compact):
+            return True
+    if len(compact) <= 18 and not PUNCTUATION_REGEX.search(compact) and not re.search(r"\d", compact):
+        menu_words = {"로그인", "회원가입", "HOME", "Home", "목록", "처음", "끝", "닫기", "열기"}
+        if compact in menu_words:
+            return True
+    return False
+
+
+def _navigation_line_ratio(text: str) -> float:
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if not lines:
+        return 1.0
+    navigation_lines = sum(1 for line in lines if _is_navigation_line(line))
+    return navigation_lines / len(lines)
+
+
+def _looks_like_name_or_menu_list(text: str) -> bool:
+    compact = " ".join(text.split())
+    if not compact:
+        return True
+    sentence_count = len(KOREAN_SENTENCE_REGEX.findall(compact))
+    if sentence_count > 0 or PUNCTUATION_REGEX.search(compact):
+        return False
+    tokens = [token for token in re.split(r"[\s,·|/]+", compact) if token]
+    if len(tokens) < 12:
+        return False
+    short_token_ratio = sum(1 for token in tokens if len(token) <= 8) / len(tokens)
+    has_policy_terms = any(term in compact for term in ("융자", "지원", "조건", "사업", "대상", "신청", "금리", "한도"))
+    return short_token_ratio >= 0.82 and not has_policy_terms
+
+
+def _looks_like_pipe_link_menu(text: str) -> bool:
+    pipe_count = text.count("|")
+    if pipe_count < 8:
+        return False
+    segments = [segment.strip() for segment in text.split("|") if segment.strip()]
+    if len(segments) < 10:
+        return False
+    short_segment_ratio = sum(1 for segment in segments if len(segment) <= 24) / len(segments)
+    sentence_count = len(KOREAN_SENTENCE_REGEX.findall(text))
+    menu_terms = (
+        "주요사업",
+        "인력양성",
+        "조사지원",
+        "컨설팅",
+        "공지사항",
+        "사업공고",
+        "협회소개",
+        "회원사",
+        "FAQ",
+        "Q&A",
+        "자세히 보기",
+        "인기글",
+        "포토뉴스",
+        "홍보자료",
+        "신청서 내역 조회",
+    )
+    menu_hits = sum(1 for term in menu_terms if term in text)
+    return short_segment_ratio >= 0.7 and (sentence_count == 0 or menu_hits >= 3)
+
+
+def _is_low_quality_chunk(text: str) -> bool:
+    compact = " ".join(text.split()).strip()
+    if len(compact) < 100:
+        return True
+    if _looks_like_pipe_link_menu(compact):
+        return True
+    if _navigation_line_ratio(text) >= 0.35:
+        return True
+    nav_hits = _count_navigation_keyword_hits(compact)
+    token_count = max(1, len(compact.split()))
+    if nav_hits / token_count >= 0.08:
+        return True
+    if PHONE_OR_FOOTER_REGEX.search(compact) and len(KOREAN_SENTENCE_REGEX.findall(compact)) == 0:
+        return True
+    if _looks_like_name_or_menu_list(compact):
+        return True
+    korean_chars = len(KOREAN_TEXT_REGEX.findall(compact))
+    if korean_chars < 30 and len(KOREAN_SENTENCE_REGEX.findall(compact)) == 0:
+        return True
+    return False
 
 
 def _embedding_generated(embedding: list[float] | None) -> bool:
@@ -248,31 +620,86 @@ def _split_text_chunks(text: str, *, chunk_size: int = 900, overlap: int = 120) 
     return chunks
 
 
+def _strip_website_block_markers(block: str) -> tuple[dict[str, str], str]:
+    metadata: dict[str, str] = {}
+    content_lines: list[str] = []
+    marker_keys = {
+        "[URL]": "url",
+        "[TITLE]": "page_title",
+        "[FINAL_URL]": "final_url",
+        "[EXTRACTION_METHOD]": "extraction_method",
+        "[NAVIGATION_REMOVED]": "navigation_removed",
+    }
+    for line in block.splitlines():
+        stripped = line.strip()
+        matched_marker = False
+        for marker, key in marker_keys.items():
+            if stripped.upper().startswith(marker):
+                metadata[key] = stripped[len(marker) :].strip()
+                matched_marker = True
+                break
+        if not matched_marker:
+            content_lines.append(line)
+    return metadata, "\n".join(content_lines).strip()
+
+
+def _infer_section_title(chunk_text: str, *, default_title: str) -> str:
+    for line in chunk_text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("[ATTACHMENT]"):
+            return stripped
+        if len(stripped) <= 80 and not stripped.endswith((".", "?", "!", "。", "！", "？")):
+            return stripped
+        break
+    return default_title
+
+
 def _split_website_chunks(combined_text: str, *, default_title: str) -> list[dict[str, str | None]]:
     items: list[dict[str, str | None]] = []
     blocks = [block.strip() for block in re.split(r"\n{2,}", combined_text.strip()) if block.strip()]
     for block in blocks:
+        marker_metadata, content_text = _strip_website_block_markers(block)
         marker = SOURCE_URL_MARKER_REGEX.search(block)
-        source_url = marker.group(1).strip() if marker else None
-        first_line = block.splitlines()[0].strip() if block.splitlines() else default_title
-        section_title = first_line if first_line.startswith("[ATTACHMENT]") else default_title
-        for chunk_text in _split_text_chunks(block):
+        source_url = marker_metadata.get("url") or (marker.group(1).strip() if marker else None)
+        page_title = marker_metadata.get("page_title") or default_title
+        final_url = marker_metadata.get("final_url") or source_url
+        extraction_method = marker_metadata.get("extraction_method")
+        navigation_removed = marker_metadata.get("navigation_removed")
+        candidate_chunks = _split_text_chunks(content_text)
+        for chunk_text in candidate_chunks:
+            if _is_low_quality_chunk(chunk_text):
+                continue
+            section_title = _infer_section_title(chunk_text, default_title=page_title)
             items.append(
                 {
                     "text": chunk_text,
                     "url": source_url,
                     "section_title": section_title,
+                    "page_title": page_title,
+                    "final_url": final_url,
+                    "extraction_method": extraction_method,
+                    "navigation_removed": navigation_removed,
                 }
             )
     if items:
         return items
-    return [
-        {"text": chunk_text, "url": None, "section_title": default_title}
-        for chunk_text in _split_text_chunks(combined_text)
-    ]
+    return []
 
 
-def _fetch_website_page(url: str) -> tuple[str, str, list[str], str, int | None]:
+def _detect_client_redirect_url(html: str, *, base_url: str) -> str | None:
+    for pattern in (CLIENT_REDIRECT_REGEX, META_REFRESH_REGEX):
+        match = pattern.search(html)
+        if not match:
+            continue
+        redirect_target = match.group(1).strip()
+        if redirect_target:
+            return urljoin(base_url, redirect_target)
+    return None
+
+
+def _fetch_website_page_once(url: str) -> tuple[str, str, int | None]:
     request = Request(
         url,
         headers={
@@ -289,9 +716,31 @@ def _fetch_website_page(url: str) -> tuple[str, str, list[str], str, int | None]
         html = response.read().decode(charset, errors="replace")
         final_url = response.geturl()
         http_status_code = getattr(response, "status", None)
+    return html, final_url, http_status_code
+
+
+def _fetch_website_page(url: str) -> tuple[str, str, list[str], str, int | None, str | None, str, bool, int]:
+    html, final_url, http_status_code = _fetch_website_page_once(url)
     extractor = _HTMLTextExtractor()
     extractor.feed(html)
-    return html, extractor.get_text(), extractor.get_links(), final_url, http_status_code
+    text = extractor.get_text()
+    redirect_url = _detect_client_redirect_url(html, base_url=final_url or url) if not text else None
+    if redirect_url and redirect_url != final_url:
+        html, final_url, http_status_code = _fetch_website_page_once(redirect_url)
+        extractor = _HTMLTextExtractor()
+        extractor.feed(html)
+        text = extractor.get_text()
+    return (
+        html,
+        text,
+        extractor.get_links(),
+        final_url,
+        http_status_code,
+        extractor.get_title(),
+        extractor.extraction_method,
+        extractor.navigation_removed,
+        extractor.removed_navigation_lines,
+    )
 
 
 def _fetch_binary_resource(url: str) -> tuple[bytes, str | None]:
@@ -1079,7 +1528,7 @@ def _crawl_website(
     excluded_paths: list[str] | None,
     crawl_all_pages: bool,
     include_attachments: bool,
-) -> tuple[str, str, list[str], list[str], str | None, int | None]:
+) -> tuple[str, str, list[str], list[str], str | None, int | None, dict[str, int | str | bool | None]]:
     parsed_root = urlparse(base_url)
     root_hostname = parsed_root.hostname or ""
     normalized_excluded = _normalize_excluded_paths(excluded_paths)
@@ -1093,6 +1542,9 @@ def _crawl_website(
     html_blocks: list[str] = []
     first_final_url: str | None = None
     first_http_status_code: int | None = None
+    total_removed_navigation_lines = 0
+    first_extraction_method: str | None = None
+    navigation_removed = False
 
     max_depth = FULL_SITE_CRAWL_DEPTH if crawl_all_pages else max(0, crawl_depth)
     page_limit = max(1, min(max_pages, MAX_CRAWL_PAGE_LIMIT))
@@ -1108,15 +1560,51 @@ def _crawl_website(
         if any(current_path.startswith(path) for path in normalized_excluded):
             continue
 
-        html, text, links, final_url, http_status_code = _fetch_website_page(current_url)
+        (
+            html,
+            text,
+            links,
+            final_url,
+            http_status_code,
+            page_title,
+            extraction_method,
+            page_navigation_removed,
+            removed_navigation_lines,
+        ) = _fetch_website_page(current_url)
         if first_final_url is None:
             first_final_url = final_url
         if first_http_status_code is None:
             first_http_status_code = http_status_code
+        if first_extraction_method is None:
+            first_extraction_method = extraction_method
+        navigation_removed = navigation_removed or page_navigation_removed
+        total_removed_navigation_lines += removed_navigation_lines
         crawled_urls.append(final_url or current_url)
         html_blocks.append(html)
         if text:
-            text_blocks.append(f"[URL] {final_url or current_url}\n{text}")
+            text_blocks.append(
+                "\n".join(
+                    [
+                        f"[URL] {current_url}",
+                        f"[FINAL_URL] {final_url or current_url}",
+                        f"[TITLE] {page_title or ''}",
+                        f"[EXTRACTION_METHOD] {extraction_method}",
+                        f"[NAVIGATION_REMOVED] {str(page_navigation_removed).lower()}",
+                        text,
+                    ]
+                ).strip()
+            )
+        logger.info(
+            "[WEB_CRAWL] url=%s status=%s extracted_text_length=%s chunk_count_before_filter=%s "
+            "chunk_count_after_filter=%s removed_navigation_lines=%s extraction_method=%s",
+            final_url or current_url,
+            http_status_code or "",
+            len(text),
+            len(_split_text_chunks(text)),
+            len([chunk for chunk in _split_text_chunks(text) if not _is_low_quality_chunk(chunk)]),
+            removed_navigation_lines,
+            extraction_method,
+        )
 
         if depth >= max_depth:
             continue
@@ -1145,6 +1633,11 @@ def _crawl_website(
         attachment_urls,
         first_final_url,
         first_http_status_code,
+        {
+            "removed_navigation_lines": total_removed_navigation_lines,
+            "extraction_method": first_extraction_method,
+            "navigation_removed": navigation_removed,
+        },
     )
 
 
@@ -1309,7 +1802,15 @@ def _ingest_web_source_content(
         crawl_page_limit = _resolve_crawl_page_limit(web_source.metadata_json)
         crawl_all_pages = _resolve_crawl_all_pages(web_source.metadata_json)
         include_attachments = _resolve_include_attachments(web_source.metadata_json)
-        html, extracted_text, crawled_urls, attachment_urls, final_url, http_status_code = _crawl_website(
+        (
+            html,
+            extracted_text,
+            crawled_urls,
+            attachment_urls,
+            final_url,
+            http_status_code,
+            crawl_diagnostics,
+        ) = _crawl_website(
             web_source.base_url,
             crawl_depth=web_source.crawl_depth,
             max_pages=crawl_page_limit,
@@ -1410,6 +1911,9 @@ def _ingest_web_source_content(
                 "include_attachments": include_attachments,
                 "attachment_files": attachment_files,
                 "attachment_file_count": len(attachment_files),
+                "extraction_method": crawl_diagnostics.get("extraction_method"),
+                "navigation_removed": crawl_diagnostics.get("navigation_removed"),
+                "removed_navigation_lines": crawl_diagnostics.get("removed_navigation_lines"),
             },
         )
         db.add(document)
@@ -1438,6 +1942,9 @@ def _ingest_web_source_content(
             "include_attachments": include_attachments,
             "attachment_files": attachment_files,
             "attachment_file_count": len(attachment_files),
+            "extraction_method": crawl_diagnostics.get("extraction_method"),
+            "navigation_removed": crawl_diagnostics.get("navigation_removed"),
+            "removed_navigation_lines": crawl_diagnostics.get("removed_navigation_lines"),
         }
         for version in document.versions:
             version.is_active = False
@@ -1496,6 +2003,12 @@ def _ingest_web_source_content(
         chunk_text = str(chunk_item["text"] or "")
         chunk_url = str(chunk_item["url"] or web_source.base_url)
         section_title = str(chunk_item["section_title"] or web_source.name)
+        page_title = str(chunk_item.get("page_title") or web_source.name)
+        chunk_final_url = str(chunk_item.get("final_url") or chunk_url)
+        extraction_method = str(chunk_item.get("extraction_method") or crawl_diagnostics.get("extraction_method") or "")
+        navigation_removed = str(
+            chunk_item.get("navigation_removed") or crawl_diagnostics.get("navigation_removed") or ""
+        )
         embedding = generate_embedding(db, f"{section_title}\n{chunk_text}")
         if _embedding_generated(embedding):
             embedding_count += 1
@@ -1514,6 +2027,11 @@ def _ingest_web_source_content(
                     "sourceType": "website",
                     "web_source_id": str(web_source.id),
                     "url": chunk_url,
+                    "page_title": page_title,
+                    "final_url": chunk_final_url,
+                    "section_title": section_title,
+                    "extraction_method": extraction_method or None,
+                    "navigation_removed": navigation_removed.lower() == "true",
                 },
                 embedding=embedding,
                 token_count=len(chunk_text.split()),
@@ -1565,6 +2083,9 @@ def _ingest_web_source_content(
         "include_attachments": include_attachments,
         "attachment_files": attachment_files,
         "attachment_file_count": len(attachment_files),
+        "extraction_method": crawl_diagnostics.get("extraction_method"),
+        "navigation_removed": crawl_diagnostics.get("navigation_removed"),
+        "removed_navigation_lines": crawl_diagnostics.get("removed_navigation_lines"),
     }
     job.status = version.status
     job.current_step = "failed" if version.status == "failed" else "completed"
