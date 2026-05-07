@@ -1126,6 +1126,21 @@ def run_final_chat_pipeline(
             if guardrail_eval.get("requiresWarningNotice"):
                 warnings.append("최신 기준이나 공고 조건에 따라 결과가 달라질 수 있으므로 담당 부서 확인이 필요합니다.")
             outcome = "answered"
+        elif _is_overview_business_question(body.question) and has_referenceable_candidates:
+            extractive_answer = _build_extractive_answer_from_candidates(
+                question=body.question,
+                candidates=prompt_candidates,
+                citation_display_mode=answer_settings.answer_format.citation_display_mode,
+            )
+            if extractive_answer:
+                outcome = "answered"
+                answer_text = extractive_answer
+                warnings.append("자동 생성 답변 대신 확인된 근거에서 주요사업 목록을 추출해 안내했습니다.")
+            else:
+                fallback = build_fallback_response(policy_decision=policy_decision, answer_settings=answer_settings)
+                outcome = fallback["outcome"] if fallback["outcome"] != "answered" else "escalate"
+                answer_text = fallback["text"]
+                warnings = fallback.get("warnings", [])
         elif llm_error_code and has_referenceable_candidates:
             extractive_answer = _build_extractive_answer_from_candidates(
                 question=body.question,

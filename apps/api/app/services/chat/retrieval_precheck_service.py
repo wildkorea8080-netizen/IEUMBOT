@@ -28,8 +28,11 @@ TOKEN_SPLIT_REGEX = re.compile(r"[^0-9A-Za-z가-힣]+")
 DEFAULT_RETRIEVAL_THRESHOLD = 0.55
 WEBSITE_RETRIEVAL_THRESHOLD = 0.28
 DOCUMENT_RETRIEVAL_THRESHOLD = 0.32
+OVERVIEW_WEBSITE_RETRIEVAL_THRESHOLD = 0.24
+OVERVIEW_DOCUMENT_RETRIEVAL_THRESHOLD = 0.28
 FAQ_RETRIEVAL_THRESHOLD = 0.25
 TOP1_RESCUE_SCORE = 0.30
+OVERVIEW_TOP1_RESCUE_SCORE = 0.25
 MAX_PROMPT_CHUNKS = 5
 MAX_CHUNKS_PER_KNOWLEDGE_ITEM = 2
 MAX_CHUNKS_PER_SOURCE_URL = 2
@@ -67,6 +70,8 @@ OFFICIAL_POLICY_CHUNK_TERMS = (
 )
 TOPIC_ALIGNMENT_BOOST = 0.18
 TOPIC_MISMATCH_PENALTY = 0.18
+OVERVIEW_CHUNK_BOOST = 0.15
+OVERVIEW_ABOUT_PAGE_BOOST = 0.08
 BUSINESS_REPORT_QUERY_TERMS = ("사업신고", "신고업무", "변경신고", "사업계획 신고")
 BUSINESS_REPORT_CHUNK_TERMS = (
     "사업신고",
@@ -90,6 +95,51 @@ EDUCATION_CHUNK_TERMS = (
 )
 CONTACT_QUERY_TERMS_FOR_TOPIC = ("연락처", "전화", "전화번호", "문의처", "담당자", "담당부서")
 CONTACT_CHUNK_TERMS_FOR_TOPIC = ("문의처", "연락처", "전화", "전화번호", "담당자", "담당부서", "담당")
+OVERVIEW_QUERY_TERMS = (
+    "소개",
+    "주요 사업",
+    "주요사업",
+    "무슨 사업",
+    "어떤 사업",
+    "사업 소개",
+    "기관 소개",
+    "무엇을 하는",
+    "서비스 소개",
+    "지원 사업",
+    "지원사업",
+    "역할",
+    "업무",
+)
+OVERVIEW_CHUNK_TERMS = (
+    "사업개요",
+    "주요사업",
+    "지원사업",
+    "기관소개",
+    "사업목적",
+    "운영목적",
+    "설립목적",
+    "서비스소개",
+    "지원내용",
+    "사업대상",
+    "추진배경",
+)
+OVERVIEW_EXPECTED_CONTENT_TERMS = (
+    "우리나라는 매년",
+    "해외농업개발서비스 홈페이지에 오신 것을 환영합니다",
+    "인력양성",
+    "해외인턴",
+    "민간환경조사",
+    "해외농업개척조사",
+    "융자지원",
+    "국내반입 및 투자촉진",
+)
+OVERVIEW_ABOUT_PAGE_TERMS = (
+    "main",
+    "about",
+    "intro",
+    "greeting",
+    "기관소개",
+)
 logger = logging.getLogger(__name__)
 URL_MARKER_REGEX = re.compile(r"\[URL\]\s+(https?://\S+)", re.IGNORECASE)
 CONTACT_QUERY_TERMS = {"연락처", "전화", "전화번호", "문의처", "담당자", "담당부서"}
@@ -314,13 +364,22 @@ def _is_faq_candidate(item: dict[str, Any]) -> bool:
     return "faq" in haystack or "자주" in haystack
 
 
-def _dynamic_threshold_for_candidate(item: dict[str, Any]) -> float:
+def _is_overview_query(question_text: str) -> tuple[bool, list[str]]:
+    matched = [term for term in OVERVIEW_QUERY_TERMS if term in question_text]
+    return bool(matched), matched
+
+
+def _dynamic_threshold_for_candidate(item: dict[str, Any], *, overview_query: bool = False) -> float:
     if _is_faq_candidate(item):
         return FAQ_RETRIEVAL_THRESHOLD
     source_type = str(item.get("sourceType") or "").lower()
     if source_type == "website":
+        if overview_query:
+            return OVERVIEW_WEBSITE_RETRIEVAL_THRESHOLD
         return WEBSITE_RETRIEVAL_THRESHOLD
     if source_type in {"document", "file", "text"}:
+        if overview_query:
+            return OVERVIEW_DOCUMENT_RETRIEVAL_THRESHOLD
         return DOCUMENT_RETRIEVAL_THRESHOLD
     return _get_retrieval_threshold()
 
@@ -335,7 +394,9 @@ def _policy_keyword_boost(question_text: str, chunk_text: str) -> tuple[float, l
     return POLICY_KEYWORD_BOOST, matched
 
 
-def _noise_section_penalty(text: str) -> tuple[float, list[str]]:
+def _noise_section_penalty(text: str, *, overview_query: bool = False) -> tuple[float, list[str]]:
+    if overview_query and "홈페이지에 오신 것을 환영합니다" in text:
+        return 0.0, []
     lowered = text.lower()
     matched = [term for term in NOISE_SECTION_TERMS if term.lower() in lowered]
     if not matched:
@@ -351,6 +412,23 @@ def _official_policy_boost(question_text: str, chunk_text: str) -> tuple[float, 
     if not matched:
         return 0.0, []
     return OFFICIAL_POLICY_BOOST, matched
+
+
+def _overview_boost(question_text: str, chunk_text: str, location_text: str) -> tuple[float, list[str], float, list[str]]:
+    overview_query, _ = _is_overview_query(question_text)
+    if not overview_query:
+        return 0.0, [], 0.0, []
+
+    matched_chunk_terms = [term for term in OVERVIEW_CHUNK_TERMS if term in chunk_text]
+    matched_expected_terms = [term for term in OVERVIEW_EXPECTED_CONTENT_TERMS if term in chunk_text]
+    overview_terms = sorted(set(matched_chunk_terms + matched_expected_terms))
+    chunk_boost = OVERVIEW_CHUNK_BOOST if overview_terms else 0.0
+
+    location_lowered = location_text.lower()
+    about_terms = [term for term in OVERVIEW_ABOUT_PAGE_TERMS if term.lower() in location_lowered]
+    about_boost = OVERVIEW_ABOUT_PAGE_BOOST if about_terms else 0.0
+
+    return chunk_boost, overview_terms, about_boost, sorted(set(about_terms))
 
 
 def _topic_quality_adjustment(question_text: str, chunk_text: str) -> tuple[float, list[str], float, list[str]]:
@@ -422,6 +500,10 @@ def _empty_retrieval_output(
         "keywordBoostApplied": False,
         "noisePenaltyApplied": False,
         "policyBoostApplied": False,
+        "overviewBoostApplied": False,
+        "overviewTerms": [],
+        "overviewThreshold": None,
+        "overviewRescued": False,
         "finalPromptChunkCount": 0,
         "queryEmbeddingGenerated": query_embedding_generated,
         "queryEmbeddingLength": query_embedding_length,
@@ -463,7 +545,8 @@ def _apply_prompt_selection(
     *,
     threshold: float,
     prompt_limit: int,
-) -> tuple[list[dict[str, Any]], bool, bool, bool]:
+    overview_query: bool = False,
+) -> tuple[list[dict[str, Any]], bool, bool, bool, bool]:
     prompt_candidates: list[dict[str, Any]] = []
     per_knowledge_item: dict[str, int] = {}
     per_source_url: dict[str, int] = {}
@@ -471,18 +554,23 @@ def _apply_prompt_selection(
     source_diversity_applied = False
     section_diversity_applied = False
     rescued_by_top1_rule = False
+    overview_rescued = False
+    rescue_score = OVERVIEW_TOP1_RESCUE_SCORE if overview_query else TOP1_RESCUE_SCORE
 
     for index, item in enumerate(candidates):
         item["sectionDuplicateSkipped"] = False
         score = float(item.get("combinedScore") or 0.0)
         dynamic_threshold = float(item.get("dynamicThreshold") or threshold)
         threshold_passed = score >= dynamic_threshold
-        rescued = index == 0 and score >= TOP1_RESCUE_SCORE and not threshold_passed
+        rescued = index == 0 and score >= rescue_score and not threshold_passed
         if rescued:
             rescued_by_top1_rule = True
+            if overview_query:
+                overview_rescued = True
         item["thresholdPassed"] = threshold_passed
         item["dynamicThreshold"] = dynamic_threshold
         item["rescuedByTop1Rule"] = rescued
+        item["overviewRescued"] = bool(overview_query and rescued)
         item["usedInPrompt"] = False
         if not threshold_passed and not rescued:
             continue
@@ -514,7 +602,7 @@ def _apply_prompt_selection(
         item["usedInPrompt"] = True
         prompt_candidates.append(item)
 
-    return prompt_candidates, source_diversity_applied, rescued_by_top1_rule, section_diversity_applied
+    return prompt_candidates, source_diversity_applied, rescued_by_top1_rule, section_diversity_applied, overview_rescued
 
 
 def search_relevant_chunks(
@@ -532,6 +620,7 @@ def search_relevant_chunks(
 ) -> dict[str, Any]:
     started_at = time.perf_counter()
     normalized = normalize_query(question)
+    overview_query, overview_query_terms = _is_overview_query(normalized)
     tokens = _normalize_token_variants(_tokenize(normalized))
 
     synonyms = list_active_synonyms(db, organization_id, chatbot_id)
@@ -714,16 +803,25 @@ def search_relevant_chunks(
         noise_text = f"{section_title or ''} {text_preview} {source_url or ''}"
         keyword_boost, boosted_terms = _policy_keyword_boost(normalized, boost_text)
         policy_boost, policy_boost_terms = _official_policy_boost(normalized, boost_text)
+        overview_boost, overview_boost_terms, overview_about_boost, overview_about_terms = _overview_boost(
+            normalized,
+            boost_text,
+            f"{section_title or ''} {source_url or ''}",
+        )
         topic_boost, topic_boost_terms, topic_penalty, topic_penalty_terms = _topic_quality_adjustment(
             normalized,
             noise_text.lower(),
         )
-        noise_penalty, noise_penalty_terms = _noise_section_penalty(noise_text)
+        noise_penalty, noise_penalty_terms = _noise_section_penalty(noise_text, overview_query=overview_query)
         score_before_quality_adjustments = combined_score
         if keyword_boost:
             combined_score = round(min(combined_score + keyword_boost, 1.0), 4)
         if policy_boost:
             combined_score = round(min(combined_score + policy_boost, 1.0), 4)
+        if overview_boost:
+            combined_score = round(min(combined_score + overview_boost, 1.0), 4)
+        if overview_about_boost:
+            combined_score = round(min(combined_score + overview_about_boost, 1.0), 4)
         if topic_boost:
             combined_score = round(min(combined_score + topic_boost, 1.0), 4)
         if noise_penalty:
@@ -757,6 +855,11 @@ def search_relevant_chunks(
                 "policyBoostApplied": bool(policy_boost),
                 "policyBoostValue": policy_boost,
                 "policyBoostTerms": policy_boost_terms,
+                "overviewBoostApplied": bool(overview_boost or overview_about_boost),
+                "overviewBoostValue": round(overview_boost + overview_about_boost, 4),
+                "overviewTerms": sorted(set(overview_boost_terms + overview_about_terms)),
+                "overviewThreshold": None,
+                "overviewRescued": False,
                 "topicBoostApplied": bool(topic_boost),
                 "topicBoostValue": topic_boost,
                 "topicBoostTerms": topic_boost_terms,
@@ -787,7 +890,8 @@ def search_relevant_chunks(
 
     for index, item in enumerate(ranked, start=1):
         item["finalRank"] = index
-        item["dynamicThreshold"] = _dynamic_threshold_for_candidate(item)
+        item["dynamicThreshold"] = _dynamic_threshold_for_candidate(item, overview_query=overview_query)
+        item["overviewThreshold"] = item["dynamicThreshold"] if overview_query else None
         item["rescuedByTop1Rule"] = False
 
     (
@@ -795,14 +899,17 @@ def search_relevant_chunks(
         source_diversity_applied,
         rescued_by_top1_rule,
         section_diversity_applied,
+        overview_rescued,
     ) = _apply_prompt_selection(
         ranked,
         threshold=threshold,
         prompt_limit=MAX_PROMPT_CHUNKS,
+        overview_query=overview_query,
     )
     keyword_boost_applied = any(bool(item.get("keywordBoostApplied")) for item in ranked)
     noise_penalty_applied = any(bool(item.get("noisePenaltyApplied")) for item in ranked)
     policy_boost_applied = any(bool(item.get("policyBoostApplied")) for item in ranked)
+    overview_boost_applied = any(bool(item.get("overviewBoostApplied")) for item in ranked)
     topic_boost_applied = any(bool(item.get("topicBoostApplied")) for item in ranked)
     topic_penalty_applied = any(bool(item.get("topicPenaltyApplied")) for item in ranked)
     noise_penalty_terms = sorted(
@@ -810,6 +917,10 @@ def search_relevant_chunks(
     )
     policy_boost_terms = sorted(
         {term for item in ranked for term in list(item.get("policyBoostTerms") or [])}
+    )
+    overview_terms = sorted(
+        set(overview_query_terms)
+        | {term for item in ranked for term in list(item.get("overviewTerms") or [])}
     )
     topic_boost_terms = sorted(
         {term for item in ranked for term in list(item.get("topicBoostTerms") or [])}
@@ -865,6 +976,10 @@ def search_relevant_chunks(
             "noisePenaltyTerms": noise_penalty_terms,
             "policyBoostApplied": policy_boost_applied,
             "policyBoostTerms": policy_boost_terms,
+            "overviewBoostApplied": overview_boost_applied,
+            "overviewTerms": overview_terms,
+            "overviewThreshold": dynamic_threshold if overview_query else None,
+            "overviewRescued": overview_rescued,
             "topicBoostApplied": topic_boost_applied,
             "topicBoostTerms": topic_boost_terms,
             "topicPenaltyApplied": topic_penalty_applied,
