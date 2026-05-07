@@ -26,8 +26,15 @@ from app.services.embedding_service import coerce_embedding_vector, generate_emb
 
 TOKEN_SPLIT_REGEX = re.compile(r"[^0-9A-Za-z가-힣]+")
 DEFAULT_RETRIEVAL_THRESHOLD = 0.55
+WEBSITE_RETRIEVAL_THRESHOLD = 0.28
+DOCUMENT_RETRIEVAL_THRESHOLD = 0.32
+FAQ_RETRIEVAL_THRESHOLD = 0.25
+TOP1_RESCUE_SCORE = 0.30
 MAX_PROMPT_CHUNKS = 5
 MAX_CHUNKS_PER_KNOWLEDGE_ITEM = 2
+MAX_CHUNKS_PER_SOURCE_URL = 2
+POLICY_KEYWORD_BOOST = 0.12
+POLICY_KEYWORD_BOOST_TERMS = ("융자", "지원", "조건", "신청", "대상", "자부담", "금리", "사업비")
 logger = logging.getLogger(__name__)
 URL_MARKER_REGEX = re.compile(r"\[URL\]\s+(https?://\S+)", re.IGNORECASE)
 CONTACT_QUERY_TERMS = {"연락처", "전화", "전화번호", "문의처", "담당자", "담당부서"}
@@ -240,6 +247,39 @@ def _get_retrieval_threshold() -> float:
     return threshold
 
 
+def _is_faq_candidate(item: dict[str, Any]) -> bool:
+    values = [
+        item.get("sourceType"),
+        item.get("corpusDomain"),
+        item.get("documentName"),
+        item.get("sectionTitle"),
+        item.get("fileName"),
+    ]
+    haystack = " ".join(str(value or "") for value in values).lower()
+    return "faq" in haystack or "자주" in haystack
+
+
+def _dynamic_threshold_for_candidate(item: dict[str, Any]) -> float:
+    if _is_faq_candidate(item):
+        return FAQ_RETRIEVAL_THRESHOLD
+    source_type = str(item.get("sourceType") or "").lower()
+    if source_type == "website":
+        return WEBSITE_RETRIEVAL_THRESHOLD
+    if source_type in {"document", "file", "text"}:
+        return DOCUMENT_RETRIEVAL_THRESHOLD
+    return _get_retrieval_threshold()
+
+
+def _policy_keyword_boost(question_text: str, chunk_text: str) -> tuple[float, list[str]]:
+    query_terms = [term for term in POLICY_KEYWORD_BOOST_TERMS if term in question_text]
+    if not query_terms:
+        return 0.0, []
+    matched = [term for term in query_terms if term in chunk_text]
+    if not matched:
+        return 0.0, []
+    return POLICY_KEYWORD_BOOST, matched
+
+
 def _is_undefined_column_error(exc: Exception) -> bool:
     text = f"{type(exc).__name__} {exc} {getattr(exc, 'orig', '')}".lower()
     return "undefinedcolumn" in text or "undefined column" in text or "does not exist" in text
@@ -273,9 +313,13 @@ def _empty_retrieval_output(
             "chatbotId": chatbot_id,
         },
         "threshold": threshold,
+        "dynamicThreshold": threshold,
         "usedInPromptCount": 0,
         "sourceDiversityApplied": False,
         "fallbackReason": fallback_reason,
+        "rescuedByTop1Rule": False,
+        "keywordBoostApplied": False,
+        "finalPromptChunkCount": 0,
         "queryEmbeddingGenerated": query_embedding_generated,
         "queryEmbeddingLength": query_embedding_length,
         "queryEmbeddingType": query_embedding_type,
@@ -316,17 +360,25 @@ def _apply_prompt_selection(
     *,
     threshold: float,
     prompt_limit: int,
-) -> tuple[list[dict[str, Any]], bool]:
+) -> tuple[list[dict[str, Any]], bool, bool]:
     prompt_candidates: list[dict[str, Any]] = []
     per_knowledge_item: dict[str, int] = {}
+    per_source_url: dict[str, int] = {}
     source_diversity_applied = False
+    rescued_by_top1_rule = False
 
-    for item in candidates:
+    for index, item in enumerate(candidates):
         score = float(item.get("combinedScore") or 0.0)
-        threshold_passed = score >= threshold
+        dynamic_threshold = float(item.get("dynamicThreshold") or threshold)
+        threshold_passed = score >= dynamic_threshold
+        rescued = index == 0 and score >= TOP1_RESCUE_SCORE and not threshold_passed
+        if rescued:
+            rescued_by_top1_rule = True
         item["thresholdPassed"] = threshold_passed
+        item["dynamicThreshold"] = dynamic_threshold
+        item["rescuedByTop1Rule"] = rescued
         item["usedInPrompt"] = False
-        if not threshold_passed:
+        if not threshold_passed and not rescued:
             continue
 
         knowledge_item_id = str(item.get("documentId") or "")
@@ -334,14 +386,20 @@ def _apply_prompt_selection(
         if used_count >= MAX_CHUNKS_PER_KNOWLEDGE_ITEM:
             source_diversity_applied = True
             continue
+        source_url = str(item.get("sourceUrl") or item.get("documentId") or "")
+        source_used_count = per_source_url.get(source_url, 0)
+        if source_used_count >= MAX_CHUNKS_PER_SOURCE_URL:
+            source_diversity_applied = True
+            continue
         if len(prompt_candidates) >= prompt_limit:
             continue
 
         per_knowledge_item[knowledge_item_id] = used_count + 1
+        per_source_url[source_url] = source_used_count + 1
         item["usedInPrompt"] = True
         prompt_candidates.append(item)
 
-    return prompt_candidates, source_diversity_applied
+    return prompt_candidates, source_diversity_applied, rescued_by_top1_rule
 
 
 def search_relevant_chunks(
@@ -536,6 +594,11 @@ def search_relevant_chunks(
             version=version,
             source_url=source_url,
         )
+        text_preview = (chunk.text_content or "")[:1200]
+        boost_text = f"{section_title or ''} {text_preview}".lower()
+        keyword_boost, boosted_terms = _policy_keyword_boost(normalized, boost_text)
+        if keyword_boost:
+            combined_score = round(min(combined_score + keyword_boost, 1.0), 4)
 
         collected.append(
             {
@@ -556,13 +619,16 @@ def search_relevant_chunks(
                 "keywordScore": keyword_score,
                 "vectorScore": vector_score,
                 "combinedScore": combined_score,
+                "keywordBoostApplied": bool(keyword_boost),
+                "keywordBoostValue": keyword_boost,
+                "keywordBoostTerms": boosted_terms,
                 "isPinned": is_pinned,
                 "matchedKeywords": matched_keywords,
                 "matchedBoostRuleIds": [str(rule.id) for rule in matched_boost_rules],
                 "matchedPinRuleIds": [str(rule.id) for rule in matched_pin_rules],
                 "contentSignals": {
                     "sectionTitle": section_title or "",
-                    "textPreview": (chunk.text_content or "")[:1200],
+                    "textPreview": text_preview,
                 },
             }
         )
@@ -574,19 +640,24 @@ def search_relevant_chunks(
 
     for index, item in enumerate(ranked, start=1):
         item["finalRank"] = index
+        item["dynamicThreshold"] = _dynamic_threshold_for_candidate(item)
+        item["rescuedByTop1Rule"] = False
 
-    prompt_candidates, source_diversity_applied = _apply_prompt_selection(
+    prompt_candidates, source_diversity_applied, rescued_by_top1_rule = _apply_prompt_selection(
         ranked,
         threshold=threshold,
         prompt_limit=MAX_PROMPT_CHUNKS,
     )
+    keyword_boost_applied = any(bool(item.get("keywordBoostApplied")) for item in ranked)
+    dynamic_threshold = min((float(item.get("dynamicThreshold") or threshold) for item in ranked), default=threshold)
 
     return {
         "normalizedQuery": normalized,
         "expandedTokens": expanded_tokens,
         "candidates": ranked,
         "promptCandidates": prompt_candidates,
-        "retrievalThreshold": threshold,
+        "retrievalThreshold": dynamic_threshold,
+        "baseRetrievalThreshold": threshold,
         "usedInPromptCount": len(prompt_candidates),
         "retrievedCount": len(ranked),
         "sourceDiversityApplied": source_diversity_applied,
@@ -609,8 +680,12 @@ def search_relevant_chunks(
                 "chatbotId": chatbot_id,
             },
             "threshold": threshold,
+            "dynamicThreshold": dynamic_threshold,
             "usedInPromptCount": len(prompt_candidates),
             "sourceDiversityApplied": source_diversity_applied,
+            "rescuedByTop1Rule": rescued_by_top1_rule,
+            "keywordBoostApplied": keyword_boost_applied,
+            "finalPromptChunkCount": len(prompt_candidates),
             "queryEmbeddingGenerated": True,
             "queryEmbeddingLength": query_embedding_length,
             "queryEmbeddingType": query_embedding_type,
