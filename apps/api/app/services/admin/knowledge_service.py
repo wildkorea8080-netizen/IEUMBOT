@@ -10,7 +10,7 @@ from html.parser import HTMLParser
 from io import BytesIO
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.parse import urldefrag, urljoin, urlparse
+from urllib.parse import quote, unquote, urldefrag, urljoin, urlparse
 from urllib.request import HTTPSHandler, ProxyHandler, Request, build_opener
 from xml.etree import ElementTree as ET
 from zipfile import BadZipFile, ZipFile
@@ -81,6 +81,18 @@ SKIP_FILE_EXTENSIONS = {
     ".svg",
     ".webp",
     ".zip",
+}
+CRAWL_EXCLUDED_FILE_EXTENSIONS = {
+    ".hwp",
+    ".hwpx",
+    ".pdf",
+    ".zip",
+    ".xls",
+    ".xlsx",
+    ".doc",
+    ".docx",
+    ".ppt",
+    ".pptx",
 }
 ATTACHMENT_FILE_EXTENSIONS = {
     ".pdf",
@@ -573,7 +585,9 @@ def _generate_chunk_embedding(
     error_counts: dict[str, int],
 ) -> list[float] | None:
     try:
-        return generate_embedding_or_raise(db, text)
+        embedding = generate_embedding_or_raise(db, text)
+        logger.info("[EMBEDDING] chunk_id=%s status=success", chunk_ref)
+        return embedding
     except EmbeddingFailure as exc:
         error_counts[exc.error_code] = error_counts.get(exc.error_code, 0) + 1
         logger.error(
@@ -767,6 +781,8 @@ def _fetch_website_page(url: str) -> tuple[str, str, list[str], str, int | None,
     extractor.feed(html)
     text = extractor.get_text()
     redirect_url = _detect_client_redirect_url(html, base_url=final_url or url) if not text else None
+    if redirect_url and redirect_url != final_url:
+        redirect_url = _normalize_crawl_url(final_url or url, redirect_url)
     if redirect_url and redirect_url != final_url:
         html, final_url, http_status_code = _fetch_website_page_once(redirect_url)
         extractor = _HTMLTextExtractor()
@@ -1018,7 +1034,7 @@ def _ingest_document_version_content(
     version.processed_at = now
     version.embedding_count = embedding_count
     logger.info(
-        "[EMBEDDING] requested_chunks=%s success=%s failed=%s",
+        "[EMBEDDING] requested=%s success=%s failed=%s",
         len(chunks),
         embedding_count,
         len(chunks) - embedding_count,
@@ -1188,7 +1204,14 @@ def _sync_web_source_attachment_documents(
 
 def _guess_file_type_from_url(url: str) -> str:
     path = (urlparse(url).path or "").lower()
-    return Path(path).suffix.lower()
+    suffix = Path(path).suffix.lower()
+    if suffix in ATTACHMENT_FILE_EXTENSIONS or suffix in ATTACHMENT_MIME_HINTS:
+        return suffix
+    decoded_query = unquote(urlparse(url).query or "").lower()
+    for extension in ATTACHMENT_FILE_EXTENSIONS:
+        if extension in decoded_query:
+            return extension
+    return suffix
 
 
 def _guess_file_name_from_url(url: str) -> str:
@@ -1204,6 +1227,10 @@ def _guess_mime_type_from_name(name: str | None) -> str:
 
 def _is_attachment_url(url: str) -> bool:
     return _guess_file_type_from_url(url) in ATTACHMENT_FILE_EXTENSIONS
+
+
+def _is_crawl_excluded_file_url(url: str) -> bool:
+    return _guess_file_type_from_url(url) in CRAWL_EXCLUDED_FILE_EXTENSIONS
 
 
 def _strip_binary_noise(value: str) -> str:
@@ -1529,15 +1556,22 @@ def _resolve_include_attachments(metadata: dict | None) -> bool:
 
 
 def _normalize_crawl_url(base_url: str, href: str) -> str | None:
-    absolute = urljoin(base_url, href)
+    raw_href = str(href or "").strip()
+    if not raw_href or raw_href.startswith(("javascript:", "mailto:", "tel:")):
+        return None
+    absolute = urljoin(base_url, raw_href)
     absolute, _fragment = urldefrag(absolute)
     parsed = urlparse(absolute)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         return None
+    safe_path = quote(unquote(parsed.path or "/"), safe="/:@!$&'()*+,;=%")
+    safe_query = quote(unquote(parsed.query or ""), safe="=&?/:@!$'()*+,;,%")
+    parsed = parsed._replace(path=safe_path, query=safe_query, fragment="")
+    absolute = parsed.geturl()
     lowered_path = parsed.path.lower()
     if any(lowered_path.endswith(ext) for ext in SKIP_FILE_EXTENSIONS):
         return None
-    if any(lowered_path.endswith(ext) for ext in ATTACHMENT_FILE_EXTENSIONS):
+    if _is_crawl_excluded_file_url(absolute):
         return absolute
     return absolute
 
@@ -1604,6 +1638,7 @@ def _crawl_website(
     total_removed_navigation_lines = 0
     first_extraction_method: str | None = None
     navigation_removed = False
+    crawl_errors: list[str] = []
 
     max_depth = FULL_SITE_CRAWL_DEPTH if crawl_all_pages else max(0, crawl_depth)
     page_limit = max(1, min(max_pages, MAX_CRAWL_PAGE_LIMIT))
@@ -1613,23 +1648,31 @@ def _crawl_website(
         if current_url in visited:
             continue
         visited.add(current_url)
+        if _is_crawl_excluded_file_url(current_url):
+            logger.info("[CRAWL_SKIP] url=%s reason=attachment_or_invalid_url", current_url)
+            continue
         if not _same_domain(current_url, root_hostname):
             continue
         current_path = urlparse(current_url).path or "/"
         if any(current_path.startswith(path) for path in normalized_excluded):
             continue
 
-        (
-            html,
-            text,
-            links,
-            final_url,
-            http_status_code,
-            page_title,
-            extraction_method,
-            page_navigation_removed,
-            removed_navigation_lines,
-        ) = _fetch_website_page(current_url)
+        try:
+            (
+                html,
+                text,
+                links,
+                final_url,
+                http_status_code,
+                page_title,
+                extraction_method,
+                page_navigation_removed,
+                removed_navigation_lines,
+            ) = _fetch_website_page(current_url)
+        except Exception as exc:  # noqa: BLE001
+            crawl_errors.append(f"{current_url}: {exc}")
+            logger.warning("[CRAWL_ERROR] url=%s error=%s", current_url, exc)
+            continue
         if first_final_url is None:
             first_final_url = final_url
         if first_http_status_code is None:
@@ -1671,17 +1714,18 @@ def _crawl_website(
         for href in links:
             normalized = _normalize_crawl_url(current_url, href)
             if not normalized or normalized in visited:
+                if href and not normalized:
+                    logger.info("[CRAWL_SKIP] url=%s reason=attachment_or_invalid_url", href)
                 continue
             if not _same_domain(normalized, root_hostname):
                 continue
             normalized_path = urlparse(normalized).path or "/"
             if any(normalized_path.startswith(path) for path in normalized_excluded):
                 continue
-            if _is_attachment_url(normalized):
+            if _is_crawl_excluded_file_url(normalized):
                 if normalized not in attachment_seen:
                     attachment_seen.add(normalized)
-                    if include_attachments:
-                        attachment_urls.append(normalized)
+                    logger.info("[CRAWL_SKIP] url=%s reason=attachment_or_invalid_url", normalized)
                 continue
             queue.append((normalized, depth + 1))
 
@@ -1696,6 +1740,8 @@ def _crawl_website(
             "removed_navigation_lines": total_removed_navigation_lines,
             "extraction_method": first_extraction_method,
             "navigation_removed": navigation_removed,
+            "crawl_error_count": len(crawl_errors),
+            "crawl_errors": "; ".join(crawl_errors[:10]),
         },
     )
 
@@ -1909,14 +1955,15 @@ def _ingest_web_source_content(
     attachment_files, attachment_text_blocks = (
         _collect_attachment_contents(attachment_urls) if include_attachments else ([], [])
     )
-    _sync_web_source_attachment_documents(
-        db,
-        organization_id=organization_id,
-        chatbot_id=chatbot_id,
-        web_source=web_source,
-        web_metadata=dict(web_source.metadata_json or {}),
-        attachment_items=attachment_files,
-    )
+    if attachment_files:
+        _sync_web_source_attachment_documents(
+            db,
+            organization_id=organization_id,
+            chatbot_id=chatbot_id,
+            web_source=web_source,
+            web_metadata=dict(web_source.metadata_json or {}),
+            attachment_items=attachment_files,
+        )
     attachment_files = _serialize_attachment_items(attachment_files)
     combined_text = extracted_text.strip()
     if attachment_text_blocks:
@@ -1973,6 +2020,8 @@ def _ingest_web_source_content(
                 "extraction_method": crawl_diagnostics.get("extraction_method"),
                 "navigation_removed": crawl_diagnostics.get("navigation_removed"),
                 "removed_navigation_lines": crawl_diagnostics.get("removed_navigation_lines"),
+                "crawl_error_count": crawl_diagnostics.get("crawl_error_count"),
+                "crawl_errors": crawl_diagnostics.get("crawl_errors"),
             },
         )
         db.add(document)
@@ -2004,6 +2053,8 @@ def _ingest_web_source_content(
             "extraction_method": crawl_diagnostics.get("extraction_method"),
             "navigation_removed": crawl_diagnostics.get("navigation_removed"),
             "removed_navigation_lines": crawl_diagnostics.get("removed_navigation_lines"),
+            "crawl_error_count": crawl_diagnostics.get("crawl_error_count"),
+            "crawl_errors": crawl_diagnostics.get("crawl_errors"),
         }
         db.flush()
 
@@ -2111,7 +2162,7 @@ def _ingest_web_source_content(
     version.embedding_count = embedding_count
     web_source.embedding_count = embedding_count
     logger.info(
-        "[EMBEDDING] requested_chunks=%s success=%s failed=%s",
+        "[EMBEDDING] requested=%s success=%s failed=%s",
         len(chunks),
         embedding_count,
         len(chunks) - embedding_count,
@@ -2174,6 +2225,8 @@ def _ingest_web_source_content(
         "extraction_method": crawl_diagnostics.get("extraction_method"),
         "navigation_removed": crawl_diagnostics.get("navigation_removed"),
         "removed_navigation_lines": crawl_diagnostics.get("removed_navigation_lines"),
+        "crawl_error_count": crawl_diagnostics.get("crawl_error_count"),
+        "crawl_errors": crawl_diagnostics.get("crawl_errors"),
     }
     job.status = version.status
     job.current_step = "failed" if version.status == "failed" else "completed"
@@ -2632,6 +2685,20 @@ def _process_reindex_job(principal: AdminPrincipal, knowledge_id: str, job_id: s
             logger.warning("[REINDEX] knowledge_id=%s skipped reason=job_not_queued job_id=%s", knowledge_id, job_id)
             return
         logger.info("[REINDEX] knowledge_id=%s started job_id=%s", knowledge_id, job_id)
+        job.status = "processing"
+        job.current_step = "processing"
+        job.progress_percent = max(int(job.progress_percent or 0), 5)
+        job.started_at = datetime.now(UTC)
+        if job.document_id is not None:
+            document = db.get(Document, job.document_id)
+            if document is not None:
+                document.status = "processing"
+        if job.web_source_id is not None:
+            web_source_for_status = db.get(WebSource, job.web_source_id)
+            if web_source_for_status is not None:
+                web_source_for_status.status = "processing"
+        db.commit()
+        logger.info("[REINDEX] knowledge_id=%s status=processing job_id=%s", knowledge_id, job_id)
 
         if job.document_id is not None:
             doc = ensure_document_in_scope(db, principal=principal, document_id=str(job.document_id))
@@ -2686,6 +2753,15 @@ def _process_reindex_job(principal: AdminPrincipal, knowledge_id: str, job_id: s
 
         db.commit()
         completed_job = db.get(IngestionJob, uuid.UUID(job_id)) if job_id else None
+        if completed_job is not None and completed_job.status in {"queued", "processing"}:
+            _mark_reindex_failed(
+                db,
+                job_id=job_id,
+                error_code="REINDEX_INCOMPLETE",
+                error_message="재색인이 완료 상태로 종료되지 않았습니다.",
+            )
+            db.commit()
+            completed_job = db.get(IngestionJob, uuid.UUID(job_id))
         logger.info(
             "[REINDEX] knowledge_id=%s %s",
             knowledge_id,

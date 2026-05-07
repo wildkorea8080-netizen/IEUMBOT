@@ -88,6 +88,13 @@ def generate_embedding_or_raise(db: Session, text: str) -> list[float]:
         raise EmbeddingFailure("OPENAI_API_KEY_MISSING", "OpenAI 임베딩 API 키가 비어 있습니다.")
 
     model = runtime_api.embedding_model or DEFAULT_EMBEDDING_MODEL
+    logger.info(
+        "[EMBEDDING] provider=%s source=%s model=%s api_key_configured=%s",
+        runtime_api.provider,
+        runtime_api.source,
+        model,
+        bool(runtime_api.api_key.strip()),
+    )
     payload: dict[str, Any] = {
         "model": model,
         "input": normalized[:12000],
