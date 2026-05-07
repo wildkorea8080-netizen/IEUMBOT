@@ -231,13 +231,7 @@ export function KnowledgeManagement() {
       const nextDetail = options?.reindexAfterSave ? await reindexKnowledge(detail.id) : response;
       setDetail(nextDetail);
       setEditor(toEditor(nextDetail));
-      setNotice(
-        options?.reindexAfterSave
-          ? `재색인이 완료되었습니다. 마지막 색인: ${
-              nextDetail.lastIndexedAt ? new Date(nextDetail.lastIndexedAt).toLocaleString("ko-KR") : "방금"
-            }`
-          : "저장되었습니다.",
-      );
+      setNotice(options?.reindexAfterSave ? "재색인 요청됨. 상태를 새로고침해 확인하세요." : "저장되었습니다.");
       await load();
     } catch (saveError) {
       setError(getErrorMessage(saveError));
@@ -296,11 +290,7 @@ export function KnowledgeManagement() {
           setDetail(refreshed);
           setEditor(toEditor(refreshed));
         }
-        setNotice(
-          `재색인이 완료되었습니다. 마지막 색인: ${
-            refreshed.lastIndexedAt ? new Date(refreshed.lastIndexedAt).toLocaleString("ko-KR") : "방금"
-          }`,
-        );
+        setNotice("재색인 요청됨. 상태를 새로고침해 확인하세요.");
         await load();
         return;
       }

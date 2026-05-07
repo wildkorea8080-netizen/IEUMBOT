@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, File, Form, Query, Response, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Query, Response, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.api.dependencies.auth import AdminPrincipal, require_institution_admin_auth
@@ -140,10 +140,16 @@ def admin_delete_knowledge(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.post("/knowledge/{knowledge_id}/reindex", response_model=KnowledgeDetailResponse)
+@router.post("/knowledge/{knowledge_id}/reindex", response_model=KnowledgeDetailResponse, status_code=status.HTTP_202_ACCEPTED)
 def admin_reindex_knowledge(
     knowledge_id: str,
+    background_tasks: BackgroundTasks,
     principal: AdminPrincipal = Depends(require_institution_admin_auth),
     db: Session = Depends(get_db_session),
 ) -> KnowledgeDetailResponse:
-    return reindex_knowledge_service(db, principal=principal, knowledge_id=knowledge_id)
+    return reindex_knowledge_service(
+        db,
+        principal=principal,
+        knowledge_id=knowledge_id,
+        background_tasks=background_tasks,
+    )

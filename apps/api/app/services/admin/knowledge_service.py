@@ -17,9 +17,11 @@ from zipfile import BadZipFile, ZipFile
 
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import delete, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.api.dependencies.auth import AdminPrincipal
+from app.db import SessionLocal
 from app.models import Document, DocumentChunk, DocumentVersion, IngestionJob, WebSource
 from app.repositories.admin.knowledge_repository import (
     get_document_knowledge_row,
@@ -43,7 +45,7 @@ from app.services.admin.scope_service import (
     ensure_web_source_in_scope,
     require_institution_organization_id,
 )
-from app.services.embedding_service import generate_embedding
+from app.services.embedding_service import EmbeddingFailure, generate_embedding_or_raise
 
 logger = logging.getLogger(__name__)
 
@@ -562,6 +564,46 @@ def _embedding_generated(embedding: list[float] | None) -> bool:
     return bool(embedding)
 
 
+def _generate_chunk_embedding(
+    db: Session,
+    *,
+    item_id: uuid.UUID,
+    chunk_ref: str,
+    text: str,
+    error_counts: dict[str, int],
+) -> list[float] | None:
+    try:
+        return generate_embedding_or_raise(db, text)
+    except EmbeddingFailure as exc:
+        error_counts[exc.error_code] = error_counts.get(exc.error_code, 0) + 1
+        logger.error(
+            "[EMBEDDING_ERROR] item_id=%s chunk_id=%s error_code=%s error=%s detail=%s",
+            item_id,
+            chunk_ref,
+            exc.error_code,
+            exc.error_message,
+            exc.detail or "",
+        )
+        return None
+    except Exception as exc:  # noqa: BLE001
+        error_counts["EMBEDDING_API_ERROR"] = error_counts.get("EMBEDDING_API_ERROR", 0) + 1
+        logger.exception("[EMBEDDING_ERROR] item_id=%s chunk_id=%s error=%s", item_id, chunk_ref, exc)
+        return None
+
+
+def _summarize_embedding_error(error_counts: dict[str, int]) -> tuple[str, str]:
+    if not error_counts:
+        return "EMBEDDING_EMPTY", "임베딩이 생성되지 않았습니다."
+    error_code = max(error_counts, key=error_counts.get)
+    if error_code == "OPENAI_API_KEY_MISSING":
+        return error_code, "OpenAI 임베딩 API 설정이 없습니다."
+    if error_code == "EMBEDDING_DIMENSION_MISMATCH":
+        return error_code, "임베딩 차원이 DB vector 차원과 다릅니다."
+    if error_code == "VECTOR_SAVE_ERROR":
+        return error_code, "임베딩 벡터를 DB에 저장하지 못했습니다."
+    return error_code, "임베딩 생성 중 오류가 발생했습니다."
+
+
 def _log_knowledge_diag(
     *,
     item_id: uuid.UUID,
@@ -938,8 +980,15 @@ def _ingest_document_version_content(
     document.current_version_id = version.id
 
     embedding_count = 0
+    embedding_error_counts: dict[str, int] = {}
     for index, chunk_text in enumerate(chunks, start=1):
-        embedding = generate_embedding(db, f"{document.title}\n{chunk_text}")
+        embedding = _generate_chunk_embedding(
+            db,
+            item_id=document.id,
+            chunk_ref=f"{document.id}:{index}",
+            text=f"{document.title}\n{chunk_text}",
+            error_counts=embedding_error_counts,
+        )
         if _embedding_generated(embedding):
             embedding_count += 1
         db.add(
@@ -959,10 +1008,21 @@ def _ingest_document_version_content(
                 content_hash=sha256(chunk_text.encode("utf-8")).hexdigest(),
             )
         )
+        try:
+            db.flush()
+        except SQLAlchemyError as exc:
+            logger.exception("[EMBEDDING_ERROR] chunk_id=%s error_code=VECTOR_SAVE_ERROR error=%s", f"{document.id}:{index}", exc)
+            raise
 
     version.file_name = file_name
     version.processed_at = now
     version.embedding_count = embedding_count
+    logger.info(
+        "[EMBEDDING] requested_chunks=%s success=%s failed=%s",
+        len(chunks),
+        embedding_count,
+        len(chunks) - embedding_count,
+    )
     if embedding_count < len(chunks):
         logger.warning(
             "Knowledge embedding count is lower than chunk count: item_id=%s chunk_count=%s embedding_count=%s",
@@ -972,8 +1032,7 @@ def _ingest_document_version_content(
         )
     if embedding_count == 0:
         version.status = "failed"
-        version.error_code = "EMBEDDING_EMPTY"
-        version.error_message = "임베딩이 생성되지 않았습니다."
+        version.error_code, version.error_message = _summarize_embedding_error(embedding_error_counts)
         document.status = "failed"
     else:
         version.status = "completed"
@@ -1946,9 +2005,6 @@ def _ingest_web_source_content(
             "navigation_removed": crawl_diagnostics.get("navigation_removed"),
             "removed_navigation_lines": crawl_diagnostics.get("removed_navigation_lines"),
         }
-        for version in document.versions:
-            version.is_active = False
-        db.execute(delete(DocumentChunk).where(DocumentChunk.document_id == document.id))
         db.flush()
 
     next_version_number = max((version.version_number for version in document.versions), default=0) + 1
@@ -1968,7 +2024,7 @@ def _ingest_web_source_content(
         mime_type="text/html",
         source_type="website",
         corpus_domain="official_website_indexed",
-        is_active=True,
+        is_active=False,
         issuing_department=web_metadata.get("department"),
         status="processing",
         checksum_sha256=content_hash,
@@ -1977,6 +2033,7 @@ def _ingest_web_source_content(
     db.flush()
 
     chunks = _split_website_chunks(combined_text, default_title=web_source.name)
+    logger.info("[WEB_CRAWL] text_length=%s chunk_count=%s", len(combined_text), len(chunks))
     web_source.extracted_text_length = len(combined_text)
     web_source.chunk_count = len(chunks)
     web_source.embedding_count = 0
@@ -1999,6 +2056,7 @@ def _ingest_web_source_content(
         return
 
     embedding_count = 0
+    embedding_error_counts: dict[str, int] = {}
     for index, chunk_item in enumerate(chunks, start=1):
         chunk_text = str(chunk_item["text"] or "")
         chunk_url = str(chunk_item["url"] or web_source.base_url)
@@ -2009,7 +2067,13 @@ def _ingest_web_source_content(
         navigation_removed = str(
             chunk_item.get("navigation_removed") or crawl_diagnostics.get("navigation_removed") or ""
         )
-        embedding = generate_embedding(db, f"{section_title}\n{chunk_text}")
+        embedding = _generate_chunk_embedding(
+            db,
+            item_id=web_source.id,
+            chunk_ref=f"{web_source.id}:{index}",
+            text=f"{section_title}\n{chunk_text}",
+            error_counts=embedding_error_counts,
+        )
         if _embedding_generated(embedding):
             embedding_count += 1
         db.add(
@@ -2038,9 +2102,20 @@ def _ingest_web_source_content(
                 content_hash=sha256(chunk_text.encode("utf-8")).hexdigest(),
             )
         )
+        try:
+            db.flush()
+        except SQLAlchemyError as exc:
+            logger.exception("[EMBEDDING_ERROR] chunk_id=%s error_code=VECTOR_SAVE_ERROR error=%s", f"{web_source.id}:{index}", exc)
+            raise
 
     version.embedding_count = embedding_count
     web_source.embedding_count = embedding_count
+    logger.info(
+        "[EMBEDDING] requested_chunks=%s success=%s failed=%s",
+        len(chunks),
+        embedding_count,
+        len(chunks) - embedding_count,
+    )
     if embedding_count < len(chunks):
         logger.warning(
             "Knowledge embedding count is lower than chunk count: item_id=%s chunk_count=%s embedding_count=%s",
@@ -2050,8 +2125,9 @@ def _ingest_web_source_content(
         )
     if embedding_count == 0:
         version.status = "failed"
-        version.error_code = "EMBEDDING_EMPTY"
-        version.error_message = "임베딩이 생성되지 않았습니다."
+        version.error_code, version.error_message = _summarize_embedding_error(embedding_error_counts)
+        version.is_active = False
+        db.execute(delete(DocumentChunk).where(DocumentChunk.document_version_id == version.id))
         web_source.status = "failed"
         web_source.last_error_code = version.error_code
         web_source.last_error_message = version.error_message
@@ -2059,13 +2135,23 @@ def _ingest_web_source_content(
         version.status = "completed"
         version.error_code = None
         version.error_message = None
+        version.is_active = True
+        for previous_version in document.versions:
+            if previous_version.id != version.id:
+                previous_version.is_active = False
+        db.execute(
+            delete(DocumentChunk)
+            .where(DocumentChunk.document_id == document.id)
+            .where(DocumentChunk.document_version_id != version.id)
+        )
         web_source.status = "active"
         web_source.last_error_code = None
         web_source.last_error_message = None
     version.processed_at = now
-    document.current_version_id = version.id
+    if version.status == "completed":
+        document.current_version_id = version.id
     document.processed_at = now
-    document.status = "active" if version.status == "completed" else "failed"
+    document.status = "active" if version.status == "completed" else document.status
     web_source.last_synced_at = now
     web_source.metadata_json = {
         **web_metadata,
@@ -2074,6 +2160,8 @@ def _ingest_web_source_content(
         "extracted_text_length": len(combined_text),
         "indexed_chunk_count": len(chunks),
         "embedding_count": embedding_count,
+        "error_code": version.error_code,
+        "error_message": version.error_message,
         "crawled_urls": crawled_urls,
         "crawled_page_count": len(crawled_urls),
         "final_url": final_url or web_source.base_url,
@@ -2494,11 +2582,142 @@ def delete_knowledge_service(
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="KNOWLEDGE_NOT_FOUND")
 
 
+def _mark_reindex_failed(
+    db: Session,
+    *,
+    job_id: str,
+    error_code: str,
+    error_message: str,
+) -> None:
+    job = db.get(IngestionJob, uuid.UUID(job_id))
+    if job is None:
+        return
+    now = datetime.now(UTC)
+    job.status = "failed"
+    job.current_step = "failed"
+    job.progress_percent = 100
+    job.error_code = error_code
+    job.error_message = error_message
+    job.finished_at = now
+    if job.web_source_id is not None:
+        web_source = db.get(WebSource, job.web_source_id)
+        if web_source is not None:
+            web_source.status = "failed"
+            web_source.last_synced_at = now
+            web_source.last_error_code = error_code
+            web_source.last_error_message = error_message
+    if job.document_version_id is not None:
+        version = db.get(DocumentVersion, job.document_version_id)
+        if version is not None:
+            version.status = "failed"
+            version.error_code = error_code
+            version.error_message = error_message
+            version.processed_at = now
+    if job.document_id is not None:
+        document = db.get(Document, job.document_id)
+        if document is not None:
+            document.status = "failed"
+            document.processed_at = now
+
+
+def _process_reindex_job(principal: AdminPrincipal, knowledge_id: str, job_id: str) -> None:
+    db = SessionLocal()
+    try:
+        organization_id = require_institution_organization_id(principal)
+        job = db.get(IngestionJob, uuid.UUID(job_id))
+        if job is None:
+            logger.warning("[REINDEX] knowledge_id=%s skipped reason=queued_job_not_found", knowledge_id)
+            return
+        if str(job.organization_id) != organization_id or job.status != "queued":
+            logger.warning("[REINDEX] knowledge_id=%s skipped reason=job_not_queued job_id=%s", knowledge_id, job_id)
+            return
+        logger.info("[REINDEX] knowledge_id=%s started job_id=%s", knowledge_id, job_id)
+
+        if job.document_id is not None:
+            doc = ensure_document_in_scope(db, principal=principal, document_id=str(job.document_id))
+            version = db.get(DocumentVersion, job.document_version_id) if job.document_version_id else None
+            if version is None:
+                _mark_reindex_failed(
+                    db,
+                    job_id=job_id,
+                    error_code="DOCUMENT_VERSION_MISSING",
+                    error_message="재색인할 문서 버전을 찾지 못했습니다.",
+                )
+            else:
+                storage_path = _resolve_reindex_storage_path(doc, version)
+                if storage_path is not None:
+                    content_type = version.mime_type
+                    if str(storage_path).endswith(".txt") and not (content_type or "").startswith("text/"):
+                        content_type = "text/plain"
+                    file_bytes = storage_path.read_bytes()
+                else:
+                    rebuilt_text = _rebuild_text_from_existing_chunks(db, doc, version)
+                    content_type = "text/plain"
+                    file_bytes = rebuilt_text.encode("utf-8")
+
+                if file_bytes:
+                    _ingest_document_version_content(
+                        db,
+                        organization_id=organization_id,
+                        chatbot_id=str(doc.chatbot_id),
+                        document=doc,
+                        version=version,
+                        job=job,
+                        file_name=version.file_name,
+                        file_bytes=file_bytes,
+                        content_type=content_type,
+                    )
+                else:
+                    _mark_reindex_failed(
+                        db,
+                        job_id=job_id,
+                        error_code="DOCUMENT_STORAGE_MISSING",
+                        error_message="재색인할 원본 파일, 추출 텍스트 또는 기존 청크를 찾지 못했습니다.",
+                    )
+        elif job.web_source_id is not None:
+            web_source = ensure_web_source_in_scope(db, principal=principal, web_source_id=str(job.web_source_id))
+            _ingest_web_source_content(
+                db,
+                organization_id=organization_id,
+                chatbot_id=str(web_source.chatbot_id),
+                web_source=web_source,
+                job=job,
+            )
+
+        db.commit()
+        completed_job = db.get(IngestionJob, uuid.UUID(job_id)) if job_id else None
+        logger.info(
+            "[REINDEX] knowledge_id=%s %s",
+            knowledge_id,
+            "failed" if completed_job is not None and completed_job.status == "failed" else "completed",
+        )
+    except SQLAlchemyError as exc:
+        db.rollback()
+        logger.exception("[REINDEX] knowledge_id=%s failed error_code=VECTOR_SAVE_ERROR", knowledge_id)
+        if job_id:
+            _mark_reindex_failed(
+                db,
+                job_id=job_id,
+                error_code="VECTOR_SAVE_ERROR",
+                error_message=f"임베딩 벡터 저장 중 DB 오류가 발생했습니다: {exc}",
+            )
+            db.commit()
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        logger.exception("[REINDEX] knowledge_id=%s failed", knowledge_id)
+        if job_id:
+            _mark_reindex_failed(db, job_id=job_id, error_code="REINDEX_FAILED", error_message=str(exc))
+            db.commit()
+    finally:
+        db.close()
+
+
 def reindex_knowledge_service(
     db: Session,
     *,
     principal: AdminPrincipal,
     knowledge_id: str,
+    background_tasks=None,
 ) -> KnowledgeDetailResponse:
     organization_id = require_institution_organization_id(principal)
     document_row = get_document_knowledge_row(db, organization_id=organization_id, knowledge_id=knowledge_id)
@@ -2507,6 +2726,7 @@ def reindex_knowledge_service(
         ensure_document_in_scope(db, principal=principal, document_id=knowledge_id)
         if version is not None:
             version.status = "queued"
+        doc.status = "processing"
         job = IngestionJob(
             organization_id=uuid.UUID(organization_id),
             chatbot_id=doc.chatbot_id,
@@ -2520,50 +2740,17 @@ def reindex_knowledge_service(
             metadata_json={"trigger": "admin_reindex"},
         )
         db.add(job)
-        db.flush()
-        if version is not None:
-            storage_path = _resolve_reindex_storage_path(doc, version)
-            if storage_path is not None:
-                content_type = version.mime_type
-                if str(storage_path).endswith(".txt") and not content_type.startswith("text/"):
-                    content_type = "text/plain"
-                file_bytes = storage_path.read_bytes()
-            else:
-                rebuilt_text = _rebuild_text_from_existing_chunks(db, doc, version)
-                content_type = "text/plain"
-                file_bytes = rebuilt_text.encode("utf-8")
-
-            if file_bytes:
-                _ingest_document_version_content(
-                    db,
-                    organization_id=organization_id,
-                    chatbot_id=str(doc.chatbot_id),
-                    document=doc,
-                    version=version,
-                    job=job,
-                    file_name=version.file_name,
-                    file_bytes=file_bytes,
-                    content_type=content_type,
-                )
-            else:
-                version.status = "failed"
-                version.error_code = "DOCUMENT_STORAGE_MISSING"
-                version.error_message = "재색인할 원본 파일, 추출 텍스트 또는 기존 청크를 찾지 못했습니다."
-                doc.status = "failed"
-                job.status = "failed"
-                job.current_step = "failed"
-                job.progress_percent = 100
-                job.error_code = "DOCUMENT_STORAGE_MISSING"
-                job.error_message = version.error_message
-                job.finished_at = datetime.now(UTC)
         db.commit()
+        logger.info("[REINDEX] knowledge_id=%s queued job_id=%s", knowledge_id, job.id)
+        if background_tasks is not None:
+            background_tasks.add_task(_process_reindex_job, principal, knowledge_id, str(job.id))
         return get_knowledge_service(db, principal=principal, knowledge_id=knowledge_id)
 
     web_source_row = get_web_source_knowledge_row(db, organization_id=organization_id, knowledge_id=knowledge_id)
     if web_source_row is not None:
         web_source, _job = web_source_row
         ensure_web_source_in_scope(db, principal=principal, web_source_id=knowledge_id)
-        web_source.status = "active"
+        web_source.status = "processing"
         job = IngestionJob(
             organization_id=uuid.UUID(organization_id),
             chatbot_id=web_source.chatbot_id,
@@ -2576,23 +2763,10 @@ def reindex_knowledge_service(
             metadata_json={"trigger": "admin_reindex"},
         )
         db.add(job)
-        db.flush()
-        try:
-            _ingest_web_source_content(
-                db,
-                organization_id=organization_id,
-                chatbot_id=str(web_source.chatbot_id),
-                web_source=web_source,
-                job=job,
-            )
-        except Exception as exc:  # noqa: BLE001
-            _set_job_failed(
-                web_source=web_source,
-                job=job,
-                error_code="WEB_SOURCE_REINDEX_FAILED",
-                error_message=str(exc),
-            )
         db.commit()
+        logger.info("[REINDEX] knowledge_id=%s queued job_id=%s", knowledge_id, job.id)
+        if background_tasks is not None:
+            background_tasks.add_task(_process_reindex_job, principal, knowledge_id, str(job.id))
         return get_knowledge_service(db, principal=principal, knowledge_id=knowledge_id)
 
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="KNOWLEDGE_NOT_FOUND")
