@@ -6,6 +6,7 @@ const SUPER_ADMIN_ROUTE_META: Array<{ href: string; meta: RouteMeta }> = [
   { href: "/super-admin/contracts", meta: { title: "계약 관리", breadcrumbs: ["슈퍼관리자", "계약 관리"] } },
   { href: "/super-admin/billing", meta: { title: "결제 관리", breadcrumbs: ["슈퍼관리자", "결제 관리"] } },
   { href: "/super-admin/accounts", meta: { title: "계정 관리", breadcrumbs: ["슈퍼관리자", "계정 관리"] } },
+  { href: "/super-admin/blueprints", meta: { title: "Blueprint", breadcrumbs: ["슈퍼관리자", "Blueprint"] } },
   { href: "/super-admin/api", meta: { title: "API 설정", breadcrumbs: ["슈퍼관리자", "API 설정"] } },
   { href: "/super-admin/api/usage", meta: { title: "API 사용량", breadcrumbs: ["슈퍼관리자", "API 설정", "API 사용량"] } },
   { href: "/super-admin/chatbots", meta: { title: "챗봇 관리", breadcrumbs: ["슈퍼관리자", "챗봇 관리"] } },

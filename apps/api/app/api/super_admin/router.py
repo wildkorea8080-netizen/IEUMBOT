@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 
+from app.api.super_admin.operations_router import router as operations_router
 from app.api.dependencies.auth import AdminPrincipal, require_super_admin_auth
 from app.db import get_db_session
 from app.schemas.billing import (
@@ -162,6 +163,7 @@ from app.services.system_controls_service import (
 )
 
 router = APIRouter(tags=["super-admin"])
+router.include_router(operations_router)
 
 
 @router.get("/ping")

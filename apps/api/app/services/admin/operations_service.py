@@ -1,12 +1,15 @@
 import uuid
 from collections import Counter
 from datetime import UTC, date, datetime, timedelta
+import re
 from urllib.parse import urlparse
 
 from fastapi import HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.dependencies.auth import AdminPrincipal
+from app.models import ChatMessage
 from app.repositories.admin.operations_repository import (
     average_response_time_seconds,
     count_answered_messages,
@@ -44,6 +47,14 @@ from app.schemas.admin_operations import (
     AdminDocumentResponse,
     AdminDocumentsListResponse,
     AdminDocumentUpdateRequest,
+    AdminKnowledgeGapItem,
+    AdminKnowledgeGapResponse,
+    AdminQualityFallbackReasonItem,
+    AdminQualityQuestionItem,
+    AdminQualityReportResponse,
+    AdminRoiDailyTrendItem,
+    AdminRoiDashboardResponse,
+    AdminRoiTopicItem,
     AdminWidgetResponse,
     AdminWidgetUpdateRequest,
 )
@@ -61,6 +72,10 @@ from app.services.settings.answer_settings_service import get_effective_answer_s
 from app.services.widget_install_script import build_widget_install_script
 
 RECOMMENDED_OPENAI_MODELS = {"gpt-4.1-mini", "gpt-4.1"}
+KNOWLEDGE_GAP_LOW_SCORE_THRESHOLD = 0.35
+QUESTION_NORMALIZE_REGEX = re.compile(r"[^0-9A-Za-z가-힣]+")
+ROI_SAVED_MINUTES_PER_AUTO_ANSWER = 5
+ROI_COST_PER_MINUTE_KRW = 500
 
 
 def _validate_uuid(value: str, detail: str) -> str:
@@ -227,6 +242,494 @@ def get_dashboard_recent_chats_service(
             )
         )
     return items
+
+
+def _normalize_quality_date_range(
+    start_date_raw: str | None,
+    end_date_raw: str | None,
+) -> tuple[datetime, datetime]:
+    today = datetime.now(UTC).date()
+    default_start = today - timedelta(days=29)
+    start_date = _parse_date_or_422(start_date_raw, "startDate") if start_date_raw else default_start
+    end_date = _parse_date_or_422(end_date_raw, "endDate") if end_date_raw else today
+    if start_date > end_date:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="INVALID_DATE_RANGE")
+    if (end_date - start_date).days > 92:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="DATE_RANGE_TOO_LARGE")
+    start_dt = datetime.combine(start_date, datetime.min.time(), tzinfo=UTC)
+    end_dt = datetime.combine(end_date + timedelta(days=1), datetime.min.time(), tzinfo=UTC)
+    return start_dt, end_dt
+
+
+def _as_number(value) -> float | None:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    return None
+
+
+def _message_top_score(message: ChatMessage) -> float | None:
+    scores = [
+        _as_number(item.get("combinedScore") or item.get("score"))
+        for item in (message.retrieved_documents or [])
+        if isinstance(item, dict)
+    ]
+    valid_scores = [score for score in scores if score is not None]
+    return max(valid_scores) if valid_scores else None
+
+
+def _message_used_in_prompt_count(message: ChatMessage) -> int | None:
+    documents = [item for item in (message.retrieved_documents or []) if isinstance(item, dict)]
+    if not documents:
+        return 0
+    return sum(1 for item in documents if bool(item.get("usedInPrompt")))
+
+
+def _message_fallback_reason(message: ChatMessage) -> str | None:
+    if message.result_type == "answered":
+        return None
+    final_decision = message.final_decision if isinstance(message.final_decision, dict) else {}
+    validation = message.validation_signals if isinstance(message.validation_signals, dict) else {}
+    reason = (
+        message.escalation_reason
+        or final_decision.get("reason")
+        or validation.get("fallbackReason")
+        or validation.get("reason")
+        or message.result_type
+    )
+    return str(reason) if reason else None
+
+
+def _is_auto_answered_message(message: ChatMessage) -> bool:
+    return message.result_type == "answered" and _message_fallback_reason(message) is None
+
+
+def _is_fallback_or_escalated_message(message: ChatMessage) -> bool:
+    if _message_fallback_reason(message) is not None:
+        return True
+    if message.result_type in {"escalate", "restricted", "conflict", "insufficient_evidence"}:
+        return True
+    return bool(message.escalation_reason or message.escalation_target_department or message.escalation_target_queue)
+
+
+def _get_cached_user_message(
+    db: Session,
+    *,
+    message: ChatMessage,
+    user_cache: dict[str, ChatMessage | None],
+) -> ChatMessage | None:
+    session_id = str(message.session_id)
+    if session_id not in user_cache:
+        user_cache[session_id] = get_latest_user_question_for_session(
+            db,
+            session_id=session_id,
+            before_created_at=message.created_at,
+        )
+    return user_cache[session_id]
+
+
+def _message_latency_ms(
+    db: Session,
+    *,
+    message: ChatMessage,
+    user_cache: dict[str, ChatMessage | None],
+) -> int | None:
+    if isinstance(message.latency_ms, int):
+        return message.latency_ms
+    latest_user = _get_cached_user_message(db, message=message, user_cache=user_cache)
+    if latest_user is None:
+        return None
+    delta = message.created_at - latest_user.created_at
+    return max(0, int(delta.total_seconds() * 1000))
+
+
+def _quality_question_item(
+    db: Session,
+    *,
+    message: ChatMessage,
+    user_cache: dict[str, ChatMessage | None],
+) -> AdminQualityQuestionItem:
+    latest_user = _get_cached_user_message(db, message=message, user_cache=user_cache)
+    selected_sources = [item for item in (message.selected_sources or []) if isinstance(item, dict)]
+    return AdminQualityQuestionItem(
+        created_at=message.created_at.isoformat(),
+        chatbot_id=str(message.chatbot_id),
+        question=latest_user.content if latest_user else None,
+        answer=message.content,
+        outcome=message.result_type,
+        fallback_reason=_message_fallback_reason(message),
+        top_score=_message_top_score(message),
+        retrieved_count=len(message.retrieved_documents or []),
+        used_in_prompt_count=_message_used_in_prompt_count(message),
+        llm_executed=bool(message.model_name),
+        citation_count=len(selected_sources),
+        latency_ms=_message_latency_ms(db, message=message, user_cache=user_cache),
+    )
+
+
+def get_quality_report_service(
+    db: Session,
+    *,
+    principal: AdminPrincipal,
+    chatbot_id: str | None,
+    start_date_raw: str | None,
+    end_date_raw: str | None,
+    fallback_only: bool,
+) -> AdminQualityReportResponse:
+    organization_id = require_institution_organization_id(principal)
+    if chatbot_id:
+        chatbot_id = _validate_uuid(chatbot_id, "CHATBOT_NOT_FOUND")
+        ensure_chatbot_in_scope(db, principal=principal, chatbot_id=chatbot_id)
+
+    start_dt, end_dt = _normalize_quality_date_range(start_date_raw, end_date_raw)
+    stmt = select(ChatMessage).where(
+        ChatMessage.organization_id == organization_id,
+        ChatMessage.role == "assistant",
+        ChatMessage.is_test.is_(False),
+        ChatMessage.created_at >= start_dt,
+        ChatMessage.created_at < end_dt,
+    )
+    if chatbot_id:
+        stmt = stmt.where(ChatMessage.chatbot_id == chatbot_id)
+    if fallback_only:
+        stmt = stmt.where(ChatMessage.result_type != "answered")
+    stmt = stmt.order_by(ChatMessage.created_at.desc()).limit(5000)
+    rows = list(db.execute(stmt).scalars().all())
+
+    total = len(rows)
+    answered_count = sum(1 for row in rows if row.result_type == "answered")
+    fallback_count = total - answered_count
+    top_scores = [score for row in rows if (score := _message_top_score(row)) is not None]
+    retrieved_counts = [len(row.retrieved_documents or []) for row in rows]
+    used_counts = [
+        count
+        for row in rows
+        if (count := _message_used_in_prompt_count(row)) is not None
+    ]
+    user_cache: dict[str, ChatMessage | None] = {}
+    latencies = [
+        latency
+        for row in rows
+        if (latency := _message_latency_ms(db, message=row, user_cache=user_cache)) is not None
+    ]
+    llm_executed_count = sum(1 for row in rows if row.model_name)
+
+    reason_counter: Counter[str] = Counter()
+    for row in rows:
+        reason = _message_fallback_reason(row)
+        if reason:
+            reason_counter[reason] += 1
+
+    failed_rows = [row for row in rows if row.result_type != "answered"][:10]
+    low_score_rows = [
+        row
+        for row in rows
+        if row.result_type == "answered"
+        and (score := _message_top_score(row)) is not None
+        and score < 0.4
+    ][:10]
+    no_citation_rows = [
+        row
+        for row in rows
+        if row.result_type == "answered" and not (row.selected_sources or [])
+    ][:10]
+
+    return AdminQualityReportResponse(
+        total_conversations=total,
+        answered_count=answered_count,
+        fallback_count=fallback_count,
+        fallback_rate=round((fallback_count / total * 100.0) if total else 0.0, 2),
+        avg_latency_ms=round(sum(latencies) / len(latencies), 2) if latencies else None,
+        avg_top_score=round(sum(top_scores) / len(top_scores), 4) if top_scores else None,
+        avg_retrieved_count=round(sum(retrieved_counts) / len(retrieved_counts), 2) if retrieved_counts else None,
+        avg_used_in_prompt_count=round(sum(used_counts) / len(used_counts), 2) if used_counts else None,
+        llm_executed_rate=round((llm_executed_count / total * 100.0) if total else 0.0, 2),
+        top_fallback_reasons=[
+            AdminQualityFallbackReasonItem(reason=reason, count=count)
+            for reason, count in reason_counter.most_common(10)
+        ],
+        recent_failed_questions=[
+            _quality_question_item(db, message=row, user_cache=user_cache)
+            for row in failed_rows
+        ],
+        low_score_questions=[
+            _quality_question_item(db, message=row, user_cache=user_cache)
+            for row in low_score_rows
+        ],
+        no_citation_answers=[
+            _quality_question_item(db, message=row, user_cache=user_cache)
+            for row in no_citation_rows
+        ],
+    )
+
+
+def _normalize_gap_question(value: str) -> str:
+    normalized = QUESTION_NORMALIZE_REGEX.sub(" ", value.strip().lower())
+    return " ".join(normalized.split())
+
+
+def _recommend_knowledge_topic(question: str) -> str:
+    text = question.lower()
+    has_loan = any(term in text for term in ["융자", "대출", "자금", "금리", "담보", "자부담"])
+    if has_loan and any(term in text for term in ["자격", "대상", "누구"]):
+        return "융자지원 자격 요건"
+    if has_loan and any(term in text for term in ["조건", "기준"]):
+        return "융자지원 조건"
+    if has_loan and any(term in text for term in ["서류", "신청서", "제출"]):
+        return "융자지원 신청 서류"
+    if has_loan and any(term in text for term in ["금리", "이자", "상환"]):
+        return "융자지원 금리 및 상환 조건"
+    if has_loan:
+        return "융자지원 안내"
+    if any(term in text for term in ["사업신고", "신고", "변경신고"]):
+        return "해외농업자원개발 사업신고 절차"
+    if any(term in text for term in ["국내반입", "반입"]):
+        return "해외농산물 국내반입 안내"
+    if any(term in text for term in ["투자촉진", "투자"]):
+        return "해외농업 투자촉진 지원"
+    if any(term in text for term in ["해외인턴", "인턴"]):
+        return "해외인턴 지원 자격 및 신청"
+    if any(term in text for term in ["교육", "국제곡물", "전문가"]):
+        return "교육 프로그램 신청 안내"
+    if any(term in text for term in ["문의", "연락처", "전화", "담당"]):
+        return "사업별 문의처 및 담당부서"
+    tokens = _normalize_gap_question(question).split()
+    topic = " ".join(tokens[:4]).strip()
+    return f"{topic} 관련 안내" if topic else "미분류 지식 보강"
+
+
+def _gap_item_from_group(group: dict) -> AdminKnowledgeGapItem:
+    scores = [score for score in group["top_scores"] if score is not None]
+    avg_top_score = round(sum(scores) / len(scores), 4) if scores else None
+    return AdminKnowledgeGapItem(
+        question=group["question"],
+        count=group["count"],
+        fallback_count=group["fallback_count"],
+        avg_top_score=avg_top_score,
+        last_asked_at=group["last_asked_at"].isoformat(),
+        recommended_action="knowledge_update",
+        recommended_topic=_recommend_knowledge_topic(group["question"]),
+    )
+
+
+def get_knowledge_gap_service(
+    db: Session,
+    *,
+    principal: AdminPrincipal,
+    chatbot_id: str | None,
+    start_date_raw: str | None,
+    end_date_raw: str | None,
+) -> AdminKnowledgeGapResponse:
+    organization_id = require_institution_organization_id(principal)
+    if chatbot_id:
+        chatbot_id = _validate_uuid(chatbot_id, "CHATBOT_NOT_FOUND")
+        ensure_chatbot_in_scope(db, principal=principal, chatbot_id=chatbot_id)
+
+    start_dt, end_dt = _normalize_quality_date_range(start_date_raw, end_date_raw)
+    stmt = select(ChatMessage).where(
+        ChatMessage.organization_id == organization_id,
+        ChatMessage.role == "assistant",
+        ChatMessage.is_test.is_(False),
+        ChatMessage.created_at >= start_dt,
+        ChatMessage.created_at < end_dt,
+    )
+    if chatbot_id:
+        stmt = stmt.where(ChatMessage.chatbot_id == chatbot_id)
+    stmt = stmt.order_by(ChatMessage.created_at.desc()).limit(5000)
+    rows = list(db.execute(stmt).scalars().all())
+
+    user_cache: dict[str, ChatMessage | None] = {}
+    groups: dict[str, dict] = {}
+    fallback_keys: set[str] = set()
+    low_score_keys: set[str] = set()
+    prompt_gap_keys: set[str] = set()
+
+    for row in rows:
+        latest_user = _get_cached_user_message(db, message=row, user_cache=user_cache)
+        if latest_user is None or not latest_user.content.strip():
+            continue
+        question = latest_user.content.strip()
+        group_key = _normalize_gap_question(question)
+        if not group_key:
+            continue
+
+        fallback_reason = _message_fallback_reason(row)
+        top_score = _message_top_score(row)
+        used_in_prompt_count = _message_used_in_prompt_count(row)
+        is_fallback_gap = bool(fallback_reason and fallback_reason != "NONE")
+        is_low_score_gap = top_score is not None and top_score < KNOWLEDGE_GAP_LOW_SCORE_THRESHOLD
+        is_prompt_gap = used_in_prompt_count == 0
+        if not (is_fallback_gap or is_low_score_gap or is_prompt_gap):
+            continue
+
+        group = groups.setdefault(
+            group_key,
+            {
+                "question": question,
+                "count": 0,
+                "fallback_count": 0,
+                "top_scores": [],
+                "last_asked_at": row.created_at,
+            },
+        )
+        group["count"] += 1
+        if is_fallback_gap:
+            group["fallback_count"] += 1
+            fallback_keys.add(group_key)
+        if is_low_score_gap:
+            low_score_keys.add(group_key)
+        if is_prompt_gap:
+            prompt_gap_keys.add(group_key)
+        if top_score is not None:
+            group["top_scores"].append(top_score)
+        if row.created_at > group["last_asked_at"]:
+            group["last_asked_at"] = row.created_at
+
+    def sorted_items(keys: set[str] | None = None, *, repeated_only: bool = False) -> list[AdminKnowledgeGapItem]:
+        selected = [
+            group
+            for key, group in groups.items()
+            if (keys is None or key in keys) and (not repeated_only or group["count"] >= 2)
+        ]
+        selected.sort(key=lambda item: (item["count"], item["fallback_count"], item["last_asked_at"]), reverse=True)
+        return [_gap_item_from_group(group) for group in selected[:20]]
+
+    suggested_keys = fallback_keys | low_score_keys | prompt_gap_keys
+    return AdminKnowledgeGapResponse(
+        total_analyzed=len(rows),
+        fallback_questions=sorted_items(fallback_keys),
+        low_score_questions=sorted_items(low_score_keys),
+        repeated_questions=sorted_items(repeated_only=True),
+        suggested_knowledge_topics=sorted_items(suggested_keys),
+    )
+
+
+def _classify_roi_topic(question: str | None) -> str:
+    text = (question or "").lower()
+    if "융자" in text or "금리" in text or "담보" in text or "자부담" in text:
+        return "융자"
+    if "사업신고" in text or "변경신고" in text or "신고" in text:
+        return "사업신고"
+    if "해외인턴" in text or "인턴" in text:
+        return "해외인턴"
+    if "교육" in text or "국제곡물" in text or "전문가" in text:
+        return "교육"
+    if "투자촉진" in text or "투자" in text:
+        return "투자촉진"
+    if "국내반입" in text or "반입" in text:
+        return "국내반입"
+    return "기타"
+
+
+def _normalize_roi_date_range(
+    start_date_raw: str | None,
+    end_date_raw: str | None,
+) -> tuple[date, date, datetime, datetime]:
+    today = datetime.now(UTC).date()
+    default_start = today - timedelta(days=29)
+    start_date = _parse_date_or_422(start_date_raw, "startDate") if start_date_raw else default_start
+    end_date = _parse_date_or_422(end_date_raw, "endDate") if end_date_raw else today
+    if start_date > end_date:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="INVALID_DATE_RANGE")
+    if (end_date - start_date).days > 92:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="DATE_RANGE_TOO_LARGE")
+    start_dt = datetime.combine(start_date, datetime.min.time(), tzinfo=UTC)
+    end_dt = datetime.combine(end_date + timedelta(days=1), datetime.min.time(), tzinfo=UTC)
+    return start_date, end_date, start_dt, end_dt
+
+
+def get_roi_dashboard_service(
+    db: Session,
+    *,
+    principal: AdminPrincipal,
+    chatbot_id: str | None,
+    start_date_raw: str | None,
+    end_date_raw: str | None,
+) -> AdminRoiDashboardResponse:
+    organization_id = require_institution_organization_id(principal)
+    if chatbot_id:
+        chatbot_id = _validate_uuid(chatbot_id, "CHATBOT_NOT_FOUND")
+        ensure_chatbot_in_scope(db, principal=principal, chatbot_id=chatbot_id)
+
+    start_date, end_date, start_dt, end_dt = _normalize_roi_date_range(start_date_raw, end_date_raw)
+    stmt = select(ChatMessage).where(
+        ChatMessage.organization_id == organization_id,
+        ChatMessage.role == "assistant",
+        ChatMessage.is_test.is_(False),
+        ChatMessage.created_at >= start_dt,
+        ChatMessage.created_at < end_dt,
+    )
+    if chatbot_id:
+        stmt = stmt.where(ChatMessage.chatbot_id == chatbot_id)
+    stmt = stmt.order_by(ChatMessage.created_at.desc()).limit(5000)
+    rows = list(db.execute(stmt).scalars().all())
+
+    user_cache: dict[str, ChatMessage | None] = {}
+    auto_answered_count = 0
+    fallback_count = 0
+    automated_topics: Counter[str] = Counter()
+    escalated_topics: Counter[str] = Counter()
+    daily_counts: dict[date, dict[str, int]] = {}
+    latencies: list[int] = []
+
+    cursor = start_date
+    while cursor <= end_date:
+        daily_counts[cursor] = {"answered": 0, "fallback": 0}
+        cursor += timedelta(days=1)
+
+    for row in rows:
+        latest_user = _get_cached_user_message(db, message=row, user_cache=user_cache)
+        question = latest_user.content if latest_user else None
+        topic = _classify_roi_topic(question)
+        latency = _message_latency_ms(db, message=row, user_cache=user_cache)
+        if latency is not None:
+            latencies.append(latency)
+        day = row.created_at.date()
+        day_bucket = daily_counts.setdefault(day, {"answered": 0, "fallback": 0})
+
+        if _is_auto_answered_message(row):
+            auto_answered_count += 1
+            automated_topics[topic] += 1
+            day_bucket["answered"] += 1
+        elif _is_fallback_or_escalated_message(row):
+            fallback_count += 1
+            escalated_topics[topic] += 1
+            day_bucket["fallback"] += 1
+
+    total_questions = len(rows)
+    estimated_saved_minutes = auto_answered_count * ROI_SAVED_MINUTES_PER_AUTO_ANSWER
+    daily_trend: list[AdminRoiDailyTrendItem] = []
+    cursor = start_date
+    while cursor <= end_date:
+        counts = daily_counts.get(cursor, {"answered": 0, "fallback": 0})
+        total = counts["answered"] + counts["fallback"]
+        daily_trend.append(
+            AdminRoiDailyTrendItem(
+                date=cursor.isoformat(),
+                answered=counts["answered"],
+                fallback=counts["fallback"],
+                auto_resolution_rate=round((counts["answered"] / total * 100.0) if total else 0.0, 2),
+            )
+        )
+        cursor += timedelta(days=1)
+
+    return AdminRoiDashboardResponse(
+        total_questions=total_questions,
+        auto_answered_count=auto_answered_count,
+        fallback_count=fallback_count,
+        auto_resolution_rate=round((auto_answered_count / total_questions * 100.0) if total_questions else 0.0, 2),
+        avg_latency_ms=round(sum(latencies) / len(latencies), 2) if latencies else None,
+        estimated_saved_minutes=estimated_saved_minutes,
+        estimated_saved_cost=estimated_saved_minutes * ROI_COST_PER_MINUTE_KRW,
+        top_automated_topics=[
+            AdminRoiTopicItem(topic=topic, count=count)
+            for topic, count in automated_topics.most_common(10)
+        ],
+        top_escalated_topics=[
+            AdminRoiTopicItem(topic=topic, count=count)
+            for topic, count in escalated_topics.most_common(10)
+        ],
+        daily_trend=daily_trend,
+    )
 
 
 def list_documents_service(

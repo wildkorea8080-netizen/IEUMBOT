@@ -7,6 +7,9 @@ import type {
   AdminChatbotsResponse,
   AdminChatLogsResponse,
   AdminDocumentsResponse,
+  AdminKnowledgeGapResponse,
+  AdminQualityReportResponse,
+  AdminRoiDashboardResponse,
   AdminWidgetIconAsset,
   AdminWidgetResponse,
   DashboardQuestionTypeItem,
@@ -85,6 +88,47 @@ export async function getDashboardRecentChats(params?: {
   if (typeof params?.limit === "number") search.set("limit", String(params.limit));
   const query = search.toString();
   return apiClient.request<DashboardRecentChatItem[]>(`/admin/dashboard/recent-chats${query ? `?${query}` : ""}`);
+}
+
+export async function getAdminQualityReport(params?: {
+  chatbotId?: string;
+  startDate?: string;
+  endDate?: string;
+  fallbackOnly?: boolean;
+}): Promise<AdminQualityReportResponse> {
+  const search = new URLSearchParams();
+  if (params?.chatbotId) search.set("chatbotId", params.chatbotId);
+  if (params?.startDate) search.set("startDate", params.startDate);
+  if (params?.endDate) search.set("endDate", params.endDate);
+  if (typeof params?.fallbackOnly === "boolean") search.set("fallbackOnly", String(params.fallbackOnly));
+  const query = search.toString();
+  return apiClient.request<AdminQualityReportResponse>(`/admin/quality-report${query ? `?${query}` : ""}`);
+}
+
+export async function getAdminKnowledgeGap(params?: {
+  chatbotId?: string;
+  startDate?: string;
+  endDate?: string;
+}): Promise<AdminKnowledgeGapResponse> {
+  const search = new URLSearchParams();
+  if (params?.chatbotId) search.set("chatbotId", params.chatbotId);
+  if (params?.startDate) search.set("startDate", params.startDate);
+  if (params?.endDate) search.set("endDate", params.endDate);
+  const query = search.toString();
+  return apiClient.request<AdminKnowledgeGapResponse>(`/admin/knowledge-gap${query ? `?${query}` : ""}`);
+}
+
+export async function getAdminRoiDashboard(params?: {
+  chatbotId?: string;
+  startDate?: string;
+  endDate?: string;
+}): Promise<AdminRoiDashboardResponse> {
+  const search = new URLSearchParams();
+  if (params?.chatbotId) search.set("chatbotId", params.chatbotId);
+  if (params?.startDate) search.set("startDate", params.startDate);
+  if (params?.endDate) search.set("endDate", params.endDate);
+  const query = search.toString();
+  return apiClient.request<AdminRoiDashboardResponse>(`/admin/roi-dashboard${query ? `?${query}` : ""}`);
 }
 
 export async function getAdminDocuments(params?: {

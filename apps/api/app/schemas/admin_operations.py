@@ -25,6 +25,85 @@ class AdminDashboardRecentChatItem(ApiSchema):
     status: str
 
 
+class AdminQualityFallbackReasonItem(ApiSchema):
+    reason: str
+    count: int
+
+
+class AdminQualityQuestionItem(ApiSchema):
+    created_at: str
+    chatbot_id: str
+    question: str | None = None
+    answer: str | None = None
+    outcome: str | None = None
+    fallback_reason: str | None = None
+    top_score: float | None = None
+    retrieved_count: int | None = None
+    used_in_prompt_count: int | None = None
+    llm_executed: bool | None = None
+    citation_count: int = 0
+    latency_ms: int | None = None
+
+
+class AdminQualityReportResponse(ApiSchema):
+    total_conversations: int
+    answered_count: int
+    fallback_count: int
+    fallback_rate: float
+    avg_latency_ms: float | None = None
+    avg_top_score: float | None = None
+    avg_retrieved_count: float | None = None
+    avg_used_in_prompt_count: float | None = None
+    llm_executed_rate: float
+    top_fallback_reasons: list[AdminQualityFallbackReasonItem]
+    recent_failed_questions: list[AdminQualityQuestionItem]
+    low_score_questions: list[AdminQualityQuestionItem]
+    no_citation_answers: list[AdminQualityQuestionItem]
+
+
+class AdminKnowledgeGapItem(ApiSchema):
+    question: str
+    count: int
+    fallback_count: int
+    avg_top_score: float | None = None
+    last_asked_at: str
+    recommended_action: str
+    recommended_topic: str
+
+
+class AdminKnowledgeGapResponse(ApiSchema):
+    total_analyzed: int
+    fallback_questions: list[AdminKnowledgeGapItem]
+    low_score_questions: list[AdminKnowledgeGapItem]
+    repeated_questions: list[AdminKnowledgeGapItem]
+    suggested_knowledge_topics: list[AdminKnowledgeGapItem]
+
+
+class AdminRoiTopicItem(ApiSchema):
+    topic: str
+    count: int
+
+
+class AdminRoiDailyTrendItem(ApiSchema):
+    date: str
+    answered: int
+    fallback: int
+    auto_resolution_rate: float
+
+
+class AdminRoiDashboardResponse(ApiSchema):
+    total_questions: int
+    auto_answered_count: int
+    fallback_count: int
+    auto_resolution_rate: float
+    avg_latency_ms: float | None = None
+    estimated_saved_minutes: int
+    estimated_saved_cost: int
+    top_automated_topics: list[AdminRoiTopicItem]
+    top_escalated_topics: list[AdminRoiTopicItem]
+    daily_trend: list[AdminRoiDailyTrendItem]
+
+
 class AdminDocumentItem(ApiSchema):
     id: str
     chatbot_id: str

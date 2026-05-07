@@ -22,6 +22,85 @@ export type DashboardRecentChatItem = {
   status: "success" | "fallback" | "escalation";
 };
 
+export type AdminQualityFallbackReasonItem = {
+  reason: string;
+  count: number;
+};
+
+export type AdminQualityQuestionItem = {
+  createdAt: string;
+  chatbotId: string;
+  question?: string | null;
+  answer?: string | null;
+  outcome?: string | null;
+  fallbackReason?: string | null;
+  topScore?: number | null;
+  retrievedCount?: number | null;
+  usedInPromptCount?: number | null;
+  llmExecuted?: boolean | null;
+  citationCount: number;
+  latencyMs?: number | null;
+};
+
+export type AdminQualityReportResponse = {
+  totalConversations: number;
+  answeredCount: number;
+  fallbackCount: number;
+  fallbackRate: number;
+  avgLatencyMs?: number | null;
+  avgTopScore?: number | null;
+  avgRetrievedCount?: number | null;
+  avgUsedInPromptCount?: number | null;
+  llmExecutedRate: number;
+  topFallbackReasons: AdminQualityFallbackReasonItem[];
+  recentFailedQuestions: AdminQualityQuestionItem[];
+  lowScoreQuestions: AdminQualityQuestionItem[];
+  noCitationAnswers: AdminQualityQuestionItem[];
+};
+
+export type AdminKnowledgeGapItem = {
+  question: string;
+  count: number;
+  fallbackCount: number;
+  avgTopScore?: number | null;
+  lastAskedAt: string;
+  recommendedAction: string;
+  recommendedTopic: string;
+};
+
+export type AdminKnowledgeGapResponse = {
+  totalAnalyzed: number;
+  fallbackQuestions: AdminKnowledgeGapItem[];
+  lowScoreQuestions: AdminKnowledgeGapItem[];
+  repeatedQuestions: AdminKnowledgeGapItem[];
+  suggestedKnowledgeTopics: AdminKnowledgeGapItem[];
+};
+
+export type AdminRoiTopicItem = {
+  topic: string;
+  count: number;
+};
+
+export type AdminRoiDailyTrendItem = {
+  date: string;
+  answered: number;
+  fallback: number;
+  autoResolutionRate: number;
+};
+
+export type AdminRoiDashboardResponse = {
+  totalQuestions: number;
+  autoAnsweredCount: number;
+  fallbackCount: number;
+  autoResolutionRate: number;
+  avgLatencyMs?: number | null;
+  estimatedSavedMinutes: number;
+  estimatedSavedCost: number;
+  topAutomatedTopics: AdminRoiTopicItem[];
+  topEscalatedTopics: AdminRoiTopicItem[];
+  dailyTrend: AdminRoiDailyTrendItem[];
+};
+
 export type AdminDocumentItem = {
   id: string;
   chatbotId: string;

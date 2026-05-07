@@ -1,0 +1,143 @@
+{
+  "metadata": {
+    "dataset": "D:\\coding\\IEUMBOT\\apps\\api\\evals\\rag_benchmark.jsonl",
+    "mode": "dry-run",
+    "chatbot_id": null,
+    "base_url": null,
+    "top_k": 8,
+    "created_at_unix": 1778155688
+  },
+  "summary": {
+    "total": 2,
+    "pass_count": 2,
+    "pass_rate": 1.0,
+    "fallback_rate": 0.0,
+    "non_fallback_fallback_rate": 0.0,
+    "avg_latency_ms": 0.0,
+    "avg_top_score": 0.8,
+    "by_category": {
+      "loan": {
+        "total": 1,
+        "pass_count": 1,
+        "pass_rate": 1.0
+      },
+      "greeting": {
+        "total": 1,
+        "pass_count": 1,
+        "pass_rate": 1.0
+      }
+    },
+    "failed_cases": [],
+    "quality_gate": {
+      "passed": true,
+      "criteria": {
+        "pass_rate_min": 0.8,
+        "greeting_pass_rate_min": 1.0,
+        "loan_pass_rate_min": 0.8,
+        "non_fallback_fallback_rate_max": 0.2,
+        "avg_latency_ms_max": 15000
+      }
+    }
+  },
+  "results": [
+    {
+      "id": "q001",
+      "question": "융자지원 조건은?",
+      "category": "loan",
+      "passed": true,
+      "answer": "융자 자부담 70% 연리 담보",
+      "citations": [
+        {
+          "section_title": "자부담 비율 융자신청",
+          "score": 0.8
+        }
+      ],
+      "trace": {
+        "messageType": "rag",
+        "fallbackReason": "NONE",
+        "latencyMs": 1,
+        "retrieval": {
+          "usedInPromptCount": 1,
+          "topScore": 0.8,
+          "chunks": [
+            {
+              "sectionTitle": "자부담 비율 융자신청",
+              "preview": "융자 자부담 70% 연리 담보"
+            }
+          ]
+        },
+        "llm": {
+          "executed": true
+        }
+      },
+      "expectedKeywords": [
+        "융자",
+        "자부담",
+        "70%",
+        "연리",
+        "담보"
+      ],
+      "keywordHits": [
+        "융자",
+        "자부담",
+        "70%",
+        "연리",
+        "담보"
+      ],
+      "expectedSourceTerms": [
+        "자부담 비율",
+        "융자신청"
+      ],
+      "sourceTermHits": [
+        "자부담 비율",
+        "융자신청"
+      ],
+      "shouldFallback": false,
+      "fallback": false,
+      "usedInPromptCount": 1,
+      "topScore": 0.8,
+      "llmExecuted": true,
+      "latencyMs": 0
+    },
+    {
+      "id": "q002",
+      "question": "안녕하세요",
+      "category": "greeting",
+      "passed": true,
+      "answer": "안녕하세요",
+      "citations": [],
+      "trace": {
+        "messageType": "rag",
+        "fallbackReason": "NONE",
+        "latencyMs": 1,
+        "retrieval": {
+          "usedInPromptCount": 1,
+          "topScore": 0.8,
+          "chunks": [
+            {
+              "sectionTitle": "",
+              "preview": "안녕하세요"
+            }
+          ]
+        },
+        "llm": {
+          "executed": true
+        }
+      },
+      "expectedKeywords": [
+        "안녕하세요"
+      ],
+      "keywordHits": [
+        "안녕하세요"
+      ],
+      "expectedSourceTerms": [],
+      "sourceTermHits": [],
+      "shouldFallback": false,
+      "fallback": false,
+      "usedInPromptCount": 1,
+      "topScore": 0.8,
+      "llmExecuted": true,
+      "latencyMs": 0
+    }
+  ]
+}

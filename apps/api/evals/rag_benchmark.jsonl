@@ -1,0 +1,40 @@
+{"id":"q001","question":"융자지원 조건은?","category":"loan","expected_keywords":["융자","자부담","70%","연리","담보"],"expected_source_terms":["자부담 비율","융자신청"],"should_fallback":false}
+{"id":"q002","question":"안녕하세요","category":"greeting","expected_keywords":["안녕하세요"],"expected_source_terms":[],"should_fallback":false}
+{"id":"q003","question":"반갑습니다","category":"greeting","expected_keywords":["무엇","도와"],"expected_source_terms":[],"should_fallback":false}
+{"id":"q004","question":"도움 받을 수 있나요?","category":"greeting","expected_keywords":["무엇","안내"],"expected_source_terms":[],"should_fallback":false}
+{"id":"q005","question":"고맙습니다","category":"greeting","expected_keywords":["감사"],"expected_source_terms":[],"should_fallback":false}
+{"id":"q006","question":"안녕히 계세요","category":"greeting","expected_keywords":["감사"],"expected_source_terms":[],"should_fallback":false}
+{"id":"q007","question":"융자지원 대상은 누구인가요?","category":"loan","expected_keywords":["지원대상","해외","농식품","사업비"],"expected_source_terms":["지원대상","융자신청"],"should_fallback":false}
+{"id":"q008","question":"융자 신청 시 자부담 비율은 어떻게 되나요?","category":"loan","expected_keywords":["자부담","30%","사업비","70%"],"expected_source_terms":["자부담 비율","소요사업비"],"should_fallback":false}
+{"id":"q009","question":"융자 금리와 상환 조건을 알려주세요","category":"loan","expected_keywords":["연리","상환","융자","조건"],"expected_source_terms":["연리","상환"],"should_fallback":false}
+{"id":"q010","question":"융자지원 사업비는 얼마까지 지원되나요?","category":"loan","expected_keywords":["사업비","70%","지원","융자"],"expected_source_terms":["소요사업비","지원대상"],"should_fallback":false}
+{"id":"q011","question":"융자 신청에 담보가 필요한가요?","category":"loan","expected_keywords":["담보","융자","신청"],"expected_source_terms":["담보","융자신청"],"should_fallback":false}
+{"id":"q012","question":"해외진출 융자지원 절차는 어떻게 진행되나요?","category":"loan","expected_keywords":["사업절차","신청","심사","융자"],"expected_source_terms":["사업절차","융자신청"],"should_fallback":false}
+{"id":"q013","question":"융자지원 신청 서류는 무엇인가요?","category":"loan","expected_keywords":["신청","서류","사업계획서","융자"],"expected_source_terms":["융자신청","제출서류"],"should_fallback":false}
+{"id":"q014","question":"융자지원에서 지원규모는 어떻게 정해지나요?","category":"loan","expected_keywords":["지원규모","사업비","융자"],"expected_source_terms":["지원규모","지원대상"],"should_fallback":false}
+{"id":"q015","question":"융자지원은 언제 신청할 수 있나요?","category":"loan","expected_keywords":["신청","기간","융자","공고"],"expected_source_terms":["융자신청","신청기간"],"should_fallback":false}
+{"id":"q016","question":"해외농업자원개발 사업신고는 어떻게 하나요?","category":"business_report","expected_keywords":["사업신고","신고","해외농업자원개발"],"expected_source_terms":["사업신고"],"should_fallback":false}
+{"id":"q017","question":"사업신고 대상자는 누구인가요?","category":"business_report","expected_keywords":["사업신고","대상","해외"],"expected_source_terms":["사업신고","대상"],"should_fallback":false}
+{"id":"q018","question":"사업계획 신고와 변경 신고 차이를 알려주세요","category":"business_report","expected_keywords":["신고","변경","사업계획"],"expected_source_terms":["변경신고","사업계획"],"should_fallback":false}
+{"id":"q019","question":"사업신고 처리 절차와 필요 서류는?","category":"business_report","expected_keywords":["절차","서류","신고"],"expected_source_terms":["사업신고","처리절차"],"should_fallback":false}
+{"id":"q020","question":"해외농업 사업신고 후 의무사항이 있나요?","category":"business_report","expected_keywords":["신고","의무","보고"],"expected_source_terms":["의무사항","사업신고"],"should_fallback":false}
+{"id":"q021","question":"해외에서 생산한 농산물 국내반입 지원이 있나요?","category":"import_investment","expected_keywords":["국내반입","농산물","지원"],"expected_source_terms":["국내반입"],"should_fallback":false}
+{"id":"q022","question":"국내반입 명령이나 절차는 어떻게 되나요?","category":"import_investment","expected_keywords":["국내반입","절차","명령"],"expected_source_terms":["국내반입","절차"],"should_fallback":false}
+{"id":"q023","question":"해외농업 투자촉진 사업은 무엇인가요?","category":"import_investment","expected_keywords":["투자촉진","해외농업","지원"],"expected_source_terms":["투자촉진"],"should_fallback":false}
+{"id":"q024","question":"투자촉진 지원 대상과 조건을 알려주세요","category":"import_investment","expected_keywords":["투자촉진","대상","조건"],"expected_source_terms":["투자촉진","지원대상"],"should_fallback":false}
+{"id":"q025","question":"국내반입과 투자촉진 관련 문의는 어디로 하나요?","category":"import_investment","expected_keywords":["국내반입","투자촉진","문의"],"expected_source_terms":["국내반입","투자촉진"],"should_fallback":false}
+{"id":"q026","question":"국제곡물 전문가 교육 과정은 무엇인가요?","category":"education_intern","expected_keywords":["국제곡물","전문가","교육"],"expected_source_terms":["국제곡물전문가"],"should_fallback":false}
+{"id":"q027","question":"해외인턴 지원 자격을 알려주세요","category":"education_intern","expected_keywords":["해외인턴","지원자격","선발"],"expected_source_terms":["해외인턴","지원자격"],"should_fallback":false}
+{"id":"q028","question":"해외인턴 신청 방법은 어떻게 되나요?","category":"education_intern","expected_keywords":["해외인턴","신청","방법"],"expected_source_terms":["해외인턴","신청"],"should_fallback":false}
+{"id":"q029","question":"교육 프로그램 신청 기간은 언제인가요?","category":"education_intern","expected_keywords":["교육","신청","기간"],"expected_source_terms":["교육","신청기간"],"should_fallback":false}
+{"id":"q030","question":"해외인턴 선발 인원과 지원 내용은?","category":"education_intern","expected_keywords":["해외인턴","선발","지원"],"expected_source_terms":["해외인턴","선발"],"should_fallback":false}
+{"id":"q031","question":"융자지원 문의처 전화번호를 알려주세요","category":"contact","expected_keywords":["문의","전화","담당"],"expected_source_terms":["문의처","연락처"],"should_fallback":false}
+{"id":"q032","question":"해외인턴 담당 부서 연락처는?","category":"contact","expected_keywords":["담당","부서","연락처"],"expected_source_terms":["담당부서","연락처"],"should_fallback":false}
+{"id":"q033","question":"사업신고 관련 문의는 어디로 연락하나요?","category":"contact","expected_keywords":["문의","연락","사업신고"],"expected_source_terms":["사업신고","문의"],"should_fallback":false}
+{"id":"q034","question":"오늘 서울 날씨 알려줘","category":"out_of_scope","expected_keywords":[],"expected_source_terms":[],"should_fallback":true}
+{"id":"q035","question":"비트코인 가격 전망은 어때?","category":"out_of_scope","expected_keywords":[],"expected_source_terms":[],"should_fallback":true}
+{"id":"q036","question":"파이썬으로 게임 만드는 방법 알려줘","category":"out_of_scope","expected_keywords":[],"expected_source_terms":[],"should_fallback":true}
+{"id":"q037","question":"점심 메뉴 추천해줘","category":"out_of_scope","expected_keywords":[],"expected_source_terms":[],"should_fallback":true}
+{"id":"q038","question":"개인 세금 신고 대행해줄 수 있어?","category":"out_of_scope","expected_keywords":[],"expected_source_terms":[],"should_fallback":true}
+{"id":"q039","question":"조건이 어떻게 돼?","category":"ambiguous","expected_keywords":["어떤","사업","구체"],"expected_source_terms":[],"should_fallback":false}
+{"id":"q040","question":"신청하려면 뭘 내야 해?","category":"ambiguous","expected_keywords":["사업","신청","구체"],"expected_source_terms":[],"should_fallback":false}

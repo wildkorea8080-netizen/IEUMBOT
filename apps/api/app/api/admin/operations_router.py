@@ -17,6 +17,9 @@ from app.schemas.admin_operations import (
     AdminDocumentResponse,
     AdminDocumentsListResponse,
     AdminDocumentUpdateRequest,
+    AdminKnowledgeGapResponse,
+    AdminQualityReportResponse,
+    AdminRoiDashboardResponse,
     AdminWidgetResponse,
     AdminWidgetUpdateRequest,
 )
@@ -30,6 +33,9 @@ from app.services.admin.operations_service import (
     get_dashboard_recent_chats_service,
     get_dashboard_summary_service,
     get_dashboard_usage_trend_service,
+    get_knowledge_gap_service,
+    get_quality_report_service,
+    get_roi_dashboard_service,
     get_widget_service,
     list_chatbots_service,
     list_documents_service,
@@ -92,6 +98,59 @@ def admin_dashboard_recent_chats(
         db,
         principal=principal,
         limit=limit,
+    )
+
+
+@router.get("/quality-report", response_model=AdminQualityReportResponse)
+def admin_quality_report(
+    chatbot_id: str | None = Query(default=None, alias="chatbotId"),
+    start_date: str | None = Query(default=None, alias="startDate"),
+    end_date: str | None = Query(default=None, alias="endDate"),
+    fallback_only: bool = Query(default=False, alias="fallbackOnly"),
+    principal: AdminPrincipal = Depends(require_institution_admin_auth),
+    db: Session = Depends(get_db_session),
+) -> AdminQualityReportResponse:
+    return get_quality_report_service(
+        db,
+        principal=principal,
+        chatbot_id=chatbot_id,
+        start_date_raw=start_date,
+        end_date_raw=end_date,
+        fallback_only=fallback_only,
+    )
+
+
+@router.get("/knowledge-gap", response_model=AdminKnowledgeGapResponse)
+def admin_knowledge_gap(
+    chatbot_id: str | None = Query(default=None, alias="chatbotId"),
+    start_date: str | None = Query(default=None, alias="startDate"),
+    end_date: str | None = Query(default=None, alias="endDate"),
+    principal: AdminPrincipal = Depends(require_institution_admin_auth),
+    db: Session = Depends(get_db_session),
+) -> AdminKnowledgeGapResponse:
+    return get_knowledge_gap_service(
+        db,
+        principal=principal,
+        chatbot_id=chatbot_id,
+        start_date_raw=start_date,
+        end_date_raw=end_date,
+    )
+
+
+@router.get("/roi-dashboard", response_model=AdminRoiDashboardResponse)
+def admin_roi_dashboard(
+    chatbot_id: str | None = Query(default=None, alias="chatbotId"),
+    start_date: str | None = Query(default=None, alias="startDate"),
+    end_date: str | None = Query(default=None, alias="endDate"),
+    principal: AdminPrincipal = Depends(require_institution_admin_auth),
+    db: Session = Depends(get_db_session),
+) -> AdminRoiDashboardResponse:
+    return get_roi_dashboard_service(
+        db,
+        principal=principal,
+        chatbot_id=chatbot_id,
+        start_date_raw=start_date,
+        end_date_raw=end_date,
     )
 
 

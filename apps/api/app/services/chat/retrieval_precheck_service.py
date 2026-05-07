@@ -35,6 +35,36 @@ MAX_CHUNKS_PER_KNOWLEDGE_ITEM = 2
 MAX_CHUNKS_PER_SOURCE_URL = 2
 POLICY_KEYWORD_BOOST = 0.12
 POLICY_KEYWORD_BOOST_TERMS = ("융자", "지원", "조건", "신청", "대상", "자부담", "금리", "사업비")
+NOISE_SECTION_PENALTY = 0.20
+NOISE_SECTION_TERMS = (
+    "이용약관",
+    "개인정보",
+    "사이트맵",
+    "저작권",
+    "공지사항",
+    "공고",
+    "서류",
+    "신청서",
+    "사업계획서",
+    "컨설팅",
+    "회원가입",
+    "로그인",
+    "FAQ",
+    "Q&A",
+)
+OFFICIAL_POLICY_BOOST = 0.10
+OFFICIAL_POLICY_QUERY_TERMS = ("융자", "지원", "조건", "신청", "금리", "자부담", "사업비", "대상", "절차")
+OFFICIAL_POLICY_CHUNK_TERMS = (
+    "융자신청",
+    "지원대상",
+    "사업비",
+    "자부담",
+    "연리",
+    "상환",
+    "담보",
+    "지원규모",
+    "사업절차",
+)
 logger = logging.getLogger(__name__)
 URL_MARKER_REGEX = re.compile(r"\[URL\]\s+(https?://\S+)", re.IGNORECASE)
 CONTACT_QUERY_TERMS = {"연락처", "전화", "전화번호", "문의처", "담당자", "담당부서"}
@@ -280,6 +310,24 @@ def _policy_keyword_boost(question_text: str, chunk_text: str) -> tuple[float, l
     return POLICY_KEYWORD_BOOST, matched
 
 
+def _noise_section_penalty(text: str) -> tuple[float, list[str]]:
+    lowered = text.lower()
+    matched = [term for term in NOISE_SECTION_TERMS if term.lower() in lowered]
+    if not matched:
+        return 0.0, []
+    return NOISE_SECTION_PENALTY, matched
+
+
+def _official_policy_boost(question_text: str, chunk_text: str) -> tuple[float, list[str]]:
+    query_terms = [term for term in OFFICIAL_POLICY_QUERY_TERMS if term in question_text]
+    if not query_terms:
+        return 0.0, []
+    matched = [term for term in OFFICIAL_POLICY_CHUNK_TERMS if term in chunk_text]
+    if not matched:
+        return 0.0, []
+    return OFFICIAL_POLICY_BOOST, matched
+
+
 def _is_undefined_column_error(exc: Exception) -> bool:
     text = f"{type(exc).__name__} {exc} {getattr(exc, 'orig', '')}".lower()
     return "undefinedcolumn" in text or "undefined column" in text or "does not exist" in text
@@ -316,9 +364,12 @@ def _empty_retrieval_output(
         "dynamicThreshold": threshold,
         "usedInPromptCount": 0,
         "sourceDiversityApplied": False,
+        "sectionDiversityApplied": False,
         "fallbackReason": fallback_reason,
         "rescuedByTop1Rule": False,
         "keywordBoostApplied": False,
+        "noisePenaltyApplied": False,
+        "policyBoostApplied": False,
         "finalPromptChunkCount": 0,
         "queryEmbeddingGenerated": query_embedding_generated,
         "queryEmbeddingLength": query_embedding_length,
@@ -360,14 +411,17 @@ def _apply_prompt_selection(
     *,
     threshold: float,
     prompt_limit: int,
-) -> tuple[list[dict[str, Any]], bool, bool]:
+) -> tuple[list[dict[str, Any]], bool, bool, bool]:
     prompt_candidates: list[dict[str, Any]] = []
     per_knowledge_item: dict[str, int] = {}
     per_source_url: dict[str, int] = {}
+    per_section_title: dict[str, int] = {}
     source_diversity_applied = False
+    section_diversity_applied = False
     rescued_by_top1_rule = False
 
     for index, item in enumerate(candidates):
+        item["sectionDuplicateSkipped"] = False
         score = float(item.get("combinedScore") or 0.0)
         dynamic_threshold = float(item.get("dynamicThreshold") or threshold)
         threshold_passed = score >= dynamic_threshold
@@ -391,15 +445,24 @@ def _apply_prompt_selection(
         if source_used_count >= MAX_CHUNKS_PER_SOURCE_URL:
             source_diversity_applied = True
             continue
+        section_title = str(item.get("sectionTitle") or "").strip()
+        if section_title:
+            section_used_count = per_section_title.get(section_title, 0)
+            if section_used_count >= 1:
+                item["sectionDuplicateSkipped"] = True
+                section_diversity_applied = True
+                continue
         if len(prompt_candidates) >= prompt_limit:
             continue
 
         per_knowledge_item[knowledge_item_id] = used_count + 1
         per_source_url[source_url] = source_used_count + 1
+        if section_title:
+            per_section_title[section_title] = per_section_title.get(section_title, 0) + 1
         item["usedInPrompt"] = True
         prompt_candidates.append(item)
 
-    return prompt_candidates, source_diversity_applied, rescued_by_top1_rule
+    return prompt_candidates, source_diversity_applied, rescued_by_top1_rule, section_diversity_applied
 
 
 def search_relevant_chunks(
@@ -597,8 +660,17 @@ def search_relevant_chunks(
         text_preview = (chunk.text_content or "")[:1200]
         boost_text = f"{section_title or ''} {text_preview}".lower()
         keyword_boost, boosted_terms = _policy_keyword_boost(normalized, boost_text)
+        policy_boost, policy_boost_terms = _official_policy_boost(normalized, boost_text)
+        noise_text = f"{section_title or ''} {text_preview} {source_url or ''}"
+        noise_penalty, noise_penalty_terms = _noise_section_penalty(noise_text)
+        score_before_quality_adjustments = combined_score
         if keyword_boost:
             combined_score = round(min(combined_score + keyword_boost, 1.0), 4)
+        if policy_boost:
+            combined_score = round(min(combined_score + policy_boost, 1.0), 4)
+        if noise_penalty:
+            combined_score = round(max(combined_score - noise_penalty, 0.0), 4)
+        citation_eligible = not (bool(noise_penalty) and combined_score < 0.50)
 
         collected.append(
             {
@@ -622,6 +694,15 @@ def search_relevant_chunks(
                 "keywordBoostApplied": bool(keyword_boost),
                 "keywordBoostValue": keyword_boost,
                 "keywordBoostTerms": boosted_terms,
+                "policyBoostApplied": bool(policy_boost),
+                "policyBoostValue": policy_boost,
+                "policyBoostTerms": policy_boost_terms,
+                "noisePenaltyApplied": bool(noise_penalty),
+                "noisePenaltyValue": noise_penalty,
+                "noisePenaltyTerms": noise_penalty_terms,
+                "scoreBeforeQualityAdjustments": score_before_quality_adjustments,
+                "citationEligible": citation_eligible,
+                "sectionDuplicateSkipped": False,
                 "isPinned": is_pinned,
                 "matchedKeywords": matched_keywords,
                 "matchedBoostRuleIds": [str(rule.id) for rule in matched_boost_rules],
@@ -643,24 +724,44 @@ def search_relevant_chunks(
         item["dynamicThreshold"] = _dynamic_threshold_for_candidate(item)
         item["rescuedByTop1Rule"] = False
 
-    prompt_candidates, source_diversity_applied, rescued_by_top1_rule = _apply_prompt_selection(
+    (
+        prompt_candidates,
+        source_diversity_applied,
+        rescued_by_top1_rule,
+        section_diversity_applied,
+    ) = _apply_prompt_selection(
         ranked,
         threshold=threshold,
         prompt_limit=MAX_PROMPT_CHUNKS,
     )
     keyword_boost_applied = any(bool(item.get("keywordBoostApplied")) for item in ranked)
+    noise_penalty_applied = any(bool(item.get("noisePenaltyApplied")) for item in ranked)
+    policy_boost_applied = any(bool(item.get("policyBoostApplied")) for item in ranked)
+    noise_penalty_terms = sorted(
+        {term for item in ranked for term in list(item.get("noisePenaltyTerms") or [])}
+    )
+    policy_boost_terms = sorted(
+        {term for item in ranked for term in list(item.get("policyBoostTerms") or [])}
+    )
     dynamic_threshold = min((float(item.get("dynamicThreshold") or threshold) for item in ranked), default=threshold)
+    citation_candidates = [
+        item
+        for item in prompt_candidates
+        if bool(item.get("citationEligible", True))
+    ]
 
     return {
         "normalizedQuery": normalized,
         "expandedTokens": expanded_tokens,
         "candidates": ranked,
         "promptCandidates": prompt_candidates,
+        "citationCandidates": citation_candidates,
         "retrievalThreshold": dynamic_threshold,
         "baseRetrievalThreshold": threshold,
         "usedInPromptCount": len(prompt_candidates),
         "retrievedCount": len(ranked),
         "sourceDiversityApplied": source_diversity_applied,
+        "sectionDiversityApplied": section_diversity_applied,
         "queryEmbeddingGenerated": True,
         "queryEmbeddingLength": query_embedding_length,
         "queryEmbeddingType": query_embedding_type,
@@ -683,8 +784,13 @@ def search_relevant_chunks(
             "dynamicThreshold": dynamic_threshold,
             "usedInPromptCount": len(prompt_candidates),
             "sourceDiversityApplied": source_diversity_applied,
+            "sectionDiversityApplied": section_diversity_applied,
             "rescuedByTop1Rule": rescued_by_top1_rule,
             "keywordBoostApplied": keyword_boost_applied,
+            "noisePenaltyApplied": noise_penalty_applied,
+            "noisePenaltyTerms": noise_penalty_terms,
+            "policyBoostApplied": policy_boost_applied,
+            "policyBoostTerms": policy_boost_terms,
             "finalPromptChunkCount": len(prompt_candidates),
             "queryEmbeddingGenerated": True,
             "queryEmbeddingLength": query_embedding_length,

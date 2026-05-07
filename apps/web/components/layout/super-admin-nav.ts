@@ -4,6 +4,7 @@ export const superAdminNavItems = [
   { href: "/super-admin/contracts", label: "계약 관리", icon: "contract", section: "Tenant Ops" },
   { href: "/super-admin/billing", label: "결제 관리", icon: "billing", section: "Tenant Ops" },
   { href: "/super-admin/accounts", label: "계정 관리", icon: "account", section: "Tenant Ops" },
+  { href: "/super-admin/blueprints", label: "Blueprint", icon: "chatbot", section: "Tenant Ops" },
   { href: "/super-admin/chatbots", label: "챗봇 관리", icon: "chatbot", section: "Service" },
   { href: "/super-admin/widgets", label: "위젯 관리", icon: "widget", section: "Service" },
   { href: "/super-admin/api", label: "API 설정", icon: "api", section: "Platform" },

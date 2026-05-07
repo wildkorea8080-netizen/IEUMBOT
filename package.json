@@ -10,6 +10,7 @@
     "prepare:widget": "pnpm run build:widget",
     "build:web": "pnpm run prepare:widget && pnpm --filter @ieumbot/web build",
     "start:web": "pnpm --filter @ieumbot/web start",
+    "eval:rag": "python apps/api/evals/run_rag_eval.py",
     "lint": "pnpm lint:ts && pnpm lint:py",
     "lint:ts": "pnpm exec eslint \"apps/web/**/*.{ts,tsx}\" \"packages/**/*.{ts,tsx}\"",
     "lint:py": "ruff check apps/api",
