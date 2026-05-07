@@ -65,6 +65,31 @@ OFFICIAL_POLICY_CHUNK_TERMS = (
     "지원규모",
     "사업절차",
 )
+TOPIC_ALIGNMENT_BOOST = 0.18
+TOPIC_MISMATCH_PENALTY = 0.18
+BUSINESS_REPORT_QUERY_TERMS = ("사업신고", "신고업무", "변경신고", "사업계획 신고")
+BUSINESS_REPORT_CHUNK_TERMS = (
+    "사업신고",
+    "신고업무",
+    "변경신고",
+    "사업계획 신고",
+    "해외농업자원개발 사업계획",
+    "신고절차",
+    "처리절차",
+    "신고 대상",
+    "신고 의무",
+)
+EDUCATION_CHUNK_TERMS = (
+    "교육",
+    "국제곡물",
+    "전문가 프로그램",
+    "해외인턴",
+    "교육기간",
+    "교육대상",
+    "모집기간",
+)
+CONTACT_QUERY_TERMS_FOR_TOPIC = ("연락처", "전화", "전화번호", "문의처", "담당자", "담당부서")
+CONTACT_CHUNK_TERMS_FOR_TOPIC = ("문의처", "연락처", "전화", "전화번호", "담당자", "담당부서", "담당")
 logger = logging.getLogger(__name__)
 URL_MARKER_REGEX = re.compile(r"\[URL\]\s+(https?://\S+)", re.IGNORECASE)
 CONTACT_QUERY_TERMS = {"연락처", "전화", "전화번호", "문의처", "담당자", "담당부서"}
@@ -326,6 +351,33 @@ def _official_policy_boost(question_text: str, chunk_text: str) -> tuple[float, 
     if not matched:
         return 0.0, []
     return OFFICIAL_POLICY_BOOST, matched
+
+
+def _topic_quality_adjustment(question_text: str, chunk_text: str) -> tuple[float, list[str], float, list[str]]:
+    boost_terms: list[str] = []
+    penalty_terms: list[str] = []
+    boost = 0.0
+    penalty = 0.0
+
+    is_business_report_query = any(term in question_text for term in BUSINESS_REPORT_QUERY_TERMS)
+    is_contact_query = any(term in question_text for term in CONTACT_QUERY_TERMS_FOR_TOPIC)
+    if is_business_report_query:
+        business_matches = [term for term in BUSINESS_REPORT_CHUNK_TERMS if term in chunk_text]
+        education_matches = [term for term in EDUCATION_CHUNK_TERMS if term in chunk_text]
+        contact_matches = [term for term in CONTACT_CHUNK_TERMS_FOR_TOPIC if term in chunk_text]
+        if business_matches and (not is_contact_query or contact_matches):
+            boost = TOPIC_ALIGNMENT_BOOST
+            boost_terms.extend(business_matches[:4])
+            if is_contact_query:
+                boost_terms.extend(contact_matches[:2])
+        if education_matches and not business_matches:
+            penalty = TOPIC_MISMATCH_PENALTY
+            penalty_terms.extend(education_matches[:4])
+        if is_contact_query and contact_matches and not business_matches:
+            penalty = max(penalty, TOPIC_MISMATCH_PENALTY)
+            penalty_terms.extend(contact_matches[:2])
+
+    return boost, sorted(set(boost_terms)), penalty, sorted(set(penalty_terms))
 
 
 def _is_undefined_column_error(exc: Exception) -> bool:
@@ -659,17 +711,25 @@ def search_relevant_chunks(
         )
         text_preview = (chunk.text_content or "")[:1200]
         boost_text = f"{section_title or ''} {text_preview}".lower()
+        noise_text = f"{section_title or ''} {text_preview} {source_url or ''}"
         keyword_boost, boosted_terms = _policy_keyword_boost(normalized, boost_text)
         policy_boost, policy_boost_terms = _official_policy_boost(normalized, boost_text)
-        noise_text = f"{section_title or ''} {text_preview} {source_url or ''}"
+        topic_boost, topic_boost_terms, topic_penalty, topic_penalty_terms = _topic_quality_adjustment(
+            normalized,
+            noise_text.lower(),
+        )
         noise_penalty, noise_penalty_terms = _noise_section_penalty(noise_text)
         score_before_quality_adjustments = combined_score
         if keyword_boost:
             combined_score = round(min(combined_score + keyword_boost, 1.0), 4)
         if policy_boost:
             combined_score = round(min(combined_score + policy_boost, 1.0), 4)
+        if topic_boost:
+            combined_score = round(min(combined_score + topic_boost, 1.0), 4)
         if noise_penalty:
             combined_score = round(max(combined_score - noise_penalty, 0.0), 4)
+        if topic_penalty:
+            combined_score = round(max(combined_score - topic_penalty, 0.0), 4)
         citation_eligible = not (bool(noise_penalty) and combined_score < 0.50)
 
         collected.append(
@@ -697,6 +757,12 @@ def search_relevant_chunks(
                 "policyBoostApplied": bool(policy_boost),
                 "policyBoostValue": policy_boost,
                 "policyBoostTerms": policy_boost_terms,
+                "topicBoostApplied": bool(topic_boost),
+                "topicBoostValue": topic_boost,
+                "topicBoostTerms": topic_boost_terms,
+                "topicPenaltyApplied": bool(topic_penalty),
+                "topicPenaltyValue": topic_penalty,
+                "topicPenaltyTerms": topic_penalty_terms,
                 "noisePenaltyApplied": bool(noise_penalty),
                 "noisePenaltyValue": noise_penalty,
                 "noisePenaltyTerms": noise_penalty_terms,
@@ -737,11 +803,19 @@ def search_relevant_chunks(
     keyword_boost_applied = any(bool(item.get("keywordBoostApplied")) for item in ranked)
     noise_penalty_applied = any(bool(item.get("noisePenaltyApplied")) for item in ranked)
     policy_boost_applied = any(bool(item.get("policyBoostApplied")) for item in ranked)
+    topic_boost_applied = any(bool(item.get("topicBoostApplied")) for item in ranked)
+    topic_penalty_applied = any(bool(item.get("topicPenaltyApplied")) for item in ranked)
     noise_penalty_terms = sorted(
         {term for item in ranked for term in list(item.get("noisePenaltyTerms") or [])}
     )
     policy_boost_terms = sorted(
         {term for item in ranked for term in list(item.get("policyBoostTerms") or [])}
+    )
+    topic_boost_terms = sorted(
+        {term for item in ranked for term in list(item.get("topicBoostTerms") or [])}
+    )
+    topic_penalty_terms = sorted(
+        {term for item in ranked for term in list(item.get("topicPenaltyTerms") or [])}
     )
     dynamic_threshold = min((float(item.get("dynamicThreshold") or threshold) for item in ranked), default=threshold)
     citation_candidates = [
@@ -791,6 +865,10 @@ def search_relevant_chunks(
             "noisePenaltyTerms": noise_penalty_terms,
             "policyBoostApplied": policy_boost_applied,
             "policyBoostTerms": policy_boost_terms,
+            "topicBoostApplied": topic_boost_applied,
+            "topicBoostTerms": topic_boost_terms,
+            "topicPenaltyApplied": topic_penalty_applied,
+            "topicPenaltyTerms": topic_penalty_terms,
             "finalPromptChunkCount": len(prompt_candidates),
             "queryEmbeddingGenerated": True,
             "queryEmbeddingLength": query_embedding_length,

@@ -83,6 +83,7 @@ DISSATISFACTION_KEYWORDS = [
 ]
 CONTACT_QUESTION_KEYWORDS = ["연락처", "전화", "전화번호", "문의처", "담당자", "담당부서"]
 CONTACT_LINE_KEYWORDS = ["문의처", "연락처", "전화", "전화번호", "담당자", "담당부서", "담당"]
+BUSINESS_REPORT_CONTACT_TERMS = ["사업신고", "신고업무", "변경신고", "사업계획 신고", "신고절차", "처리절차"]
 PHONE_NUMBER_REGEX = re.compile(r"(?:\d{2,3}[-.)]\d{3,4}[-.)]\d{4}|\d{2,3}\.\d{3,4}\.\d{4})")
 OVERSEAS_INTERN_KEYWORDS = ["해외인턴", "해외 인턴", "인턴사원"]
 QUALIFICATION_QUESTION_KEYWORDS = [
@@ -302,6 +303,10 @@ def _build_admin_debug_trace(
                 "lexicalScore": _safe_score(item.get("keywordScore")),
                 "thresholdPassed": bool(item.get("thresholdPassed")),
                 "usedInPrompt": bool(item.get("usedInPrompt")),
+                "topicBoostApplied": bool(item.get("topicBoostApplied")),
+                "topicBoostTerms": list(item.get("topicBoostTerms") or []),
+                "topicPenaltyApplied": bool(item.get("topicPenaltyApplied")),
+                "topicPenaltyTerms": list(item.get("topicPenaltyTerms") or []),
                 "preview": _preview(str((item.get("contentSignals") or {}).get("textPreview") or ""), 300),
             }
         )
@@ -480,9 +485,20 @@ def _extract_contact_answer_from_candidates(
     if not _is_contact_question(question):
         return None
 
+    normalized_question = _normalize_text(question)
+    requires_business_report_contact = any(term in normalized_question for term in BUSINESS_REPORT_CONTACT_TERMS)
     contact_items: list[tuple[int, str]] = []
     for source_index, item in enumerate(candidates[:5], start=1):
         preview = str(item.get("contentSignals", {}).get("textPreview", "") or "")
+        candidate_topic_text = " ".join(
+            [
+                str(item.get("sectionTitle") or ""),
+                str(item.get("sourceUrl") or ""),
+                preview,
+            ]
+        )
+        if requires_business_report_contact and not any(term in candidate_topic_text for term in BUSINESS_REPORT_CONTACT_TERMS):
+            continue
         lines = [line.strip() for line in preview.splitlines() if line.strip()]
         if len(lines) <= 1:
             lines = [part.strip() for part in re.split(r"(?<=[.。])\s+|[•○❍]\s*", preview) if part.strip()]
@@ -513,7 +529,11 @@ def _extract_contact_answer_from_candidates(
         citation = "" if citation_display_mode == "hidden" else f" [S{source_index}]"
         lines.append(f"- {line}{citation}")
 
-    return "민간환경조사 담당자 연락처는 다음 근거에서 확인됩니다.\n" + "\n".join(lines)
+    if requires_business_report_contact:
+        lead = "신고업무 담당자 연락처는 다음 근거에서 확인됩니다."
+    else:
+        lead = "담당자 연락처는 다음 근거에서 확인됩니다."
+    return lead + "\n" + "\n".join(lines)
 
 
 def _clean_qualification_value(line: str) -> str:
