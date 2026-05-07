@@ -27,8 +27,30 @@ def _embedding_url(provider: str, base_url: str | None) -> str:
     return OPENAI_EMBEDDINGS_URL
 
 
+def coerce_embedding_vector(values: Any) -> list[float] | None:
+    if values is None:
+        return None
+    if hasattr(values, "tolist"):
+        values = values.tolist()
+    elif isinstance(values, tuple):
+        values = list(values)
+    elif not isinstance(values, list):
+        try:
+            values = list(values)
+        except TypeError:
+            return None
+    if len(values) == 0:
+        return None
+    try:
+        return [float(value) for value in values]
+    except (TypeError, ValueError):
+        return None
+
+
 def _normalize_embedding(values: list[Any]) -> list[float] | None:
-    embedding = [float(value) for value in values]
+    embedding = coerce_embedding_vector(values)
+    if embedding is None:
+        return None
     if len(embedding) != EMBEDDING_DIMENSIONS:
         return None
     norm = math.sqrt(sum(value * value for value in embedding))

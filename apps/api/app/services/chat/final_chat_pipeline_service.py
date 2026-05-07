@@ -213,6 +213,11 @@ def _fallback_reason(
 ) -> str:
     if llm_error_code:
         return "LLM_ERROR"
+    retrieval_fallback_reason = (retrieval_output or {}).get("fallbackReason") or (
+        ((retrieval_output or {}).get("trace") or {}).get("fallbackReason")
+    )
+    if retrieval_fallback_reason:
+        return str(retrieval_fallback_reason)
     reason = str(policy_reason or "").lower()
     if decision == "restricted" or policy_flags.get("abusiveDetected") or policy_flags.get("restrictedTopic"):
         return "POLICY_BLOCKED"
@@ -268,6 +273,7 @@ def _build_admin_debug_trace(
     retrieval_exception_message = (retrieval_output or {}).get("exceptionMessage") or (
         ((retrieval_output or {}).get("trace") or {}).get("exceptionMessage")
     )
+    retrieval_trace = (retrieval_output or {}).get("trace") or {}
     effective_exception_type = exception_type or retrieval_exception_type
     effective_exception_message = exception_message or retrieval_exception_message
     fallback_reason = _fallback_reason(
@@ -319,7 +325,13 @@ def _build_admin_debug_trace(
             "threshold": (retrieval_output or {}).get("retrievalThreshold"),
             "sourceDiversityApplied": bool((retrieval_output or {}).get("sourceDiversityApplied")),
             "filterScope": (retrieval_output or {}).get("filterScope"),
-            "trace": (retrieval_output or {}).get("trace"),
+            "fallbackReason": (retrieval_output or {}).get("fallbackReason") or retrieval_trace.get("fallbackReason"),
+            "queryEmbeddingGenerated": (retrieval_output or {}).get("queryEmbeddingGenerated"),
+            "queryEmbeddingLength": (retrieval_output or {}).get("queryEmbeddingLength"),
+            "queryEmbeddingType": (retrieval_output or {}).get("queryEmbeddingType"),
+            "exceptionType": retrieval_exception_type,
+            "exceptionMessage": retrieval_exception_message,
+            "trace": retrieval_trace,
             "chunks": chunks,
         },
         "prompt": {

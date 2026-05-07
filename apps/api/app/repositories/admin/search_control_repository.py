@@ -13,6 +13,7 @@ from app.models import (
     RetrievalControlRule,
     SynonymDictionary,
 )
+from app.services.embedding_service import coerce_embedding_vector
 
 
 def get_chatbot_in_scope(
@@ -285,11 +286,12 @@ def fetch_retrieval_candidates(
             seen_chunk_ids.add(str(chunk.id))
             rows.append(row)
 
-    if query_embedding:
+    normalized_query_embedding = coerce_embedding_vector(query_embedding)
+    if normalized_query_embedding is not None:
         vector_stmt = (
             base_stmt.where(DocumentChunk.embedding.is_not(None))
             .order_by(
-                DocumentChunk.embedding.cosine_distance(query_embedding),
+                DocumentChunk.embedding.cosine_distance(normalized_query_embedding),
                 DocumentVersion.document_priority.asc(),
                 DocumentVersion.version_number.desc(),
             )

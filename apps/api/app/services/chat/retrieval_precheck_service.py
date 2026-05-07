@@ -22,7 +22,7 @@ from app.repositories.admin.search_control_repository import (
     list_active_rules,
     list_active_synonyms,
 )
-from app.services.embedding_service import generate_embedding
+from app.services.embedding_service import coerce_embedding_vector, generate_embedding
 
 TOKEN_SPLIT_REGEX = re.compile(r"[^0-9A-Za-z가-힣]+")
 DEFAULT_RETRIEVAL_THRESHOLD = 0.55
@@ -118,13 +118,21 @@ def _expand_tokens(tokens: list[str], synonyms: list[SynonymDictionary]) -> list
     return sorted(expanded)
 
 
-def _cosine_similarity(left: list[float] | None, right: list[float] | None) -> float:
-    if not left or not right or len(left) != len(right):
+def _embedding_type_name(value: Any) -> str:
+    if value is None:
+        return "NoneType"
+    return type(value).__name__
+
+
+def _cosine_similarity(left: Any, right: Any) -> float:
+    left_vector = coerce_embedding_vector(left)
+    right_vector = coerce_embedding_vector(right)
+    if left_vector is None or right_vector is None or len(left_vector) != len(right_vector):
         return 0.0
     dot = 0.0
     left_norm = 0.0
     right_norm = 0.0
-    for left_value, right_value in zip(left, right, strict=False):
+    for left_value, right_value in zip(left_vector, right_vector, strict=False):
         dot += float(left_value) * float(right_value)
         left_norm += float(left_value) * float(left_value)
         right_norm += float(right_value) * float(right_value)
@@ -245,8 +253,16 @@ def _empty_retrieval_output(
     expanded_tokens: list[str] | None,
     started_at: float,
     threshold: float,
+    fallback_reason: str | None = None,
+    query_embedding_generated: bool = False,
+    query_embedding_length: int | None = None,
+    query_embedding_type: str | None = None,
     exception: Exception | None = None,
+    exception_type: str | None = None,
+    exception_message: str | None = None,
 ) -> dict[str, Any]:
+    effective_exception_type = exception_type or (type(exception).__name__ if exception is not None else None)
+    effective_exception_message = exception_message or (str(exception)[:1000] if exception is not None else None)
     trace: dict[str, Any] = {
         "excludeRuleIds": [],
         "boostRuleIds": [],
@@ -259,10 +275,15 @@ def _empty_retrieval_output(
         "threshold": threshold,
         "usedInPromptCount": 0,
         "sourceDiversityApplied": False,
+        "fallbackReason": fallback_reason,
+        "queryEmbeddingGenerated": query_embedding_generated,
+        "queryEmbeddingLength": query_embedding_length,
+        "queryEmbeddingType": query_embedding_type,
     }
+    if effective_exception_type is not None or effective_exception_message is not None:
+        trace["exceptionType"] = effective_exception_type
+        trace["exceptionMessage"] = effective_exception_message
     if exception is not None:
-        trace["exceptionType"] = type(exception).__name__
-        trace["exceptionMessage"] = str(exception)[:1000]
         trace["migrationHint"] = "Run Alembic migration 20260507_0016_knowledge_diagnostics."
 
     return {
@@ -280,6 +301,10 @@ def _empty_retrieval_output(
         },
         "knowledgeAvailable": True,
         "retrievalLatencyMs": int((time.perf_counter() - started_at) * 1000),
+        "fallbackReason": fallback_reason,
+        "queryEmbeddingGenerated": query_embedding_generated,
+        "queryEmbeddingLength": query_embedding_length,
+        "queryEmbeddingType": query_embedding_type,
         "exceptionType": trace.get("exceptionType"),
         "exceptionMessage": trace.get("exceptionMessage"),
         "trace": trace,
@@ -338,7 +363,44 @@ def search_relevant_chunks(
 
     synonyms = list_active_synonyms(db, organization_id, chatbot_id)
     expanded_tokens = _normalize_token_variants(_expand_tokens(tokens, synonyms))
-    query_embedding = generate_embedding(db, question)
+    query_embedding_raw: Any = None
+    query_embedding_exception: Exception | None = None
+    try:
+        query_embedding_raw = generate_embedding(db, question)
+    except Exception as exc:  # pragma: no cover - defensive trace path
+        query_embedding_exception = exc
+        logger.exception(
+            "Query embedding generation failed",
+            extra={"organization_id": organization_id, "chatbot_id": chatbot_id},
+        )
+
+    query_embedding = coerce_embedding_vector(query_embedding_raw)
+    query_embedding_type = _embedding_type_name(query_embedding_raw)
+    query_embedding_length = len(query_embedding) if query_embedding is not None else 0
+    if query_embedding is None:
+        message = "Query embedding was not generated."
+        if query_embedding_exception is not None:
+            message = str(query_embedding_exception)[:1000]
+        logger.warning(
+            "Knowledge retrieval skipped because query embedding was not generated organization_id=%s chatbot_id=%s embedding_type=%s",
+            organization_id,
+            chatbot_id,
+            query_embedding_type,
+        )
+        return _empty_retrieval_output(
+            organization_id=organization_id,
+            chatbot_id=chatbot_id,
+            question=question,
+            expanded_tokens=expanded_tokens,
+            started_at=started_at,
+            threshold=_get_retrieval_threshold(),
+            fallback_reason="EMBEDDING_FAILED",
+            query_embedding_generated=False,
+            query_embedding_length=query_embedding_length,
+            query_embedding_type=query_embedding_type,
+            exception_type=type(query_embedding_exception).__name__ if query_embedding_exception is not None else "EmbeddingGenerationFailed",
+            exception_message=message,
+        )
 
     rules = list_active_rules(db, organization_id, chatbot_id)
     exclude_rules = [rule for rule in rules if rule.rule_type == "exclude"]
@@ -373,6 +435,9 @@ def search_relevant_chunks(
             expanded_tokens=expanded_tokens,
             started_at=started_at,
             threshold=threshold,
+            query_embedding_generated=True,
+            query_embedding_length=query_embedding_length,
+            query_embedding_type=query_embedding_type,
             exception=exc,
         )
 
@@ -402,11 +467,8 @@ def search_relevant_chunks(
             or token in (document.title or "").lower()
         ]
         keyword_score = round(len(matched_keywords) / max(len(expanded_tokens), 1), 4)
-        vector_score = (
-            round(_cosine_similarity(query_embedding, chunk.embedding), 4)
-            if query_embedding and chunk.embedding
-            else None
-        )
+        chunk_embedding = coerce_embedding_vector(chunk.embedding)
+        vector_score = round(_cosine_similarity(query_embedding, chunk_embedding), 4) if chunk_embedding is not None else None
 
         version_signal = round(
             max(0.0, (200.0 - float(version.document_priority)) / 200.0)
@@ -528,6 +590,9 @@ def search_relevant_chunks(
         "usedInPromptCount": len(prompt_candidates),
         "retrievedCount": len(ranked),
         "sourceDiversityApplied": source_diversity_applied,
+        "queryEmbeddingGenerated": True,
+        "queryEmbeddingLength": query_embedding_length,
+        "queryEmbeddingType": query_embedding_type,
         "filterScope": {
             "organizationId": organization_id,
             "chatbotId": chatbot_id,
@@ -546,6 +611,9 @@ def search_relevant_chunks(
             "threshold": threshold,
             "usedInPromptCount": len(prompt_candidates),
             "sourceDiversityApplied": source_diversity_applied,
+            "queryEmbeddingGenerated": True,
+            "queryEmbeddingLength": query_embedding_length,
+            "queryEmbeddingType": query_embedding_type,
         },
     }
 
