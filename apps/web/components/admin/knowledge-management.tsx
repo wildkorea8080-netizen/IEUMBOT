@@ -31,15 +31,16 @@ function getErrorMessage(error: unknown): string {
 }
 
 function statusClass(status: string): string {
-  if (status === "ready") return "bg-emerald-100 text-emerald-700";
+  if (status === "completed" || status === "ready") return "bg-emerald-100 text-emerald-700";
   if (status === "failed") return "bg-red-100 text-red-700";
   if (status === "inactive") return "bg-slate-200 text-slate-700";
   return "bg-amber-100 text-amber-700";
 }
 
 function statusLabel(status: string): string {
+  if (status === "queued") return "대기 중";
   if (status === "processing") return "처리 중";
-  if (status === "ready") return "준비 완료";
+  if (status === "completed" || status === "ready") return "완료";
   if (status === "failed") return "실패";
   if (status === "inactive") return "비활성";
   return status;
@@ -63,6 +64,35 @@ function splitTags(value: string): string[] {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function formatCount(value?: number | null): string {
+  return typeof value === "number" ? value.toLocaleString("ko-KR") : "0";
+}
+
+function formatDateTime(value?: string | null): string {
+  return value ? new Date(value).toLocaleString("ko-KR") : "-";
+}
+
+function getDiagnosticWarnings(item: KnowledgeItem): string[] {
+  const warnings: string[] = [];
+  const createdAt = new Date(item.createdAt).getTime();
+  if (item.status === "queued" && Number.isFinite(createdAt) && Date.now() - createdAt > 5 * 60 * 1000) {
+    warnings.push("처리 대기 상태가 오래 지속되고 있습니다.");
+  }
+  if ((item.status === "completed" || item.status === "ready") && (item.chunkCount ?? 0) === 0) {
+    warnings.push("청크가 생성되지 않았습니다.");
+  }
+  if ((item.status === "completed" || item.status === "ready") && (item.embeddingCount ?? 0) === 0) {
+    warnings.push("임베딩이 생성되지 않았습니다.");
+  }
+  if ((item.embeddingCount ?? 0) < (item.chunkCount ?? 0)) {
+    warnings.push("일부 청크의 임베딩이 누락되었습니다.");
+  }
+  if ((item.extractedTextLength ?? 0) < 300) {
+    warnings.push("추출된 텍스트가 너무 적습니다.");
+  }
+  return warnings;
 }
 
 type EditorState = {
@@ -362,8 +392,9 @@ export function KnowledgeManagement() {
             className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
           >
             <option value="">전체 상태</option>
+            <option value="queued">대기 중</option>
             <option value="processing">처리 중</option>
-            <option value="ready">준비 완료</option>
+            <option value="completed">완료</option>
             <option value="failed">실패</option>
             <option value="inactive">비활성</option>
           </select>
@@ -407,8 +438,8 @@ export function KnowledgeManagement() {
         {isLoading ? <p className="mt-4 text-sm text-slate-500">목록을 불러오는 중입니다.</p> : null}
 
         {!isLoading ? (
-          <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200">
-            <table className="min-w-full table-fixed text-sm">
+          <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-200">
+            <table className="min-w-[1280px] table-fixed text-sm">
               <thead className="bg-slate-50 text-left text-slate-600">
                 <tr>
                   <th className="w-12 px-3 py-3">
@@ -423,14 +454,19 @@ export function KnowledgeManagement() {
                   <th className="px-3 py-3">제목</th>
                   <th className="w-40 px-3 py-3">태그</th>
                   <th className="w-28 px-3 py-3">상태</th>
-                  <th className="w-36 px-3 py-3">생성일</th>
+                  <th className="w-36 px-3 py-3">텍스트 길이</th>
+                  <th className="w-28 px-3 py-3">청크</th>
+                  <th className="w-28 px-3 py-3">임베딩</th>
+                  <th className="w-44 px-3 py-3">마지막 처리</th>
+                  <th className="w-64 px-3 py-3">원본</th>
+                  <th className="w-64 px-3 py-3">진단</th>
                   <th className="w-56 px-3 py-3">작업</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 bg-white">
                 {items.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-3 py-10 text-center text-sm text-slate-500">
+                    <td colSpan={13} className="px-3 py-10 text-center text-sm text-slate-500">
                       조건에 맞는 지식이 없습니다.
                     </td>
                   </tr>
@@ -498,7 +534,30 @@ export function KnowledgeManagement() {
                           {item.ingestionStatus ? <div className="text-xs text-slate-500">{item.ingestionStatus}</div> : null}
                         </div>
                       </td>
-                      <td className="px-3 py-4 text-slate-500">{new Date(item.createdAt).toLocaleDateString("ko-KR")}</td>
+                      <td className="px-3 py-4 text-slate-600">{formatCount(item.extractedTextLength)}</td>
+                      <td className="px-3 py-4 text-slate-600">{formatCount(item.chunkCount)}</td>
+                      <td className="px-3 py-4 text-slate-600">{formatCount(item.embeddingCount)}</td>
+                      <td className="px-3 py-4 text-xs text-slate-500">{formatDateTime(item.lastProcessedAt ?? item.indexedAt)}</td>
+                      <td className="px-3 py-4 text-xs text-slate-500">
+                        <div className="max-w-64 break-all">
+                          {item.fileName ?? item.sourceUrl ?? item.finalUrl ?? item.sourceLabel ?? "-"}
+                        </div>
+                        {item.httpStatusCode ? <div className="mt-1">HTTP {item.httpStatusCode}</div> : null}
+                      </td>
+                      <td className="px-3 py-4">
+                        <div className="space-y-1">
+                          {getDiagnosticWarnings(item).length === 0 ? <span className="text-xs text-slate-400">-</span> : null}
+                          {getDiagnosticWarnings(item).map((warning) => (
+                            <span
+                              key={warning}
+                              className="block rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-700"
+                            >
+                              {warning}
+                            </span>
+                          ))}
+                          {item.errorMessage ? <div className="text-xs text-red-600">{item.errorMessage}</div> : null}
+                        </div>
+                      </td>
                       <td className="px-3 py-4">
                         <div className="flex flex-wrap gap-2">
                           <button
@@ -732,8 +791,16 @@ export function KnowledgeManagement() {
                     {detail.lastIndexedAt ? new Date(detail.lastIndexedAt).toLocaleString("ko-KR") : "-"}
                   </div>
                   <div>
+                    <strong className="mr-2 text-slate-900">텍스트 길이</strong>
+                    {formatCount(detail.extractedTextLength)}
+                  </div>
+                  <div>
+                    <strong className="mr-2 text-slate-900">청크 / 임베딩</strong>
+                    {formatCount(detail.chunkCount)} / {formatCount(detail.embeddingCount)}
+                  </div>
+                  <div>
                     <strong className="mr-2 text-slate-900">파일 또는 URL</strong>
-                    {detail.fileName ?? detail.url ?? "-"}
+                    {detail.fileName ?? detail.sourceUrl ?? detail.finalUrl ?? detail.url ?? "-"}
                   </div>
                   <div>
                     <strong className="mr-2 text-slate-900">PDF 추출 방식</strong>

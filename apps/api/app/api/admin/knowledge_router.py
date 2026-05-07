@@ -5,6 +5,7 @@ from app.api.dependencies.auth import AdminPrincipal, require_institution_admin_
 from app.db import get_db_session
 from app.schemas.knowledge import (
     KnowledgeDetailResponse,
+    KnowledgeItem,
     KnowledgeListResponse,
     KnowledgeRuntimeStatusResponse,
     KnowledgeTextCreateRequest,
@@ -18,6 +19,7 @@ from app.services.admin.knowledge_service import (
     delete_knowledge_service,
     get_knowledge_runtime_status_service,
     get_knowledge_service,
+    list_knowledge_diagnostics_service,
     list_knowledge_service,
     patch_knowledge_service,
     reindex_knowledge_service,
@@ -52,6 +54,14 @@ def admin_get_knowledge_runtime_status(
     principal: AdminPrincipal = Depends(require_institution_admin_auth),
 ) -> KnowledgeRuntimeStatusResponse:
     return get_knowledge_runtime_status_service(principal=principal)
+
+
+@router.get("/knowledge/diagnostics", response_model=list[KnowledgeItem])
+def admin_list_knowledge_diagnostics(
+    principal: AdminPrincipal = Depends(require_institution_admin_auth),
+    db: Session = Depends(get_db_session),
+) -> list[KnowledgeItem]:
+    return list_knowledge_diagnostics_service(db, principal=principal)
 
 
 @router.post("/knowledge/upload", response_model=KnowledgeDetailResponse)

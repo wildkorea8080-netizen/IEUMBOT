@@ -51,7 +51,7 @@ export type KnowledgeItem = {
   tags: string[];
   memo?: string | null;
   summary?: string | null;
-  status: "processing" | "ready" | "failed" | "inactive" | string;
+  status: "queued" | "processing" | "completed" | "failed" | "inactive" | string;
   sourceLabel?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -61,6 +61,14 @@ export type KnowledgeItem = {
   department?: string | null;
   sensitiveDetected: boolean;
   errorMessage?: string | null;
+  extractedTextLength?: number | null;
+  chunkCount?: number | null;
+  embeddingCount?: number | null;
+  lastProcessedAt?: string | null;
+  fileName?: string | null;
+  sourceUrl?: string | null;
+  finalUrl?: string | null;
+  httpStatusCode?: number | null;
   ingestionJobId?: string | null;
   ingestionStatus?: string | null;
   ingestionProgressPercent?: number | null;

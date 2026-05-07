@@ -21,7 +21,7 @@ type LauncherIconName = "chat" | "heart" | "love-chat" | "custom" | "shield" | "
 
 const LOVE_CHAT_ICON_SRC = "/widget-icons/love-chat-icons.png";
 const CHAT_RECOVERY_MESSAGE =
-  "현재 자동 답변 처리에 일시적인 문제가 있습니다. 잠시 후 다시 시도해 주시거나, 질문을 조금 더 구체적으로 남겨주시면 확인 가능한 범위에서 다시 안내해 드릴게요.";
+  "요청 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.";
 
 function escapeHtmlAttribute(value: string): string {
   return value
@@ -140,10 +140,10 @@ function isUrlLikeCitationPart(value: string): boolean {
 
 function getFriendlyOutcomeLabel(outcome?: string): string | null {
   if (!outcome || outcome === "answered") return null;
-  if (outcome === "insufficient_evidence") return "확인 가능한 참고 내용이 부족해 일반 안내로 전환했습니다.";
-  if (outcome === "restricted") return "직접 안내가 어려운 질문이라 안전한 범위에서만 답변합니다.";
+  if (outcome === "insufficient_evidence") return "등록된 자료에서 관련 정보를 충분히 찾지 못했습니다.";
+  if (outcome === "restricted") return "안전한 안내 범위에서 답변이 제한된 질문입니다.";
   if (outcome === "conflict") return "근거 확인이 더 필요한 질문입니다.";
-  if (outcome === "escalate") return "추가 확인이 필요한 내용으로 상담 연결이 권장됩니다.";
+  if (outcome === "escalate") return "정확한 확인이 필요한 내용입니다.";
   return null;
 }
 
@@ -178,7 +178,10 @@ function buildInitialMessage(config: WidgetPublicConfig | null, options: WidgetI
   if (config?.introMessage?.trim()) return config.introMessage.trim();
   if (config?.welcomeMessage?.trim()) return config.welcomeMessage.trim();
   const preferred = getInstitutionLabel(config, options);
-  return `안녕하세요\n${preferred} AI 챗봇입니다.\n\n궁금하신 내용을 입력해주시면\n빠르게 안내해드리겠습니다.`;
+  if (preferred && preferred !== "기관") {
+    return `안녕하세요. ${preferred} AI 상담봇입니다. 궁금하신 내용을 편하게 입력해주세요.`;
+  }
+  return "안녕하세요. 궁금하신 내용을 입력해주시면 빠르게 안내해드리겠습니다.";
 }
 
 function getPresetGradient(preset?: string | null): string {
@@ -197,6 +200,15 @@ function getLauncherIcon(config: WidgetPublicConfig | null): LauncherIconName {
   return "chat";
 }
 
+function getInitialLauncherIcon(options: WidgetInitOptions): LauncherIconName {
+  const icon = options.initialLauncherIcon?.trim();
+  const iconUrl = options.initialLauncherIconUrl?.trim();
+  if (icon === "custom" && iconUrl) return "custom";
+  if (icon === "love-chat") return icon;
+  if (icon === "heart" || icon === "shield" || icon === "leaf" || icon === "spark") return icon;
+  return "chat";
+}
+
 function isImageLauncherIcon(icon: LauncherIconName, customIconUrl?: string | null): boolean {
   return icon === "love-chat" || (icon === "custom" && !!customIconUrl?.trim());
 }
@@ -205,7 +217,7 @@ function getLauncherHoverMessage(config: WidgetPublicConfig | null, options: Wid
   const explicit = config?.launcherHoverMessage?.trim();
   if (explicit) return explicit;
   const institution = getInstitutionLabel(config, options);
-  return `AI챗봇 ${institution}예요. 무엇을 도와드릴까요?`;
+  return `${institution} AI 상담봇입니다. 무엇을 도와드릴까요?`;
 }
 
 function buildScopedStyles(primaryGradient: string): string {
@@ -519,11 +531,19 @@ export class IeumWidgetApp {
     this.launcherTip.appendChild(this.launcherTipClose);
 
     this.floatingButton.type = "button";
-    this.floatingButton.title = options.launcherLabel ?? "챗봇 열기";
-    this.floatingButton.setAttribute("aria-label", options.launcherLabel ?? "챗봇 열기");
+    this.floatingButton.title = (options.initialLauncherLabel?.trim() || options.launcherLabel) ?? "챗봇 열기";
+    this.floatingButton.setAttribute(
+      "aria-label",
+      (options.initialLauncherLabel?.trim() || options.launcherLabel) ?? "챗봇 열기",
+    );
     this.floatingButton.replaceChildren();
-    this.floatingButton.innerHTML = createIconSvg("chat");
-    this.floatingButton.classList.remove("ieum-floating-image");
+    const initialLauncherIcon = getInitialLauncherIcon(options);
+    const initialLauncherIconUrl = options.initialLauncherIconUrl?.trim();
+    this.floatingButton.innerHTML = createIconSvg(initialLauncherIcon, initialLauncherIconUrl);
+    this.floatingButton.classList.toggle(
+      "ieum-floating-image",
+      isImageLauncherIcon(initialLauncherIcon, initialLauncherIconUrl),
+    );
 
     this.titleNode.textContent = headerDisplayName(null, options);
     this.loadingRow.innerHTML = `
@@ -949,7 +969,7 @@ export class IeumWidgetApp {
   private async trySendWithSse(question: string): Promise<boolean> {
     const draftMessageId = `assistant_stream_${Date.now()}`;
     let streamFailed = false;
-    let streamErrorMessage = "스트리밍 연결 오류로 일반 모드로 전환합니다.";
+    let streamErrorMessage = "스트리밍 연결 오류가 발생했습니다. 일반 모드로 전환합니다.";
     let finalOutcome = "answered";
     let finalCitations: ChatCitation[] = [];
     let finalText = "";
@@ -1061,3 +1081,4 @@ export class IeumWidgetApp {
     });
   }
 }
+

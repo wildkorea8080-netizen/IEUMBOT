@@ -522,9 +522,14 @@ def get_widget_service(
     if widget is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="WIDGET_NOT_FOUND")
 
-    install_script = build_widget_install_script(chatbot_id=str(widget.chatbot_id))
     chatbot = ensure_chatbot_in_scope(db, principal=principal, chatbot_id=chatbot_id)
     theme = chatbot.theme if isinstance(chatbot.theme, dict) else {}
+    install_script = build_widget_install_script(
+        chatbot_id=str(widget.chatbot_id),
+        launcher_label=widget.launcher_label,
+        launcher_icon=theme.get("widgetLauncherIcon") if isinstance(theme.get("widgetLauncherIcon"), str) else None,
+        launcher_icon_url=theme.get("widgetLauncherIconUrl") if isinstance(theme.get("widgetLauncherIconUrl"), str) else None,
+    )
     runtime_api = resolve_runtime_api_config(db)
     answer_settings = get_effective_answer_settings_for_runtime(
         db,
@@ -539,6 +544,12 @@ def get_widget_service(
     runtime_status = inspect_runtime_api_config_status(db)
     runtime_model_recommended = (
         runtime_provider == "openai" and str(runtime_model or "").strip() in RECOMMENDED_OPENAI_MODELS
+    )
+    install_script = build_widget_install_script(
+        chatbot_id=str(widget.chatbot_id),
+        launcher_label=widget.launcher_label,
+        launcher_icon=theme.get("widgetLauncherIcon") if isinstance(theme.get("widgetLauncherIcon"), str) else None,
+        launcher_icon_url=theme.get("widgetLauncherIconUrl") if isinstance(theme.get("widgetLauncherIconUrl"), str) else None,
     )
     return AdminWidgetResponse(
         id=str(widget.id),
@@ -643,7 +654,6 @@ def patch_widget_service(
     chatbot.theme = theme
     db.commit()
     db.refresh(widget)
-    install_script = build_widget_install_script(chatbot_id=str(widget.chatbot_id))
     runtime_api = resolve_runtime_api_config(db)
     answer_settings = get_effective_answer_settings_for_runtime(
         db,
@@ -658,6 +668,12 @@ def patch_widget_service(
     runtime_status = inspect_runtime_api_config_status(db)
     runtime_model_recommended = (
         runtime_provider == "openai" and str(runtime_model or "").strip() in RECOMMENDED_OPENAI_MODELS
+    )
+    install_script = build_widget_install_script(
+        chatbot_id=str(widget.chatbot_id),
+        launcher_label=widget.launcher_label,
+        launcher_icon=theme.get("widgetLauncherIcon") if isinstance(theme.get("widgetLauncherIcon"), str) else None,
+        launcher_icon_url=theme.get("widgetLauncherIconUrl") if isinstance(theme.get("widgetLauncherIconUrl"), str) else None,
     )
     return AdminWidgetResponse(
         id=str(widget.id),

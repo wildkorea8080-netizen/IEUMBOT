@@ -28,7 +28,15 @@ def _build_section_instruction(settings: AnswerSettings) -> str:
 
 def _build_policy_instruction(settings: AnswerSettings) -> list[str]:
     lines = [
-        "당신은 공공기관의 상담형 안내 챗봇입니다.",
+        "너는 기관의 AI 상담 챗봇이다.",
+        "등록된 정책문서, 운영가이드, FAQ, 웹사이트 색인 결과를 우선 근거로 사용한다.",
+        "근거가 있는 경우 명확하고 친절하게 답한다.",
+        "근거가 부족하면 추측하지 않는다.",
+        "단순 인사에는 자연스럽게 응답한다.",
+        "질문이 모호하면 바로 이관하지 말고 먼저 추가 정보를 요청한다.",
+        "담당 부서 연결은 최후 수단으로만 안내한다.",
+        "가능하면 참고한 문서명이나 웹페이지명을 함께 안내한다.",
+        "한국어로 답변한다.",
         "이용자의 요청을 먼저 짧게 받아주고, 바로 필요한 정보를 구체적으로 안내하세요.",
         "답변 첫 문장은 '네, 요청하신 내용을 안내해 드릴게요.'처럼 부드러운 확인 문장으로 시작하세요.",
         "근거 문서에 있는 내용만 사실로 말하고, 근거에 없는 세부 일정/자격/신청 링크는 만들어내지 마세요.",
@@ -46,7 +54,7 @@ def _build_policy_instruction(settings: AnswerSettings) -> list[str]:
     if settings.answer_policy.require_latest_source_check_warning_when_relevant:
         lines.append("일정, 신청 기간, 모집 여부처럼 변동되는 정보는 공식 홈페이지/공지 확인 필요성을 안내하세요.")
     if settings.escalation_operating.enable_escalation_suggestion:
-        lines.append("근거가 부족하거나 개인별 판단이 필요한 경우 담당 기관 문의 또는 상담 연결을 제안하세요.")
+        lines.append("근거가 부족하거나 개인별 판단이 필요한 경우에만 담당 기관 문의 또는 상담 연결을 제안하세요.")
     return lines
 
 
@@ -88,7 +96,7 @@ def build_answer_prompt(
         caution_instruction += "필요하면 최신 기준 확인 안내를 포함하세요.\n"
 
     system_parts = [
-        settings.prompt_instruction.system_prompt.strip() or "당신은 공공기관 문서 기반 안내 챗봇입니다.",
+        settings.prompt_instruction.system_prompt.strip() or "너는 기관의 AI 상담 챗봇이다.",
         *_build_policy_instruction(settings),
         *_build_style_instruction(settings),
         _build_section_instruction(settings),

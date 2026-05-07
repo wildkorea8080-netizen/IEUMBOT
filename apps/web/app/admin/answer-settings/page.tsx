@@ -25,7 +25,7 @@ const DEFAULT_SETTINGS: AnswerSettings = {
     disallowLegalJudgment: true,
     requireLatestSourceCheckWarningWhenRelevant: true,
     fallbackMessageWhenInsufficientEvidence:
-      "현재 확인 가능한 공식 근거가 부족하여 확정 안내가 어렵습니다. 담당 부서에 문의해 주세요.",
+      "현재 등록된 자료에서는 해당 내용을 확인하기 어렵습니다. 관련 사업명, 신청 단계, 또는 대상 기관을 알려주시면 다시 확인해드리겠습니다.",
     clarificationStrategyMode: "ask_one_question",
   },
   answerFormat: {
@@ -44,7 +44,7 @@ const DEFAULT_SETTINGS: AnswerSettings = {
   },
   escalationOperating: {
     enableEscalationSuggestion: true,
-    escalationFallbackMessage: "정확한 안내를 위해 담당 부서 연결을 권장합니다.",
+    escalationFallbackMessage: "정확한 확인이 필요한 내용입니다. 필요하시면 담당 부서 연결을 안내해드릴 수 있습니다.",
     operatingHoursFallbackMessage:
       "현재 운영시간이 아니므로 즉시 연결이 어렵습니다. 운영시간에 다시 문의해 주세요.",
     afterHoursBehaviorMode: "show_notice",

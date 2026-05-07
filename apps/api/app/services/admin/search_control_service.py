@@ -23,6 +23,7 @@ from app.repositories.admin.search_control_repository import (
 )
 from app.repositories.logs.audit_log_repository import create_audit_log
 from app.services.admin.scope_service import ensure_chatbot_in_scope, require_institution_organization_id
+from app.services.chat.retrieval_precheck_service import search_relevant_chunks
 from app.schemas.admin_search import (
     AdminSearchTestRequest,
     AdminSearchTestResponse,
@@ -41,7 +42,7 @@ from app.schemas.admin_search import (
     SynonymUpdateRequest,
 )
 
-TOKEN_SPLIT_REGEX = re.compile(r"[^0-9A-Za-z가-힣]+")
+TOKEN_SPLIT_REGEX = re.compile(r"[^0-9A-Za-z]+")
 
 
 def _normalize_query(question: str) -> str:
@@ -150,219 +151,112 @@ def run_admin_search_test(
     organization_id = require_institution_organization_id(principal)
     chatbot = ensure_chatbot_in_scope(db, principal=principal, chatbot_id=chatbot_id)
 
-    normalized_question = _normalize_query(body.question)
-    raw_tokens = _tokenize(normalized_question)
-    synonyms = list_active_synonyms(db, organization_id, chatbot_id)
-    expanded_terms = _expand_tokens(raw_tokens, synonyms)
-
-    rules = list_active_rules(db, organization_id, chatbot_id)
-    exclude_rules = [rule for rule in rules if rule.rule_type == "exclude"]
-    boost_rules = [rule for rule in rules if rule.rule_type == "boost"]
-    pin_rules = [rule for rule in rules if rule.rule_type == "pin"]
-
-    rows = fetch_retrieval_candidates(
+    retrieval_output = search_relevant_chunks(
         db,
         organization_id=organization_id,
         chatbot_id=chatbot_id,
-        question_terms=expanded_terms,
+        question=body.question,
+        top_k=body.top_k,
+        corpus_domain_policy=chatbot.corpus_domain_policy or {},
+        search_control_policy=chatbot.search_control_policy or {},
         corpus_domains=body.corpus_domains,
         source_types=body.source_types,
         include_inactive=body.include_inactive,
-        limit_count=max(50, body.top_k * 8),
     )
+    retrieval_trace = dict(retrieval_output.get("trace") or {})
+    candidates: list[SearchTestCandidate] = []
+    ranking_order: list[dict[str, Any]] = []
 
-    today = date.today()
-    candidates: list[dict[str, Any]] = []
-    excluded_count = 0
-
-    for chunk, document, version in rows:
-        matched_exclude_rules = [
-            rule
-            for rule in exclude_rules
-            if _matches_rule_target(
-                rule,
-                query=normalized_question,
-                document=document,
-                document_version=version,
-                chunk=chunk,
-            )
-        ]
-        if matched_exclude_rules:
-            excluded_count += 1
-            continue
-
-        matched_keywords = [
-            term
-            for term in expanded_terms
-            if term in (chunk.text_content or "").lower()
-            or term in (chunk.section_title or "").lower()
-            or term in (document.title or "").lower()
-        ]
-        keyword_score = round(len(matched_keywords) / max(len(expanded_terms), 1), 4)
-
-        vector_score = 0.0
-        semantic_summary = "벡터 점수 미연동(향후 임베딩 질의 연동 지점)"
-
-        corpus_signal = _corpus_weight(chunk.corpus_domain, chatbot.corpus_domain_policy or {})
-        source_signal = _source_type_weight(version.source_type, chatbot.search_control_policy or {})
-        version_signal = round(
-            max(0.0, (200.0 - float(version.document_priority)) / 200.0)
-            + max(0.0, min(version.version_number / 100.0, 0.2)),
-            4,
-        )
-
-        recency_signal = 0.0
-        if version.effective_date and version.effective_date <= today:
-            recency_signal += 0.05
-        if version.expiration_date and version.expiration_date < today:
-            recency_signal -= 0.1
-        recency_signal = round(recency_signal, 4)
-
-        matched_boost_rules = [
-            rule
-            for rule in boost_rules
-            if _matches_rule_target(
-                rule,
-                query=normalized_question,
-                document=document,
-                document_version=version,
-                chunk=chunk,
-            )
-        ]
-        manual_boost_value = sum((rule.boost_value or 0) for rule in matched_boost_rules) + int(
-            version.manual_boost or 0
-        )
-        manual_boost_signal = round(min(manual_boost_value / 100.0, 1.0), 4)
-
-        matched_pin_rules = [
-            rule
-            for rule in pin_rules
-            if _matches_rule_target(
-                rule,
-                query=normalized_question,
-                document=document,
-                document_version=version,
-                chunk=chunk,
-            )
-        ]
-        is_pinned = bool(matched_pin_rules)
-
-        combined_score = round(
-            (keyword_score * 0.6)
-            + (vector_score * 0.2)
-            + (corpus_signal * 0.05)
-            + (source_signal * 0.05)
-            + (version_signal * 0.1)
-            + recency_signal
-            + manual_boost_signal,
-            4,
-        )
-
+    for item in retrieval_output.get("candidates") or []:
+        vector_score = item.get("vectorScore")
+        matched_boost_rule_ids = list(item.get("matchedBoostRuleIds") or [])
+        matched_pin_rule_ids = list(item.get("matchedPinRuleIds") or [])
         explanation = RetrievalExplanation(
-            matched_keywords=matched_keywords,
+            matched_keywords=list(item.get("matchedKeywords") or []),
             semantic_relevance={
                 "vectorScore": vector_score,
-                "summary": semantic_summary,
+                "summary": "runtime retrieval score" if vector_score is not None else "vector score unavailable",
             },
             corpus_priority_applied={
-                "corpusDomain": chunk.corpus_domain,
-                "weight": corpus_signal,
-                "applied": corpus_signal != 0.0,
+                "corpusDomain": item.get("corpusDomain"),
+                "applied": True,
             },
             document_version_priority_applied={
-                "documentPriority": version.document_priority,
-                "versionNumber": version.version_number,
-                "signal": version_signal,
+                "versionLabel": item.get("versionLabel"),
                 "applied": True,
             },
             recency_effective_date_signal_applied={
-                "effectiveDate": version.effective_date.isoformat() if version.effective_date else None,
-                "expirationDate": version.expiration_date.isoformat() if version.expiration_date else None,
-                "signal": recency_signal,
-                "applied": recency_signal != 0.0,
+                "effectiveDate": item.get("effectiveDate"),
+                "expirationDate": item.get("expirationDate"),
+                "applied": bool(item.get("effectiveDate") or item.get("expirationDate")),
             },
             manual_rule_applied=RuleEffectSummary(
                 excluded=False,
-                boosted=manual_boost_value > 0,
-                pinned=is_pinned,
-                boost_value=manual_boost_value,
-                reason=", ".join(
-                    [rule.reason for rule in matched_boost_rules + matched_pin_rules if rule.reason]
-                )
-                or None,
+                boosted=bool(matched_boost_rule_ids),
+                pinned=bool(item.get("isPinned")),
+                boost_value=0,
+                reason=None,
             ),
         )
-
-        candidates.append(
-            {
-                "isPinned": is_pinned,
-                "combinedScore": combined_score,
-                "candidate": SearchTestCandidate(
-                    document_id=str(document.id),
-                    document_name=document.title,
-                    document_version_id=str(version.id),
-                    version_label=f"v{version.version_number}",
-                    page_number=chunk.page_number,
-                    section_title=chunk.section_title,
-                    corpus_domain=chunk.corpus_domain,
-                    source_type=version.source_type,
-                    effective_date=version.effective_date.isoformat() if version.effective_date else None,
-                    expiration_date=version.expiration_date.isoformat() if version.expiration_date else None,
-                    keyword_score=keyword_score,
-                    vector_score=vector_score,
-                    combined_score=combined_score,
-                    final_rank=0,
-                    selected_by_rules={
-                        "pinned": is_pinned,
-                        "pinRuleIds": [str(rule.id) for rule in matched_pin_rules],
-                    },
-                    exclusion_or_boost_applied={
-                        "boostRuleIds": [str(rule.id) for rule in matched_boost_rules],
-                        "manualBoost": int(version.manual_boost or 0),
-                        "isSearchSuppressed": version.is_search_suppressed,
-                    },
-                    explanation=explanation,
-                ),
-            }
+        candidate = SearchTestCandidate(
+            document_id=str(item.get("documentId") or ""),
+            document_name=str(item.get("documentName") or ""),
+            document_version_id=str(item.get("documentVersionId") or ""),
+            version_label=item.get("versionLabel"),
+            page_number=item.get("pageNumber"),
+            section_title=item.get("sectionTitle"),
+            corpus_domain=str(item.get("corpusDomain") or ""),
+            source_type=str(item.get("sourceType") or ""),
+            effective_date=item.get("effectiveDate"),
+            expiration_date=item.get("expirationDate"),
+            keyword_score=float(item.get("keywordScore") or 0.0),
+            vector_score=float(vector_score) if isinstance(vector_score, (int, float)) else None,
+            combined_score=float(item.get("combinedScore") or 0.0),
+            final_rank=int(item.get("finalRank") or 0),
+            selected_by_rules={
+                "pinned": bool(item.get("isPinned")),
+                "pinRuleIds": matched_pin_rule_ids,
+                "thresholdPassed": bool(item.get("thresholdPassed")),
+                "usedInPrompt": bool(item.get("usedInPrompt")),
+            },
+            exclusion_or_boost_applied={
+                "boostRuleIds": matched_boost_rule_ids,
+            },
+            explanation=explanation,
         )
-
-    ranked = sorted(
-        candidates,
-        key=lambda item: (
-            0 if item["isPinned"] else 1,
-            -item["combinedScore"],
-        ),
-    )[: body.top_k]
-
-    ranking_order = []
-    for idx, item in enumerate(ranked, start=1):
-        item["candidate"].final_rank = idx
+        candidates.append(candidate)
         ranking_order.append(
             {
-                "rank": idx,
-                "documentId": item["candidate"].document_id,
-                "documentVersionId": item["candidate"].document_version_id,
-                "combinedScore": item["candidate"].combined_score,
-                "isPinned": item["isPinned"],
+                "rank": candidate.final_rank,
+                "documentId": candidate.document_id,
+                "documentVersionId": candidate.document_version_id,
+                "combinedScore": candidate.combined_score,
+                "isPinned": bool(item.get("isPinned")),
+                "thresholdPassed": bool(item.get("thresholdPassed")),
+                "usedInPrompt": bool(item.get("usedInPrompt")),
             }
         )
 
     request_id = f"search_test_{uuid.uuid4().hex[:16]}"
     trace = AdminSearchTestTrace(
         original_question=body.question,
-        normalized_question=normalized_question,
-        expanded_terms=expanded_terms,
+        normalized_question=str(retrieval_output.get("normalizedQuery") or ""),
+        expanded_terms=list(retrieval_output.get("expandedTokens") or []),
         applied_filters={
             "corpusDomains": body.corpus_domains or [],
             "sourceTypes": body.source_types or [],
             "topK": body.top_k,
             "includeInactive": body.include_inactive,
+            "filterScope": retrieval_output.get("filterScope"),
+            "threshold": retrieval_output.get("retrievalThreshold"),
+            "usedInPromptCount": retrieval_output.get("usedInPromptCount"),
+            "sourceDiversityApplied": retrieval_output.get("sourceDiversityApplied"),
         },
         applied_rules={
-            "excludeRuleIds": [str(rule.id) for rule in exclude_rules],
-            "boostRuleIds": [str(rule.id) for rule in boost_rules],
-            "pinRuleIds": [str(rule.id) for rule in pin_rules],
-            "excludedCount": excluded_count,
+            "excludeRuleIds": retrieval_trace.get("excludeRuleIds", []),
+            "boostRuleIds": retrieval_trace.get("boostRuleIds", []),
+            "pinRuleIds": retrieval_trace.get("pinRuleIds", []),
+            "excludedCount": retrieval_trace.get("excludedCount", 0),
         },
         ranking_order=ranking_order,
     )
@@ -378,7 +272,7 @@ def run_admin_search_test(
         request_id=request_id,
         metadata_json={
             "trace": trace.model_dump(by_alias=True),
-            "candidateCount": len(ranked),
+            "candidateCount": len(candidates),
             "resultType": "retrieval_test",
         },
     )
@@ -387,10 +281,9 @@ def run_admin_search_test(
     return AdminSearchTestResponse(
         request_id=request_id,
         chatbot_id=chatbot_id,
-        candidates=[item["candidate"] for item in ranked],
+        candidates=candidates,
         trace=trace,
     )
-
 
 def create_exclude_rule(
     db: Session,

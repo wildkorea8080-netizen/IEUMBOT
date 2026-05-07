@@ -40,6 +40,14 @@ class KnowledgeItem(ApiSchema):
     department: str | None = None
     sensitive_detected: bool = False
     error_message: str | None = None
+    extracted_text_length: int | None = 0
+    chunk_count: int | None = 0
+    embedding_count: int | None = 0
+    last_processed_at: str | None = None
+    file_name: str | None = None
+    source_url: str | None = None
+    final_url: str | None = None
+    http_status_code: int | None = None
     ingestion_job_id: str | None = None
     ingestion_status: str | None = None
     ingestion_progress_percent: int | None = None
@@ -53,7 +61,6 @@ class KnowledgeListResponse(ApiSchema):
 
 
 class KnowledgeDetailResponse(KnowledgeItem):
-    file_name: str | None = None
     url: str | None = None
     source_path: str | None = None
     last_indexed_at: str | None = None

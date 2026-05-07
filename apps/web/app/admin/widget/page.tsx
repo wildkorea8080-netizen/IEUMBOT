@@ -208,6 +208,7 @@ export default function WidgetPage() {
     welcomeMessage: "",
     bannerTitle: "",
     bannerDescription: "",
+    launcherLabel: "",
     launcherIcon: "chat",
     launcherIconUrl: "",
     launcherHoverMessage: "",
@@ -257,6 +258,7 @@ export default function WidgetPage() {
         welcomeMessage: welcomeMessage.trim(),
         bannerTitle: bannerTitle.trim(),
         bannerDescription: bannerDescription.trim(),
+        launcherLabel: launcherLabel.trim(),
         launcherIcon,
         launcherIconUrl: launcherIconUrl.trim(),
         launcherHoverMessage: previewHoverMessage,
@@ -344,7 +346,15 @@ export default function WidgetPage() {
         return __originalFetch__(input, init);
       };
     </script>
-    <script src="/widget.js" data-chatbot-id="${debouncedIframeState.selectedChatbotId}" data-api-base-url="${origin}/api" data-open-on-load="true"></script>
+    <script
+      src="/widget.js"
+      data-chatbot-id="${debouncedIframeState.selectedChatbotId}"
+      data-api-base-url="${origin}/api"
+      data-open-on-load="true"
+      data-launcher-label="${debouncedIframeState.launcherLabel || previewLauncher}"
+      data-launcher-icon="${debouncedIframeState.launcherIcon}"
+      data-launcher-icon-url="${debouncedIframeState.launcherIconUrl}"
+    ></script>
   </body>
 </html>`;
   }, [

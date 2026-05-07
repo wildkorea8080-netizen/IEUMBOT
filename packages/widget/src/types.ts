@@ -49,6 +49,9 @@ export type WidgetInitOptions = {
   chatbotId: string;
   apiBaseUrl?: string;
   launcherLabel?: string;
+  initialLauncherIcon?: string;
+  initialLauncherIconUrl?: string;
+  initialLauncherLabel?: string;
   title?: string;
   welcomeMessage?: string;
   openOnLoad?: boolean;

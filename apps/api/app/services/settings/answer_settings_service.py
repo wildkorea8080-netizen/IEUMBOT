@@ -15,9 +15,10 @@ from app.schemas.answer_settings import AnswerSettings, AnswerSettingsResponse, 
 from app.services.admin.scope_service import ensure_chatbot_in_scope, require_institution_organization_id
 
 DEFAULT_LOW_EVIDENCE_MESSAGE = (
-    "현재 바로 확인되는 자료는 많지 않습니다. 해외농업개발 관련 궁금하신 내용을 조금 더 구체적으로 알려주시면 도와드릴게요."
+    "현재 등록된 자료에서는 해당 내용을 확인하기 어렵습니다. "
+    "관련 사업명, 신청 단계, 또는 대상 기관을 알려주시면 다시 확인해드리겠습니다."
 )
-DEFAULT_ESCALATION_MESSAGE = "정확한 안내를 위해 담당 부서 연결도 도와드릴 수 있습니다."
+DEFAULT_ESCALATION_MESSAGE = "정확한 확인이 필요한 내용입니다. 필요하시면 담당 부서 연결을 안내해드릴 수 있습니다."
 DEFAULT_AFTER_HOURS_MESSAGE = "현재 운영 시간이 아니어서 즉시 연결은 어렵습니다. 운영 시간에 다시 문의해 주세요."
 
 

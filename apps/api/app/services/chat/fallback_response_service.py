@@ -2,10 +2,12 @@ from typing import Any
 
 from app.schemas.answer_settings import AnswerSettings
 
-DEFAULT_CLARIFICATION_MESSAGE = "정확히 안내하려면 궁금하신 대상, 기간, 신청 방법 중 어떤 부분인지 조금만 더 알려주세요."
+DEFAULT_CLARIFICATION_MESSAGE = (
+    "어떤 사업이나 절차에 대해 궁금하신지 조금 더 알려주시면 더 정확히 안내드릴 수 있습니다."
+)
 DEFAULT_LOW_EVIDENCE_MESSAGE = (
-    "현재 확인 가능한 근거가 충분하지 않아 정확히 단정해 안내하기는 어렵습니다. "
-    "공식 홈페이지의 최신 공지나 담당 기관 확인이 필요할 수 있습니다."
+    "등록된 자료에서 관련 정보를 충분히 찾지 못했습니다. "
+    "질문을 조금 더 구체적으로 입력해주시면 다시 확인해드리겠습니다."
 )
 
 

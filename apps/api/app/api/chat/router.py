@@ -1,6 +1,4 @@
 import logging
-import uuid
-
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -8,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db_session
 from app.schemas.chat_policy import PreAnswerRequest, PreAnswerResponse
 from app.schemas.chat_runtime import ChatRuntimeResponse
-from app.services.chat.final_chat_pipeline_service import run_final_chat_pipeline
+from app.services.chat.final_chat_pipeline_service import build_chat_pipeline_error_response, run_final_chat_pipeline
 from app.services.chat.pre_answer_pipeline_service import run_pre_answer_policy_hook
 from app.services.chat.sse_stream_service import generate_chat_sse_stream
 
@@ -22,25 +20,12 @@ SAFE_CHAT_ERROR_MESSAGE = (
 )
 
 
-def _safe_error_response(body: PreAnswerRequest) -> ChatRuntimeResponse:
-    request_id = f"chat_error_{uuid.uuid4().hex[:16]}"
-    return ChatRuntimeResponse(
-        request_id=request_id,
-        chatbot_id=body.chatbot_id,
-        outcome="insufficient_evidence",
-        answer={"text": SAFE_CHAT_ERROR_MESSAGE, "warnings": ["CHAT_PIPELINE_RECOVERED_FROM_ERROR"]},
-        citations=[],
-        policy_decision={},
-        trace={
-            "normalizedQuery": body.normalized_query or body.question.strip().lower(),
-            "llm": {"executed": False, "errorCode": "CHAT_PIPELINE_FAILED", "streamMode": "error_fallback"},
-            "messages": {
-                "userMessageId": None,
-                "assistantMessageId": None,
-                "sessionId": None,
-                "sessionToken": body.session_token,
-            },
-        },
+def _safe_error_response(body: PreAnswerRequest, exc: Exception) -> ChatRuntimeResponse:
+    return build_chat_pipeline_error_response(
+        body=body,
+        exc=exc,
+        include_debug_trace=False,
+        stream_mode="error_fallback",
     )
 
 
@@ -51,10 +36,10 @@ def chat_messages_entry(
 ) -> ChatRuntimeResponse:
     try:
         return run_final_chat_pipeline(db, body=body)
-    except Exception:
+    except Exception as exc:
         logger.exception("Chat message pipeline failed", extra={"chatbot_id": body.chatbot_id})
         db.rollback()
-        return _safe_error_response(body)
+        return _safe_error_response(body, exc)
 
 
 @router.post("/messages/stream")

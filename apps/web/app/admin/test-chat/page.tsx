@@ -4,8 +4,9 @@ import { useMemo, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
 
 import { PagePanel } from "../../../components/ui/page-panel";
+import { ChatDebugTrace } from "../../../components/admin/chat-debug-trace";
 import { ApiClientError } from "../../../lib/api";
-import { runRuntimeChat } from "../../../lib/api/runtime-chat";
+import { sendAdminTestChatMessage } from "../../../lib/api/runtime-chat";
 import type { ChatCitation, ChatRuntimeResponse } from "../../../lib/api/runtime-chat-types";
 
 type ChatTurn =
@@ -78,6 +79,7 @@ export default function TestChatPage() {
   const [question, setQuestion] = useState("");
   const [topK, setTopK] = useState(8);
   const [isSending, setIsSending] = useState(false);
+  const [debugEnabled, setDebugEnabled] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [selectedAssistantId, setSelectedAssistantId] = useState<string | null>(null);
@@ -118,11 +120,7 @@ export default function TestChatPage() {
     setQuestion("");
 
     try {
-      const response = await runRuntimeChat({
-        chatbotId: currentChatbotId,
-        question: currentQuestion,
-        topK,
-      });
+      const response = await sendAdminTestChatMessage(currentChatbotId, currentQuestion, { topK });
       const assistantTurn: ChatTurn = {
         id: `a_${response.requestId}`,
         role: "assistant",
@@ -173,6 +171,15 @@ export default function TestChatPage() {
                 onChange={(event) => setTopK(Number(event.target.value))}
                 className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
               />
+            </label>
+            <label className="flex items-end gap-2 text-xs text-slate-700">
+              <input
+                type="checkbox"
+                checked={debugEnabled}
+                onChange={(event) => setDebugEnabled(event.target.checked)}
+                className="mb-2"
+              />
+              <span className="mb-1 font-medium">디버그 보기</span>
             </label>
             <div className="flex items-end gap-2">
               <button
@@ -278,6 +285,7 @@ export default function TestChatPage() {
                 </div>
                 <div className="rounded-md border border-slate-200 bg-white p-3">
                   <p className="whitespace-pre-wrap text-slate-900">{selectedAssistant.response.answer.text}</p>
+                  {debugEnabled ? <ChatDebugTrace trace={selectedAssistant.response.trace} /> : null}
                 </div>
                 {(selectedAssistant.response.answer.warnings ?? []).length > 0 ? (
                   <ul className="space-y-1 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">

@@ -44,7 +44,7 @@ export type SearchTestCandidate = {
   effectiveDate?: string | null;
   expirationDate?: string | null;
   keywordScore: number;
-  vectorScore: number;
+  vectorScore: number | null;
   combinedScore: number;
   finalRank: number;
   selectedByRules?: Record<string, unknown>;

@@ -18,6 +18,7 @@ def get_install_guide_service(
     items: list[AdminInstallGuideItem] = []
     for chatbot in chatbots:
         widget = get_widget_by_chatbot(db, organization_id=organization_id, chatbot_id=str(chatbot.id))
+        theme = chatbot.theme if isinstance(getattr(chatbot, "theme", None), dict) else {}
         if widget is None:
             items.append(
                 AdminInstallGuideItem(
@@ -37,7 +38,14 @@ def get_install_guide_service(
             )
             continue
 
-        install_script = build_widget_install_script(chatbot_id=str(widget.chatbot_id))
+        install_script = build_widget_install_script(
+            chatbot_id=str(widget.chatbot_id),
+            launcher_label=widget.launcher_label,
+            launcher_icon=theme.get("widgetLauncherIcon") if isinstance(theme.get("widgetLauncherIcon"), str) else None,
+            launcher_icon_url=(
+                theme.get("widgetLauncherIconUrl") if isinstance(theme.get("widgetLauncherIconUrl"), str) else None
+            ),
+        )
         items.append(
             AdminInstallGuideItem(
                 chatbot_id=str(chatbot.id),

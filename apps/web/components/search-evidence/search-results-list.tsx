@@ -120,7 +120,7 @@ export function SearchResultsList({
 
             <div className="mt-3 grid gap-2 rounded-md bg-slate-50 p-3 text-xs text-slate-700 sm:grid-cols-3">
               <p>keywordScore: {formatScore(candidate.keywordScore)}</p>
-              <p>vectorScore: {formatScore(candidate.vectorScore)}</p>
+              <p>vectorScore: {formatScore(candidate.vectorScore ?? undefined)}</p>
               <p>combinedScore: {formatScore(candidate.combinedScore)}</p>
             </div>
 

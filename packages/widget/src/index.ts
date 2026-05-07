@@ -40,10 +40,15 @@ const scriptTag = document.currentScript as HTMLScriptElement | null;
 if (scriptTag) {
   const autoChatbotId = scriptTag.getAttribute("data-chatbot-id");
   if (autoChatbotId) {
+    const launcherLabel = scriptTag.getAttribute("data-launcher-label") ?? undefined;
     void initIeumWidget({
       chatbotId: autoChatbotId,
       apiBaseUrl: scriptTag.getAttribute("data-api-base-url") ?? undefined,
       openOnLoad: scriptTag.getAttribute("data-open-on-load") === "true",
+      launcherLabel,
+      initialLauncherLabel: launcherLabel,
+      initialLauncherIcon: scriptTag.getAttribute("data-launcher-icon") ?? undefined,
+      initialLauncherIconUrl: scriptTag.getAttribute("data-launcher-icon-url") ?? undefined,
     });
   }
 }

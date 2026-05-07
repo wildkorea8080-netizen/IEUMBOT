@@ -14,6 +14,7 @@ import type {
   DashboardSummaryResponse,
   DashboardUsageTrendItem,
   KnowledgeDetail,
+  KnowledgeItem,
   KnowledgeListResponse,
   KnowledgeRuntimeStatus,
   KnowledgeTextCreateRequest,
@@ -129,6 +130,10 @@ export async function getKnowledgeList(params?: {
 
 export async function getKnowledgeRuntimeStatus(): Promise<KnowledgeRuntimeStatus> {
   return apiClient.request<KnowledgeRuntimeStatus>("/admin/knowledge/runtime-status");
+}
+
+export async function getKnowledgeDiagnostics(): Promise<KnowledgeItem[]> {
+  return apiClient.request<KnowledgeItem[]>("/admin/knowledge/diagnostics");
 }
 
 export async function getKnowledgeDetail(knowledgeId: string): Promise<KnowledgeDetail> {

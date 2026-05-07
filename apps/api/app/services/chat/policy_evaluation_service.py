@@ -412,7 +412,8 @@ def evaluate_answer_policy(context: dict[str, Any]) -> dict[str, Any]:
                 "reason": "가드레일 규칙에 따라 추가 확인 질문이 필요합니다.",
                 "flags": flags,
                 "recommendedAction": "ask_clarification",
-                "safeMessage": safe_message or "정확한 안내를 위해 몇 가지 확인 질문이 필요합니다.",
+                "safeMessage": safe_message
+                or "어떤 사업이나 절차에 대해 궁금하신지 조금 더 알려주시면 더 정확히 안내드릴 수 있습니다.",
                 "guardrailEvaluation": guardrail_eval,
             }
         if final_action == "fallback":

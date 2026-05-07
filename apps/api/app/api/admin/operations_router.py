@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.orm import Session
 
@@ -18,6 +20,8 @@ from app.schemas.admin_operations import (
     AdminWidgetResponse,
     AdminWidgetUpdateRequest,
 )
+from app.schemas.chat_policy import PreAnswerRequest
+from app.schemas.chat_runtime import ChatRuntimeResponse
 from app.services.admin.operations_service import (
     create_chatbot_service,
     delete_document_service,
@@ -33,8 +37,11 @@ from app.services.admin.operations_service import (
     patch_document_service,
     patch_widget_service,
 )
+from app.services.admin.scope_service import ensure_chatbot_in_scope
+from app.services.chat.final_chat_pipeline_service import build_chat_pipeline_error_response, run_final_chat_pipeline
 
 router = APIRouter(tags=["admin-operations"])
+logger = logging.getLogger(__name__)
 
 
 @router.get("/dashboard", response_model=AdminDashboardResponse)
@@ -164,6 +171,28 @@ def admin_get_chatbot(
         principal=principal,
         chatbot_id=chatbot_id,
     )
+
+
+@router.post("/chatbots/{chatbot_id}/test-chat", response_model=ChatRuntimeResponse)
+def admin_test_chatbot(
+    chatbot_id: str,
+    body: PreAnswerRequest,
+    principal: AdminPrincipal = Depends(require_institution_admin_auth),
+    db: Session = Depends(get_db_session),
+) -> ChatRuntimeResponse:
+    ensure_chatbot_in_scope(db, principal=principal, chatbot_id=chatbot_id)
+    scoped_body = body.model_copy(update={"chatbot_id": chatbot_id})
+    try:
+        return run_final_chat_pipeline(db, body=scoped_body, stream_mode="admin_test", include_debug_trace=True)
+    except Exception as exc:
+        logger.exception("Admin test chat pipeline failed", extra={"chatbot_id": chatbot_id})
+        db.rollback()
+        return build_chat_pipeline_error_response(
+            body=scoped_body,
+            exc=exc,
+            include_debug_trace=True,
+            stream_mode="admin_test",
+        )
 
 
 @router.patch("/chatbots/{chatbot_id}", response_model=AdminChatbotResponse)

@@ -46,7 +46,7 @@ class SearchTestCandidate(ApiSchema):
     effective_date: str | None = None
     expiration_date: str | None = None
     keyword_score: float
-    vector_score: float
+    vector_score: float | None
     combined_score: float
     final_rank: int
     selected_by_rules: dict[str, Any]

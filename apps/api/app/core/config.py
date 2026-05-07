@@ -51,6 +51,7 @@ class Settings(BaseSettings):
         "gpt-4.1",
         "gpt-4o-mini",
     ]
+    api_retrieval_threshold: float = 0.55
 
     model_config = SettingsConfigDict(
         env_file=".env",

@@ -3,6 +3,7 @@ import shutil
 import ssl
 import uuid
 import zlib
+import logging
 from datetime import UTC, date, datetime
 from hashlib import sha256
 from html.parser import HTMLParser
@@ -43,6 +44,8 @@ from app.services.admin.scope_service import (
     require_institution_organization_id,
 )
 from app.services.embedding_service import generate_embedding
+
+logger = logging.getLogger(__name__)
 
 KNOWLEDGE_STORAGE_DIR = Path(__file__).resolve().parents[3] / "storage" / "knowledge"
 SENSITIVE_PATTERNS = [
@@ -183,6 +186,32 @@ def _detect_sensitive(text: str | None) -> bool:
     return any(pattern.search(text) for pattern in SENSITIVE_PATTERNS)
 
 
+def _embedding_generated(embedding: list[float] | None) -> bool:
+    return bool(embedding)
+
+
+def _log_knowledge_diag(
+    *,
+    item_id: uuid.UUID,
+    source_type: str,
+    status: str,
+    text_length: int,
+    chunk_count: int,
+    embedding_count: int,
+    error: str | None,
+) -> None:
+    logger.info(
+        "[KNOWLEDGE_DIAG] item_id=%s source_type=%s status=%s text_length=%s chunk_count=%s embedding_count=%s error=%s",
+        item_id,
+        source_type,
+        status,
+        text_length,
+        chunk_count,
+        embedding_count,
+        error or "",
+    )
+
+
 def _split_text_chunks(text: str, *, chunk_size: int = 900, overlap: int = 120) -> list[str]:
     normalized = text.strip()
     if not normalized:
@@ -243,7 +272,7 @@ def _split_website_chunks(combined_text: str, *, default_title: str) -> list[dic
     ]
 
 
-def _fetch_website_page(url: str) -> tuple[str, str, list[str]]:
+def _fetch_website_page(url: str) -> tuple[str, str, list[str], str, int | None]:
     request = Request(
         url,
         headers={
@@ -258,9 +287,11 @@ def _fetch_website_page(url: str) -> tuple[str, str, list[str]]:
     with opener.open(request, timeout=20) as response:
         charset = response.headers.get_content_charset() or "utf-8"
         html = response.read().decode(charset, errors="replace")
+        final_url = response.geturl()
+        http_status_code = getattr(response, "status", None)
     extractor = _HTMLTextExtractor()
     extractor.feed(html)
-    return html, extractor.get_text(), extractor.get_links()
+    return html, extractor.get_text(), extractor.get_links(), final_url, http_status_code
 
 
 def _fetch_binary_resource(url: str) -> tuple[bytes, str | None]:
@@ -370,6 +401,10 @@ def _ingest_document_version_content(
     if not extracted_text:
         version.status = "failed"
         version.error_code = "EMPTY_DOCUMENT_TEXT"
+        version.extracted_text_length = 0
+        version.chunk_count = 0
+        version.embedding_count = 0
+        version.processed_at = now
         version.error_message = "문서에서 색인 가능한 텍스트를 추출하지 못했습니다."
         document.status = "failed"
         if job is not None:
@@ -379,6 +414,15 @@ def _ingest_document_version_content(
             job.error_code = "EMPTY_DOCUMENT_TEXT"
             job.error_message = version.error_message
             job.finished_at = now
+        _log_knowledge_diag(
+            item_id=document.id,
+            source_type=version.source_type,
+            status=version.status,
+            text_length=0,
+            chunk_count=0,
+            embedding_count=0,
+            error=version.error_message,
+        )
         return
 
     if job is not None:
@@ -402,9 +446,13 @@ def _ingest_document_version_content(
     version.error_message = None
 
     chunks = _split_text_chunks(extracted_text)
+    version.extracted_text_length = len(extracted_text)
+    version.chunk_count = len(chunks)
     if not chunks:
         version.status = "failed"
         version.error_code = "EMPTY_DOCUMENT_CHUNKS"
+        version.embedding_count = 0
+        version.processed_at = now
         version.error_message = "문서에서 생성된 청크가 없습니다."
         document.status = "failed"
         if job is not None:
@@ -414,6 +462,15 @@ def _ingest_document_version_content(
             job.error_code = "EMPTY_DOCUMENT_CHUNKS"
             job.error_message = version.error_message
             job.finished_at = now
+        _log_knowledge_diag(
+            item_id=document.id,
+            source_type=version.source_type,
+            status=version.status,
+            text_length=version.extracted_text_length or 0,
+            chunk_count=0,
+            embedding_count=0,
+            error=version.error_message,
+        )
         return
 
     merged_metadata = {
@@ -431,8 +488,11 @@ def _ingest_document_version_content(
     document.processed_at = now
     document.current_version_id = version.id
 
+    embedding_count = 0
     for index, chunk_text in enumerate(chunks, start=1):
         embedding = generate_embedding(db, f"{document.title}\n{chunk_text}")
+        if _embedding_generated(embedding):
+            embedding_count += 1
         db.add(
             DocumentChunk(
                 organization_id=uuid.UUID(organization_id),
@@ -453,15 +513,40 @@ def _ingest_document_version_content(
 
     version.file_name = file_name
     version.processed_at = now
-    version.status = "completed"
+    version.embedding_count = embedding_count
+    if embedding_count < len(chunks):
+        logger.warning(
+            "Knowledge embedding count is lower than chunk count: item_id=%s chunk_count=%s embedding_count=%s",
+            document.id,
+            len(chunks),
+            embedding_count,
+        )
+    if embedding_count == 0:
+        version.status = "failed"
+        version.error_code = "EMBEDDING_EMPTY"
+        version.error_message = "임베딩이 생성되지 않았습니다."
+        document.status = "failed"
+    else:
+        version.status = "completed"
+        version.error_code = None
+        version.error_message = None
     version.is_active = True
     if job is not None:
-        job.status = "completed"
-        job.current_step = "completed"
+        job.status = version.status
+        job.current_step = "failed" if version.status == "failed" else "completed"
         job.progress_percent = 100
-        job.error_code = None
-        job.error_message = None
+        job.error_code = version.error_code
+        job.error_message = version.error_message
         job.finished_at = now
+    _log_knowledge_diag(
+        item_id=document.id,
+        source_type=version.source_type,
+        status=version.status,
+        text_length=version.extracted_text_length or 0,
+        chunk_count=version.chunk_count or 0,
+        embedding_count=version.embedding_count or 0,
+        error=version.error_message,
+    )
 
 
 def _sync_web_source_attachment_documents(
@@ -994,7 +1079,7 @@ def _crawl_website(
     excluded_paths: list[str] | None,
     crawl_all_pages: bool,
     include_attachments: bool,
-) -> tuple[str, str, list[str], list[str]]:
+) -> tuple[str, str, list[str], list[str], str | None, int | None]:
     parsed_root = urlparse(base_url)
     root_hostname = parsed_root.hostname or ""
     normalized_excluded = _normalize_excluded_paths(excluded_paths)
@@ -1006,6 +1091,8 @@ def _crawl_website(
     attachment_seen: set[str] = set()
     text_blocks: list[str] = []
     html_blocks: list[str] = []
+    first_final_url: str | None = None
+    first_http_status_code: int | None = None
 
     max_depth = FULL_SITE_CRAWL_DEPTH if crawl_all_pages else max(0, crawl_depth)
     page_limit = max(1, min(max_pages, MAX_CRAWL_PAGE_LIMIT))
@@ -1021,11 +1108,15 @@ def _crawl_website(
         if any(current_path.startswith(path) for path in normalized_excluded):
             continue
 
-        html, text, links = _fetch_website_page(current_url)
-        crawled_urls.append(current_url)
+        html, text, links, final_url, http_status_code = _fetch_website_page(current_url)
+        if first_final_url is None:
+            first_final_url = final_url
+        if first_http_status_code is None:
+            first_http_status_code = http_status_code
+        crawled_urls.append(final_url or current_url)
         html_blocks.append(html)
         if text:
-            text_blocks.append(f"[URL] {current_url}\n{text}")
+            text_blocks.append(f"[URL] {final_url or current_url}\n{text}")
 
         if depth >= max_depth:
             continue
@@ -1047,7 +1138,14 @@ def _crawl_website(
                 continue
             queue.append((normalized, depth + 1))
 
-    return "\n\n".join(html_blocks), "\n\n".join(text_blocks).strip(), crawled_urls, attachment_urls
+    return (
+        "\n\n".join(html_blocks),
+        "\n\n".join(text_blocks).strip(),
+        crawled_urls,
+        attachment_urls,
+        first_final_url,
+        first_http_status_code,
+    )
 
 
 def _find_web_source_document(
@@ -1092,6 +1190,8 @@ def _set_job_failed(
     error_message: str,
 ) -> None:
     now = datetime.now(UTC)
+    web_source.status = "failed"
+    web_source.last_synced_at = now
     web_source.last_error_code = error_code
     web_source.last_error_message = error_message
     job.status = "failed"
@@ -1100,6 +1200,15 @@ def _set_job_failed(
     job.error_code = error_code
     job.error_message = error_message
     job.finished_at = now
+    _log_knowledge_diag(
+        item_id=web_source.id,
+        source_type="website",
+        status=web_source.status,
+        text_length=web_source.extracted_text_length or 0,
+        chunk_count=web_source.chunk_count or 0,
+        embedding_count=web_source.embedding_count or 0,
+        error=error_message,
+    )
 
 
 def _collect_attachment_contents(
@@ -1200,7 +1309,7 @@ def _ingest_web_source_content(
         crawl_page_limit = _resolve_crawl_page_limit(web_source.metadata_json)
         crawl_all_pages = _resolve_crawl_all_pages(web_source.metadata_json)
         include_attachments = _resolve_include_attachments(web_source.metadata_json)
-        html, extracted_text, crawled_urls, attachment_urls = _crawl_website(
+        html, extracted_text, crawled_urls, attachment_urls, final_url, http_status_code = _crawl_website(
             web_source.base_url,
             crawl_depth=web_source.crawl_depth,
             max_pages=crawl_page_limit,
@@ -1361,6 +1470,14 @@ def _ingest_web_source_content(
     db.flush()
 
     chunks = _split_website_chunks(combined_text, default_title=web_source.name)
+    web_source.extracted_text_length = len(combined_text)
+    web_source.chunk_count = len(chunks)
+    web_source.embedding_count = 0
+    web_source.final_url = final_url or web_source.base_url
+    web_source.http_status_code = http_status_code
+    version.extracted_text_length = len(combined_text)
+    version.chunk_count = len(chunks)
+    version.embedding_count = 0
     if not chunks:
         _set_job_failed(
             web_source=web_source,
@@ -1370,14 +1487,18 @@ def _ingest_web_source_content(
         )
         version.status = "failed"
         version.error_code = "EMPTY_WEBSITE_CHUNKS"
+        version.processed_at = now
         version.error_message = "색인 가능한 웹사이트 텍스트가 없습니다."
         return
 
+    embedding_count = 0
     for index, chunk_item in enumerate(chunks, start=1):
         chunk_text = str(chunk_item["text"] or "")
         chunk_url = str(chunk_item["url"] or web_source.base_url)
         section_title = str(chunk_item["section_title"] or web_source.name)
         embedding = generate_embedding(db, f"{section_title}\n{chunk_text}")
+        if _embedding_generated(embedding):
+            embedding_count += 1
         db.add(
             DocumentChunk(
                 organization_id=uuid.UUID(organization_id),
@@ -1400,48 +1521,80 @@ def _ingest_web_source_content(
             )
         )
 
-    version.status = "completed"
+    version.embedding_count = embedding_count
+    web_source.embedding_count = embedding_count
+    if embedding_count < len(chunks):
+        logger.warning(
+            "Knowledge embedding count is lower than chunk count: item_id=%s chunk_count=%s embedding_count=%s",
+            web_source.id,
+            len(chunks),
+            embedding_count,
+        )
+    if embedding_count == 0:
+        version.status = "failed"
+        version.error_code = "EMBEDDING_EMPTY"
+        version.error_message = "임베딩이 생성되지 않았습니다."
+        web_source.status = "failed"
+        web_source.last_error_code = version.error_code
+        web_source.last_error_message = version.error_message
+    else:
+        version.status = "completed"
+        version.error_code = None
+        version.error_message = None
+        web_source.status = "active"
+        web_source.last_error_code = None
+        web_source.last_error_message = None
     version.processed_at = now
-    version.error_code = None
-    version.error_message = None
     document.current_version_id = version.id
     document.processed_at = now
-    document.status = "active"
-    web_source.status = "active"
+    document.status = "active" if version.status == "completed" else "failed"
     web_source.last_synced_at = now
-    web_source.last_error_code = None
-    web_source.last_error_message = None
     web_source.metadata_json = {
         **web_metadata,
         "summary": _truncate_preview(combined_text, 220) or web_source.base_url,
         "sensitive_detected": _detect_sensitive(combined_text),
+        "extracted_text_length": len(combined_text),
         "indexed_chunk_count": len(chunks),
+        "embedding_count": embedding_count,
         "crawled_urls": crawled_urls,
         "crawled_page_count": len(crawled_urls),
+        "final_url": final_url or web_source.base_url,
+        "http_status_code": http_status_code,
         "crawl_page_limit": crawl_page_limit,
         "crawl_all_pages": crawl_all_pages,
         "include_attachments": include_attachments,
         "attachment_files": attachment_files,
         "attachment_file_count": len(attachment_files),
     }
-    job.status = "completed"
-    job.current_step = "completed"
+    job.status = version.status
+    job.current_step = "failed" if version.status == "failed" else "completed"
     job.progress_percent = 100
-    job.error_code = None
-    job.error_message = None
+    job.error_code = version.error_code
+    job.error_message = version.error_message
     job.finished_at = now
+    _log_knowledge_diag(
+        item_id=web_source.id,
+        source_type="website",
+        status=version.status,
+        text_length=web_source.extracted_text_length or 0,
+        chunk_count=web_source.chunk_count or 0,
+        embedding_count=web_source.embedding_count or 0,
+        error=version.error_message,
+    )
 
 
 def _normalize_status(base_status: str | None, *, is_active: bool, ingestion_status: str | None) -> str:
     base = (base_status or "").lower()
     ingestion = (ingestion_status or "").lower()
-    if not is_active or base in {"inactive", "deprecated", "deleted"}:
-        return "inactive"
     if ingestion in {"failed", "error"} or base == "failed":
         return "failed"
-    if ingestion in {"queued", "pending", "processing", "running"} or base in {"queued", "processing"}:
+    if ingestion in {"queued", "pending"} or base == "queued":
+        return "queued"
+    if ingestion in {"processing", "running"} or base == "processing":
         return "processing"
-    return "ready"
+    if not is_active or base in {"inactive", "deprecated", "deleted"}:
+        return "inactive"
+    return "completed"
 
 
 def _document_item(doc: Document, version: DocumentVersion | None, job: IngestionJob | None) -> KnowledgeItem:
@@ -1461,6 +1614,7 @@ def _document_item(doc: Document, version: DocumentVersion | None, job: Ingestio
         indexed_at = version.processed_at.isoformat()
     elif doc.processed_at:
         indexed_at = doc.processed_at.isoformat()
+    source_url = metadata.get("url") or metadata.get("attachment_url") or metadata.get("parent_website_url")
     return KnowledgeItem(
         id=str(doc.id),
         source_group="file_text",
@@ -1481,6 +1635,14 @@ def _document_item(doc: Document, version: DocumentVersion | None, job: Ingestio
         department=(version.issuing_department if version else None) or metadata.get("department"),
         sensitive_detected=bool(metadata.get("sensitive_detected", False)),
         error_message=error_message,
+        extracted_text_length=version.extracted_text_length if version else 0,
+        chunk_count=version.chunk_count if version else 0,
+        embedding_count=version.embedding_count if version else 0,
+        last_processed_at=indexed_at,
+        file_name=version.file_name if version else None,
+        source_url=source_url if isinstance(source_url, str) else None,
+        final_url=metadata.get("final_url") if isinstance(metadata.get("final_url"), str) else None,
+        http_status_code=metadata.get("http_status_code") if isinstance(metadata.get("http_status_code"), int) else None,
         ingestion_job_id=(str(job.id) if job else None),
         ingestion_status=(job.status if job else version.status if version else None),
         ingestion_progress_percent=(job.progress_percent if job else None),
@@ -1529,6 +1691,14 @@ def _website_item(web_source: WebSource, job: IngestionJob | None) -> KnowledgeI
         department=metadata.get("department"),
         sensitive_detected=bool(metadata.get("sensitive_detected", False)),
         error_message=(job.error_message if job and job.error_message else None) or web_source.last_error_message,
+        extracted_text_length=web_source.extracted_text_length or 0,
+        chunk_count=web_source.chunk_count or 0,
+        embedding_count=web_source.embedding_count or 0,
+        last_processed_at=(web_source.last_synced_at.isoformat() if web_source.last_synced_at else None),
+        file_name=None,
+        source_url=web_source.base_url,
+        final_url=web_source.final_url or (metadata.get("final_url") if isinstance(metadata.get("final_url"), str) else None),
+        http_status_code=web_source.http_status_code,
         ingestion_job_id=(str(job.id) if job else None),
         ingestion_status=(job.status if job else None),
         ingestion_progress_percent=(job.progress_percent if job else None),
@@ -1666,6 +1836,22 @@ def list_knowledge_service(
                 items.append(item)
     items.sort(key=lambda item: item.updated_at, reverse=True)
     return KnowledgeListResponse(items=items)
+
+
+def list_knowledge_diagnostics_service(
+    db: Session,
+    *,
+    principal: AdminPrincipal,
+) -> list[KnowledgeItem]:
+    return list_knowledge_service(
+        db,
+        principal=principal,
+        source_group=None,
+        query=None,
+        category=None,
+        field=None,
+        status_filter=None,
+    ).items
 
 
 def get_knowledge_service(

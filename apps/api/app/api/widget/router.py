@@ -134,7 +134,7 @@ def get_widget_public_config(
     resolved_intro_message = intro_message if isinstance(intro_message, str) and intro_message.strip() else None
     resolved_welcome_message = (
         (widget.welcome_message if widget and widget.welcome_message else chatbot.welcome_message)
-        or f"{chatbot.name} ?곷떞 ?꾩슦誘몄엯?덈떎. 沅곴툑???댁슜???낅젰??二쇱꽭??"
+        or "안녕하세요. 궁금하신 내용을 입력해주시면 빠르게 안내해드리겠습니다."
     )
     if not resolved_intro_message and isinstance(resolved_welcome_message, str) and resolved_welcome_message.strip():
         resolved_intro_message = resolved_welcome_message.strip()

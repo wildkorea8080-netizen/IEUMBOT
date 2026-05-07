@@ -199,7 +199,17 @@ def generate_grounded_answer(
             error_code="OPENAI_API_KEY_MISSING",
             latency_ms=None,
         )
-        return {"executed": False, "errorCode": "OPENAI_API_KEY_MISSING", "text": None, "raw": None, "usage": {}}
+        return {
+            "executed": False,
+            "errorCode": "OPENAI_API_KEY_MISSING",
+            "exceptionType": "ConfigurationError",
+            "exceptionMessage": "No active LLM API config or API_OPENAI_API_KEY is configured.",
+            "text": None,
+            "raw": None,
+            "usage": {},
+            "provider": "openai",
+            "model": answer_settings.model_runtime.model_name,
+        }
 
     model_name = answer_settings.model_runtime.model_name or runtime_api.default_model or "gpt-4.1-mini"
     start = time.perf_counter()
@@ -271,6 +281,8 @@ def generate_grounded_answer(
                     "estimatedCost": estimated_cost,
                     "latencyMs": latency_ms,
                 },
+                "provider": runtime_api.provider,
+                "model": model_name,
             }
         return {
             "executed": True,
@@ -284,10 +296,13 @@ def generate_grounded_answer(
                 "estimatedCost": estimated_cost,
                 "latencyMs": latency_ms,
             },
+            "provider": runtime_api.provider,
+            "model": model_name,
         }
     except urllib.error.HTTPError as exc:
         latency_ms = int((time.perf_counter() - start) * 1000)
         error_code = f"{runtime_api.provider.upper()}_HTTP_{exc.code}"
+        exception_message = str(exc.reason or exc)
         create_llm_usage_log(
             db,
             organization_id=organization_id,
@@ -312,8 +327,18 @@ def generate_grounded_answer(
             error_code=error_code,
         )
         evaluate_api_error_spike_for_chatbot(db, organization_id=organization_id, chatbot_id=chatbot_id)
-        return {"executed": True, "errorCode": error_code, "text": None, "raw": None, "usage": {"latencyMs": latency_ms}}
-    except Exception:
+        return {
+            "executed": True,
+            "errorCode": error_code,
+            "exceptionType": type(exc).__name__,
+            "exceptionMessage": exception_message,
+            "text": None,
+            "raw": None,
+            "usage": {"latencyMs": latency_ms},
+            "provider": runtime_api.provider,
+            "model": model_name,
+        }
+    except Exception as exc:
         latency_ms = int((time.perf_counter() - start) * 1000)
         error_code = f"{runtime_api.provider.upper()}_CALL_FAILED"
         create_llm_usage_log(
@@ -340,4 +365,14 @@ def generate_grounded_answer(
             error_code=error_code,
         )
         evaluate_api_error_spike_for_chatbot(db, organization_id=organization_id, chatbot_id=chatbot_id)
-        return {"executed": True, "errorCode": error_code, "text": None, "raw": None, "usage": {"latencyMs": latency_ms}}
+        return {
+            "executed": True,
+            "errorCode": error_code,
+            "exceptionType": type(exc).__name__,
+            "exceptionMessage": str(exc)[:500],
+            "text": None,
+            "raw": None,
+            "usage": {"latencyMs": latency_ms},
+            "provider": runtime_api.provider,
+            "model": model_name,
+        }

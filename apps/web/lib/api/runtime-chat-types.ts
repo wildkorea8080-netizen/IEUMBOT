@@ -29,14 +29,75 @@ export type ChatRuntimeRequest = {
   topK?: number;
 };
 
-export type ChatRuntimeTrace = {
+export type AdminTestChatMessageOptions = {
   normalizedQuery?: string;
-  retrieval?: Record<string, unknown>;
+  topK?: number;
+};
+
+export type ChatDebugChunk = {
+  chunkId?: string | null;
+  knowledgeItemId?: string | null;
+  sourceType?: string | null;
+  sourceTitle?: string | null;
+  sourceUrl?: string | null;
+  fileName?: string | null;
+  sectionTitle?: string | null;
+  chunkIndex?: number | null;
+  score?: number | null;
+  vectorScore?: number | null;
+  lexicalScore?: number | null;
+  thresholdPassed?: boolean;
+  usedInPrompt?: boolean;
+  preview?: string | null;
+};
+
+export type ChatRuntimeTrace = {
+  messageType?: "greeting" | "rag" | "clarification" | "fallback" | "error" | string;
+  fallbackReason?: string;
+  latencyMs?: number;
+  normalizedQuery?: string;
+  retrieval?: {
+    enabled?: boolean;
+    latencyMs?: number | null;
+    retrievedCount?: number;
+    usedInPromptCount?: number;
+    topScore?: number | null;
+    threshold?: number | null;
+    sourceDiversityApplied?: boolean;
+    filterScope?: {
+      organizationId?: string | null;
+      chatbotId?: string | null;
+    } | null;
+    chunks?: ChatDebugChunk[];
+    [key: string]: unknown;
+  };
+  prompt?: {
+    systemPreview?: string | null;
+    contextPreview?: string | null;
+    contextSourceCount?: number;
+  };
+  model?: {
+    provider?: string | null;
+    name?: string | null;
+    inputTokens?: number | null;
+    outputTokens?: number | null;
+    latencyMs?: number | null;
+    executed?: boolean;
+    errorCode?: string | null;
+  };
   guardrail?: Record<string, unknown>;
   llm?: {
     executed?: boolean;
     errorCode?: string | null;
+    exceptionType?: string | null;
+    exceptionMessage?: string | null;
+    provider?: string | null;
+    model?: string | null;
+    latencyMs?: number | null;
   };
+  policyDecision?: Record<string, unknown>;
+  exceptionType?: string | null;
+  exceptionMessage?: string | null;
   messages?: {
     userMessageId?: string;
     assistantMessageId?: string;

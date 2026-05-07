@@ -5,15 +5,18 @@ import { useEffect, useMemo, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
 
 import { PagePanel } from "../../../components/ui/page-panel";
+import { ChatDebugTrace } from "../../../components/admin/chat-debug-trace";
 import { ApiClientError } from "../../../lib/api";
 import { getAdminChatbots } from "../../../lib/api/admin-operations";
 import type { AdminChatbotItem } from "../../../lib/api/admin-operations-types";
-import { runRuntimeChat } from "../../../lib/api/runtime-chat";
+import { sendAdminTestChatMessage } from "../../../lib/api/runtime-chat";
+import type { ChatRuntimeResponse } from "../../../lib/api/runtime-chat-types";
 
 type ChatMessage = {
   id: string;
   role: "user" | "assistant";
   text: string;
+  response?: ChatRuntimeResponse;
 };
 
 function getErrorMessage(error: unknown): string {
@@ -36,6 +39,7 @@ export default function AdminTestChatbotPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
+  const [debugEnabled, setDebugEnabled] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -75,7 +79,8 @@ export default function AdminTestChatbotPage() {
     event.preventDefault();
 
     const trimmedQuestion = question.trim();
-    if (!selectedChatbotId || !trimmedQuestion) return;
+    const targetChatbotId = (preferredChatbotId || selectedChatbotId).trim();
+    if (!targetChatbotId || !trimmedQuestion) return;
 
     const userMessage: ChatMessage = {
       id: `user_${Date.now()}`,
@@ -89,16 +94,13 @@ export default function AdminTestChatbotPage() {
     setIsSending(true);
 
     try {
-      const response = await runRuntimeChat({
-        chatbotId: selectedChatbotId,
-        question: trimmedQuestion,
-        topK: 8,
-      });
+      const response = await sendAdminTestChatMessage(targetChatbotId, trimmedQuestion, { topK: 8 });
 
       const assistantMessage: ChatMessage = {
         id: `assistant_${response.requestId}`,
         role: "assistant",
         text: response.answer.text,
+        response,
       };
       setMessages((current) => [...current, assistantMessage]);
     } catch {
@@ -142,6 +144,14 @@ export default function AdminTestChatbotPage() {
           <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
             {selectedChatbot ? `${selectedChatbot.name} 테스트 중` : "선택된 챗봇이 없습니다."}
           </div>
+          <label className="flex items-center gap-2 text-sm text-slate-700 md:col-span-2">
+            <input
+              type="checkbox"
+              checked={debugEnabled}
+              onChange={(event) => setDebugEnabled(event.target.checked)}
+            />
+            디버그 보기
+          </label>
         </div>
 
         {error ? (
@@ -174,6 +184,7 @@ export default function AdminTestChatbotPage() {
                       {message.role === "user" ? "사용자" : "챗봇"}
                     </p>
                     <p className="whitespace-pre-wrap">{message.text}</p>
+                    {debugEnabled && message.response ? <ChatDebugTrace trace={message.response.trace} /> : null}
                   </div>
                 </div>
               ))

@@ -140,6 +140,7 @@ def _to_chatbot_detail_response(db: Session, *, row) -> SuperAdminChatbotDetailR
 def _to_widget_list_item(row) -> SuperAdminWidgetListItem:
     domains = row.allowed_domains or []
     primary_domain = domains[0] if domains else None
+    theme = row.chatbot.theme if isinstance(getattr(row.chatbot, "theme", None), dict) else {}
     return SuperAdminWidgetListItem(
         id=str(row.id),
         chatbot_id=str(row.chatbot_id),
@@ -152,13 +153,21 @@ def _to_widget_list_item(row) -> SuperAdminWidgetListItem:
         position=row.position,
         launcher_label=row.launcher_label,
         welcome_message=row.welcome_message,
-        install_script=build_widget_install_script(chatbot_id=str(row.chatbot_id)),
+        install_script=build_widget_install_script(
+            chatbot_id=str(row.chatbot_id),
+            launcher_label=row.launcher_label,
+            launcher_icon=theme.get("widgetLauncherIcon") if isinstance(theme.get("widgetLauncherIcon"), str) else None,
+            launcher_icon_url=(
+                theme.get("widgetLauncherIconUrl") if isinstance(theme.get("widgetLauncherIconUrl"), str) else None
+            ),
+        ),
         created_at=row.created_at.isoformat(),
         updated_at=row.updated_at.isoformat(),
     )
 
 
 def _to_widget_detail_response(row) -> SuperAdminWidgetDetailResponse:
+    theme = row.chatbot.theme if isinstance(getattr(row.chatbot, "theme", None), dict) else {}
     return SuperAdminWidgetDetailResponse(
         id=str(row.id),
         chatbot_id=str(row.chatbot_id),
@@ -170,7 +179,14 @@ def _to_widget_detail_response(row) -> SuperAdminWidgetDetailResponse:
         position=row.position,
         launcher_label=row.launcher_label,
         welcome_message=row.welcome_message,
-        install_script=build_widget_install_script(chatbot_id=str(row.chatbot_id)),
+        install_script=build_widget_install_script(
+            chatbot_id=str(row.chatbot_id),
+            launcher_label=row.launcher_label,
+            launcher_icon=theme.get("widgetLauncherIcon") if isinstance(theme.get("widgetLauncherIcon"), str) else None,
+            launcher_icon_url=(
+                theme.get("widgetLauncherIconUrl") if isinstance(theme.get("widgetLauncherIconUrl"), str) else None
+            ),
+        ),
         last_used_at=None,
         created_at=row.created_at.isoformat(),
         updated_at=row.updated_at.isoformat(),

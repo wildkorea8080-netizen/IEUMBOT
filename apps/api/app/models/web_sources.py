@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -32,6 +32,11 @@ class WebSource(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_error_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
     last_error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    extracted_text_length: Mapped[int | None] = mapped_column(Integer, nullable=True, default=0)
+    chunk_count: Mapped[int | None] = mapped_column(Integer, nullable=True, default=0)
+    embedding_count: Mapped[int | None] = mapped_column(Integer, nullable=True, default=0)
+    final_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    http_status_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
     is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

@@ -1,11 +1,15 @@
+import logging
 import math
 import re
+import time
 from datetime import date
 from typing import Any
 from urllib.parse import urlparse
 
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models import (
     Document,
     DocumentChunk,
@@ -21,6 +25,10 @@ from app.repositories.admin.search_control_repository import (
 from app.services.embedding_service import generate_embedding
 
 TOKEN_SPLIT_REGEX = re.compile(r"[^0-9A-Za-z가-힣]+")
+DEFAULT_RETRIEVAL_THRESHOLD = 0.55
+MAX_PROMPT_CHUNKS = 5
+MAX_CHUNKS_PER_KNOWLEDGE_ITEM = 2
+logger = logging.getLogger(__name__)
 URL_MARKER_REGEX = re.compile(r"\[URL\]\s+(https?://\S+)", re.IGNORECASE)
 CONTACT_QUERY_TERMS = {"연락처", "전화", "전화번호", "문의처", "담당자", "담당부서"}
 CONTACT_EXPANSION_TERMS = ["연락처", "전화", "전화번호", "문의처", "담당자", "담당부서", "사업관리실"]
@@ -214,7 +222,104 @@ def _matches_rule(
     return False
 
 
-def retrieve_for_precheck(
+def _get_retrieval_threshold() -> float:
+    try:
+        threshold = float(settings.api_retrieval_threshold)
+    except (TypeError, ValueError):
+        return DEFAULT_RETRIEVAL_THRESHOLD
+    if threshold < 0:
+        return DEFAULT_RETRIEVAL_THRESHOLD
+    return threshold
+
+
+def _is_undefined_column_error(exc: Exception) -> bool:
+    text = f"{type(exc).__name__} {exc} {getattr(exc, 'orig', '')}".lower()
+    return "undefinedcolumn" in text or "undefined column" in text or "does not exist" in text
+
+
+def _empty_retrieval_output(
+    *,
+    organization_id: str,
+    chatbot_id: str,
+    question: str,
+    expanded_tokens: list[str] | None,
+    started_at: float,
+    threshold: float,
+    exception: Exception | None = None,
+) -> dict[str, Any]:
+    trace: dict[str, Any] = {
+        "excludeRuleIds": [],
+        "boostRuleIds": [],
+        "pinRuleIds": [],
+        "excludedCount": 0,
+        "filterScope": {
+            "organizationId": organization_id,
+            "chatbotId": chatbot_id,
+        },
+        "threshold": threshold,
+        "usedInPromptCount": 0,
+        "sourceDiversityApplied": False,
+    }
+    if exception is not None:
+        trace["exceptionType"] = type(exception).__name__
+        trace["exceptionMessage"] = str(exception)[:1000]
+        trace["migrationHint"] = "Run Alembic migration 20260507_0016_knowledge_diagnostics."
+
+    return {
+        "normalizedQuery": normalize_query(question),
+        "expandedTokens": expanded_tokens or [],
+        "candidates": [],
+        "promptCandidates": [],
+        "retrievalThreshold": threshold,
+        "usedInPromptCount": 0,
+        "retrievedCount": 0,
+        "sourceDiversityApplied": False,
+        "filterScope": {
+            "organizationId": organization_id,
+            "chatbotId": chatbot_id,
+        },
+        "knowledgeAvailable": True,
+        "retrievalLatencyMs": int((time.perf_counter() - started_at) * 1000),
+        "exceptionType": trace.get("exceptionType"),
+        "exceptionMessage": trace.get("exceptionMessage"),
+        "trace": trace,
+    }
+
+
+def _apply_prompt_selection(
+    candidates: list[dict[str, Any]],
+    *,
+    threshold: float,
+    prompt_limit: int,
+) -> tuple[list[dict[str, Any]], bool]:
+    prompt_candidates: list[dict[str, Any]] = []
+    per_knowledge_item: dict[str, int] = {}
+    source_diversity_applied = False
+
+    for item in candidates:
+        score = float(item.get("combinedScore") or 0.0)
+        threshold_passed = score >= threshold
+        item["thresholdPassed"] = threshold_passed
+        item["usedInPrompt"] = False
+        if not threshold_passed:
+            continue
+
+        knowledge_item_id = str(item.get("documentId") or "")
+        used_count = per_knowledge_item.get(knowledge_item_id, 0)
+        if used_count >= MAX_CHUNKS_PER_KNOWLEDGE_ITEM:
+            source_diversity_applied = True
+            continue
+        if len(prompt_candidates) >= prompt_limit:
+            continue
+
+        per_knowledge_item[knowledge_item_id] = used_count + 1
+        item["usedInPrompt"] = True
+        prompt_candidates.append(item)
+
+    return prompt_candidates, source_diversity_applied
+
+
+def search_relevant_chunks(
     db: Session,
     *,
     organization_id: str,
@@ -223,7 +328,11 @@ def retrieve_for_precheck(
     top_k: int,
     corpus_domain_policy: dict[str, Any],
     search_control_policy: dict[str, Any],
+    corpus_domains: list[str] | None = None,
+    source_types: list[str] | None = None,
+    include_inactive: bool = False,
 ) -> dict[str, Any]:
+    started_at = time.perf_counter()
     normalized = normalize_query(question)
     tokens = _normalize_token_variants(_tokenize(normalized))
 
@@ -236,17 +345,36 @@ def retrieve_for_precheck(
     boost_rules = [rule for rule in rules if rule.rule_type == "boost"]
     pin_rules = [rule for rule in rules if rule.rule_type == "pin"]
 
-    rows = fetch_retrieval_candidates(
-        db,
-        organization_id=organization_id,
-        chatbot_id=chatbot_id,
-        question_terms=expanded_tokens,
-        corpus_domains=None,
-        source_types=None,
-        include_inactive=False,
-        limit_count=max(50, top_k * 8),
-        query_embedding=query_embedding,
-    )
+    threshold = _get_retrieval_threshold()
+    try:
+        rows = fetch_retrieval_candidates(
+            db,
+            organization_id=organization_id,
+            chatbot_id=chatbot_id,
+            question_terms=expanded_tokens,
+            corpus_domains=corpus_domains,
+            source_types=source_types,
+            include_inactive=include_inactive,
+            limit_count=max(50, top_k * 8),
+            query_embedding=query_embedding,
+        )
+    except SQLAlchemyError as exc:
+        if not _is_undefined_column_error(exc):
+            raise
+        logger.exception(
+            "Knowledge retrieval skipped because diagnostics migration columns are missing",
+            extra={"organization_id": organization_id, "chatbot_id": chatbot_id},
+        )
+        db.rollback()
+        return _empty_retrieval_output(
+            organization_id=organization_id,
+            chatbot_id=chatbot_id,
+            question=question,
+            expanded_tokens=expanded_tokens,
+            started_at=started_at,
+            threshold=threshold,
+            exception=exc,
+        )
 
     today = date.today()
     collected: list[dict[str, Any]] = []
@@ -274,7 +402,11 @@ def retrieve_for_precheck(
             or token in (document.title or "").lower()
         ]
         keyword_score = round(len(matched_keywords) / max(len(expanded_tokens), 1), 4)
-        vector_score = round(_cosine_similarity(query_embedding, chunk.embedding), 4)
+        vector_score = (
+            round(_cosine_similarity(query_embedding, chunk.embedding), 4)
+            if query_embedding and chunk.embedding
+            else None
+        )
 
         version_signal = round(
             max(0.0, (200.0 - float(version.document_priority)) / 200.0)
@@ -322,7 +454,7 @@ def retrieve_for_precheck(
 
         combined_score = round(
             (keyword_score * 0.45)
-            + (vector_score * 0.35)
+            + ((vector_score or 0.0) * 0.35)
             + (corpus_signal * 0.05)
             + (source_signal * 0.05)
             + (version_signal * 0.1)
@@ -346,9 +478,12 @@ def retrieve_for_precheck(
         collected.append(
             {
                 "documentId": str(document.id),
+                "chunkId": str(chunk.id),
                 "documentName": document.title,
                 "documentVersionId": str(version.id),
                 "versionLabel": f"v{version.version_number}",
+                "fileName": version.file_name,
+                "chunkIndex": chunk.chunk_order,
                 "pageNumber": chunk.page_number,
                 "sectionTitle": section_title,
                 "sourceUrl": source_url,
@@ -378,14 +513,60 @@ def retrieve_for_precheck(
     for index, item in enumerate(ranked, start=1):
         item["finalRank"] = index
 
+    prompt_candidates, source_diversity_applied = _apply_prompt_selection(
+        ranked,
+        threshold=threshold,
+        prompt_limit=MAX_PROMPT_CHUNKS,
+    )
+
     return {
         "normalizedQuery": normalized,
         "expandedTokens": expanded_tokens,
         "candidates": ranked,
+        "promptCandidates": prompt_candidates,
+        "retrievalThreshold": threshold,
+        "usedInPromptCount": len(prompt_candidates),
+        "retrievedCount": len(ranked),
+        "sourceDiversityApplied": source_diversity_applied,
+        "filterScope": {
+            "organizationId": organization_id,
+            "chatbotId": chatbot_id,
+        },
+        "knowledgeAvailable": bool(rows),
+        "retrievalLatencyMs": int((time.perf_counter() - started_at) * 1000),
         "trace": {
             "excludeRuleIds": [str(rule.id) for rule in exclude_rules],
             "boostRuleIds": [str(rule.id) for rule in boost_rules],
             "pinRuleIds": [str(rule.id) for rule in pin_rules],
             "excludedCount": excluded_count,
+            "filterScope": {
+                "organizationId": organization_id,
+                "chatbotId": chatbot_id,
+            },
+            "threshold": threshold,
+            "usedInPromptCount": len(prompt_candidates),
+            "sourceDiversityApplied": source_diversity_applied,
         },
     }
+
+
+def retrieve_for_precheck(
+    db: Session,
+    *,
+    organization_id: str,
+    chatbot_id: str,
+    question: str,
+    top_k: int,
+    corpus_domain_policy: dict[str, Any],
+    search_control_policy: dict[str, Any],
+) -> dict[str, Any]:
+    return search_relevant_chunks(
+        db,
+        organization_id=organization_id,
+        chatbot_id=chatbot_id,
+        question=question,
+        top_k=top_k,
+        corpus_domain_policy=corpus_domain_policy,
+        search_control_policy=search_control_policy,
+        include_inactive=False,
+    )

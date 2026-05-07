@@ -61,6 +61,9 @@ class DocumentVersion(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    extracted_text_length: Mapped[int | None] = mapped_column(Integer, nullable=True, default=0)
+    chunk_count: Mapped[int | None] = mapped_column(Integer, nullable=True, default=0)
+    embedding_count: Mapped[int | None] = mapped_column(Integer, nullable=True, default=0)
 
     organization = relationship("Organization", back_populates="document_versions")
     document = relationship("Document", back_populates="versions")
