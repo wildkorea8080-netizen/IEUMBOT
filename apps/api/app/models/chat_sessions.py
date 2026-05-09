@@ -3,7 +3,7 @@ from datetime import datetime
 
 from sqlalchemy import DateTime, ForeignKey, Index, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import Mapped, deferred, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
 from app.models.mixins import TimestampMixin, UUIDPrimaryKeyMixin
@@ -31,8 +31,8 @@ class ChatSession(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     last_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     summary_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     # deferred=True: 표준 SELECT에 포함하지 않음 → 마이그레이션 미적용 환경에서도 세션 로드 가능
-    context_entities: Mapped[dict | None] = deferred(
-        mapped_column(JSONB, nullable=True, comment="대화 중 추적된 엔티티 누적 저장")
+    context_entities: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, deferred=True, comment="대화 중 추적된 엔티티 누적 저장"
     )
 
     organization = relationship("Organization", back_populates="chat_sessions")

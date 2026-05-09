@@ -4,7 +4,7 @@ from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, SmallInteger, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import Mapped, deferred, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
 from app.models.mixins import TimestampMixin, UUIDPrimaryKeyMixin
@@ -51,10 +51,10 @@ class ChatMessage(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     escalation_target_department: Mapped[str | None] = mapped_column(String(120), nullable=True)
     escalation_target_queue: Mapped[str | None] = mapped_column(String(120), nullable=True)
     is_test: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    # deferred: 마이그레이션 미적용 환경에서도 메시지 로드 가능하도록 지연 로딩
-    user_feedback: Mapped[int | None] = deferred(mapped_column(SmallInteger, nullable=True))
+    # deferred=True: 마이그레이션 미적용 환경에서도 메시지 로드 가능하도록 지연 로딩
+    user_feedback: Mapped[int | None] = mapped_column(SmallInteger, nullable=True, deferred=True)
     # 1 = 좋아요, -1 = 싫어요, None = 미응답
-    feedback_at: Mapped[datetime | None] = deferred(mapped_column(DateTime(timezone=True), nullable=True))
+    feedback_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, deferred=True)
 
     organization = relationship("Organization", back_populates="chat_messages")
     chatbot = relationship("ChatbotSetting", back_populates="chat_messages")
