@@ -780,7 +780,7 @@ def run_final_chat_pipeline(
         try:
             session_entities = session.context_entities
         except Exception:
-            pass
+            db.rollback()  # DB 에러 후 세션 상태 초기화 — 이후 쿼리 정상 실행을 위해 필수
     tone_summary = _conversation_tone_summary(question=body.question, recent_messages=recent_messages)
 
     retrieval_start = time.perf_counter()
@@ -1122,7 +1122,7 @@ def run_final_chat_pipeline(
     session.last_message_at = datetime.now(UTC)
     db.commit()
 
-    # 엔티티 추출 및 세션 누적 저장
+    # 엔티티 추출 및 세션 누적 저장 (마이그레이션 미적용 시 조용히 무시)
     if session is not None and answer_text:
         try:
             new_entities = extract_entities_from_turn(
@@ -1133,7 +1133,7 @@ def run_final_chat_pipeline(
             session.context_entities = merged
             db.commit()
         except Exception:
-            pass  # 엔티티 추출 실패는 조용히 무시
+            db.rollback()  # 컬럼 미존재 등 실패 시 세션 상태 초기화
 
     public_trace = _build_public_runtime_trace(
         normalized_query=normalized_query,
