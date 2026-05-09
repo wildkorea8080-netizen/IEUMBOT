@@ -1,6 +1,7 @@
 from typing import Any
 
 from app.schemas.answer_settings import AnswerSettings
+from app.services.chat.entity_extraction_service import format_entities_for_prompt
 
 
 def _build_section_instruction(settings: AnswerSettings) -> str:
@@ -69,6 +70,45 @@ def _build_style_instruction(settings: AnswerSettings) -> list[str]:
     ]
 
 
+def _build_history_block(recent_messages: list[Any] | None) -> str:
+    """최근 대화를 시간순(오름차순) user/assistant 쌍으로 조립. 없으면 빈 문자열."""
+    if not recent_messages:
+        return ""
+
+    def _field(msg: Any, key: str) -> str:
+        if isinstance(msg, dict):
+            return str(msg.get(key) or "")
+        return str(getattr(msg, key, "") or "")
+
+    # list_recent_session_messages는 최신순(DESC) 반환 → 오름차순으로 뒤집기
+    chronological = list(reversed(recent_messages))
+
+    pairs: list[tuple[str, str]] = []
+    i = 0
+    while i < len(chronological) and len(pairs) < 4:
+        role = _field(chronological[i], "role")
+        content = _field(chronological[i], "content")
+        if role == "user" and i + 1 < len(chronological):
+            next_role = _field(chronological[i + 1], "role")
+            next_content = _field(chronological[i + 1], "content")
+            if next_role == "assistant":
+                asst_text = next_content[:200] + "..." if len(next_content) > 200 else next_content
+                pairs.append((content, asst_text))
+                i += 2
+                continue
+        i += 1
+
+    if not pairs:
+        return ""
+
+    lines = ["[이전 대화]"]
+    for user_text, asst_text in pairs:
+        lines.append(f"사용자: {user_text}")
+        lines.append(f"챗봇: {asst_text}")
+    lines.append("———")
+    return "\n".join(lines) + "\n\n"
+
+
 def build_answer_prompt(
     *,
     question: str,
@@ -77,17 +117,87 @@ def build_answer_prompt(
     settings: AnswerSettings,
     requires_cautious_wording: bool,
     requires_warning_notice: bool,
+    recent_messages: list[Any] | None = None,
+    question_type_flags: dict | None = None,
+    uncovered_slots: list[str] | None = None,
+    session_entities: dict | None = None,
 ) -> dict[str, str]:
     source_lines: list[str] = []
     for index, item in enumerate(candidates[:5], start=1):
         text_preview = str(item.get("contentSignals", {}).get("textPreview", "") or "").strip()
+
+        source_type = item.get("sourceType", "")
+        source_url  = item.get("sourceUrl") or ""
+        page_number = item.get("pageNumber")
+        doc_name    = item.get("documentName") or ""
+        section     = item.get("sectionTitle") or ""
+        score       = item.get("combinedScore", 0)
+
+        # 소스타입별 출처 레이블
+        if source_type == "website":
+            url_label = source_url.rstrip("/").split("/")[-1] if source_url else "웹페이지"
+            origin_line = f"출처: {doc_name} ({url_label})"
+            if source_url:
+                origin_line += f"\nURL: {source_url}"
+        elif source_type == "text":
+            origin_line = f"출처: {doc_name} [직접 등록 텍스트]"
+        else:  # "file"
+            page_str = f"{page_number}p" if page_number else "페이지 미상"
+            origin_line = f"출처: {doc_name} — {page_str}"
+
+        # 섹션 라인 (있을 때만)
+        section_line = f"섹션: {section}\n" if section else ""
+
         source_lines.append(
-            f"[S{index}] 제목: {item.get('documentName')}\n"
-            f"버전: {item.get('versionLabel')} | 소스: {item.get('sourceType')} | 도메인: {item.get('corpusDomain')}\n"
-            f"페이지: {item.get('pageNumber')} | 섹션: {item.get('sectionTitle')}\n"
-            f"관련도 점수: {item.get('combinedScore')}\n"
+            f"[S{index}] {origin_line}\n"
+            f"{section_line}"
+            f"관련도: {score:.4f}\n"
             f"근거 본문:\n{text_preview}\n"
         )
+
+    flags = question_type_flags or {}
+    type_instruction = ""
+
+    if flags.get("isContactQuestion"):
+        type_instruction = (
+            "이 질문은 연락처·담당부서 문의입니다.\n"
+            "전화번호, 이메일, 담당부서명을 근거에서 찾아 먼저 제시하세요.\n"
+            "없으면 '공식 홈페이지에서 확인'을 안내하세요."
+        )
+    elif flags.get("isStructuredQuestion"):
+        type_instruction = (
+            "이 질문은 자격·절차·일정 등 구조적 정보 문의입니다.\n"
+            "항목별로 구분하여 답변하세요: "
+            "① 대상/자격 ② 신청방법/절차 ③ 기간/일정 ④ 유의사항 순으로.\n"
+            "근거에 없는 항목은 '확인 필요'로 표시하세요."
+        )
+    elif flags.get("isOverviewQuestion"):
+        type_instruction = (
+            "이 질문은 사업·기관 소개 문의입니다.\n"
+            "핵심 기능 또는 사업 목적을 먼저 1~2문장으로 요약한 뒤,\n"
+            "대상·내용·문의처 순으로 안내하세요."
+        )
+
+    # 미확인 슬롯 안내 조립
+    slot_label_map = {
+        "조건":   "신청 자격·조건",
+        "기간":   "신청 기간·일정",
+        "대상":   "지원 대상",
+        "방법":   "신청 방법·절차",
+        "연락처": "문의처·연락처",
+    }
+    slots = uncovered_slots or []
+    # 구조적 질문이고 미확인 슬롯이 있을 때만 안내 추가
+    # (일반 질문에서는 불필요한 노이즈가 될 수 있음)
+    if slots and flags.get("isStructuredQuestion"):
+        slot_labels = [slot_label_map.get(s, s) for s in slots]
+        slot_notice = (
+            f"근거 문서에서 다음 항목은 확인되지 않았습니다: "
+            f"{', '.join(slot_labels)}.\n"
+            "해당 항목은 '공식 공고 또는 담당 부서 확인이 필요합니다'라고 명시하세요."
+        )
+    else:
+        slot_notice = ""
 
     caution_instruction = ""
     if requires_cautious_wording:
@@ -101,12 +211,19 @@ def build_answer_prompt(
         *_build_style_instruction(settings),
         _build_section_instruction(settings),
         settings.prompt_instruction.additional_instructions.strip(),
+        type_instruction.strip(),
+        slot_notice.strip(),
         caution_instruction.strip(),
     ]
     system_prompt = "\n".join([part for part in system_parts if part])
 
+    history_block = _build_history_block(recent_messages)
+    entity_block = format_entities_for_prompt(session_entities)
+
     user_prompt = (
-        f"사용자 질문: {question}\n"
+        history_block
+        + entity_block
+        + f"사용자 질문: {question}\n"
         f"정규화 질문: {normalized_query}\n\n"
         "아래 근거만 사용해 질문에 직접 답하세요.\n"
         "기관 소개나 사업 안내 질문이면 확인되는 사업명, 대상, 제공 내용, 참여/문의 방법을 구체적으로 정리하세요.\n"

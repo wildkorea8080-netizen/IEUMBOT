@@ -21,6 +21,11 @@ from app.repositories.logs.audit_log_repository import create_audit_log
 from app.schemas.chat_policy import PreAnswerRequest
 from app.schemas.chat_runtime import ChatRuntimeResponse
 from app.services.chat.answer_generation_service import generate_grounded_answer
+from app.services.chat.entity_extraction_service import (
+    extract_entities_from_turn,
+    format_entities_for_prompt,
+    merge_context_entities,
+)
 from app.services.chat.citation_service import assemble_citations
 from app.services.chat.fallback_response_service import build_fallback_response
 from app.services.chat.policy_evaluation_service import evaluate_answer_policy
@@ -83,19 +88,7 @@ DISSATISFACTION_KEYWORDS = [
 ]
 CONTACT_QUESTION_KEYWORDS = ["연락처", "전화", "전화번호", "문의처", "담당자", "담당부서"]
 CONTACT_LINE_KEYWORDS = ["문의처", "연락처", "전화", "전화번호", "담당자", "담당부서", "담당"]
-BUSINESS_REPORT_CONTACT_TERMS = ["사업신고", "신고업무", "변경신고", "사업계획 신고", "신고절차", "처리절차"]
 PHONE_NUMBER_REGEX = re.compile(r"(?:\d{2,3}[-.)]\d{3,4}[-.)]\d{4}|\d{2,3}\.\d{3,4}\.\d{4})")
-OVERSEAS_INTERN_KEYWORDS = ["해외인턴", "해외 인턴", "인턴사원"]
-QUALIFICATION_QUESTION_KEYWORDS = [
-    "자격",
-    "자격요건",
-    "지원자격",
-    "신청자격",
-    "선발자격",
-    "요건",
-    "대상",
-]
-INTERN_QUALIFICATION_ANCHORS = ["인턴사원 선발자격 및 인원", "인턴사원", "선발자격"]
 
 
 def _normalize_text(value: str) -> str:
@@ -424,7 +417,21 @@ def build_chat_pipeline_error_response(
     )
 
 
-def _build_soft_guidance_response(*, user_turn_count: int) -> str:
+def _build_soft_guidance_response(
+    *,
+    user_turn_count: int,
+    answer_settings: Any = None,
+) -> str:
+    # tenant 설정값 우선 사용, 없으면 하드코딩 폴백
+    if answer_settings is not None:
+        configured = (
+            answer_settings.answer_policy.fallback_message_when_insufficient_evidence
+            or ""
+        ).strip()
+        if configured:
+            return configured
+
+    # 기존 하드코딩 동작 유지 (설정값 없을 때)
     if user_turn_count <= 0:
         return SOFT_GUIDANCE_RESPONSES[0]
     return SOFT_GUIDANCE_RESPONSES[min(user_turn_count, len(SOFT_GUIDANCE_RESPONSES) - 1)]
@@ -451,13 +458,6 @@ def _is_dissatisfied(question: str) -> bool:
 def _is_contact_question(question: str) -> bool:
     normalized = _normalize_text(question)
     return any(keyword in normalized for keyword in CONTACT_QUESTION_KEYWORDS)
-
-
-def _is_overseas_intern_qualification_question(question: str) -> bool:
-    normalized = _normalize_text(question)
-    return any(keyword in normalized for keyword in OVERSEAS_INTERN_KEYWORDS) and any(
-        keyword in normalized for keyword in QUALIFICATION_QUESTION_KEYWORDS
-    )
 
 
 def _compact_contact_line(line: str) -> str:
@@ -488,20 +488,9 @@ def _extract_contact_answer_from_candidates(
     if not _is_contact_question(question):
         return None
 
-    normalized_question = _normalize_text(question)
-    requires_business_report_contact = any(term in normalized_question for term in BUSINESS_REPORT_CONTACT_TERMS)
     contact_items: list[tuple[int, str]] = []
     for source_index, item in enumerate(candidates[:5], start=1):
         preview = str(item.get("contentSignals", {}).get("textPreview", "") or "")
-        candidate_topic_text = " ".join(
-            [
-                str(item.get("sectionTitle") or ""),
-                str(item.get("sourceUrl") or ""),
-                preview,
-            ]
-        )
-        if requires_business_report_contact and not any(term in candidate_topic_text for term in BUSINESS_REPORT_CONTACT_TERMS):
-            continue
         lines = [line.strip() for line in preview.splitlines() if line.strip()]
         if len(lines) <= 1:
             lines = [part.strip() for part in re.split(r"(?<=[.。])\s+|[•○❍]\s*", preview) if part.strip()]
@@ -527,72 +516,14 @@ def _extract_contact_answer_from_candidates(
         if len(unique_items) >= 3:
             break
 
-    lines: list[str] = []
+    result_lines: list[str] = []
     for source_index, line in unique_items:
         citation = "" if citation_display_mode == "hidden" else f" [S{source_index}]"
-        lines.append(f"- {line}{citation}")
+        result_lines.append(f"- {line}{citation}")
 
-    if requires_business_report_contact:
-        lead = "신고업무 담당자 연락처는 다음 근거에서 확인됩니다."
-    else:
-        lead = "담당자 연락처는 다음 근거에서 확인됩니다."
-    return lead + "\n" + "\n".join(lines)
+    return "담당자 연락처는 다음 근거에서 확인됩니다.\n" + "\n".join(result_lines)
 
 
-def _clean_qualification_value(line: str) -> str:
-    return " ".join(line.replace("※", "").split()).strip(" :-")
-
-
-def _extract_overseas_intern_qualification_answer(
-    *,
-    question: str,
-    candidates: list[dict[str, Any]],
-    citation_display_mode: str,
-) -> str | None:
-    if not _is_overseas_intern_qualification_question(question):
-        return None
-
-    for source_index, item in enumerate(candidates[:8], start=1):
-        preview = str(item.get("contentSignals", {}).get("textPreview", "") or "")
-        if not any(anchor in preview for anchor in INTERN_QUALIFICATION_ANCHORS):
-            continue
-
-        lines = [_clean_qualification_value(line) for line in preview.splitlines()]
-        lines = [line for line in lines if line]
-        start_index = next(
-            (
-                index
-                for index, line in enumerate(lines)
-                if "인턴사원 선발자격" in line or line == "인턴사원"
-            ),
-            0,
-        )
-        window = lines[start_index : start_index + 14]
-
-        selected: list[str] = []
-        for line in window:
-            if any(
-                marker in line
-                for marker in [
-                    "선발인원",
-                    "취업 의지가 분명한 자",
-                    "응시연령",
-                    "학 력",
-                    "학력",
-                    "현지에서 근무 가능한 자",
-                    "기업 자체선발",
-                ]
-            ):
-                selected.append(line)
-
-        if not selected:
-            continue
-
-        citation = "" if citation_display_mode == "hidden" else f" [S{source_index}]"
-        bullets = "\n".join(f"- {line}" for line in selected[:6])
-        return f"해외인턴 인턴사원 선발자격은 다음과 같습니다.{citation}\n{bullets}"
-
-    return None
 
 
 def _conversation_tone_summary(
@@ -634,145 +565,6 @@ def _conversation_tone_summary(
     }
 
 
-def _split_candidate_preview(preview: str) -> list[str]:
-    normalized = re.sub(r"\[URL\]\s+https?://\S+", "", preview or "", flags=re.IGNORECASE)
-    parts = re.split(r"\n+|\s+/\s+|(?<=[.!?。])\s+", normalized)
-    cleaned: list[str] = []
-    for part in parts:
-        line = " ".join(part.split()).strip(" -·")
-        if not line or len(line) < 2:
-            continue
-        cleaned.append(line)
-    return cleaned
-
-
-def _is_overview_business_question(question: str) -> bool:
-    normalized = _normalize_text(question)
-    return any(keyword in normalized for keyword in ["주요 사업", "주요사업", "사업", "소개", "어떤 일", "무슨 일"])
-
-
-def _extract_business_items(lines: list[str]) -> list[str]:
-    stop_keywords = ["관련법령", "해외시장정보", "해외농업투자정보", "자원개발신고", "소통알림", "협회소개"]
-    skip_terms = {
-        "주요사업",
-        "KOREA OADS",
-        "세계 속의 우리농업!",
-        "해외농업자원개발협회가 함꼐 합니다.",
-        "바로가기 메뉴",
-        "본문 바로가기",
-        "주메뉴 바로가기",
-        "검색",
-        "KOR",
-        "ENG",
-        "메뉴",
-        "닫기",
-    }
-    seen: set[str] = set()
-    items: list[str] = []
-    inside_business_section = False
-    for line in lines:
-        if "주요사업" in line:
-            inside_business_section = True
-            continue
-        if inside_business_section and any(keyword in line for keyword in stop_keywords):
-            break
-        if not inside_business_section:
-            continue
-        if line in skip_terms or len(line) > 60:
-            continue
-        key = line.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        items.append(line)
-        if len(items) >= 30:
-            break
-    return items
-
-
-def _build_business_overview_from_lines(lines: list[str]) -> list[str]:
-    available = set(lines)
-    grouped_items = [
-        ("인력양성", ["지역분야별 특화교육", "국제곡물 전문가 교육", "진출기업 보수교육", "해외인턴"]),
-        ("조사지원", ["민간환경조사"]),
-        ("컨설팅", ["상시 컨설팅"]),
-        ("해외농업연계 국제개발협력 지원사업", []),
-        ("해외농업개척조사", []),
-        ("포럼/워크숍", ["비즈니스 다이얼로그", "행사소개", "행사소식"]),
-        ("해외농업 전문관", []),
-        ("융자지원", []),
-        ("국내반입 및 투자촉진 지원", []),
-        ("할당관세/수입권공매", []),
-        ("안전성 검사", []),
-        ("개발도상국 투자보증보험 지원", []),
-    ]
-
-    bullets: list[str] = []
-    for title, children in grouped_items:
-        if title not in available and not any(child in available for child in children):
-            continue
-        matched_children = [child for child in children if child in available]
-        if matched_children:
-            bullets.append(f"{title}: {', '.join(matched_children)}")
-        else:
-            bullets.append(title)
-    return bullets
-
-
-def _build_extractive_answer_from_candidates(
-    *,
-    question: str,
-    candidates: list[dict[str, Any]],
-    citation_display_mode: str,
-) -> str | None:
-    if not candidates:
-        return None
-
-    if _is_overview_business_question(question):
-        best_source_index = 1
-        best_business_items: list[str] = []
-        for source_index, item in enumerate(candidates[:8], start=1):
-            preview = str(item.get("contentSignals", {}).get("textPreview", "") or "")
-            lines = _split_candidate_preview(preview)
-            business_items = _extract_business_items(lines)
-            grouped_items = _build_business_overview_from_lines(business_items)
-            selected_items = grouped_items or business_items
-            if len(selected_items) > len(best_business_items):
-                best_source_index = source_index
-                best_business_items = selected_items
-
-        if best_business_items:
-            citation = "" if citation_display_mode == "hidden" else f" [S{best_source_index}]"
-            bullets = "\n".join(f"- {item}" for item in best_business_items[:12])
-            return (
-                f"확인된 자료 기준으로 주요 사업은 다음과 같습니다.{citation}\n\n"
-                f"{bullets}\n\n"
-                "사업별 세부 대상, 신청 방법, 일정은 공고와 운영 시기에 따라 달라질 수 있어 "
-                "해당 사업 공고를 함께 확인하는 것이 좋습니다."
-            )
-
-    selected: list[tuple[int, str]] = []
-    seen_lines: set[str] = set()
-    for source_index, item in enumerate(candidates[:3], start=1):
-        preview = str(item.get("contentSignals", {}).get("textPreview", "") or "")
-        for line in _split_candidate_preview(preview):
-            if line in seen_lines or len(line) < 12 or len(line) > 220:
-                continue
-            seen_lines.add(line)
-            selected.append((source_index, line))
-            if len(selected) >= 4:
-                break
-        if len(selected) >= 4:
-            break
-
-    if not selected:
-        return None
-
-    bullets = []
-    for source_index, line in selected:
-        source_marker = "" if citation_display_mode == "hidden" else f" [S{source_index}]"
-        bullets.append(f"- {line}{source_marker}")
-    return "확인된 자료에서 다음 내용을 찾았습니다.\n\n" + "\n".join(bullets)
 
 
 def _run_grounded_generation(
@@ -784,6 +576,10 @@ def _run_grounded_generation(
     retrieval_output: dict[str, Any],
     answer_settings: Any,
     guardrail_eval: dict[str, Any],
+    recent_messages: list[Any] | None = None,
+    question_type_flags: dict | None = None,
+    uncovered_slots: list[str] | None = None,
+    session_entities: dict | None = None,
 ) -> dict[str, Any]:
     prompt_bundle = build_answer_prompt(
         question=body.question,
@@ -792,6 +588,10 @@ def _run_grounded_generation(
         settings=answer_settings,
         requires_cautious_wording=bool(guardrail_eval.get("requiresCautiousWording")),
         requires_warning_notice=bool(guardrail_eval.get("requiresWarningNotice")),
+        recent_messages=recent_messages,
+        question_type_flags=question_type_flags,
+        uncovered_slots=uncovered_slots,
+        session_entities=session_entities,
     )
     generation = generate_grounded_answer(
         db,
@@ -974,6 +774,10 @@ def run_final_chat_pipeline(
     )
     user_turn_count = count_user_messages_in_session(db, session_id=str(session.id)) if session is not None else 0
     recent_messages = list_recent_session_messages(db, session_id=str(session.id), limit=8) if session is not None else []
+    # 세션 엔티티 로드 (session 있을 때만)
+    session_entities: dict | None = (
+        session.context_entities if session is not None else None
+    )
     tone_summary = _conversation_tone_summary(question=body.question, recent_messages=recent_messages)
 
     retrieval_start = time.perf_counter()
@@ -1029,17 +833,19 @@ def run_final_chat_pipeline(
     guardrail_eval = policy_decision.get("guardrailEvaluation") or {}
     decision = str(policy_decision.get("decision") or "insufficient_evidence")
     policy_flags = policy_decision.get("flags") or {}
+    question_type_flags = {
+        "isStructuredQuestion": policy_flags.get("isStructuredQuestion", False),
+        "isOverviewQuestion":   policy_flags.get("isOverviewQuestion", False),
+        "isContactQuestion":    policy_flags.get("isContactQuestion", False),
+    }
+    uncovered_slots: list[str] = policy_flags.get("uncoveredSlots") or []
 
     citations = assemble_citations(
         candidates=prompt_candidates,
         citation_display_mode=answer_settings.answer_format.citation_display_mode,
     )
+    # 연락처 질문은 전화번호 정규식 추출이 LLM보다 일관되므로 선처리
     direct_contact_answer = _extract_contact_answer_from_candidates(
-        question=body.question,
-        candidates=prompt_candidates,
-        citation_display_mode=answer_settings.answer_format.citation_display_mode,
-    )
-    direct_intern_qualification_answer = _extract_overseas_intern_qualification_answer(
         question=body.question,
         candidates=prompt_candidates,
         citation_display_mode=answer_settings.answer_format.citation_display_mode,
@@ -1069,16 +875,10 @@ def run_final_chat_pipeline(
         and not abusive_detected
         and not natural_conversation
         and not policy_flags.get("unrelatedQuestion")
-        and decision not in {"restricted", "conflict"}
+        and decision != "restricted"
     )
 
-    if direct_intern_qualification_answer and not abusive_detected:
-        outcome = "answered"
-        answer_text = direct_intern_qualification_answer
-    elif direct_contact_answer and not abusive_detected:
-        outcome = "answered"
-        answer_text = direct_contact_answer
-    elif abusive_detected:
+    if abusive_detected:
         outcome = "restricted"
         answer_text = str(
             policy_decision.get("safeMessage")
@@ -1093,6 +893,10 @@ def run_final_chat_pipeline(
     elif small_talk_detected:
         outcome = "answered"
         answer_text = SMALL_TALK_FIRST_RESPONSE if user_turn_count <= 0 else SMALL_TALK_REDIRECT_RESPONSE
+    elif direct_contact_answer:
+        # 연락처는 전화번호 파싱이 더 정확 — LLM 생략
+        outcome = "answered"
+        answer_text = direct_contact_answer
     elif (decision == "allow" and has_candidates) or can_try_grounded_answer:
         generation = _run_grounded_generation(
             db,
@@ -1102,6 +906,10 @@ def run_final_chat_pipeline(
             retrieval_output=retrieval_output,
             answer_settings=answer_settings,
             guardrail_eval=guardrail_eval,
+            recent_messages=recent_messages,
+            question_type_flags=question_type_flags,
+            uncovered_slots=uncovered_slots,
+            session_entities=session_entities,
         )
         llm_executed = bool(generation.get("executed"))
         llm_error_code = generation.get("errorCode")
@@ -1114,90 +922,37 @@ def run_final_chat_pipeline(
         prompt_source_count = len(prompt_candidates) if prompt_bundle else 0
         model_provider = generation.get("provider") if isinstance(generation.get("provider"), str) else None
         model_name = generation.get("model") if isinstance(generation.get("model"), str) else model_name
-        used_count = int(retrieval_output.get("usedInPromptCount") or 0)
-        if prompt_source_count != used_count:
-            logger.warning(
-                "[RAG_THRESHOLD] prompt_context_mismatch organization_id=%s chatbot_id=%s context_sources=%s used=%s",
-                chatbot.organization_id,
-                chatbot.id,
-                prompt_source_count,
-                used_count,
-            )
 
         if generation.get("text"):
             answer_text = str(generation["text"])
             if guardrail_eval.get("requiresWarningNotice"):
                 warnings.append("최신 기준이나 공고 조건에 따라 결과가 달라질 수 있으므로 담당 부서 확인이 필요합니다.")
             outcome = "answered"
-        elif _is_overview_business_question(body.question) and has_referenceable_candidates:
-            extractive_answer = _build_extractive_answer_from_candidates(
-                question=body.question,
-                candidates=prompt_candidates,
-                citation_display_mode=answer_settings.answer_format.citation_display_mode,
-            )
-            if extractive_answer:
-                outcome = "answered"
-                answer_text = extractive_answer
-                warnings.append("자동 생성 답변 대신 확인된 근거에서 주요사업 목록을 추출해 안내했습니다.")
-            else:
-                fallback = build_fallback_response(policy_decision=policy_decision, answer_settings=answer_settings)
-                outcome = fallback["outcome"] if fallback["outcome"] != "answered" else "escalate"
-                answer_text = fallback["text"]
-                warnings = fallback.get("warnings", [])
-        elif llm_error_code and has_referenceable_candidates:
-            extractive_answer = _build_extractive_answer_from_candidates(
-                question=body.question,
-                candidates=prompt_candidates,
-                citation_display_mode=answer_settings.answer_format.citation_display_mode,
-            )
-            if extractive_answer:
-                outcome = "answered"
-                answer_text = extractive_answer
-                warnings.append("자동 생성 답변을 만들 수 없어 색인된 근거에서 확인되는 내용으로 안내했습니다.")
-            else:
-                fallback = build_fallback_response(policy_decision=policy_decision, answer_settings=answer_settings)
-                outcome = fallback["outcome"] if fallback["outcome"] != "answered" else "escalate"
-                answer_text = fallback["text"]
-                warnings = fallback.get("warnings", [])
-                warnings.append("자동 응답 처리 중 오류가 있어 안전 안내 문구로 전환했습니다.")
-        elif (
-            decision in {"insufficient_evidence", "conflict", "escalate"}
-            and not policy_flags.get("unrelatedQuestion")
-            and user_turn_count < 2
-        ):
-            outcome = "answered"
-            answer_text = _build_soft_guidance_response(user_turn_count=user_turn_count)
-        else:
+        elif llm_error_code:
+            # LLM 오류 시 폴백
             fallback = build_fallback_response(policy_decision=policy_decision, answer_settings=answer_settings)
             outcome = fallback["outcome"] if fallback["outcome"] != "answered" else "escalate"
             answer_text = fallback["text"]
             warnings = fallback.get("warnings", [])
-            if llm_error_code:
-                warnings.append("자동 응답 처리 중 오류가 있어 안전 안내 문구로 전환했습니다.")
-    elif (
-        decision in {"insufficient_evidence", "conflict", "escalate"}
-        and not policy_flags.get("unrelatedQuestion")
-        and user_turn_count < 2
-    ):
+            warnings.append("자동 응답 처리 중 오류가 있어 안내 문구로 전환했습니다.")
+        else:
+            # LLM이 응답 없이 종료 (빈 텍스트)
+            fallback = build_fallback_response(policy_decision=policy_decision, answer_settings=answer_settings)
+            outcome = fallback["outcome"] if fallback["outcome"] != "answered" else "escalate"
+            answer_text = fallback["text"]
+            warnings = fallback.get("warnings", [])
+    elif not has_candidates and not policy_flags.get("unrelatedQuestion") and user_turn_count < 2:
+        # 첫 2턴 내 근거 없음 → 질문 구체화 유도
         outcome = "answered"
-        answer_text = _build_soft_guidance_response(user_turn_count=user_turn_count)
+        answer_text = _build_soft_guidance_response(
+            user_turn_count=user_turn_count,
+            answer_settings=answer_settings,
+        )
     else:
         fallback = build_fallback_response(policy_decision=policy_decision, answer_settings=answer_settings)
         outcome = fallback["outcome"]
         answer_text = fallback["text"]
         warnings = fallback.get("warnings", [])
-
-    if (
-        outcome == "answered"
-        and answer_settings.answer_policy.require_citations
-        and not has_referenceable_candidates
-        and not natural_conversation
-    ):
-        fallback = build_fallback_response(policy_decision=policy_decision, answer_settings=answer_settings)
-        outcome = "insufficient_evidence"
-        answer_text = fallback["text"]
-        llm_executed = False
-        warnings.append("인용 가능한 근거가 없어 안전 안내 문구로 전환했습니다.")
 
     fallback_reason_for_log = _fallback_reason(
         outcome=outcome,
@@ -1363,6 +1118,19 @@ def run_final_chat_pipeline(
 
     session.last_message_at = datetime.now(UTC)
     db.commit()
+
+    # 엔티티 추출 및 세션 누적 저장
+    if session is not None and answer_text:
+        try:
+            new_entities = extract_entities_from_turn(
+                question=body.question,
+                answer=answer_text,
+            )
+            merged = merge_context_entities(session.context_entities, new_entities)
+            session.context_entities = merged
+            db.commit()
+        except Exception:
+            pass  # 엔티티 추출 실패는 조용히 무시
 
     public_trace = _build_public_runtime_trace(
         normalized_query=normalized_query,

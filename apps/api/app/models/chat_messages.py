@@ -1,6 +1,8 @@
 import uuid
 
-from sqlalchemy import Boolean, ForeignKey, Index, Integer, String, Text
+from datetime import datetime
+
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, SmallInteger, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -49,6 +51,9 @@ class ChatMessage(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     escalation_target_department: Mapped[str | None] = mapped_column(String(120), nullable=True)
     escalation_target_queue: Mapped[str | None] = mapped_column(String(120), nullable=True)
     is_test: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    user_feedback: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    # 1 = 좋아요, -1 = 싫어요, None = 미응답
+    feedback_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     organization = relationship("Organization", back_populates="chat_messages")
     chatbot = relationship("ChatbotSetting", back_populates="chat_messages")

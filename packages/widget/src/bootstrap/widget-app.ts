@@ -459,6 +459,12 @@ function buildScopedStyles(primaryGradient: string): string {
   .ieum-bubble { max-width:84%; }
   .ieum-launcher-tip { width: calc(100vw - 32px); }
 }
+.ieum-feedback-row { display:flex; gap:4px; margin-top:6px; opacity:0.5; transition:opacity 0.2s; }
+.ieum-feedback-row:hover { opacity:1; }
+.ieum-feedback-btn { background:none; border:none; cursor:pointer; font-size:14px; padding:2px 4px; border-radius:4px; line-height:1; transition:background 0.15s; }
+.ieum-feedback-btn:hover { background:rgba(0,0,0,0.06); }
+.ieum-feedback-active { opacity:1 !important; }
+.ieum-feedback-thanks { font-size:11px; color:#888; }
 `;
 }
 
@@ -536,6 +542,9 @@ export class IeumWidgetApp {
       "aria-label",
       (options.initialLauncherLabel?.trim() || options.launcherLabel) ?? "챗봇 열기",
     );
+    // Hide button until loadConfig() resolves so the configured icon is shown from the start.
+    // The finally block in loadConfig() removes this class once the correct icon is applied.
+    this.floatingButton.classList.add("ieum-floating-loading");
     this.floatingButton.replaceChildren();
     const initialLauncherIcon = getInitialLauncherIcon(options);
     const initialLauncherIconUrl = options.initialLauncherIconUrl?.trim();
@@ -862,6 +871,42 @@ export class IeumWidgetApp {
           note.textContent = outcomeText;
           bubble.appendChild(note);
         }
+        // 피드백 버튼 (assistant 메시지에만, id가 있을 때만)
+        if (message.id) {
+          const feedbackRow = createElement(document, "div", "ieum-feedback-row");
+          feedbackRow.dataset["messageId"] = message.id;
+
+          const thumbUp = createElement(document, "button", "ieum-feedback-btn") as HTMLButtonElement;
+          thumbUp.setAttribute("aria-label", "도움이 됐어요");
+          thumbUp.textContent = "👍";
+
+          const thumbDown = createElement(document, "button", "ieum-feedback-btn") as HTMLButtonElement;
+          thumbDown.setAttribute("aria-label", "도움이 안 됐어요");
+          thumbDown.textContent = "👎";
+
+          const handleFeedback = async (value: 1 | -1) => {
+            const messageId = feedbackRow.dataset["messageId"];
+            if (!messageId) return;
+            try {
+              await this.api.sendFeedback(messageId, value);
+              thumbUp.classList.toggle("ieum-feedback-active", value === 1);
+              thumbDown.classList.toggle("ieum-feedback-active", value === -1);
+              setTimeout(() => {
+                feedbackRow.innerHTML = '<span class="ieum-feedback-thanks">피드백 감사합니다</span>';
+              }, 800);
+            } catch {
+              // 실패 시 조용히 무시 (UX 방해 안 함)
+            }
+          };
+
+          thumbUp.addEventListener("click", () => { void handleFeedback(1); });
+          thumbDown.addEventListener("click", () => { void handleFeedback(-1); });
+
+          feedbackRow.appendChild(thumbUp);
+          feedbackRow.appendChild(thumbDown);
+          bubble.appendChild(feedbackRow);
+        }
+
         if (message.citations && message.citations.length > 0) {
           const folded = shouldFoldCitations(this.config);
           const citationWrap = createElement(

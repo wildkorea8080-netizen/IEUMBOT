@@ -66,22 +66,21 @@ ABUSIVE_KEYWORDS = {
     "low": ["짜증", "답답", "별로", "이상하네"],
 }
 DOMAIN_KEYWORDS = [
-    "민간환경조사",
-    "해외인턴",
-    "인턴사원",
-    "해외농업",
-    "농업개발",
-    "해외 농업",
-    "농업",
-    "oa",
-    "oads",
     "사업",
+    "지원",
     "문의",
     "요청",
     "교육",
     "연수",
     "정책",
-    "지원",
+    "신청",
+    "안내",
+    "절차",
+    "조건",
+    "자격",
+    "서비스",
+    "기관",
+    "센터",
 ]
 
 
@@ -242,6 +241,8 @@ def _abuse_severity_from_question(question: str) -> str | None:
 def evaluate_answer_policy(context: dict[str, Any]) -> dict[str, Any]:
     question = _normalize_question(str(context.get("question", "")))
     candidates: list[dict[str, Any]] = context.get("retrievedCandidates", [])
+    coverage = _coverage_score(candidates) if candidates else {}
+    uncovered_slots = [slot for slot, covered in coverage.items() if not covered]
     answer_settings: AnswerSettings = context["answerSettings"]
     answer_validation_policy: dict[str, Any] = context.get("answerValidationPolicy", {}) or {}
 
@@ -283,15 +284,23 @@ def evaluate_answer_policy(context: dict[str, Any]) -> dict[str, Any]:
             except ValueError:
                 is_effective_ok = False
 
+        EXPIRY_WARNING_DAYS = 30  # 만료 임박 기준일
         is_not_expired = True
         if expiration_date:
             try:
-                is_not_expired = date.fromisoformat(expiration_date) >= today
-                if not is_not_expired:
+                exp_date = date.fromisoformat(expiration_date)
+                days_until_expiry = (exp_date - today).days
+
+                if days_until_expiry < 0:
+                    # 이미 만료 → referenceable 제외 + 경고
+                    is_not_expired = False
                     outdated_risk = True
+                elif days_until_expiry <= EXPIRY_WARNING_DAYS:
+                    # 만료 임박 (30일 이내) → referenceable 유지 + 경고
+                    outdated_risk = True
+
             except ValueError:
-                is_not_expired = False
-                outdated_risk = True
+                outdated_risk = True  # 파싱 실패 → 기존과 동일
 
         if is_effective_ok and is_not_expired:
             referenceable_candidates.append(item)
@@ -300,18 +309,8 @@ def evaluate_answer_policy(context: dict[str, Any]) -> dict[str, Any]:
             if item.get("documentVersionId") and (item.get("pageNumber") is not None or item.get("sectionTitle")):
                 citation_ready_count += 1
     evidence_empty = len(candidates) == 0
+    # 검색된 근거가 아예 없을 때만 missing_evidence — 단순 조건
     missing_evidence = evidence_empty or len(referenceable_candidates) == 0
-
-    coverage = _coverage_score(referenceable_candidates)
-    covered_slots = sum(1 for covered in coverage.values() if covered)
-    required_covered_slots = 1 if contact_question else 2
-    if (
-        structured_question
-        and len(referenceable_candidates) < effective_min_valid_sources
-        and covered_slots < required_covered_slots
-        and semantic_evidence_count == 0
-    ):
-        missing_evidence = True
 
     conflict_detected = _detect_conflict(referenceable_candidates)
 
@@ -330,9 +329,6 @@ def evaluate_answer_policy(context: dict[str, Any]) -> dict[str, Any]:
         question, DEFINITIVE_CLAIM_KEYWORDS
     ):
         restricted_topic = True
-
-    if answer_settings.answer_policy.require_citations and citation_ready_count == 0:
-        missing_evidence = True
 
     unrelated_question = (
         not greeting_detected
@@ -354,12 +350,14 @@ def evaluate_answer_policy(context: dict[str, Any]) -> dict[str, Any]:
         "abusiveSeverity": abusive_severity or None,
         "repeatedUserDissatisfaction": bool(repeated_user_dissatisfaction),
         "domainKeywordMatched": bool(domain_keyword_matched),
-        "structuredQuestion": bool(structured_question),
-        "overviewQuestion": bool(overview_question),
-        "contactQuestion": bool(contact_question),
         "unrelatedQuestion": bool(unrelated_question),
         "topCombinedScore": float(top_combined_score),
         "semanticEvidenceCount": int(semantic_evidence_count),
+        "isStructuredQuestion": bool(structured_question),
+        "isOverviewQuestion":   bool(overview_question),
+        "isContactQuestion":    bool(contact_question),
+        "coverageScore":        coverage,
+        "uncoveredSlots":       uncovered_slots,
     }
 
     guardrail_eval = evaluate_guardrails(
@@ -454,16 +452,6 @@ def evaluate_answer_policy(context: dict[str, Any]) -> dict[str, Any]:
             "guardrailEvaluation": guardrail_eval,
         }
 
-    if conflict_detected:
-        return {
-            "decision": "conflict",
-            "reason": "상위 근거 문서 간 충돌 가능성을 감지했습니다.",
-            "flags": flags,
-            "recommendedAction": "ask_clarification",
-            "safeMessage": "근거 간 차이가 있어 추가 확인이 필요합니다. 담당 부서 확인을 권장합니다.",
-            "guardrailEvaluation": guardrail_eval,
-        }
-
     if greeting_detected:
         return {
             "decision": "allow",
@@ -514,14 +502,15 @@ def evaluate_answer_policy(context: dict[str, Any]) -> dict[str, Any]:
             "guardrailEvaluation": guardrail_eval,
         }
 
+    # outdated_risk는 차단하지 않고 LLM이 답변하되 경고문을 추가하도록 처리
     if outdated_risk and answer_settings.answer_policy.require_latest_source_check_warning_when_relevant:
         return {
-            "decision": "escalate",
-            "reason": "최신성 또는 유효기간 리스크가 감지되어 추가 확인이 필요합니다.",
+            "decision": "allow",
+            "reason": "최신성 리스크가 감지되었습니다. 답변에 경고 문구를 포함합니다.",
             "flags": flags,
-            "recommendedAction": "escalate",
-            "safeMessage": answer_settings.escalation_operating.escalation_fallback_message,
-            "guardrailEvaluation": guardrail_eval,
+            "recommendedAction": "answer",
+            "safeMessage": None,
+            "guardrailEvaluation": {**guardrail_eval, "requiresWarningNotice": True},
         }
 
     return {

@@ -137,3 +137,33 @@ class KnowledgeRuntimeStatusResponse(ApiSchema):
     python_packages: dict[str, KnowledgeRuntimeDependencyItem]
     system_binaries: dict[str, KnowledgeRuntimeDependencyItem]
     notes: list[str] = Field(default_factory=list)
+
+
+class FaqGenerateRequest(ApiSchema):
+    knowledge_id: str
+    chatbot_id: str
+    faq_count: int = Field(default=5, ge=1, le=10)
+
+
+class FaqItem(ApiSchema):
+    question: str
+    answer: str
+
+
+class FaqGenerateResponse(ApiSchema):
+    knowledge_id: str
+    generated: list[FaqItem]
+    total: int
+
+
+class FaqBulkRegisterRequest(ApiSchema):
+    chatbot_id: str
+    faqs: list[FaqItem]
+    category: str = "FAQ"
+    tags: list[str] = Field(default_factory=lambda: ["auto-generated", "faq"])
+
+
+class FaqBulkRegisterResponse(ApiSchema):
+    registered: int
+    failed: int
+    knowledge_ids: list[str]

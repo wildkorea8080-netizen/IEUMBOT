@@ -125,6 +125,24 @@ def create_chat_message(
     return row
 
 
+def update_message_feedback(
+    db: Session,
+    *,
+    message_id: str,
+    feedback: int,
+) -> ChatMessage | None:
+    """피드백 업데이트. 없는 message_id면 None 반환."""
+    from datetime import datetime, timezone
+    msg = db.get(ChatMessage, uuid.UUID(message_id))
+    if not msg:
+        return None
+    msg.user_feedback = feedback
+    msg.feedback_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(msg)
+    return msg
+
+
 def create_citations(
     db: Session,
     *,

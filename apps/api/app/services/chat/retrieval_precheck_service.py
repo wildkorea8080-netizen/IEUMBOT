@@ -26,158 +26,32 @@ from app.services.embedding_service import coerce_embedding_vector, generate_emb
 
 TOKEN_SPLIT_REGEX = re.compile(r"[^0-9A-Za-z가-힣]+")
 DEFAULT_RETRIEVAL_THRESHOLD = 0.55
-WEBSITE_RETRIEVAL_THRESHOLD = 0.28
-DOCUMENT_RETRIEVAL_THRESHOLD = 0.32
-OVERVIEW_WEBSITE_RETRIEVAL_THRESHOLD = 0.24
-OVERVIEW_DOCUMENT_RETRIEVAL_THRESHOLD = 0.28
-FAQ_RETRIEVAL_THRESHOLD = 0.25
-TOP1_RESCUE_SCORE = 0.30
-OVERVIEW_TOP1_RESCUE_SCORE = 0.25
+WEBSITE_RETRIEVAL_THRESHOLD = 0.25
+DOCUMENT_RETRIEVAL_THRESHOLD = 0.28
+FAQ_RETRIEVAL_THRESHOLD = 0.22
+TOP1_RESCUE_SCORE = 0.26
 MAX_PROMPT_CHUNKS = 5
 MAX_CHUNKS_PER_KNOWLEDGE_ITEM = 2
 MAX_CHUNKS_PER_SOURCE_URL = 2
-POLICY_KEYWORD_BOOST = 0.12
+POLICY_KEYWORD_BOOST = 0.10
 SEMANTIC_RESCUE_VECTOR_SCORE = 0.32
 SEMANTIC_STRONG_VECTOR_SCORE = 0.38
-SEMANTIC_SCORE_FLOOR = 0.30
+SEMANTIC_SCORE_FLOOR = 0.28
 POLICY_KEYWORD_BOOST_TERMS = ("융자", "지원", "조건", "신청", "대상", "자부담", "금리", "사업비")
-NOISE_SECTION_PENALTY = 0.20
+NOISE_SECTION_PENALTY = 0.15
+# 실제 내비게이션/UI 노이즈만 패널티 적용 — 공지사항·FAQ·서류 등 유용한 콘텐츠는 제외
 NOISE_SECTION_TERMS = (
     "이용약관",
-    "개인정보",
+    "개인정보처리방침",
     "사이트맵",
     "저작권",
-    "공지사항",
-    "공고",
-    "서류",
-    "신청서",
-    "사업계획서",
-    "컨설팅",
     "회원가입",
     "로그인",
-    "FAQ",
-    "Q&A",
-)
-OFFICIAL_POLICY_BOOST = 0.10
-OFFICIAL_POLICY_QUERY_TERMS = ("융자", "지원", "조건", "신청", "금리", "자부담", "사업비", "대상", "절차")
-OFFICIAL_POLICY_CHUNK_TERMS = (
-    "융자신청",
-    "지원대상",
-    "사업비",
-    "자부담",
-    "연리",
-    "상환",
-    "담보",
-    "지원규모",
-    "사업절차",
-)
-TOPIC_ALIGNMENT_BOOST = 0.18
-TOPIC_MISMATCH_PENALTY = 0.18
-OVERVIEW_CHUNK_BOOST = 0.15
-OVERVIEW_ABOUT_PAGE_BOOST = 0.08
-BUSINESS_REPORT_QUERY_TERMS = ("사업신고", "신고업무", "변경신고", "사업계획 신고")
-BUSINESS_REPORT_CHUNK_TERMS = (
-    "사업신고",
-    "신고업무",
-    "변경신고",
-    "사업계획 신고",
-    "해외농업자원개발 사업계획",
-    "신고절차",
-    "처리절차",
-    "신고 대상",
-    "신고 의무",
-)
-EDUCATION_CHUNK_TERMS = (
-    "교육",
-    "국제곡물",
-    "전문가 프로그램",
-    "해외인턴",
-    "교육기간",
-    "교육대상",
-    "모집기간",
-)
-CONTACT_QUERY_TERMS_FOR_TOPIC = ("연락처", "전화", "전화번호", "문의처", "담당자", "담당부서")
-CONTACT_CHUNK_TERMS_FOR_TOPIC = ("문의처", "연락처", "전화", "전화번호", "담당자", "담당부서", "담당")
-ENVIRONMENT_SURVEY_QUERY_TERMS = ("민간환경조사", "민간 환경조사", "환경조사")
-QUALIFICATION_TOPIC_QUERY_TERMS = ("지원자격", "신청자격", "자격", "자격요건", "지원대상", "대상", "조건", "요건")
-ENVIRONMENT_SURVEY_CHUNK_TERMS = (
-    "민간환경조사",
-    "민간 환경조사",
-    "조사지원",
-    "민간 중심 사업계획 공모",
-    "사업계획 공모",
-    "우수사업모델",
-    "타당성 조사비",
-    "조사비용",
-    "항공료",
-    "전문가 인건비",
-    "민관협력",
-    "PPP",
-)
-QUALIFICATION_CHUNK_TERMS = (
-    "지원자격",
-    "신청자격",
-    "자격요건",
-    "지원대상",
-    "사업대상",
-    "지원 대상",
-    "대상",
-    "공모",
-    "선정",
-    "선정 및",
-    "총 2개 사업",
-    "50%",
-    "자부담",
-)
-OVERVIEW_QUERY_TERMS = (
-    "소개",
-    "주요 사업",
-    "주요사업",
-    "무슨 사업",
-    "어떤 사업",
-    "사업 소개",
-    "기관 소개",
-    "무엇을 하는",
-    "서비스 소개",
-    "지원 사업",
-    "지원사업",
-    "역할",
-    "업무",
-)
-OVERVIEW_CHUNK_TERMS = (
-    "사업개요",
-    "주요사업",
-    "지원사업",
-    "기관소개",
-    "사업목적",
-    "운영목적",
-    "설립목적",
-    "서비스소개",
-    "지원내용",
-    "사업대상",
-    "추진배경",
-)
-OVERVIEW_EXPECTED_CONTENT_TERMS = (
-    "우리나라는 매년",
-    "해외농업개발서비스 홈페이지에 오신 것을 환영합니다",
-    "인력양성",
-    "해외인턴",
-    "민간환경조사",
-    "해외농업개척조사",
-    "융자지원",
-    "국내반입 및 투자촉진",
-)
-OVERVIEW_ABOUT_PAGE_TERMS = (
-    "main",
-    "about",
-    "intro",
-    "greeting",
-    "기관소개",
 )
 logger = logging.getLogger(__name__)
 URL_MARKER_REGEX = re.compile(r"\[URL\]\s+(https?://\S+)", re.IGNORECASE)
 CONTACT_QUERY_TERMS = {"연락처", "전화", "전화번호", "문의처", "담당자", "담당부서"}
-CONTACT_EXPANSION_TERMS = ["연락처", "전화", "전화번호", "문의처", "담당자", "담당부서", "사업관리실"]
+CONTACT_EXPANSION_TERMS = ["연락처", "전화", "전화번호", "문의처", "담당자", "담당부서"]
 QUALIFICATION_QUERY_TERMS = {"자격", "자격요건", "지원자격", "신청자격", "요건", "대상"}
 QUALIFICATION_EXPANSION_TERMS = [
     "자격",
@@ -186,12 +60,8 @@ QUALIFICATION_EXPANSION_TERMS = [
     "신청자격",
     "선발자격",
     "지원대상",
-    "교육대상",
     "응시연령",
-    "학력제한",
 ]
-OVERSEAS_INTERN_QUERY_TERMS = {"해외인턴", "인턴"}
-OVERSEAS_INTERN_EXPANSION_TERMS = ["해외인턴", "해외 인턴", "인턴사원", "인턴신청기업", "인턴기업"]
 KOREAN_PARTICLE_SUFFIXES = [
     "으로",
     "에서",
@@ -259,8 +129,6 @@ def _expand_tokens(tokens: list[str], synonyms: list[SynonymDictionary]) -> list
         expanded.update(CONTACT_EXPANSION_TERMS)
     if expanded.intersection(QUALIFICATION_QUERY_TERMS):
         expanded.update(QUALIFICATION_EXPANSION_TERMS)
-    if expanded.intersection(OVERSEAS_INTERN_QUERY_TERMS):
-        expanded.update(OVERSEAS_INTERN_EXPANSION_TERMS)
     return sorted(expanded)
 
 
@@ -398,24 +266,53 @@ def _is_faq_candidate(item: dict[str, Any]) -> bool:
     return "faq" in haystack or "자주" in haystack
 
 
-def _is_overview_query(question_text: str) -> tuple[bool, list[str]]:
-    matched = [term for term in OVERVIEW_QUERY_TERMS if term in question_text]
-    return bool(matched), matched
+def _dynamic_threshold_for_candidate(
+    item: dict[str, Any],
+    *,
+    question: str = "",
+) -> float:
+    """
+    소스타입 기본 임계값에 질문 유형 보정을 적용.
 
-
-def _dynamic_threshold_for_candidate(item: dict[str, Any], *, overview_query: bool = False) -> float:
+    보정 방향:
+    - 연락처 질문: -0.05 (낮게 → 전화번호 청크 더 넓게 수집)
+    - 구조적 질문: +0.03 (높게 → 정책 정보 정확도 우선)
+    - 개요 질문:   -0.03 (낮게 → 소개 내용 폭넓게 수집)
+    """
+    # 1단계: 소스타입 기본 임계값
     if _is_faq_candidate(item):
-        return FAQ_RETRIEVAL_THRESHOLD
-    source_type = str(item.get("sourceType") or "").lower()
-    if source_type == "website":
-        if overview_query:
-            return OVERVIEW_WEBSITE_RETRIEVAL_THRESHOLD
-        return WEBSITE_RETRIEVAL_THRESHOLD
-    if source_type in {"document", "file", "text"}:
-        if overview_query:
-            return OVERVIEW_DOCUMENT_RETRIEVAL_THRESHOLD
-        return DOCUMENT_RETRIEVAL_THRESHOLD
-    return _get_retrieval_threshold()
+        base = FAQ_RETRIEVAL_THRESHOLD        # 0.22
+    else:
+        source_type = str(item.get("sourceType") or "").lower()
+        if source_type == "website":
+            base = WEBSITE_RETRIEVAL_THRESHOLD    # 0.25
+        elif source_type in {"document", "file", "text"}:
+            base = DOCUMENT_RETRIEVAL_THRESHOLD   # 0.28
+        else:
+            base = _get_retrieval_threshold()     # 환경변수 기본값
+
+    # 2단계: 질문 유형 보정 (question이 없으면 보정 없음)
+    if not question:
+        return base
+
+    q = question.lower()
+
+    # 연락처 질문 감지 (policy_evaluation_service._is_contact_question과 동일 로직)
+    contact_signals = ["전화", "연락처", "담당자", "담당부서", "문의처", "이메일", "팩스"]
+    if any(s in q for s in contact_signals):
+        return max(base - 0.05, 0.15)   # 하한선 0.15
+
+    # 구조적 질문 감지 (자격/절차/일정)
+    structured_signals = ["자격", "요건", "조건", "신청", "절차", "방법", "기간", "일정", "마감"]
+    if any(s in q for s in structured_signals):
+        return min(base + 0.03, 0.45)   # 상한선 0.45
+
+    # 개요/소개 질문 감지
+    overview_signals = ["소개", "개요", "무엇", "뭔가요", "어떤", "역할", "기능", "하는 곳"]
+    if any(s in q for s in overview_signals):
+        return max(base - 0.03, 0.15)   # 하한선 0.15
+
+    return base
 
 
 def _policy_keyword_boost(question_text: str, chunk_text: str) -> tuple[float, list[str]]:
@@ -428,9 +325,7 @@ def _policy_keyword_boost(question_text: str, chunk_text: str) -> tuple[float, l
     return POLICY_KEYWORD_BOOST, matched
 
 
-def _noise_section_penalty(text: str, *, overview_query: bool = False) -> tuple[float, list[str]]:
-    if overview_query and "홈페이지에 오신 것을 환영합니다" in text:
-        return 0.0, []
+def _noise_section_penalty(text: str) -> tuple[float, list[str]]:
     lowered = text.lower()
     matched = [term for term in NOISE_SECTION_TERMS if term.lower() in lowered]
     if not matched:
@@ -466,66 +361,6 @@ def _semantic_evidence_adjustment(
     return combined_score, False, None
 
 
-def _overview_boost(question_text: str, chunk_text: str, location_text: str) -> tuple[float, list[str], float, list[str]]:
-    overview_query, _ = _is_overview_query(question_text)
-    if not overview_query:
-        return 0.0, [], 0.0, []
-
-    matched_chunk_terms = [term for term in OVERVIEW_CHUNK_TERMS if term in chunk_text]
-    matched_expected_terms = [term for term in OVERVIEW_EXPECTED_CONTENT_TERMS if term in chunk_text]
-    overview_terms = sorted(set(matched_chunk_terms + matched_expected_terms))
-    chunk_boost = OVERVIEW_CHUNK_BOOST if overview_terms else 0.0
-
-    location_lowered = location_text.lower()
-    about_terms = [term for term in OVERVIEW_ABOUT_PAGE_TERMS if term.lower() in location_lowered]
-    about_boost = OVERVIEW_ABOUT_PAGE_BOOST if about_terms else 0.0
-
-    return chunk_boost, overview_terms, about_boost, sorted(set(about_terms))
-
-
-def _topic_quality_adjustment(question_text: str, chunk_text: str) -> tuple[float, list[str], float, list[str]]:
-    boost_terms: list[str] = []
-    penalty_terms: list[str] = []
-    boost = 0.0
-    penalty = 0.0
-
-    is_business_report_query = any(term in question_text for term in BUSINESS_REPORT_QUERY_TERMS)
-    is_contact_query = any(term in question_text for term in CONTACT_QUERY_TERMS_FOR_TOPIC)
-    is_environment_survey_query = any(term in question_text for term in ENVIRONMENT_SURVEY_QUERY_TERMS)
-    is_qualification_query = any(term in question_text for term in QUALIFICATION_TOPIC_QUERY_TERMS)
-    if is_environment_survey_query:
-        survey_matches = [term for term in ENVIRONMENT_SURVEY_CHUNK_TERMS if term.lower() in chunk_text]
-        qualification_matches = [term for term in QUALIFICATION_CHUNK_TERMS if term.lower() in chunk_text]
-        education_matches = [term for term in EDUCATION_CHUNK_TERMS if term in chunk_text]
-        if survey_matches and (not is_qualification_query or qualification_matches):
-            boost = max(boost, TOPIC_ALIGNMENT_BOOST)
-            boost_terms.extend(survey_matches[:4])
-            if is_qualification_query:
-                boost_terms.extend(qualification_matches[:4])
-        elif survey_matches:
-            boost = max(boost, TOPIC_ALIGNMENT_BOOST * 0.5)
-            boost_terms.extend(survey_matches[:4])
-        if education_matches and not survey_matches:
-            penalty = max(penalty, TOPIC_MISMATCH_PENALTY)
-            penalty_terms.extend(education_matches[:4])
-
-    if is_business_report_query:
-        business_matches = [term for term in BUSINESS_REPORT_CHUNK_TERMS if term in chunk_text]
-        education_matches = [term for term in EDUCATION_CHUNK_TERMS if term in chunk_text]
-        contact_matches = [term for term in CONTACT_CHUNK_TERMS_FOR_TOPIC if term in chunk_text]
-        if business_matches and (not is_contact_query or contact_matches):
-            boost = TOPIC_ALIGNMENT_BOOST
-            boost_terms.extend(business_matches[:4])
-            if is_contact_query:
-                boost_terms.extend(contact_matches[:2])
-        if education_matches and not business_matches:
-            penalty = TOPIC_MISMATCH_PENALTY
-            penalty_terms.extend(education_matches[:4])
-        if is_contact_query and contact_matches and not business_matches:
-            penalty = max(penalty, TOPIC_MISMATCH_PENALTY)
-            penalty_terms.extend(contact_matches[:2])
-
-    return boost, sorted(set(boost_terms)), penalty, sorted(set(penalty_terms))
 
 
 def _is_undefined_column_error(exc: Exception) -> bool:
@@ -617,8 +452,7 @@ def _apply_prompt_selection(
     *,
     threshold: float,
     prompt_limit: int,
-    overview_query: bool = False,
-) -> tuple[list[dict[str, Any]], bool, bool, bool, bool]:
+) -> tuple[list[dict[str, Any]], bool, bool, bool]:
     prompt_candidates: list[dict[str, Any]] = []
     per_knowledge_item: dict[str, int] = {}
     per_source_url: dict[str, int] = {}
@@ -626,9 +460,7 @@ def _apply_prompt_selection(
     source_diversity_applied = False
     section_diversity_applied = False
     rescued_by_top1_rule = False
-    overview_rescued = False
     semantic_rescued = False
-    rescue_score = OVERVIEW_TOP1_RESCUE_SCORE if overview_query else TOP1_RESCUE_SCORE
 
     for index, item in enumerate(candidates):
         item["sectionDuplicateSkipped"] = False
@@ -641,19 +473,16 @@ def _apply_prompt_selection(
         )
         rescued = (
             index == 0
-            and (score >= rescue_score or semantic_rescue_candidate)
+            and (score >= TOP1_RESCUE_SCORE or semantic_rescue_candidate)
             and not threshold_passed
         )
         if rescued:
             rescued_by_top1_rule = True
-            if overview_query:
-                overview_rescued = True
             if semantic_rescue_candidate:
                 semantic_rescued = True
         item["thresholdPassed"] = threshold_passed
         item["dynamicThreshold"] = dynamic_threshold
         item["rescuedByTop1Rule"] = rescued
-        item["overviewRescued"] = bool(overview_query and rescued)
         item["semanticRescued"] = bool(semantic_rescue_candidate and rescued)
         item["usedInPrompt"] = False
         if not threshold_passed and not rescued:
@@ -691,7 +520,6 @@ def _apply_prompt_selection(
         source_diversity_applied,
         rescued_by_top1_rule,
         section_diversity_applied,
-        overview_rescued,
         semantic_rescued,
     )
 
@@ -711,7 +539,6 @@ def search_relevant_chunks(
 ) -> dict[str, Any]:
     started_at = time.perf_counter()
     normalized = normalize_query(question)
-    overview_query, overview_query_terms = _is_overview_query(normalized)
     tokens = _normalize_token_variants(_tokenize(normalized))
 
     synonyms = list_active_synonyms(db, organization_id, chatbot_id)
@@ -894,31 +721,14 @@ def search_relevant_chunks(
         noise_text = f"{section_title or ''} {text_preview} {source_url or ''}"
         keyword_boost, boosted_terms = _policy_keyword_boost(normalized, boost_text)
         policy_boost, policy_boost_terms = _official_policy_boost(normalized, boost_text)
-        overview_boost, overview_boost_terms, overview_about_boost, overview_about_terms = _overview_boost(
-            normalized,
-            boost_text,
-            f"{section_title or ''} {source_url or ''}",
-        )
-        topic_boost, topic_boost_terms, topic_penalty, topic_penalty_terms = _topic_quality_adjustment(
-            normalized,
-            noise_text.lower(),
-        )
-        noise_penalty, noise_penalty_terms = _noise_section_penalty(noise_text, overview_query=overview_query)
+        noise_penalty, noise_penalty_terms = _noise_section_penalty(noise_text)
         score_before_quality_adjustments = combined_score
         if keyword_boost:
             combined_score = round(min(combined_score + keyword_boost, 1.0), 4)
         if policy_boost:
             combined_score = round(min(combined_score + policy_boost, 1.0), 4)
-        if overview_boost:
-            combined_score = round(min(combined_score + overview_boost, 1.0), 4)
-        if overview_about_boost:
-            combined_score = round(min(combined_score + overview_about_boost, 1.0), 4)
-        if topic_boost:
-            combined_score = round(min(combined_score + topic_boost, 1.0), 4)
         if noise_penalty:
             combined_score = round(max(combined_score - noise_penalty, 0.0), 4)
-        if topic_penalty:
-            combined_score = round(max(combined_score - topic_penalty, 0.0), 4)
         combined_score, semantic_evidence_applied, semantic_evidence_reason = _semantic_evidence_adjustment(
             vector_score=vector_score,
             keyword_score=keyword_score,
@@ -953,17 +763,6 @@ def search_relevant_chunks(
                 "policyBoostApplied": bool(policy_boost),
                 "policyBoostValue": policy_boost,
                 "policyBoostTerms": policy_boost_terms,
-                "overviewBoostApplied": bool(overview_boost or overview_about_boost),
-                "overviewBoostValue": round(overview_boost + overview_about_boost, 4),
-                "overviewTerms": sorted(set(overview_boost_terms + overview_about_terms)),
-                "overviewThreshold": None,
-                "overviewRescued": False,
-                "topicBoostApplied": bool(topic_boost),
-                "topicBoostValue": topic_boost,
-                "topicBoostTerms": topic_boost_terms,
-                "topicPenaltyApplied": bool(topic_penalty),
-                "topicPenaltyValue": topic_penalty,
-                "topicPenaltyTerms": topic_penalty_terms,
                 "noisePenaltyApplied": bool(noise_penalty),
                 "noisePenaltyValue": noise_penalty,
                 "noisePenaltyTerms": noise_penalty_terms,
@@ -991,8 +790,9 @@ def search_relevant_chunks(
 
     for index, item in enumerate(ranked, start=1):
         item["finalRank"] = index
-        item["dynamicThreshold"] = _dynamic_threshold_for_candidate(item, overview_query=overview_query)
-        item["overviewThreshold"] = item["dynamicThreshold"] if overview_query else None
+        item["dynamicThreshold"] = _dynamic_threshold_for_candidate(
+            item, question=question
+        )
         item["rescuedByTop1Rule"] = False
 
     (
@@ -1000,36 +800,21 @@ def search_relevant_chunks(
         source_diversity_applied,
         rescued_by_top1_rule,
         section_diversity_applied,
-        overview_rescued,
         semantic_rescued,
     ) = _apply_prompt_selection(
         ranked,
         threshold=threshold,
         prompt_limit=MAX_PROMPT_CHUNKS,
-        overview_query=overview_query,
     )
     keyword_boost_applied = any(bool(item.get("keywordBoostApplied")) for item in ranked)
     noise_penalty_applied = any(bool(item.get("noisePenaltyApplied")) for item in ranked)
     policy_boost_applied = any(bool(item.get("policyBoostApplied")) for item in ranked)
     semantic_evidence_applied = any(bool(item.get("semanticEvidenceApplied")) for item in ranked)
-    overview_boost_applied = any(bool(item.get("overviewBoostApplied")) for item in ranked)
-    topic_boost_applied = any(bool(item.get("topicBoostApplied")) for item in ranked)
-    topic_penalty_applied = any(bool(item.get("topicPenaltyApplied")) for item in ranked)
     noise_penalty_terms = sorted(
         {term for item in ranked for term in list(item.get("noisePenaltyTerms") or [])}
     )
     policy_boost_terms = sorted(
         {term for item in ranked for term in list(item.get("policyBoostTerms") or [])}
-    )
-    overview_terms = sorted(
-        set(overview_query_terms)
-        | {term for item in ranked for term in list(item.get("overviewTerms") or [])}
-    )
-    topic_boost_terms = sorted(
-        {term for item in ranked for term in list(item.get("topicBoostTerms") or [])}
-    )
-    topic_penalty_terms = sorted(
-        {term for item in ranked for term in list(item.get("topicPenaltyTerms") or [])}
     )
     dynamic_threshold = min((float(item.get("dynamicThreshold") or threshold) for item in ranked), default=threshold)
     citation_candidates = [
@@ -1081,14 +866,6 @@ def search_relevant_chunks(
             "policyBoostTerms": policy_boost_terms,
             "semanticEvidenceApplied": semantic_evidence_applied,
             "semanticRescued": semantic_rescued,
-            "overviewBoostApplied": overview_boost_applied,
-            "overviewTerms": overview_terms,
-            "overviewThreshold": dynamic_threshold if overview_query else None,
-            "overviewRescued": overview_rescued,
-            "topicBoostApplied": topic_boost_applied,
-            "topicBoostTerms": topic_boost_terms,
-            "topicPenaltyApplied": topic_penalty_applied,
-            "topicPenaltyTerms": topic_penalty_terms,
             "finalPromptChunkCount": len(prompt_candidates),
             "queryEmbeddingGenerated": True,
             "queryEmbeddingLength": query_embedding_length,

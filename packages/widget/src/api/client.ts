@@ -37,6 +37,16 @@ export class WidgetApiClient {
     return (await response.json()) as ChatResponse;
   }
 
+  async sendFeedback(messageId: string, feedback: 1 | -1): Promise<void> {
+    await fetch(`${this.baseUrl}/chat/messages/${encodeURIComponent(messageId)}/feedback`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ feedback }),
+      credentials: "omit",
+    });
+    // 실패해도 throw하지 않음 — 호출자가 catch로 처리
+  }
+
   async streamChat(
     body: ChatRequest,
     onEvent: (event: ChatStreamEvent) => void,

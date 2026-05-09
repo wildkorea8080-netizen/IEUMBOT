@@ -30,6 +30,11 @@ class ChatSession(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     summary_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    context_entities: Mapped[dict | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        comment="대화 중 추적된 엔티티 누적 저장",
+    )
 
     organization = relationship("Organization", back_populates="chat_sessions")
     chatbot = relationship("ChatbotSetting", back_populates="chat_sessions")

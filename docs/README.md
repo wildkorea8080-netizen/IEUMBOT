@@ -1,8 +1,21 @@
-# IEUMBOT 문서 인덱스
+# IEUMBOT 설계 문서 인덱스
 
-이 디렉터리는 IEUMBOT 프로젝트의 기획, 아키텍처, API, 보안, 테스트, 운영 기준을 번호순 마크다운 문서로 정리하기 위한 공간입니다. 각 문서는 구현 전에 합의해야 할 기준과 결정 사항을 명확히 기록하는 것을 목표로 합니다.
+> **Claude Code 사용 시**: 코드 작업에는 `/CLAUDE.md`와 각 앱의 `CLAUDE.md`를 참조하세요.
+> 이 디렉터리는 **설계 의도·요구사항 상세 스펙** 전용입니다.
 
-## 문서 목록
+## 빠른 참조 (작업별 추천 문서)
+
+| 작업 | 참조 문서 |
+|---|---|
+| DB 모델/스키마 변경 | `10_DATABASE_SCHEMA.md` |
+| API 엔드포인트 추가 | `11_API_SPEC.md` |
+| RAG/검색 로직 수정 | `14_RAG_DESIGN.md` |
+| 프롬프트·답변 정책 | `15_PROMPT_STRATEGY.md` |
+| 위젯 UI/동작 | `12_WIDGET_SPEC.md` |
+| 보안·개인정보 | `16_SECURITY_PRIVACY_SPEC.md` |
+| 배포·운영 | `18_DEPLOYMENT_OPERATIONS.md` |
+
+## 전체 문서 목록
 
 1. [01_PROJECT_OVERVIEW.md](./01_PROJECT_OVERVIEW.md) - 프로젝트 개요: IEUMBOT의 목적, 문제 정의, 핵심 가치, 범위를 정리합니다.
 2. [02_PRD.md](./02_PRD.md) - 제품 요구사항 문서: 대상 사용자, 사용 시나리오, 성공 기준, 출시 범위를 정의합니다.

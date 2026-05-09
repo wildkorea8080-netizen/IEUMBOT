@@ -4,6 +4,11 @@ from sqlalchemy.orm import Session
 from app.api.dependencies.auth import AdminPrincipal, require_institution_admin_auth
 from app.db import get_db_session
 from app.schemas.knowledge import (
+    FaqBulkRegisterRequest,
+    FaqBulkRegisterResponse,
+    FaqGenerateRequest,
+    FaqGenerateResponse,
+    FaqItem,
     KnowledgeDetailResponse,
     KnowledgeItem,
     KnowledgeListResponse,
@@ -152,4 +157,102 @@ def admin_reindex_knowledge(
         principal=principal,
         knowledge_id=knowledge_id,
         background_tasks=background_tasks,
+    )
+
+
+@router.post("/knowledge/{knowledge_id}/generate-faq", response_model=FaqGenerateResponse)
+def admin_generate_faq_from_knowledge(
+    knowledge_id: str,
+    body: FaqGenerateRequest,
+    principal: AdminPrincipal = Depends(require_institution_admin_auth),
+    db: Session = Depends(get_db_session),
+) -> FaqGenerateResponse:
+    """
+    등록된 knowledge의 청크에서 FAQ를 자동 생성.
+    생성 결과는 저장하지 않고 반환만 함 — 관리자가 검수 후 등록.
+    """
+    from fastapi import HTTPException
+    from sqlalchemy import select
+
+    from app.models import DocumentChunk
+    from app.repositories.admin.knowledge_repository import get_document_knowledge_row
+    from app.services.admin.faq_generation_service import generate_faq_from_chunks
+    from app.services.admin.scope_service import require_institution_organization_id
+
+    organization_id = require_institution_organization_id(principal)
+
+    row = get_document_knowledge_row(db, organization_id=organization_id, knowledge_id=knowledge_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Knowledge not found")
+
+    doc, version, _job = row
+
+    if version is None:
+        raise HTTPException(status_code=400, detail="Knowledge has no indexed version")
+
+    # 청크 텍스트 직접 조회 (최대 10개, 임베딩 있는 것 우선)
+    chunk_stmt = (
+        select(DocumentChunk.text_content)
+        .where(DocumentChunk.document_version_id == version.id)
+        .order_by(DocumentChunk.chunk_order.asc())
+        .limit(10)
+    )
+    chunk_texts = [str(t) for t in db.execute(chunk_stmt).scalars().all() if t]
+
+    faq_list = generate_faq_from_chunks(
+        db,
+        organization_id=organization_id,
+        chatbot_id=body.chatbot_id,
+        knowledge_id=knowledge_id,
+        chunk_texts=chunk_texts,
+        faq_count=body.faq_count,
+    )
+
+    return FaqGenerateResponse(
+        knowledge_id=knowledge_id,
+        generated=[FaqItem(**item) for item in faq_list],
+        total=len(faq_list),
+    )
+
+
+@router.post("/knowledge/faq/bulk-register", response_model=FaqBulkRegisterResponse)
+def admin_bulk_register_faq(
+    body: FaqBulkRegisterRequest,
+    principal: AdminPrincipal = Depends(require_institution_admin_auth),
+    db: Session = Depends(get_db_session),
+) -> FaqBulkRegisterResponse:
+    """
+    관리자가 검수한 FAQ 목록을 text knowledge로 일괄 등록.
+    각 FAQ는 개별 knowledge 항목으로 저장.
+    실패한 항목은 건너뛰고 성공한 항목만 반환.
+    """
+    from app.schemas.knowledge import KnowledgeTextCreateRequest
+    from app.services.admin.knowledge_service import create_text_knowledge_service
+
+    registered_ids: list[str] = []
+    failed = 0
+
+    for faq in body.faqs:
+        try:
+            result = create_text_knowledge_service(
+                db,
+                principal=principal,
+                body=KnowledgeTextCreateRequest(
+                    chatbot_id=body.chatbot_id,
+                    title=faq.question[:80],
+                    content=f"Q: {faq.question}\nA: {faq.answer}",
+                    category=body.category,
+                    tags=body.tags,
+                    memo="FAQ 자동 생성",
+                ),
+            )
+            registered_ids.append(str(result.id))
+        except Exception:
+            failed += 1
+            continue
+
+    return FaqBulkRegisterResponse(
+        registered=len(registered_ids),
+        failed=failed,
+        knowledge_ids=registered_ids,
     )

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { PagePanel } from "../ui/page-panel";
+import { FaqGenerateModal } from "./FaqGenerateModal";
 import { ApiClientError } from "../../lib/api";
 import {
   deleteKnowledge,
@@ -168,6 +169,7 @@ export function KnowledgeManagement() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [runtimeStatus, setRuntimeStatus] = useState<KnowledgeRuntimeStatus | null>(null);
+  const [faqTargetItem, setFaqTargetItem] = useState<KnowledgeItem | null>(null);
 
   const categories = useMemo(
     () => Array.from(new Set(items.map((item) => item.category).filter(Boolean))).sort(),
@@ -601,6 +603,15 @@ export function KnowledgeManagement() {
                           >
                             재색인
                           </button>
+                          {item.sourceType !== "website" && (
+                            <button
+                              type="button"
+                              onClick={() => setFaqTargetItem(item)}
+                              className="rounded-lg border border-indigo-300 px-3 py-1.5 text-xs text-indigo-700"
+                            >
+                              FAQ 생성
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={() => void performRowAction(item.id, "delete")}
@@ -1008,6 +1019,19 @@ export function KnowledgeManagement() {
           </div>
         </div>
       )}
+
+      {faqTargetItem ? (
+        <FaqGenerateModal
+          knowledgeId={faqTargetItem.id}
+          knowledgeTitle={faqTargetItem.title}
+          onClose={() => setFaqTargetItem(null)}
+          onRegistered={(count) => {
+            setFaqTargetItem(null);
+            setNotice(`${count}개 FAQ가 등록되었습니다.`);
+            void load();
+          }}
+        />
+      ) : null}
     </div>
   );
 }
