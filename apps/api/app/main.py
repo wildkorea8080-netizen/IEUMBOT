@@ -17,7 +17,7 @@ def _run_migrations() -> None:
         from alembic import command
         from alembic.config import Config
 
-        alembic_cfg_path = Path(__file__).resolve().parents[2] / "alembic.ini"
+        alembic_cfg_path = Path(__file__).resolve().parents[1] / "alembic.ini"
         if not alembic_cfg_path.exists():
             logging.getLogger(__name__).warning("alembic.ini not found, skipping auto-migration")
             return
