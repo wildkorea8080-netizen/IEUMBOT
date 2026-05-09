@@ -107,13 +107,16 @@ def admin_create_text_knowledge(
     return create_text_knowledge_service(db, principal=principal, body=body)
 
 
-@router.post("/knowledge/websites", response_model=KnowledgeDetailResponse)
+@router.post("/knowledge/websites", response_model=KnowledgeDetailResponse, status_code=status.HTTP_202_ACCEPTED)
 def admin_create_website_knowledge(
     body: KnowledgeWebsiteCreateRequest,
+    background_tasks: BackgroundTasks,
     principal: AdminPrincipal = Depends(require_institution_admin_auth),
     db: Session = Depends(get_db_session),
 ) -> KnowledgeDetailResponse:
-    return create_website_knowledge_service(db, principal=principal, body=body)
+    return create_website_knowledge_service(
+        db, principal=principal, body=body, background_tasks=background_tasks
+    )
 
 
 @router.get("/knowledge/{knowledge_id}", response_model=KnowledgeDetailResponse)

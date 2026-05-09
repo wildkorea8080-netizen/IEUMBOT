@@ -3556,6 +3556,7 @@ def create_website_knowledge_service(
     *,
     principal: AdminPrincipal,
     body: KnowledgeWebsiteCreateRequest,
+    background_tasks=None,
 ) -> KnowledgeDetailResponse:
     organization_id = require_institution_organization_id(principal)
     chatbot = ensure_chatbot_in_scope(db, principal=principal, chatbot_id=body.chatbot_id)
@@ -3616,13 +3617,8 @@ def create_website_knowledge_service(
         metadata_json={"sourceType": "website", "url": canonical_url},
     )
     db.add(job)
-    db.flush()
-    _ingest_web_source_content(
-        db,
-        organization_id=organization_id,
-        chatbot_id=str(chatbot.id),
-        web_source=web_source,
-        job=job,
-    )
-    db.commit()
+    db.commit()  # 즉시 커밋 — 크롤링은 background task에서 처리
+    logger.info("[WEBSITE_CREATE] web_source_id=%s queued job_id=%s", web_source.id, job.id)
+    if background_tasks is not None:
+        background_tasks.add_task(_process_reindex_job, principal, str(web_source.id), str(job.id))
     return get_knowledge_service(db, principal=principal, knowledge_id=str(web_source.id))
