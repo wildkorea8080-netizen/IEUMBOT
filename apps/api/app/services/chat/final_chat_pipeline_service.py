@@ -712,11 +712,19 @@ def run_final_chat_pipeline(
     include_debug_trace: bool = False,
 ) -> ChatRuntimeResponse:
     total_start = time.perf_counter()
-    chatbot = get_chatbot_by_id(db, body.chatbot_id)
-    if chatbot is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CHATBOT_NOT_FOUND")
-    _, chatbot = ensure_runtime_access_for_chatbot(db, chatbot_id=str(chatbot.id))
-    check_conversation_limit(db, chatbot_id=str(chatbot.id))
+    logger.info("[PIPELINE] start chatbot_id=%s question_len=%s", body.chatbot_id, len(body.question or ""))
+    try:
+        chatbot = get_chatbot_by_id(db, body.chatbot_id)
+        if chatbot is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CHATBOT_NOT_FOUND")
+        logger.info("[PIPELINE] chatbot_found id=%s", chatbot.id)
+        _, chatbot = ensure_runtime_access_for_chatbot(db, chatbot_id=str(chatbot.id))
+        logger.info("[PIPELINE] access_ok org_id=%s", chatbot.organization_id)
+        check_conversation_limit(db, chatbot_id=str(chatbot.id))
+        logger.info("[PIPELINE] limit_ok")
+    except Exception as _early_exc:
+        logger.exception("[PIPELINE] FAILED early-stage chatbot_id=%s", body.chatbot_id)
+        raise
 
     normalized_query = body.normalized_query or normalize_query(body.question)
     session_token = body.session_token or f"session_{uuid.uuid4().hex[:20]}"
