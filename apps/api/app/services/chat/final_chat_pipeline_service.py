@@ -774,10 +774,13 @@ def run_final_chat_pipeline(
     )
     user_turn_count = count_user_messages_in_session(db, session_id=str(session.id)) if session is not None else 0
     recent_messages = list_recent_session_messages(db, session_id=str(session.id), limit=8) if session is not None else []
-    # 세션 엔티티 로드 (session 있을 때만)
-    session_entities: dict | None = (
-        session.context_entities if session is not None else None
-    )
+    # 세션 엔티티 로드 (deferred 컬럼 — 마이그레이션 미적용 시 None으로 안전하게 폴백)
+    session_entities: dict | None = None
+    if session is not None:
+        try:
+            session_entities = session.context_entities
+        except Exception:
+            pass
     tone_summary = _conversation_tone_summary(question=body.question, recent_messages=recent_messages)
 
     retrieval_start = time.perf_counter()
