@@ -243,3 +243,37 @@ class AdminWidgetUpdateRequest(ApiSchema):
     banner_title: str | None = None
     banner_description: str | None = None
     starter_questions: list[str] | None = None
+
+
+class FeedbackSummaryResponse(ApiSchema):
+    totalAssistantMessages: int
+    feedbackReceived: int
+    thumbsUp: int
+    thumbsDown: int
+    positiveRate: float
+
+
+class LowRatedMessageItem(ApiSchema):
+    messageId: str
+    normalizedQuery: str
+    content: str
+    feedbackAt: str | None = None
+    createdAt: str | None = None
+
+
+class LowRatedMessagesResponse(ApiSchema):
+    total: int
+    items: list[LowRatedMessageItem]
+
+
+class DocumentFeedbackItem(ApiSchema):
+    documentName: str
+    documentId: str | None = None
+    thumbsUp: int
+    thumbsDown: int
+    totalFeedback: int
+    positiveRate: float
+
+
+class DocumentFeedbackResponse(ApiSchema):
+    items: list[DocumentFeedbackItem]

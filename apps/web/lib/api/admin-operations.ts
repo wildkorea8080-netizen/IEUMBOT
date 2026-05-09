@@ -417,3 +417,59 @@ export async function deleteAdminWidgetIcon(url: string): Promise<void> {
     throw new Error(`아이콘 삭제에 실패했습니다. (${response.status})`);
   }
 }
+
+// ── 피드백 통계 ──────────────────────────────────────────
+
+export interface FeedbackSummary {
+  totalAssistantMessages: number;
+  feedbackReceived: number;
+  thumbsUp: number;
+  thumbsDown: number;
+  positiveRate: number;
+}
+
+export interface LowRatedMessageItem {
+  messageId: string;
+  normalizedQuery: string;
+  content: string;
+  feedbackAt: string | null;
+  createdAt: string | null;
+}
+
+export interface DocumentFeedbackItem {
+  documentName: string;
+  documentId: string | null;
+  thumbsUp: number;
+  thumbsDown: number;
+  totalFeedback: number;
+  positiveRate: number;
+}
+
+export async function getFeedbackSummary(chatbotId?: string): Promise<FeedbackSummary> {
+  const q = chatbotId ? `?chatbotId=${encodeURIComponent(chatbotId)}` : "";
+  return apiClient.request<FeedbackSummary>(`/admin/feedback/summary${q}`);
+}
+
+export async function getLowRatedMessages(params: {
+  chatbotId?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<{ total: number; items: LowRatedMessageItem[] }> {
+  const q = new URLSearchParams();
+  if (params.chatbotId) q.set("chatbotId", params.chatbotId);
+  if (params.limit != null) q.set("limit", String(params.limit));
+  if (params.offset != null) q.set("offset", String(params.offset));
+  const qs = q.toString() ? `?${q.toString()}` : "";
+  return apiClient.request<{ total: number; items: LowRatedMessageItem[] }>(
+    `/admin/feedback/low-rated${qs}`,
+  );
+}
+
+export async function getFeedbackByDocument(
+  chatbotId?: string,
+): Promise<{ items: DocumentFeedbackItem[] }> {
+  const q = chatbotId ? `?chatbotId=${encodeURIComponent(chatbotId)}` : "";
+  return apiClient.request<{ items: DocumentFeedbackItem[] }>(
+    `/admin/feedback/by-document${q}`,
+  );
+}

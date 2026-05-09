@@ -10,6 +10,7 @@ export const adminNavItems = [
   { href: "/admin/ai/style", label: "스타일 규칙", section: "AI Config", icon: "spark" },
   { href: "/admin/ai/conditional", label: "조건부 규칙", section: "AI Config", icon: "spark" },
   { href: "/admin/quality-report", label: "품질 리포트", section: "Operations", icon: "logs" },
+  { href: "/admin/feedback", label: "피드백 현황", section: "Operations", icon: "logs" },
   { href: "/admin/knowledge-gap", label: "Knowledge Gap", section: "Operations", icon: "knowledge" },
   { href: "/admin/roi-dashboard", label: "ROI Dashboard", section: "Operations", icon: "usage" },
   { href: "/admin/billing", label: "결제 관리", section: "Operations", icon: "billing" },

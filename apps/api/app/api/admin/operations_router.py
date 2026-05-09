@@ -22,6 +22,9 @@ from app.schemas.admin_operations import (
     AdminRoiDashboardResponse,
     AdminWidgetResponse,
     AdminWidgetUpdateRequest,
+    DocumentFeedbackResponse,
+    FeedbackSummaryResponse,
+    LowRatedMessagesResponse,
 )
 from app.schemas.chat_policy import PreAnswerRequest
 from app.schemas.chat_runtime import ChatRuntimeResponse
@@ -295,3 +298,53 @@ def admin_patch_widget(
         chatbot_id=chatbot_id,
         body=body,
     )
+
+
+@router.get("/feedback/summary", response_model=FeedbackSummaryResponse)
+def admin_get_feedback_summary(
+    chatbot_id: str | None = Query(default=None, alias="chatbotId"),
+    principal: AdminPrincipal = Depends(require_institution_admin_auth),
+    db: Session = Depends(get_db_session),
+) -> FeedbackSummaryResponse:
+    from app.services.admin.feedback_stats_service import get_feedback_summary
+    from app.services.admin.scope_service import require_institution_organization_id
+    return get_feedback_summary(
+        db,
+        organization_id=require_institution_organization_id(principal),
+        chatbot_id=chatbot_id,
+    )
+
+
+@router.get("/feedback/low-rated", response_model=LowRatedMessagesResponse)
+def admin_list_low_rated_messages(
+    chatbot_id: str | None = Query(default=None, alias="chatbotId"),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    principal: AdminPrincipal = Depends(require_institution_admin_auth),
+    db: Session = Depends(get_db_session),
+) -> LowRatedMessagesResponse:
+    from app.services.admin.feedback_stats_service import list_low_rated_messages
+    from app.services.admin.scope_service import require_institution_organization_id
+    return list_low_rated_messages(
+        db,
+        organization_id=require_institution_organization_id(principal),
+        chatbot_id=chatbot_id,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/feedback/by-document", response_model=DocumentFeedbackResponse)
+def admin_get_feedback_by_document(
+    chatbot_id: str | None = Query(default=None, alias="chatbotId"),
+    principal: AdminPrincipal = Depends(require_institution_admin_auth),
+    db: Session = Depends(get_db_session),
+) -> DocumentFeedbackResponse:
+    from app.services.admin.feedback_stats_service import get_feedback_by_document
+    from app.services.admin.scope_service import require_institution_organization_id
+    items = get_feedback_by_document(
+        db,
+        organization_id=require_institution_organization_id(principal),
+        chatbot_id=chatbot_id,
+    )
+    return DocumentFeedbackResponse(items=items)
