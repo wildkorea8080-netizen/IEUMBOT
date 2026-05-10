@@ -124,6 +124,9 @@ def _call_openai_like(
     model: str,
     temperature: float,
     max_output_tokens: int,
+    top_p: float | None,
+    frequency_penalty: float | None,
+    presence_penalty: float | None,
     system_prompt: str,
     user_prompt: str,
 ) -> dict[str, Any]:
@@ -136,6 +139,12 @@ def _call_openai_like(
             {"role": "user", "content": [{"type": "input_text", "text": user_prompt}]},
         ],
     }
+    if top_p is not None:
+        payload["top_p"] = top_p
+    if frequency_penalty is not None:
+        payload["frequency_penalty"] = frequency_penalty
+    if presence_penalty is not None:
+        payload["presence_penalty"] = presence_penalty
     headers = {"Content-Type": "application/json"}
     if provider == "azure_openai":
         headers["api-key"] = api_key
@@ -151,6 +160,7 @@ def _call_anthropic(
     model: str,
     temperature: float,
     max_output_tokens: int,
+    top_p: float | None,
     system_prompt: str,
     user_prompt: str,
 ) -> dict[str, Any]:
@@ -161,6 +171,8 @@ def _call_anthropic(
         "system": system_prompt,
         "messages": [{"role": "user", "content": user_prompt}],
     }
+    if top_p is not None:
+        payload["top_p"] = top_p
     url = f"{(base_url or 'https://api.anthropic.com').rstrip('/')}/v1/messages" if base_url else ANTHROPIC_MESSAGES_URL
     return _post_json(
         url=url,
@@ -221,6 +233,7 @@ def generate_grounded_answer(
                 model=model_name,
                 temperature=float(answer_settings.model_runtime.temperature),
                 max_output_tokens=int(answer_settings.model_runtime.max_tokens),
+                top_p=answer_settings.model_runtime.top_p,
                 system_prompt=prompt_bundle["systemPrompt"],
                 user_prompt=prompt_bundle["userPrompt"],
             )
@@ -234,6 +247,9 @@ def generate_grounded_answer(
                 model=model_name,
                 temperature=float(answer_settings.model_runtime.temperature),
                 max_output_tokens=int(answer_settings.model_runtime.max_tokens),
+                top_p=answer_settings.model_runtime.top_p,
+                frequency_penalty=answer_settings.model_runtime.frequency_penalty,
+                presence_penalty=answer_settings.model_runtime.presence_penalty,
                 system_prompt=prompt_bundle["systemPrompt"],
                 user_prompt=prompt_bundle["userPrompt"],
             )

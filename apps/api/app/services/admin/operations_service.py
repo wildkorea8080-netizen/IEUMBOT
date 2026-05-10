@@ -72,6 +72,27 @@ from app.services.settings.answer_settings_service import get_effective_answer_s
 from app.services.widget_install_script import build_widget_install_script
 
 RECOMMENDED_OPENAI_MODELS = {"gpt-4.1-mini", "gpt-4.1"}
+
+
+def _normalize_quick_reply_hints(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    hints: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, str):
+            continue
+        hint = item.strip()
+        if not hint:
+            continue
+        hint = hint[:40]
+        if hint in seen:
+            continue
+        seen.add(hint)
+        hints.append(hint)
+        if len(hints) >= 5:
+            break
+    return hints
 KNOWLEDGE_GAP_LOW_SCORE_THRESHOLD = 0.35
 QUESTION_NORMALIZE_REGEX = re.compile(r"[^0-9A-Za-z가-힣]+")
 ROI_SAVED_MINUTES_PER_AUTO_ANSWER = 5
@@ -820,6 +841,7 @@ def list_chatbots_service(
             name=row.name,
             status=row.status,
             organization_id=str(row.organization_id),
+            skip_duplicate_file_reindex=row.skip_duplicate_file_reindex,
             document_count=count_documents_by_chatbot(
                 db,
                 organization_id=organization_id,
@@ -856,7 +878,9 @@ def get_chatbot_service(
         answer_length=row.answer_length,
         citation_mode=row.citation_mode,
         web_search_enabled=row.web_search_enabled,
+        skip_duplicate_file_reindex=row.skip_duplicate_file_reindex,
         welcome_message=row.welcome_message,
+        quick_reply_hints=_normalize_quick_reply_hints(row.quick_reply_hints),
         fallback_message=row.fallback_message,
         description_text=row.description_text,
         theme=row.theme or {},
@@ -931,7 +955,9 @@ def create_chatbot_service(
         answer_length=row.answer_length,
         citation_mode=row.citation_mode,
         web_search_enabled=row.web_search_enabled,
+        skip_duplicate_file_reindex=row.skip_duplicate_file_reindex,
         welcome_message=row.welcome_message,
+        quick_reply_hints=_normalize_quick_reply_hints(row.quick_reply_hints),
         fallback_message=row.fallback_message,
         description_text=row.description_text,
         theme=row.theme or {},
@@ -967,8 +993,12 @@ def patch_chatbot_service(
         row.citation_mode = body.citation_mode
     if body.web_search_enabled is not None:
         row.web_search_enabled = body.web_search_enabled
+    if body.skip_duplicate_file_reindex is not None:
+        row.skip_duplicate_file_reindex = body.skip_duplicate_file_reindex
     if body.welcome_message is not None:
         row.welcome_message = body.welcome_message
+    if body.quick_reply_hints is not None:
+        row.quick_reply_hints = _normalize_quick_reply_hints(body.quick_reply_hints)
     if body.fallback_message is not None:
         row.fallback_message = body.fallback_message
     if body.description_text is not None:
@@ -991,7 +1021,9 @@ def patch_chatbot_service(
         answer_length=row.answer_length,
         citation_mode=row.citation_mode,
         web_search_enabled=row.web_search_enabled,
+        skip_duplicate_file_reindex=row.skip_duplicate_file_reindex,
         welcome_message=row.welcome_message,
+        quick_reply_hints=_normalize_quick_reply_hints(row.quick_reply_hints),
         fallback_message=row.fallback_message,
         description_text=row.description_text,
         theme=row.theme or {},

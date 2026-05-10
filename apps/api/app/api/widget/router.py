@@ -148,6 +148,11 @@ def get_widget_public_config(
         logo_url=logo_url if isinstance(logo_url, str) else None,
         intro_message=resolved_intro_message,
         welcome_message=resolved_welcome_message,
+        quick_reply_hints=[
+            item.strip()[:40]
+            for item in (chatbot.quick_reply_hints or [])
+            if isinstance(item, str) and item.strip()
+        ][:5],
         privacy_notice=chatbot.privacy_notice,
         citation_mode=chatbot.citation_mode,
         citation_presentation=citation_presentation if isinstance(citation_presentation, str) else None,

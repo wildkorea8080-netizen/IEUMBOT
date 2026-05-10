@@ -1,3 +1,4 @@
+from datetime import date as _date
 from typing import Any
 
 from app.schemas.answer_settings import AnswerSettings
@@ -116,6 +117,8 @@ def build_answer_prompt(
     settings: AnswerSettings,
     requires_cautious_wording: bool,
     requires_warning_notice: bool,
+    chatbot_name: str = "",
+    institution_name: str = "",
     recent_messages: list[Any] | None = None,
     question_type_flags: dict | None = None,
     uncovered_slots: list[str] | None = None,
@@ -203,12 +206,25 @@ def build_answer_prompt(
     if requires_warning_notice:
         caution_instruction += "필요하면 최신 기준 확인 안내를 포함하세요.\n"
 
+    _today_str = _date.today().isoformat()
+
+    def _resolve_prompt_vars(text: str) -> str:
+        """시스템 프롬프트 내 변수를 런타임 값으로 치환합니다."""
+        return (
+            text
+            .replace("{today}", _today_str)
+            .replace("{chatbot_name}", chatbot_name)
+            .replace("{institution_name}", institution_name)
+        )
+
     system_parts = [
-        settings.prompt_instruction.system_prompt.strip() or "너는 기관의 AI 상담 챗봇이다.",
+        _resolve_prompt_vars(
+            settings.prompt_instruction.system_prompt.strip() or "너는 기관의 AI 상담 챗봇이다."
+        ),
         *_build_policy_instruction(settings),
         *_build_style_instruction(settings),
         _build_section_instruction(settings),
-        settings.prompt_instruction.additional_instructions.strip(),
+        _resolve_prompt_vars(settings.prompt_instruction.additional_instructions.strip()),
         type_instruction.strip(),
         slot_notice.strip(),
         caution_instruction.strip(),

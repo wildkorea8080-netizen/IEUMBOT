@@ -73,6 +73,9 @@ def _defaults_from_legacy(row: Any) -> dict[str, Any]:
             "modelName": "gpt-4.1-mini",
             "temperature": 0.2,
             "maxTokens": 800,
+            "topP": None,
+            "frequencyPenalty": None,
+            "presencePenalty": None,
         },
         "escalationOperating": {
             "enableEscalationSuggestion": True,

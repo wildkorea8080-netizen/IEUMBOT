@@ -1274,6 +1274,7 @@ def _ingest_document_version_content(
     content_type: str | None,
     metadata_updates: dict | None = None,
     rag_settings: dict | None = None,
+    use_vision: bool = False,
 ) -> None:
     now = datetime.now(UTC)
     old_version_status = version.status
@@ -1286,7 +1287,13 @@ def _ingest_document_version_content(
     version.status = "processing"
     db.flush()
 
-    extracted_text, detected_file_type, extraction_method = _extract_document_text(file_name, file_bytes, content_type)
+    extracted_text, detected_file_type, extraction_method = _extract_document_text(
+        file_name,
+        file_bytes,
+        content_type,
+        use_vision=use_vision,
+        db=db,
+    )
     extracted_text = extracted_text.strip()
     if detected_file_type == ".pdf" and extracted_text and _looks_like_mojibake_text(extracted_text):
         extracted_text = ""
@@ -1879,7 +1886,179 @@ def _extract_pdf_text_via_ocr(file_bytes: bytes) -> str:
     return _normalize_text_blocks(parts)
 
 
-def _extract_pdf_text_best_effort(file_bytes: bytes) -> tuple[str, str]:
+def _extract_pdf_text_via_vision(
+    file_bytes: bytes,
+    db,
+    *,
+    max_pages: int = 20,
+) -> str:
+    """
+    PDF를 페이지별 이미지로 변환 후 LLM Vision으로 텍스트 추출.
+    표/다단 레이아웃/스캔 문서에 효과적.
+    """
+    import base64
+    import io as _io
+    import json as _json
+    import urllib.request as _urllib_req
+
+    try:
+        from pdf2image import convert_from_bytes  # type: ignore
+    except ImportError:
+        logger.warning("pdf2image not available for vision extraction")
+        return ""
+
+    try:
+        images = convert_from_bytes(
+            file_bytes,
+            dpi=150,
+            fmt="png",
+            first_page=1,
+            last_page=max_pages,
+            thread_count=1,
+        )
+    except Exception as e:
+        logger.warning(f"pdf2image conversion failed for vision: {e}")
+        return ""
+
+    from app.services.llm_api_config_runtime_service import resolve_runtime_api_config
+
+    api_cfg = resolve_runtime_api_config(db)
+    if api_cfg is None:
+        logger.warning("No API config available for vision extraction")
+        return ""
+
+    provider = (api_cfg.provider or "").lower()
+    api_key = api_cfg.api_key or ""
+    base_url = (api_cfg.base_url or "").rstrip("/")
+
+    if not api_key:
+        logger.warning("No API key for vision extraction")
+        return ""
+
+    VISION_PROMPT = (
+        "이 문서 페이지의 모든 텍스트를 추출해주세요.\n"
+        "표는 행과 열 구조를 유지해서 텍스트로 변환하세요.\n"
+        "머리글/바닥글/페이지 번호는 제외하세요.\n"
+        "추출된 텍스트만 출력하고 다른 설명은 하지 마세요."
+    )
+
+    extracted_pages: list[str] = []
+
+    for i, img in enumerate(images):
+        buf = _io.BytesIO()
+        img.save(buf, format="PNG")
+        img_b64 = base64.b64encode(buf.getvalue()).decode()
+
+        try:
+            if provider in ("openai", "azure_openai", "azure"):
+                if provider in ("azure_openai", "azure"):
+                    endpoint = f"{base_url}/chat/completions"
+                else:
+                    endpoint = "https://api.openai.com/v1/chat/completions"
+
+                payload = {
+                    "model": "gpt-4o-mini",
+                    "max_tokens": 2000,
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "image_url",
+                                    "image_url": {
+                                        "url": f"data:image/png;base64,{img_b64}",
+                                        "detail": "high",
+                                    },
+                                },
+                                {"type": "text", "text": VISION_PROMPT},
+                            ],
+                        }
+                    ],
+                }
+                headers = {
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {api_key}",
+                }
+                req = _urllib_req.Request(
+                    endpoint,
+                    data=_json.dumps(payload).encode(),
+                    headers=headers,
+                    method="POST",
+                )
+                with _urllib_req.urlopen(req, timeout=60) as resp:
+                    result = _json.loads(resp.read())
+                page_text = (
+                    result.get("choices", [{}])[0]
+                    .get("message", {})
+                    .get("content", "")
+                    .strip()
+                )
+
+            elif provider == "anthropic":
+                payload = {
+                    "model": "claude-3-5-haiku-20241022",
+                    "max_tokens": 2000,
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "image",
+                                    "source": {
+                                        "type": "base64",
+                                        "media_type": "image/png",
+                                        "data": img_b64,
+                                    },
+                                },
+                                {"type": "text", "text": VISION_PROMPT},
+                            ],
+                        }
+                    ],
+                }
+                headers = {
+                    "Content-Type": "application/json",
+                    "x-api-key": api_key,
+                    "anthropic-version": "2023-06-01",
+                }
+                req = _urllib_req.Request(
+                    "https://api.anthropic.com/v1/messages",
+                    data=_json.dumps(payload).encode(),
+                    headers=headers,
+                    method="POST",
+                )
+                with _urllib_req.urlopen(req, timeout=60) as resp:
+                    result = _json.loads(resp.read())
+                page_text = (
+                    result.get("content", [{}])[0]
+                    .get("text", "")
+                    .strip()
+                )
+
+            else:
+                logger.warning(f"Vision not supported for provider: {provider}")
+                break
+
+            if page_text:
+                extracted_pages.append(f"[페이지 {i + 1}]\n{page_text}")
+
+        except Exception as e:
+            logger.warning(f"Vision extraction failed page {i + 1}: {e}")
+            continue
+
+    return "\n\n".join(extracted_pages)
+
+
+def _extract_pdf_text_best_effort(
+    file_bytes: bytes,
+    *,
+    use_vision: bool = False,
+    db=None,
+) -> tuple[str, str]:
+    if use_vision and db is not None:
+        vision_text = _extract_pdf_text_via_vision(file_bytes, db)
+        if vision_text and len(vision_text.strip()) > 50:
+            return vision_text, "vision"
+
     try:
         extracted = _extract_pdf_text_via_pypdf(file_bytes)
         if _is_viable_pdf_text(extracted):
@@ -1936,13 +2115,26 @@ def _extract_attachment_text(file_url: str, file_bytes: bytes, content_type: str
     return "", file_type, "failed"
 
 
-def _extract_document_text(file_name: str, file_bytes: bytes, content_type: str | None) -> tuple[str, str, str]:
+def _extract_document_text(
+    file_name: str,
+    file_bytes: bytes,
+    content_type: str | None,
+    use_vision: bool = False,
+    db=None,
+) -> tuple[str, str, str]:
     file_type = Path(file_name or "upload.bin").suffix.lower()
     normalized_content_type = content_type or ATTACHMENT_MIME_HINTS.get(file_type)
     if file_type in {".txt", ".md", ".csv", ".json", ".xml", ".html", ".htm"}:
         return file_bytes.decode("utf-8", errors="ignore").strip(), file_type, "text"
     if normalized_content_type and normalized_content_type.startswith(TEXTISH_MIME_PREFIXES):
         return file_bytes.decode("utf-8", errors="ignore").strip(), file_type, "text"
+    if file_type == ".pdf":
+        extracted_text, extraction_method = _extract_pdf_text_best_effort(
+            file_bytes,
+            use_vision=use_vision,
+            db=db,
+        )
+        return extracted_text, file_type, extraction_method
     synthetic_url = f"https://local-upload.invalid/{file_name}"
     return _extract_attachment_text(synthetic_url, file_bytes, normalized_content_type)
 
@@ -3827,9 +4019,23 @@ async def create_file_knowledge_service(
     memo: str | None,
     effective_date: str | None,
     department: str | None,
+    use_vision: bool = False,
 ) -> KnowledgeDetailResponse:
     organization_id = require_institution_organization_id(principal)
     chatbot = ensure_chatbot_in_scope(db, principal=principal, chatbot_id=chatbot_id)
+    if getattr(chatbot, "skip_duplicate_file_reindex", False):
+        existing_doc = db.execute(
+            select(Document).where(
+                Document.organization_id == uuid.UUID(organization_id),
+                Document.chatbot_id == chatbot.id,
+                Document.title == title.strip(),
+                Document.status == "active",
+                Document.deleted_at.is_(None),
+            )
+        ).scalar_one_or_none()
+        if existing_doc is not None:
+            return get_knowledge_service(db, principal=principal, knowledge_id=str(existing_doc.id))
+
     content = await file.read()
     if not content:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="EMPTY_FILE")
@@ -3917,6 +4123,7 @@ async def create_file_knowledge_service(
         content_type=upload_content_type,
         metadata_updates={"sourceType": "file"},
         rag_settings=_rag_settings,
+        use_vision=use_vision,
     )
     db.commit()
     return get_knowledge_service(db, principal=principal, knowledge_id=str(doc.id))

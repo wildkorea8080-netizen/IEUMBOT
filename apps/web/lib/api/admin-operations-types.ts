@@ -214,6 +214,7 @@ export type AdminChatbotItem = {
   name: string;
   status: string;
   organizationId: string;
+  skipDuplicateFileReindex?: boolean;
   documentCount: number;
   websiteCount: number;
   createdAt: string;
@@ -238,7 +239,9 @@ export type AdminChatbotResponse = {
   answerLength: string;
   citationMode: string;
   webSearchEnabled: boolean;
+  skipDuplicateFileReindex?: boolean;
   welcomeMessage?: string | null;
+  quickReplyHints: string[];
   fallbackMessage?: string | null;
   descriptionText?: string | null;
   theme: Record<string, unknown>;

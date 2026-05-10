@@ -30,6 +30,7 @@ type BasicForm = {
   chatbotName: string;
   widgetDisplayName: string;
   welcomeMessage: string;
+  quickReplyHints: string[];
   defaultGuideMessage: string;
   operatingHoursMessage: string;
   fallbackMessage: string;
@@ -61,6 +62,11 @@ const TEXT = {
   widgetHelperHas: "\uC704\uC82F\uC774 \uC788\uB294 \uACBD\uC6B0\uC5D0\uB9CC \uC800\uC7A5\uB429\uB2C8\uB2E4.",
   widgetHelperNone: "\uD604\uC7AC \uC5F0\uACB0\uB41C \uC704\uC82F\uC774 \uC5C6\uC5B4 \uC800\uC7A5\uB418\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.",
   welcome: "\uD658\uC601 \uBA54\uC2DC\uC9C0",
+  quickHints: "AI 질문 힌트",
+  quickHintsDesc: "채팅 시작 시 사용자에게 제안할 질문 버튼입니다 (최대 5개, 각 40자 이내)",
+  quickHintsEmpty: "등록된 질문 힌트가 없습니다",
+  quickHintsPlaceholder: "예: 신청 방법이 어떻게 되나요?",
+  quickHintsAdd: "추가",
   guide: "\uAE30\uBCF8 \uC548\uB0B4\uBB38",
   operating: "\uC6B4\uC601\uC2DC\uAC04 \uC548\uB0B4\uBB38",
   fallback: "\uAE30\uBCF8 fallback \uBA54\uC2DC\uC9C0",
@@ -73,6 +79,7 @@ function emptyForm(): BasicForm {
     chatbotName: "",
     widgetDisplayName: "",
     welcomeMessage: "",
+    quickReplyHints: [],
     defaultGuideMessage: "",
     operatingHoursMessage: "",
     fallbackMessage: "",
@@ -99,6 +106,7 @@ export default function AdminAiBasicPage() {
   const [serverSettings, setServerSettings] = useState<AnswerSettings | null>(null);
   const [form, setForm] = useState<BasicForm>(emptyForm);
   const [snapshot, setSnapshot] = useState<BasicForm>(emptyForm);
+  const [quickHintInput, setQuickHintInput] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -108,6 +116,32 @@ export default function AdminAiBasicPage() {
 
   function updateField<K extends keyof BasicForm>(key: K, value: BasicForm[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function addQuickHint() {
+    const hint = quickHintInput.trim();
+    if (!hint) return;
+    if (hint.length > 40) {
+      setToast({ tone: "error", message: "질문 힌트는 40자 이내로 입력해 주세요." });
+      return;
+    }
+    if (form.quickReplyHints.length >= 5) {
+      setToast({ tone: "error", message: "질문 힌트는 최대 5개까지 등록할 수 있습니다." });
+      return;
+    }
+    if (form.quickReplyHints.includes(hint)) {
+      setToast({ tone: "error", message: "이미 등록된 질문 힌트입니다." });
+      return;
+    }
+    updateField("quickReplyHints", [...form.quickReplyHints, hint]);
+    setQuickHintInput("");
+  }
+
+  function removeQuickHint(index: number) {
+    updateField(
+      "quickReplyHints",
+      form.quickReplyHints.filter((_, itemIndex) => itemIndex !== index),
+    );
   }
 
   async function loadPage(chatbotId?: string) {
@@ -137,6 +171,7 @@ export default function AdminAiBasicPage() {
         chatbotName: chatbot.name ?? "",
         widgetDisplayName: widget?.launcherLabel ?? "",
         welcomeMessage: chatbot.welcomeMessage ?? "",
+        quickReplyHints: chatbot.quickReplyHints ?? [],
         defaultGuideMessage: chatbot.descriptionText ?? "",
         operatingHoursMessage: answerSettings.settings.escalationOperating.operatingHoursFallbackMessage ?? "",
         fallbackMessage:
@@ -179,6 +214,7 @@ export default function AdminAiBasicPage() {
       await patchAdminChatbot(selectedChatbotId, {
         name: form.chatbotName.trim(),
         welcomeMessage: form.welcomeMessage.trim(),
+        quickReplyHints: form.quickReplyHints.map((item) => item.trim()).filter(Boolean).slice(0, 5),
         fallbackMessage: form.fallbackMessage.trim(),
         descriptionText: form.defaultGuideMessage.trim(),
         escalationPolicy: {
@@ -272,6 +308,61 @@ export default function AdminAiBasicPage() {
                 helper={selectedWidget ? TEXT.widgetHelperHas : TEXT.widgetHelperNone}
               />
               <TextAreaField label={TEXT.welcome} value={form.welcomeMessage} onChange={(value) => updateField("welcomeMessage", value)} rows={4} />
+              <div className="rounded-md border border-slate-200 p-4">
+                <div>
+                  <div className="text-sm font-medium text-slate-900">{TEXT.quickHints}</div>
+                  <p className="mt-1 text-xs text-slate-500">{TEXT.quickHintsDesc}</p>
+                </div>
+                <div className="mt-3 grid gap-2">
+                  {form.quickReplyHints.length > 0 ? (
+                    form.quickReplyHints.map((hint, index) => (
+                      <div
+                        key={`${hint}-${index}`}
+                        className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm"
+                      >
+                        <span className="min-w-0 flex-1 truncate text-slate-700">{hint}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeQuickHint(index)}
+                          className="rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-white"
+                          aria-label="질문 힌트 삭제"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-md border border-dashed border-slate-300 px-3 py-3 text-sm text-slate-500">
+                      {TEXT.quickHintsEmpty}
+                    </div>
+                  )}
+                </div>
+                <div className="mt-3 flex gap-2">
+                  <div className="min-w-0 flex-1">
+                    <input
+                      value={quickHintInput}
+                      onChange={(event) => setQuickHintInput(event.target.value.slice(0, 40))}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          addQuickHint();
+                        }
+                      }}
+                      placeholder={TEXT.quickHintsPlaceholder}
+                      className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                    />
+                    <div className="mt-1 text-right text-xs text-slate-500">{quickHintInput.length}/40</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={addQuickHint}
+                    disabled={form.quickReplyHints.length >= 5 || !quickHintInput.trim()}
+                    className="h-10 rounded-md bg-slate-900 px-4 text-sm font-medium text-white disabled:opacity-50"
+                  >
+                    {TEXT.quickHintsAdd}
+                  </button>
+                </div>
+              </div>
               <TextAreaField label={TEXT.guide} value={form.defaultGuideMessage} onChange={(value) => updateField("defaultGuideMessage", value)} rows={5} />
               <TextAreaField label={TEXT.operating} value={form.operatingHoursMessage} onChange={(value) => updateField("operatingHoursMessage", value)} rows={4} />
             </div>
@@ -282,6 +373,67 @@ export default function AdminAiBasicPage() {
               <TextAreaField label={TEXT.fallback} value={form.fallbackMessage} onChange={(value) => updateField("fallbackMessage", value)} rows={4} />
               <TextInputField label={TEXT.department} value={form.departmentName} onChange={(value) => updateField("departmentName", value)} />
               <TextInputField label={TEXT.contact} value={form.contactPhone} onChange={(value) => updateField("contactPhone", value)} />
+              {selectedChatbotId && (
+                <div style={{ marginTop: 24, padding: "16px 20px", borderRadius: 8, border: "1px solid #e2e8f0", background: "#f8fafc" }}>
+                  <p style={{ fontSize: 13, fontWeight: 600, color: "#475569", marginBottom: 8 }}>
+                    채널 공유 링크
+                  </p>
+                  <p style={{ fontSize: 12, color: "#94a3b8", marginBottom: 12 }}>
+                    이 링크로 챗봇을 위젯 없이 직접 공유할 수 있습니다
+                  </p>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <input
+                      readOnly
+                      value={`${typeof window !== "undefined" ? window.location.origin : ""}/chat/${selectedChatbotId}`}
+                      style={{
+                        flex: 1,
+                        padding: "8px 12px",
+                        borderRadius: 6,
+                        border: "1px solid #e2e8f0",
+                        fontSize: 13,
+                        color: "#475569",
+                        background: "#fff",
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void navigator.clipboard.writeText(
+                          `${window.location.origin}/chat/${selectedChatbotId}`,
+                        );
+                      }}
+                      style={{
+                        padding: "8px 14px",
+                        borderRadius: 6,
+                        border: "1px solid #e2e8f0",
+                        background: "#fff",
+                        fontSize: 13,
+                        cursor: "pointer",
+                        color: "#475569",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      링크 복사
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => window.open(`/chat/${selectedChatbotId}`, "_blank")}
+                      style={{
+                        padding: "8px 14px",
+                        borderRadius: 6,
+                        border: "1px solid #e2e8f0",
+                        background: "#fff",
+                        fontSize: 13,
+                        cursor: "pointer",
+                        color: "#475569",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      미리보기
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </PagePanel>
         </div>

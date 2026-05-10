@@ -571,6 +571,8 @@ def _run_grounded_generation(
     retrieval_output: dict[str, Any],
     answer_settings: Any,
     guardrail_eval: dict[str, Any],
+    chatbot_name: str = "",
+    institution_name: str = "",
     recent_messages: list[Any] | None = None,
     question_type_flags: dict | None = None,
     uncovered_slots: list[str] | None = None,
@@ -582,6 +584,8 @@ def _run_grounded_generation(
         settings=answer_settings,
         requires_cautious_wording=bool(guardrail_eval.get("requiresCautiousWording")),
         requires_warning_notice=bool(guardrail_eval.get("requiresWarningNotice")),
+        chatbot_name=chatbot_name,
+        institution_name=institution_name,
         recent_messages=recent_messages,
         question_type_flags=question_type_flags,
         uncovered_slots=uncovered_slots,
@@ -718,7 +722,7 @@ def run_final_chat_pipeline(
         if chatbot is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CHATBOT_NOT_FOUND")
         logger.info("[PIPELINE] chatbot_found id=%s", chatbot.id)
-        _, chatbot = ensure_runtime_access_for_chatbot(db, chatbot_id=str(chatbot.id))
+        organization, chatbot = ensure_runtime_access_for_chatbot(db, chatbot_id=str(chatbot.id))
         logger.info("[PIPELINE] access_ok org_id=%s", chatbot.organization_id)
         check_conversation_limit(db, chatbot_id=str(chatbot.id))
         logger.info("[PIPELINE] limit_ok")
@@ -913,6 +917,12 @@ def run_final_chat_pipeline(
             retrieval_output=retrieval_output,
             answer_settings=answer_settings,
             guardrail_eval=guardrail_eval,
+            chatbot_name=str(chatbot.name or ""),
+            institution_name=str(
+                getattr(organization, "name", None)
+                or getattr(organization, "contact_name", None)
+                or ""
+            ),
             recent_messages=recent_messages,
             question_type_flags=question_type_flags,
             uncovered_slots=uncovered_slots,

@@ -22,6 +22,13 @@ class ChatbotSetting(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(150), nullable=False)
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="active")
     welcome_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    quick_reply_hints: Mapped[list] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=list,
+        server_default="[]",
+        comment="미리 정의된 질문 힌트 버튼 목록",
+    )
     description_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     fallback_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     persona: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -32,6 +39,13 @@ class ChatbotSetting(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     privacy_notice: Mapped[str | None] = mapped_column(Text, nullable=True)
     citation_mode: Mapped[str] = mapped_column(String(30), nullable=False, default="visible")
     web_search_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    skip_duplicate_file_reindex: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+        comment="동일 파일명 재업로드 시 재학습 건너뜀",
+    )
     allowed_domains: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     answer_priority_policy: Mapped[list[str]] = mapped_column(
         JSONB,

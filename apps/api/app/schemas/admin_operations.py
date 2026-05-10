@@ -141,6 +141,7 @@ class AdminChatbotItem(ApiSchema):
     name: str
     status: str
     organization_id: str
+    skip_duplicate_file_reindex: bool = False
     document_count: int
     website_count: int
     created_at: str
@@ -163,7 +164,9 @@ class AdminChatbotUpdateRequest(ApiSchema):
     answer_length: str | None = None
     citation_mode: str | None = None
     web_search_enabled: bool | None = None
+    skip_duplicate_file_reindex: bool | None = None
     welcome_message: str | None = None
+    quick_reply_hints: list[str] | None = None
     fallback_message: str | None = None
     description_text: str | None = None
     theme: dict | None = None
@@ -180,7 +183,9 @@ class AdminChatbotResponse(ApiSchema):
     answer_length: str
     citation_mode: str
     web_search_enabled: bool
+    skip_duplicate_file_reindex: bool = False
     welcome_message: str | None = None
+    quick_reply_hints: list[str] = []
     fallback_message: str | None = None
     description_text: str | None = None
     theme: dict

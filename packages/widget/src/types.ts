@@ -15,6 +15,7 @@ export type WidgetPublicConfig = {
   logoUrl?: string | null;
   introMessage?: string | null;
   welcomeMessage: string;
+  quickReplyHints: string[];
   privacyNotice?: string | null;
   citationMode: string;
   citationPresentation?: string | null;

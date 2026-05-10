@@ -54,6 +54,9 @@ class ModelRuntimeSettings(ApiSchema):
     model_name: str = "gpt-4.1-mini"
     temperature: float = Field(default=0.2, ge=0.0, le=1.0)
     max_tokens: int = Field(default=800, ge=128, le=4096)
+    top_p: float | None = Field(default=None, ge=0.0, le=1.0)
+    frequency_penalty: float | None = Field(default=None, ge=0.0, le=2.0)
+    presence_penalty: float | None = Field(default=None, ge=0.0, le=2.0)
 
 
 class EscalationOperatingSettings(ApiSchema):

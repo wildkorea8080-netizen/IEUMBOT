@@ -37,6 +37,7 @@ class WidgetPublicConfigResponse(ApiSchema):
     logo_url: str | None = None
     intro_message: str | None = None
     welcome_message: str
+    quick_reply_hints: list[str]
     privacy_notice: str | None = None
     citation_mode: str
     citation_presentation: str | None = None

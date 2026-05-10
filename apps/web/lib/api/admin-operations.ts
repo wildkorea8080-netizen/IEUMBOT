@@ -228,6 +228,7 @@ export async function uploadKnowledgeFile(body: {
   memo?: string;
   effectiveDate?: string;
   department?: string;
+  use_vision?: boolean;
 }): Promise<KnowledgeDetail> {
   const token = getAdminAccessToken();
   const formData = new FormData();
@@ -240,6 +241,7 @@ export async function uploadKnowledgeFile(body: {
   if (body.memo) formData.set("memo", body.memo);
   if (body.effectiveDate) formData.set("effectiveDate", body.effectiveDate);
   if (body.department) formData.set("department", body.department);
+  formData.set("use_vision", body.use_vision ? "true" : "false");
 
   const baseUrl = getApiBaseUrl();
   const response = await fetch(`${baseUrl}/admin/knowledge/upload`, {
@@ -332,6 +334,17 @@ export async function getAdminChatLogs(params?: {
   if (params?.limit) search.set("limit", String(params.limit));
   const query = search.toString();
   return apiClient.request<AdminChatLogsResponse>(`/admin/logs/chat${query ? `?${query}` : ""}`);
+}
+
+export function getAdminChatLogsExportUrl(params?: {
+  chatbotId?: string;
+  limit?: number;
+}): string {
+  const search = new URLSearchParams();
+  if (params?.chatbotId) search.set("chatbot_id", params.chatbotId);
+  if (params?.limit) search.set("limit", String(params.limit));
+  const query = search.toString();
+  return `/api/admin/logs/chat/export-csv${query ? `?${query}` : ""}`;
 }
 
 export async function getAdminWidget(chatbotId: string): Promise<AdminWidgetResponse> {

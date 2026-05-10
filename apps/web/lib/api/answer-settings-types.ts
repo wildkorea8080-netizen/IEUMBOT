@@ -44,6 +44,9 @@ export type ModelRuntimeSettings = {
   modelName: string;
   temperature: number;
   maxTokens: number;
+  topP: number | null;
+  frequencyPenalty: number | null;
+  presencePenalty: number | null;
 };
 
 export type EscalationOperatingSettings = {

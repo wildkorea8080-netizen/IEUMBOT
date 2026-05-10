@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 
 import { PagePanel } from "../../../components/ui/page-panel";
 import { ApiClientError } from "../../../lib/api";
-import { getAdminChatLogs } from "../../../lib/api/admin-operations";
+import { getAdminChatLogs, getAdminChatLogsExportUrl } from "../../../lib/api/admin-operations";
 import type { AdminChatLogItem } from "../../../lib/api/admin-operations-types";
 
 function getErrorMessage(error: unknown): string {
@@ -57,6 +57,19 @@ export default function LogsPage() {
           >
             조회
           </button>
+          <button
+            type="button"
+            onClick={() => {
+              const url = getAdminChatLogsExportUrl({
+                chatbotId: chatbotId.trim() || undefined,
+                limit: 1000,
+              });
+              window.open(url, "_blank");
+            }}
+            className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
+          >
+            CSV 내보내기
+          </button>
         </div>
         {isLoading ? <p className="text-sm text-slate-600">불러오는 중...</p> : null}
         {error ? <p className="text-sm text-red-700">{error}</p> : null}
@@ -82,4 +95,3 @@ export default function LogsPage() {
     </div>
   );
 }
-

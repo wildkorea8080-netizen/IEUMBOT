@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { PagePanel } from "../ui/page-panel";
 import { ApiClientError } from "../../lib/api";
@@ -244,12 +244,14 @@ function CommonFields(props: {
 
 export function KnowledgeRegister() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [chatbots, setChatbots] = useState<AdminChatbotItem[]>([]);
   const [selectedType, setSelectedType] = useState<"file" | "text" | "website">("file");
   const [fileForm, setFileForm] = useState<CommonFormState>(emptyCommonForm());
   const [textForm, setTextForm] = useState<TextFormState>({ ...emptyCommonForm(), content: "" });
   const [websiteForm, setWebsiteForm] = useState<WebsiteFormState>(emptyWebsiteForm());
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [useVision, setUseVision] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -266,9 +268,18 @@ export function KnowledgeRegister() {
         setChatbots(response.items);
         setRuntimeStatus(runtime);
         const defaultChatbotId = response.items[0]?.id ?? "";
+        const prefill = searchParams.get("prefill");
+        const type = searchParams.get("type");
         setFileForm(emptyCommonForm(defaultChatbotId));
-        setTextForm({ ...emptyCommonForm(defaultChatbotId), content: "" });
+        setTextForm({
+          ...emptyCommonForm(defaultChatbotId),
+          title: prefill && type === "text" ? prefill : "",
+          content: prefill && type === "text" ? `Q: ${prefill}\nA: ` : "",
+        });
         setWebsiteForm(emptyWebsiteForm(defaultChatbotId));
+        if (prefill && type === "text") {
+          setSelectedType("text");
+        }
       } catch (loadError) {
         if (mounted) setError(getErrorMessage(loadError));
       } finally {
@@ -278,7 +289,7 @@ export function KnowledgeRegister() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [searchParams]);
 
   useEffect(() => {
     const activeChatbotId =
@@ -311,9 +322,11 @@ export function KnowledgeRegister() {
         memo: fileForm.memo || undefined,
         effectiveDate: fileForm.effectiveDate || undefined,
         department: fileForm.department || undefined,
+        use_vision: useVision,
       });
       setResult(response);
       setSelectedFile(null);
+      setUseVision(false);
       window.setTimeout(() => router.push("/admin/knowledge/list"), 900);
     } catch (submitError) {
       setError(getErrorMessage(submitError));
@@ -460,10 +473,31 @@ export function KnowledgeRegister() {
               <span className="text-sm font-medium text-slate-700">파일 선택</span>
               <input
                 type="file"
-                onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)}
+                onChange={(event) => {
+                  const nextFile = event.target.files?.[0] ?? null;
+                  setSelectedFile(nextFile);
+                  if (!nextFile?.name.toLowerCase().endsWith(".pdf")) {
+                    setUseVision(false);
+                  }
+                }}
                 className="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-2"
               />
             </label>
+            {selectedFile && selectedFile.name.toLowerCase().endsWith(".pdf") && (
+              <div style={{ marginTop: 8 }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={useVision}
+                    onChange={(event) => setUseVision(event.target.checked)}
+                  />
+                  <span style={{ fontSize: 14 }}>Vision 학습 사용</span>
+                </label>
+                <p style={{ fontSize: 12, color: "#888", marginTop: 4, marginLeft: 24 }}>
+                  표·이미지가 포함된 PDF나 스캔 문서에 권장합니다. 처리 시간이 길어질 수 있습니다.
+                </p>
+              </div>
+            )}
             <CommonFields
               form={fileForm}
               chatbots={chatbots}

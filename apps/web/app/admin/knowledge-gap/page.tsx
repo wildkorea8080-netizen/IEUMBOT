@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 
 import { PagePanel } from "../../../components/ui/page-panel";
 import { ApiClientError } from "../../../lib/api";
@@ -63,6 +64,7 @@ function GapTable(props: {
   description: string;
   rows: AdminKnowledgeGapItem[];
   emptyText: string;
+  onRowClick?: (item: AdminKnowledgeGapItem) => void;
 }) {
   return (
     <PagePanel title={props.title} description={props.description}>
@@ -87,7 +89,12 @@ function GapTable(props: {
               </tr>
             ) : (
               props.rows.map((item, index) => (
-                <tr key={`${item.question}-${index}`}>
+                <tr
+                  key={`${item.question}-${index}`}
+                  onClick={() => props.onRowClick?.(item)}
+                  style={{ cursor: props.onRowClick ? "pointer" : "default" }}
+                  className="transition-colors hover:bg-slate-50"
+                >
                   <td className="px-3 py-4">
                     <p className="line-clamp-2 font-medium text-slate-900">{item.question}</p>
                     <p className="mt-1 text-xs text-slate-500">{item.recommendedAction}</p>
@@ -108,6 +115,7 @@ function GapTable(props: {
 }
 
 export default function AdminKnowledgeGapPage() {
+  const router = useRouter();
   const initialRange = useMemo(() => rangeDate(30), []);
   const [report, setReport] = useState<AdminKnowledgeGapResponse | null>(null);
   const [chatbots, setChatbots] = useState<AdminChatbotItem[]>([]);
@@ -116,6 +124,7 @@ export default function AdminKnowledgeGapPage() {
   const [endDate, setEndDate] = useState(initialRange.endDate);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedQuestion, setSelectedQuestion] = useState<AdminKnowledgeGapItem | null>(null);
 
   async function loadReport() {
     setIsLoading(true);
@@ -211,28 +220,122 @@ export default function AdminKnowledgeGapPage() {
             title="추천 지식 보강 주제"
             description="운영 질문에서 반복적으로 부족 신호가 감지된 지식 보강 후보입니다."
             rows={report.suggestedKnowledgeTopics}
+            onRowClick={(item) => setSelectedQuestion(item)}
             emptyText="추천할 지식 보강 주제가 없습니다."
           />
           <GapTable
             title="fallback 질문"
             description="fallbackReason이 NONE이 아닌 질문 그룹입니다."
             rows={report.fallbackQuestions}
+            onRowClick={(item) => setSelectedQuestion(item)}
             emptyText="fallback 질문이 없습니다."
           />
           <GapTable
             title="낮은 score 질문"
             description="retrieval topScore가 0.35 미만인 질문 그룹입니다."
             rows={report.lowScoreQuestions}
+            onRowClick={(item) => setSelectedQuestion(item)}
             emptyText="낮은 score 질문이 없습니다."
           />
           <GapTable
             title="반복 질문"
             description="동일 질문 normalize 기준으로 2회 이상 발생한 gap 질문입니다."
             rows={report.repeatedQuestions}
+            onRowClick={(item) => setSelectedQuestion(item)}
             emptyText="반복 gap 질문이 없습니다."
           />
         </>
       ) : null}
+      {selectedQuestion && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            right: 0,
+            width: 400,
+            height: "100vh",
+            background: "white",
+            boxShadow: "-4px 0 24px rgba(0,0,0,0.12)",
+            zIndex: 50,
+            display: "flex",
+            flexDirection: "column",
+            padding: 24,
+            overflowY: "auto",
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+            <h3 style={{ fontWeight: 700, fontSize: 16, margin: 0 }}>미답변 질문 상세</h3>
+            <button
+              onClick={() => setSelectedQuestion(null)}
+              style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#64748b" }}
+            >
+              ×
+            </button>
+          </div>
+
+          <div style={{ marginBottom: 16 }}>
+            <p style={{ fontSize: 12, color: "#64748b", marginBottom: 4 }}>질문</p>
+            <p style={{ fontSize: 14, fontWeight: 500, color: "#0f172a" }}>{selectedQuestion.question}</p>
+          </div>
+
+          <div style={{ display: "flex", gap: 16, marginBottom: 16 }}>
+            <div style={{ flex: 1, background: "#f8fafc", borderRadius: 8, padding: "10px 14px" }}>
+              <p style={{ fontSize: 11, color: "#94a3b8", margin: 0 }}>발생 횟수</p>
+              <p style={{ fontSize: 18, fontWeight: 700, color: "#1e293b", margin: 0 }}>
+                {selectedQuestion.count}
+              </p>
+            </div>
+            <div style={{ flex: 1, background: "#f8fafc", borderRadius: 8, padding: "10px 14px" }}>
+              <p style={{ fontSize: 11, color: "#94a3b8", margin: 0 }}>마지막 질문</p>
+              <p style={{ fontSize: 13, fontWeight: 500, color: "#1e293b", margin: 0 }}>
+                {selectedQuestion.lastAskedAt
+                  ? new Date(selectedQuestion.lastAskedAt).toLocaleDateString("ko-KR")
+                  : "-"}
+              </p>
+            </div>
+          </div>
+
+          {selectedQuestion.recommendedTopic && (
+            <div style={{ marginBottom: 20, background: "#eff6ff", borderRadius: 8, padding: "10px 14px" }}>
+              <p style={{ fontSize: 12, color: "#3b82f6", marginBottom: 2 }}>추천 토픽</p>
+              <p style={{ fontSize: 13, color: "#1e40af", margin: 0 }}>{selectedQuestion.recommendedTopic}</p>
+            </div>
+          )}
+
+          <button
+            onClick={() => {
+              const prefill = encodeURIComponent(selectedQuestion.question);
+              router.push(`/admin/knowledge/register?type=text&prefill=${prefill}`);
+            }}
+            style={{
+              marginTop: "auto",
+              background: "#2563eb",
+              color: "white",
+              border: "none",
+              borderRadius: 8,
+              padding: "12px 0",
+              fontSize: 14,
+              fontWeight: 600,
+              cursor: "pointer",
+              width: "100%",
+            }}
+          >
+            답변 등록하기 →
+          </button>
+        </div>
+      )}
+
+      {selectedQuestion && (
+        <div
+          onClick={() => setSelectedQuestion(null)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.2)",
+            zIndex: 49,
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -41,6 +41,9 @@ const DEFAULT_SETTINGS: AnswerSettings = {
     modelName: "gpt-4.1-mini",
     temperature: 0.2,
     maxTokens: 800,
+    topP: null,
+    frequencyPenalty: null,
+    presencePenalty: null,
   },
   escalationOperating: {
     enableEscalationSuggestion: true,
@@ -103,6 +106,18 @@ const afterHoursOptions: SelectOption[] = [
   { value: "escalate_only", label: "이관 중심" },
   { value: "allow_limited_answer", label: "제한 답변 허용" },
 ];
+
+function normalizeAnswerSettings(settings: AnswerSettings): AnswerSettings {
+  return {
+    ...settings,
+    modelRuntime: {
+      ...settings.modelRuntime,
+      topP: settings.modelRuntime?.topP ?? null,
+      frequencyPenalty: settings.modelRuntime?.frequencyPenalty ?? null,
+      presencePenalty: settings.modelRuntime?.presencePenalty ?? null,
+    },
+  };
+}
 
 function ToggleRow(props: {
   label: string;
@@ -196,8 +211,9 @@ export default function AnswerSettingsPage() {
     }
     try {
       const response = await getAnswerSettings(effectiveChatbotId);
-      setSettings(response.settings);
-      setServerSettings(response.settings);
+      const nextSettings = normalizeAnswerSettings(response.settings);
+      setSettings(nextSettings);
+      setServerSettings(nextSettings);
       setDefaultsApplied(response.defaultsApplied ?? []);
       setVersion(response.version);
       setUpdatedAt(response.updatedAt);
@@ -223,8 +239,9 @@ export default function AnswerSettingsPage() {
     setSuccessMessage(null);
     try {
       const response = await patchAnswerSettings(targetChatbotId, { settings });
-      setSettings(response.settings);
-      setServerSettings(response.settings);
+      const nextSettings = normalizeAnswerSettings(response.settings);
+      setSettings(nextSettings);
+      setServerSettings(nextSettings);
       setDefaultsApplied(response.defaultsApplied ?? []);
       setVersion(response.version);
       setUpdatedAt(response.updatedAt);
@@ -298,6 +315,14 @@ export default function AnswerSettingsPage() {
       return;
     }
     updateRuntime("maxTokens", Number(value));
+  }
+
+  function onOptionalRuntimeNumber(
+    event: ChangeEvent<HTMLInputElement>,
+    key: "topP" | "frequencyPenalty" | "presencePenalty",
+  ) {
+    const value = event.target.value;
+    updateRuntime(key, value === "" ? null : Number.parseFloat(value));
   }
 
   return (
@@ -581,6 +606,79 @@ export default function AnswerSettingsPage() {
                 className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
               />
             </label>
+            <div className="block text-sm text-slate-700">
+              <span className="font-medium">Top-P (핵 샘플링)</span>
+              <span className="mt-1 block text-xs text-slate-500">
+                단어 선택 범위를 제한합니다. 낮을수록 일관된 답변, 높을수록 다양한 표현
+              </span>
+              <div className="mt-1 flex gap-2">
+                <input
+                  type="number"
+                  step={0.05}
+                  min={0}
+                  max={1}
+                  placeholder="미설정"
+                  value={settings.modelRuntime.topP ?? ""}
+                  onChange={(event) => onOptionalRuntimeNumber(event, "topP")}
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={() => updateRuntime("topP", null)}
+                  className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-600 hover:bg-slate-100"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+            <div className="block text-sm text-slate-700">
+              <span className="font-medium">Frequency Penalty (반복 단어 억제)</span>
+              <span className="mt-1 block text-xs text-slate-500">
+                높을수록 이미 사용한 단어의 반복을 줄입니다 (0~2, OpenAI 모델만 적용)
+              </span>
+              <div className="mt-1 flex gap-2">
+                <input
+                  type="number"
+                  step={0.1}
+                  min={0}
+                  max={2}
+                  value={settings.modelRuntime.frequencyPenalty ?? ""}
+                  onChange={(event) => onOptionalRuntimeNumber(event, "frequencyPenalty")}
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={() => updateRuntime("frequencyPenalty", null)}
+                  className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-600 hover:bg-slate-100"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+            <div className="block text-sm text-slate-700">
+              <span className="font-medium">Presence Penalty (새 주제 유도)</span>
+              <span className="mt-1 block text-xs text-slate-500">
+                높을수록 새로운 주제나 표현을 더 많이 사용합니다 (0~2, OpenAI 모델만 적용)
+              </span>
+              <div className="mt-1 flex gap-2">
+                <input
+                  type="number"
+                  step={0.1}
+                  min={0}
+                  max={2}
+                  value={settings.modelRuntime.presencePenalty ?? ""}
+                  onChange={(event) => onOptionalRuntimeNumber(event, "presencePenalty")}
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={() => updateRuntime("presencePenalty", null)}
+                  className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-600 hover:bg-slate-100"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
           </div>
         </PagePanel>
 

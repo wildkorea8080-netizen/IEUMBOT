@@ -409,6 +409,24 @@ function buildScopedStyles(primaryGradient: string): string {
   border-radius:9999px; color:#1e3a8a; padding:8px 12px; font-size:12px; font-weight:600; box-shadow:0 1px 3px rgba(15,23,42,.04);
 }
 .ieum-starter-question:hover, .ieum-quick-action:hover { border-color:#93c5fd; background:#eff6ff; }
+.ieum-hints-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 12px 4px;
+}
+.ieum-hint-btn {
+  background: #f0f4ff;
+  border: 1px solid #c7d7ff;
+  border-radius: 16px;
+  padding: 6px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  color: #2d5be3;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+.ieum-hint-btn:hover { background: #dce8ff; }
 .ieum-message { display:flex; width:100%; animation: ieum-message-in .2s ease; }
 .ieum-message.user { justify-content:flex-end; }
 .ieum-message.assistant, .ieum-message.system { justify-content:flex-start; }
@@ -818,6 +836,28 @@ export class IeumWidgetApp {
     }
   }
 
+  private createQuickReplyHintsRow(): HTMLDivElement | null {
+    const hasUserMessage = this.messages.some((message) => message.role === "user");
+    if (hasUserMessage) return null;
+    const hints = (this.config?.quickReplyHints ?? []).filter((hint) => hint.trim()).slice(0, 5);
+    if (hints.length === 0) return null;
+
+    const hintsRow = createElement(document, "div", "ieum-hints-row");
+    hintsRow.dataset["role"] = "hints";
+    for (const hint of hints) {
+      const button = createElement(document, "button", "ieum-hint-btn");
+      button.type = "button";
+      button.textContent = hint;
+      button.addEventListener("click", () => {
+        this.input.value = hint;
+        void this.sendCurrentInput();
+        hintsRow.style.display = "none";
+      });
+      hintsRow.appendChild(button);
+    }
+    return hintsRow;
+  }
+
   private setOpen(value: boolean) {
     this.open = value;
     if (value) {
@@ -928,6 +968,10 @@ export class IeumWidgetApp {
 
       row.appendChild(bubble);
       this.messagesWrap.appendChild(row);
+      if (message.id.startsWith("assistant_welcome_")) {
+        const hintsRow = this.createQuickReplyHintsRow();
+        if (hintsRow) this.messagesWrap.appendChild(hintsRow);
+      }
     }
 
     if (this.lastFailedQuestion) {
@@ -1126,4 +1170,3 @@ export class IeumWidgetApp {
     });
   }
 }
-

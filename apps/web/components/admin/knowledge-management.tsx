@@ -8,9 +8,11 @@ import { FaqGenerateModal } from "./FaqGenerateModal";
 import { ApiClientError } from "../../lib/api";
 import {
   deleteKnowledge,
+  getAdminChatbots,
   getKnowledgeDetail,
   getKnowledgeList,
   getKnowledgeRuntimeStatus,
+  patchAdminChatbot,
   patchKnowledge,
   reindexKnowledge,
 } from "../../lib/api/admin-operations";
@@ -170,6 +172,8 @@ export function KnowledgeManagement() {
   const [notice, setNotice] = useState<string | null>(null);
   const [runtimeStatus, setRuntimeStatus] = useState<KnowledgeRuntimeStatus | null>(null);
   const [faqTargetItem, setFaqTargetItem] = useState<KnowledgeItem | null>(null);
+  const [settingsChatbotId, setSettingsChatbotId] = useState<string | null>(null);
+  const [skipDuplicateReindex, setSkipDuplicateReindex] = useState(false);
 
   const categories = useMemo(
     () => Array.from(new Set(items.map((item) => item.category).filter(Boolean))).sort(),
@@ -184,7 +188,7 @@ export function KnowledgeManagement() {
     setIsLoading(true);
     setError(null);
     try {
-      const [response, runtime] = await Promise.all([
+      const [response, runtime, chatbotResponse] = await Promise.all([
         getKnowledgeList({
           sourceGroup,
           q: query.trim() || undefined,
@@ -193,9 +197,13 @@ export function KnowledgeManagement() {
           status: status || undefined,
         }),
         getKnowledgeRuntimeStatus(),
+        getAdminChatbots(),
       ]);
       setItems(response.items);
       setRuntimeStatus(runtime);
+      const chatbot = chatbotResponse.items[0];
+      setSettingsChatbotId(chatbot?.id ?? null);
+      setSkipDuplicateReindex(chatbot?.skipDuplicateFileReindex ?? false);
       setSelectedIds((current) => current.filter((id) => response.items.some((item) => item.id === id)));
     } catch (loadError) {
       setError(getErrorMessage(loadError));
@@ -337,6 +345,21 @@ export function KnowledgeManagement() {
     setSelectedIds(items.map((item) => item.id));
   };
 
+  const handleSkipDuplicateToggle = async (value: boolean) => {
+    if (!settingsChatbotId) return;
+    const previous = skipDuplicateReindex;
+    setSkipDuplicateReindex(value);
+    setError(null);
+    try {
+      await patchAdminChatbot(settingsChatbotId, {
+        skipDuplicateFileReindex: value,
+      });
+    } catch (toggleError) {
+      setSkipDuplicateReindex(previous);
+      setError(getErrorMessage(toggleError));
+    }
+  };
+
   return (
     <div className="space-y-6">
       <PagePanel
@@ -367,6 +390,24 @@ export function KnowledgeManagement() {
           <Link href="/admin/knowledge/register" className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white">
             지식 등록
           </Link>
+        </div>
+
+        <div className="mb-4 mt-4 flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+          <label className="flex cursor-pointer items-center gap-2">
+            <input
+              type="checkbox"
+              checked={skipDuplicateReindex}
+              disabled={!settingsChatbotId}
+              onChange={(event) => void handleSkipDuplicateToggle(event.target.checked)}
+              className="h-4 w-4 rounded border-slate-300"
+            />
+            <span className="text-sm font-medium text-slate-700">
+              중복 파일 재학습 방지
+            </span>
+          </label>
+          <span className="text-xs text-slate-500">
+            동일한 파일명을 다시 업로드해도 재학습하지 않습니다
+          </span>
         </div>
 
         <div className="mt-5 grid gap-3 lg:grid-cols-[180px_180px_180px_1fr_auto]">

@@ -88,6 +88,7 @@ def generate_faq_from_chunks(
                 model=runtime_api.default_model or "claude-3-5-sonnet",
                 temperature=0.3,
                 max_output_tokens=1500,
+                top_p=None,
                 system_prompt=_FAQ_GENERATION_SYSTEM_PROMPT,
                 user_prompt=user_prompt,
             )
@@ -100,6 +101,9 @@ def generate_faq_from_chunks(
                 model=runtime_api.default_model or "gpt-4.1-mini",
                 temperature=0.3,
                 max_output_tokens=1500,
+                top_p=None,
+                frequency_penalty=None,
+                presence_penalty=None,
                 system_prompt=_FAQ_GENERATION_SYSTEM_PROMPT,
                 user_prompt=user_prompt,
             )

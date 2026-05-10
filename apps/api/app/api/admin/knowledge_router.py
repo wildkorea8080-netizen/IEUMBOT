@@ -79,6 +79,7 @@ async def admin_create_file_knowledge(
     memo: str | None = Form(default=None),
     effective_date: str | None = Form(default=None, alias="effectiveDate"),
     department: str | None = Form(default=None),
+    use_vision: bool = Form(False),
     file: UploadFile = File(...),
     principal: AdminPrincipal = Depends(require_institution_admin_auth),
     db: Session = Depends(get_db_session),
@@ -95,6 +96,7 @@ async def admin_create_file_knowledge(
         memo=memo,
         effective_date=effective_date,
         department=department,
+        use_vision=use_vision,
     )
 
 
