@@ -2,6 +2,7 @@ from datetime import date as _date
 from typing import Any
 
 from app.schemas.answer_settings import AnswerSettings
+from app.services.chat.entity_extraction_service import format_entities_for_prompt
 
 
 def _build_section_instruction(settings: AnswerSettings) -> str:
@@ -122,6 +123,7 @@ def build_answer_prompt(
     recent_messages: list[Any] | None = None,
     question_type_flags: dict | None = None,
     uncovered_slots: list[str] | None = None,
+    session_entities: dict | None = None,
 ) -> dict[str, str]:
     source_lines: list[str] = []
     for index, item in enumerate(candidates[:5], start=1):
@@ -232,9 +234,11 @@ def build_answer_prompt(
     system_prompt = "\n".join([part for part in system_parts if part])
 
     history_block = _build_history_block(recent_messages)
+    entity_block = format_entities_for_prompt(session_entities)
 
     user_prompt = (
         history_block
+        + entity_block
         + f"사용자 질문: {question}\n"
         f"정규화 질문: {normalized_query}\n\n"
         "아래 근거만 사용해 질문에 직접 답하세요.\n"

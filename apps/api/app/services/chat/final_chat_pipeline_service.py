@@ -21,6 +21,11 @@ from app.repositories.logs.audit_log_repository import create_audit_log
 from app.schemas.chat_policy import PreAnswerRequest
 from app.schemas.chat_runtime import ChatRuntimeResponse
 from app.services.chat.answer_generation_service import generate_grounded_answer
+from app.services.chat.entity_extraction_service import (
+    extract_entities_from_turn,
+    format_entities_for_prompt,
+    merge_context_entities,
+)
 from app.services.chat.citation_service import assemble_citations
 from app.services.chat.fallback_response_service import build_fallback_response
 from app.services.chat.policy_evaluation_service import evaluate_answer_policy
@@ -576,6 +581,7 @@ def _run_grounded_generation(
     recent_messages: list[Any] | None = None,
     question_type_flags: dict | None = None,
     uncovered_slots: list[str] | None = None,
+    session_entities: dict | None = None,
 ) -> dict[str, Any]:
     prompt_bundle = build_answer_prompt(
         question=body.question,
@@ -589,6 +595,7 @@ def _run_grounded_generation(
         recent_messages=recent_messages,
         question_type_flags=question_type_flags,
         uncovered_slots=uncovered_slots,
+        session_entities=session_entities,
     )
     generation = generate_grounded_answer(
         db,
@@ -779,6 +786,13 @@ def run_final_chat_pipeline(
     )
     user_turn_count = count_user_messages_in_session(db, session_id=str(session.id)) if session is not None else 0
     recent_messages = list_recent_session_messages(db, session_id=str(session.id), limit=8) if session is not None else []
+    # 세션 엔티티 로드 (컬럼 미존재 시 안전하게 None으로 폴백)
+    session_entities: dict | None = None
+    if session is not None:
+        try:
+            session_entities = session.context_entities
+        except Exception:
+            db.rollback()
     tone_summary = _conversation_tone_summary(question=body.question, recent_messages=recent_messages)
     answer_settings = get_effective_answer_settings_for_runtime(
         db,
@@ -926,6 +940,7 @@ def run_final_chat_pipeline(
             recent_messages=recent_messages,
             question_type_flags=question_type_flags,
             uncovered_slots=uncovered_slots,
+            session_entities=session_entities,
         )
         llm_executed = bool(generation.get("executed"))
         llm_error_code = generation.get("errorCode")
@@ -1134,6 +1149,19 @@ def run_final_chat_pipeline(
 
     session.last_message_at = datetime.now(UTC)
     db.commit()
+
+    # 엔티티 추출 및 세션 누적 저장 (비동기적 실패는 조용히 무시)
+    if session is not None and answer_text and outcome == "answered":
+        try:
+            new_entities = extract_entities_from_turn(
+                question=body.question,
+                answer=answer_text,
+            )
+            merged = merge_context_entities(session.context_entities, new_entities)
+            session.context_entities = merged
+            db.commit()
+        except Exception:
+            db.rollback()
 
     public_trace = _build_public_runtime_trace(
         normalized_query=normalized_query,
