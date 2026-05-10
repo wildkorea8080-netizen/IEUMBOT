@@ -799,16 +799,6 @@ def run_final_chat_pipeline(
         organization_id=str(chatbot.organization_id),
         chatbot_id=str(chatbot.id),
     )
-    rag_cfg = {}
-    if answer_settings and hasattr(answer_settings, "rag"):
-        rag = answer_settings.rag
-        rag_cfg = {
-            "topK": rag.top_k,
-            "retrievalThresholdDocument": rag.retrieval_threshold_document,
-            "retrievalThresholdWebsite": rag.retrieval_threshold_website,
-            "retrievalThresholdFaq": rag.retrieval_threshold_faq,
-        }
-
     retrieval_start = time.perf_counter()
     retrieval_output = retrieve_for_precheck(
         db,
@@ -818,7 +808,6 @@ def run_final_chat_pipeline(
         top_k=body.top_k,
         corpus_domain_policy=chatbot.corpus_domain_policy or {},
         search_control_policy=chatbot.search_control_policy or {},
-        rag_settings=rag_cfg,
     )
     retrieval_latency_ms = int((time.perf_counter() - retrieval_start) * 1000)
     if not retrieval_output.get("retrievalLatencyMs"):
