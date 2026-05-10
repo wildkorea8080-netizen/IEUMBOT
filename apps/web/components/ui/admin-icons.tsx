@@ -22,6 +22,7 @@ export type AdminIconName =
   | "refresh"
   | "download"
   | "plus"
+  | "Search"
   | "search"
   | "empty"
   | "success"
@@ -210,6 +211,7 @@ export function AdminIcon({ name, className = "h-4 w-4", ...props }: IconProps) 
           <path d="M5 12h14" />
         </StrokeIcon>
       );
+    case "Search":
     case "search":
       return (
         <StrokeIcon className={className} {...props}>

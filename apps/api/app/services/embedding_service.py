@@ -150,6 +150,126 @@ def generate_embedding_or_raise(db: Session, text: str) -> list[float]:
     return normalized_embedding
 
 
+def generate_embeddings_batch(
+    db: Session,
+    *,
+    organization_id: str,
+    chatbot_id: str,
+    texts: list[str],
+    batch_size: int = 100,
+) -> list[list[float] | None]:
+    """
+    텍스트 목록을 배치로 임베딩.
+    OpenAI Embeddings API는 input에 문자열 배열을 받을 수 있으므로 batch_size 단위로 호출한다.
+
+    반환: 입력과 동일한 길이의 리스트. 실패한 항목은 None으로 채운다.
+    """
+    if not texts:
+        return []
+
+    try:
+        effective_batch_size = max(1, min(int(batch_size), 2048))
+    except (TypeError, ValueError):
+        effective_batch_size = 100
+
+    results: list[list[float] | None] = [None] * len(texts)
+    runtime_api = resolve_runtime_api_config(db)
+    if runtime_api is None or runtime_api.provider == "anthropic" or not runtime_api.api_key.strip():
+        logger.warning(
+            "[EMBEDDING_BATCH_ERROR] organization_id=%s chatbot_id=%s error_code=%s",
+            organization_id,
+            chatbot_id,
+            "OPENAI_API_KEY_MISSING",
+        )
+        return results
+
+    model = runtime_api.embedding_model or DEFAULT_EMBEDDING_MODEL
+    headers = {"Content-Type": "application/json"}
+    if runtime_api.provider == "azure_openai":
+        headers["api-key"] = runtime_api.api_key
+    else:
+        headers["Authorization"] = f"Bearer {runtime_api.api_key}"
+
+    logger.info(
+        "[EMBEDDING_BATCH] organization_id=%s chatbot_id=%s provider=%s source=%s model=%s text_count=%s batch_size=%s",
+        organization_id,
+        chatbot_id,
+        runtime_api.provider,
+        runtime_api.source,
+        model,
+        len(texts),
+        effective_batch_size,
+    )
+
+    for batch_start in range(0, len(texts), effective_batch_size):
+        batch_texts = texts[batch_start : batch_start + effective_batch_size]
+        normalized_batch_texts = [" ".join(str(text or "").strip().split())[:12000] for text in batch_texts]
+        non_empty_indices = [index for index, text in enumerate(normalized_batch_texts) if text]
+        non_empty_texts = [normalized_batch_texts[index] for index in non_empty_indices]
+        if not non_empty_texts:
+            continue
+
+        payload: dict[str, Any] = {
+            "model": model,
+            "input": non_empty_texts,
+        }
+        if model == DEFAULT_EMBEDDING_MODEL:
+            payload["dimensions"] = EMBEDDING_DIMENSIONS
+
+        request = urllib.request.Request(
+            url=_embedding_url(runtime_api.provider, runtime_api.base_url),
+            data=json.dumps(payload).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+
+        try:
+            with urllib.request.urlopen(request, timeout=12) as response:
+                body = response.read().decode("utf-8")
+            response_json = json.loads(body)
+            data = response_json.get("data")
+            if not isinstance(data, list) or len(data) != len(non_empty_texts):
+                raise EmbeddingFailure(
+                    "EMBEDDING_API_ERROR",
+                    "임베딩 API 배치 응답 개수가 요청 개수와 다릅니다.",
+                )
+            for index, embedding_obj in enumerate(data):
+                if not isinstance(embedding_obj, dict) or not isinstance(embedding_obj.get("embedding"), list):
+                    raise EmbeddingFailure("EMBEDDING_API_ERROR", "임베딩 API 배치 응답에 embedding이 없습니다.")
+                embedding = _normalize_embedding(embedding_obj["embedding"])
+                if embedding is None:
+                    raise EmbeddingFailure(
+                        "EMBEDDING_DIMENSION_MISMATCH",
+                        "임베딩 차원이 DB vector 차원과 다릅니다.",
+                    )
+                global_index = batch_start + non_empty_indices[index]
+                results[global_index] = embedding
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "[EMBEDDING_BATCH_ERROR] organization_id=%s chatbot_id=%s batch_start=%s batch_size=%s error=%s",
+                organization_id,
+                chatbot_id,
+                batch_start,
+                len(non_empty_texts),
+                exc,
+            )
+            for local_index in non_empty_indices:
+                global_index = batch_start + local_index
+                try:
+                    results[global_index] = generate_embedding_or_raise(db, batch_texts[local_index])
+                except Exception as fallback_exc:  # noqa: BLE001
+                    logger.warning(
+                        "[EMBEDDING_BATCH_FALLBACK_ERROR] organization_id=%s chatbot_id=%s index=%s error=%s",
+                        organization_id,
+                        chatbot_id,
+                        global_index,
+                        fallback_exc,
+                    )
+                    results[global_index] = None
+
+    return results
+
+
 def generate_embedding(db: Session, text: str) -> list[float] | None:
     try:
         return generate_embedding_or_raise(db, text)

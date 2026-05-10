@@ -22,6 +22,21 @@ def run_pre_answer_policy_hook(
     if chatbot is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CHATBOT_NOT_FOUND")
 
+    effective_settings = get_effective_answer_settings_for_runtime(
+        db,
+        organization_id=str(chatbot.organization_id),
+        chatbot_id=str(chatbot.id),
+    )
+    rag_cfg = {}
+    if effective_settings and hasattr(effective_settings, "rag"):
+        rag = effective_settings.rag
+        rag_cfg = {
+            "topK": rag.top_k,
+            "retrievalThresholdDocument": rag.retrieval_threshold_document,
+            "retrievalThresholdWebsite": rag.retrieval_threshold_website,
+            "retrievalThresholdFaq": rag.retrieval_threshold_faq,
+        }
+
     retrieval_output = retrieve_for_precheck(
         db,
         organization_id=str(chatbot.organization_id),
@@ -30,13 +45,9 @@ def run_pre_answer_policy_hook(
         top_k=body.top_k,
         corpus_domain_policy=chatbot.corpus_domain_policy or {},
         search_control_policy=chatbot.search_control_policy or {},
+        rag_settings=rag_cfg,
     )
 
-    effective_settings = get_effective_answer_settings_for_runtime(
-        db,
-        organization_id=str(chatbot.organization_id),
-        chatbot_id=str(chatbot.id),
-    )
     effective_guardrails = get_effective_guardrails_for_runtime(
         db,
         organization_id=str(chatbot.organization_id),

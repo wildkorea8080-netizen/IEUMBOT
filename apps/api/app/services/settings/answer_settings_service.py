@@ -80,6 +80,17 @@ def _defaults_from_legacy(row: Any) -> dict[str, Any]:
             "operatingHoursFallbackMessage": DEFAULT_AFTER_HOURS_MESSAGE,
             "afterHoursBehaviorMode": "show_notice",
         },
+        "rag": {
+            "topK": 5,
+            "retrievalThresholdDocument": 0.28,
+            "retrievalThresholdWebsite": 0.25,
+            "retrievalThresholdFaq": 0.22,
+            "chunkSize": 900,
+            "chunkOverlap": 120,
+            "crawlDelayMin": 0.5,
+            "crawlDelayMax": 1.5,
+            "crawlMaxConsecutiveFailures": 5,
+        },
     }
 
 

@@ -12,6 +12,7 @@ const AI_TABS = [
   { href: "/admin/ai/basic", label: "기본 설정" },
   { href: "/admin/ai/style", label: "대화 스타일" },
   { href: "/admin/ai/conditional", label: "조건별 설정" },
+  { href: "/admin/ai/rag", label: "RAG 검색 설정" },
 ] as const;
 
 type ChatbotOption = {

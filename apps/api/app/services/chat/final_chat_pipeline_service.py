@@ -776,6 +776,20 @@ def run_final_chat_pipeline(
     user_turn_count = count_user_messages_in_session(db, session_id=str(session.id)) if session is not None else 0
     recent_messages = list_recent_session_messages(db, session_id=str(session.id), limit=8) if session is not None else []
     tone_summary = _conversation_tone_summary(question=body.question, recent_messages=recent_messages)
+    answer_settings = get_effective_answer_settings_for_runtime(
+        db,
+        organization_id=str(chatbot.organization_id),
+        chatbot_id=str(chatbot.id),
+    )
+    rag_cfg = {}
+    if answer_settings and hasattr(answer_settings, "rag"):
+        rag = answer_settings.rag
+        rag_cfg = {
+            "topK": rag.top_k,
+            "retrievalThresholdDocument": rag.retrieval_threshold_document,
+            "retrievalThresholdWebsite": rag.retrieval_threshold_website,
+            "retrievalThresholdFaq": rag.retrieval_threshold_faq,
+        }
 
     retrieval_start = time.perf_counter()
     retrieval_output = retrieve_for_precheck(
@@ -786,17 +800,13 @@ def run_final_chat_pipeline(
         top_k=body.top_k,
         corpus_domain_policy=chatbot.corpus_domain_policy or {},
         search_control_policy=chatbot.search_control_policy or {},
+        rag_settings=rag_cfg,
     )
     retrieval_latency_ms = int((time.perf_counter() - retrieval_start) * 1000)
     if not retrieval_output.get("retrievalLatencyMs"):
         retrieval_output["retrievalLatencyMs"] = retrieval_latency_ms
     prompt_candidates = list(retrieval_output.get("promptCandidates") or [])
 
-    answer_settings = get_effective_answer_settings_for_runtime(
-        db,
-        organization_id=str(chatbot.organization_id),
-        chatbot_id=str(chatbot.id),
-    )
     runtime_guardrails = get_effective_guardrails_for_runtime(
         db,
         organization_id=str(chatbot.organization_id),

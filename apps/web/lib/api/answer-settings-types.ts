@@ -53,12 +53,25 @@ export type EscalationOperatingSettings = {
   afterHoursBehaviorMode: AfterHoursBehaviorMode;
 };
 
+export interface RagSettings {
+  topK: number;
+  retrievalThresholdDocument: number;
+  retrievalThresholdWebsite: number;
+  retrievalThresholdFaq: number;
+  chunkSize: number;
+  chunkOverlap: number;
+  crawlDelayMin: number;
+  crawlDelayMax: number;
+  crawlMaxConsecutiveFailures: number;
+}
+
 export type AnswerSettings = {
   promptInstruction: PromptInstructionSettings;
   answerPolicy: AnswerPolicySettings;
   answerFormat: AnswerFormatSettings;
   modelRuntime: ModelRuntimeSettings;
   escalationOperating: EscalationOperatingSettings;
+  rag?: RagSettings;
 };
 
 export type AnswerSettingsResponse = {

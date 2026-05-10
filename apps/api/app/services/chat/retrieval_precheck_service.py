@@ -1,5 +1,6 @@
 import logging
 import math
+import os
 import re
 import time
 from datetime import date
@@ -26,11 +27,7 @@ from app.services.embedding_service import coerce_embedding_vector, generate_emb
 
 TOKEN_SPLIT_REGEX = re.compile(r"[^0-9A-Za-z가-힣]+")
 DEFAULT_RETRIEVAL_THRESHOLD = 0.55
-WEBSITE_RETRIEVAL_THRESHOLD = 0.25
-DOCUMENT_RETRIEVAL_THRESHOLD = 0.28
-FAQ_RETRIEVAL_THRESHOLD = 0.22
 TOP1_RESCUE_SCORE = 0.26
-MAX_PROMPT_CHUNKS = 5
 MAX_CHUNKS_PER_KNOWLEDGE_ITEM = 2
 MAX_CHUNKS_PER_SOURCE_URL = 2
 POLICY_KEYWORD_BOOST = 0.10
@@ -50,6 +47,50 @@ NOISE_SECTION_TERMS = (
 )
 logger = logging.getLogger(__name__)
 URL_MARKER_REGEX = re.compile(r"\[URL\]\s+(https?://\S+)", re.IGNORECASE)
+
+
+def _float_env(name: str, default: float) -> float:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    try:
+        value = float(raw_value)
+    except (TypeError, ValueError):
+        return default
+    return value if value >= 0 else default
+
+
+def _int_env(name: str, default: int) -> int:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError):
+        return default
+    return value if value >= 1 else default
+
+
+def _rag_float(settings_dict: dict[str, Any] | None, key: str, default: float) -> float:
+    try:
+        value = float((settings_dict or {}).get(key, default))
+    except (TypeError, ValueError):
+        return default
+    return max(0.0, min(value, 1.0))
+
+
+def _rag_int(settings_dict: dict[str, Any] | None, key: str, default: int, *, minimum: int, maximum: int) -> int:
+    try:
+        value = int((settings_dict or {}).get(key, default))
+    except (TypeError, ValueError):
+        return default
+    return max(minimum, min(value, maximum))
+
+
+WEBSITE_RETRIEVAL_THRESHOLD = _float_env("RETRIEVAL_THRESHOLD_WEBSITE", 0.25)
+DOCUMENT_RETRIEVAL_THRESHOLD = _float_env("RETRIEVAL_THRESHOLD_DOCUMENT", 0.28)
+FAQ_RETRIEVAL_THRESHOLD = _float_env("RETRIEVAL_THRESHOLD_FAQ", 0.22)
+MAX_PROMPT_CHUNKS = _int_env("MAX_PROMPT_CHUNKS", 5)
 CONTACT_QUERY_TERMS = {"연락처", "전화", "전화번호", "문의처", "담당자", "담당부서"}
 CONTACT_EXPANSION_TERMS = ["연락처", "전화", "전화번호", "문의처", "담당자", "담당부서"]
 QUALIFICATION_QUERY_TERMS = {"자격", "자격요건", "지원자격", "신청자격", "요건", "대상"}
@@ -270,6 +311,9 @@ def _dynamic_threshold_for_candidate(
     item: dict[str, Any],
     *,
     question: str = "",
+    threshold_doc: float = 0.28,
+    threshold_web: float = 0.25,
+    threshold_faq: float = 0.22,
 ) -> float:
     """
     소스타입 기본 임계값에 질문 유형 보정을 적용.
@@ -281,13 +325,13 @@ def _dynamic_threshold_for_candidate(
     """
     # 1단계: 소스타입 기본 임계값
     if _is_faq_candidate(item):
-        base = FAQ_RETRIEVAL_THRESHOLD        # 0.22
+        base = threshold_faq
     else:
         source_type = str(item.get("sourceType") or "").lower()
         if source_type == "website":
-            base = WEBSITE_RETRIEVAL_THRESHOLD    # 0.25
+            base = threshold_web
         elif source_type in {"document", "file", "text"}:
-            base = DOCUMENT_RETRIEVAL_THRESHOLD   # 0.28
+            base = threshold_doc
         else:
             base = _get_retrieval_threshold()     # 환경변수 기본값
 
@@ -331,16 +375,6 @@ def _noise_section_penalty(text: str) -> tuple[float, list[str]]:
     if not matched:
         return 0.0, []
     return NOISE_SECTION_PENALTY, matched
-
-
-def _official_policy_boost(question_text: str, chunk_text: str) -> tuple[float, list[str]]:
-    query_terms = [term for term in OFFICIAL_POLICY_QUERY_TERMS if term in question_text]
-    if not query_terms:
-        return 0.0, []
-    matched = [term for term in OFFICIAL_POLICY_CHUNK_TERMS if term in chunk_text]
-    if not matched:
-        return 0.0, []
-    return OFFICIAL_POLICY_BOOST, matched
 
 
 def _semantic_evidence_adjustment(
@@ -404,7 +438,6 @@ def _empty_retrieval_output(
         "rescuedByTop1Rule": False,
         "keywordBoostApplied": False,
         "noisePenaltyApplied": False,
-        "policyBoostApplied": False,
         "semanticEvidenceApplied": False,
         "semanticRescued": False,
         "overviewBoostApplied": False,
@@ -451,6 +484,9 @@ def _apply_prompt_selection(
     candidates: list[dict[str, Any]],
     *,
     threshold: float,
+    threshold_doc: float = 0.28,
+    threshold_web: float = 0.25,
+    threshold_faq: float = 0.22,
     prompt_limit: int,
 ) -> tuple[list[dict[str, Any]], bool, bool, bool]:
     prompt_candidates: list[dict[str, Any]] = []
@@ -465,7 +501,8 @@ def _apply_prompt_selection(
     for index, item in enumerate(candidates):
         item["sectionDuplicateSkipped"] = False
         score = float(item.get("combinedScore") or 0.0)
-        dynamic_threshold = float(item.get("dynamicThreshold") or threshold)
+        fallback_threshold = min(threshold, threshold_doc, threshold_web, threshold_faq)
+        dynamic_threshold = float(item.get("dynamicThreshold") or fallback_threshold)
         threshold_passed = score >= dynamic_threshold
         semantic_rescue_candidate = bool(item.get("semanticEvidenceApplied")) and score >= max(
             SEMANTIC_SCORE_FLOOR,
@@ -536,10 +573,27 @@ def search_relevant_chunks(
     corpus_domains: list[str] | None = None,
     source_types: list[str] | None = None,
     include_inactive: bool = False,
+    rag_settings: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     started_at = time.perf_counter()
     normalized = normalize_query(question)
     tokens = _normalize_token_variants(_tokenize(normalized))
+    _top_k = _rag_int(rag_settings, "topK", top_k, minimum=1, maximum=20)
+    _threshold_doc = _rag_float(
+        rag_settings,
+        "retrievalThresholdDocument",
+        _float_env("RETRIEVAL_THRESHOLD_DOCUMENT", 0.28),
+    )
+    _threshold_web = _rag_float(
+        rag_settings,
+        "retrievalThresholdWebsite",
+        _float_env("RETRIEVAL_THRESHOLD_WEBSITE", 0.25),
+    )
+    _threshold_faq = _rag_float(
+        rag_settings,
+        "retrievalThresholdFaq",
+        _float_env("RETRIEVAL_THRESHOLD_FAQ", 0.22),
+    )
 
     synonyms = list_active_synonyms(db, organization_id, chatbot_id)
     expanded_tokens = _normalize_token_variants(_expand_tokens(tokens, synonyms))
@@ -597,7 +651,7 @@ def search_relevant_chunks(
             corpus_domains=corpus_domains,
             source_types=source_types,
             include_inactive=include_inactive,
-            limit_count=max(50, top_k * 8),
+            limit_count=max(50, _top_k * 8),
             query_embedding=query_embedding,
         )
     except SQLAlchemyError as exc:
@@ -695,11 +749,11 @@ def search_relevant_chunks(
         is_pinned = bool(matched_pin_rules)
 
         combined_score = round(
-            (keyword_score * 0.30)
-            + ((vector_score or 0.0) * 0.50)
+            (keyword_score * 0.25)
+            + ((vector_score or 0.0) * 0.55)
             + (corpus_signal * 0.05)
             + (source_signal * 0.05)
-            + (version_signal * 0.1)
+            + (version_signal * 0.05)
             + recency_signal
             + manual_boost_signal,
             4,
@@ -720,13 +774,10 @@ def search_relevant_chunks(
         boost_text = f"{section_title or ''} {text_preview}".lower()
         noise_text = f"{section_title or ''} {text_preview} {source_url or ''}"
         keyword_boost, boosted_terms = _policy_keyword_boost(normalized, boost_text)
-        policy_boost, policy_boost_terms = _official_policy_boost(normalized, boost_text)
         noise_penalty, noise_penalty_terms = _noise_section_penalty(noise_text)
         score_before_quality_adjustments = combined_score
         if keyword_boost:
             combined_score = round(min(combined_score + keyword_boost, 1.0), 4)
-        if policy_boost:
-            combined_score = round(min(combined_score + policy_boost, 1.0), 4)
         if noise_penalty:
             combined_score = round(max(combined_score - noise_penalty, 0.0), 4)
         combined_score, semantic_evidence_applied, semantic_evidence_reason = _semantic_evidence_adjustment(
@@ -760,9 +811,6 @@ def search_relevant_chunks(
                 "keywordBoostApplied": bool(keyword_boost),
                 "keywordBoostValue": keyword_boost,
                 "keywordBoostTerms": boosted_terms,
-                "policyBoostApplied": bool(policy_boost),
-                "policyBoostValue": policy_boost,
-                "policyBoostTerms": policy_boost_terms,
                 "noisePenaltyApplied": bool(noise_penalty),
                 "noisePenaltyValue": noise_penalty,
                 "noisePenaltyTerms": noise_penalty_terms,
@@ -786,12 +834,16 @@ def search_relevant_chunks(
     ranked = sorted(
         collected,
         key=lambda item: (0 if item["isPinned"] else 1, -item["combinedScore"]),
-    )[:top_k]
+    )[:_top_k]
 
     for index, item in enumerate(ranked, start=1):
         item["finalRank"] = index
         item["dynamicThreshold"] = _dynamic_threshold_for_candidate(
-            item, question=question
+            item,
+            question=question,
+            threshold_doc=_threshold_doc,
+            threshold_web=_threshold_web,
+            threshold_faq=_threshold_faq,
         )
         item["rescuedByTop1Rule"] = False
 
@@ -803,18 +855,17 @@ def search_relevant_chunks(
         semantic_rescued,
     ) = _apply_prompt_selection(
         ranked,
-        threshold=threshold,
+        threshold=min(_threshold_doc, _threshold_web, _threshold_faq),
+        threshold_doc=_threshold_doc,
+        threshold_web=_threshold_web,
+        threshold_faq=_threshold_faq,
         prompt_limit=MAX_PROMPT_CHUNKS,
     )
     keyword_boost_applied = any(bool(item.get("keywordBoostApplied")) for item in ranked)
     noise_penalty_applied = any(bool(item.get("noisePenaltyApplied")) for item in ranked)
-    policy_boost_applied = any(bool(item.get("policyBoostApplied")) for item in ranked)
     semantic_evidence_applied = any(bool(item.get("semanticEvidenceApplied")) for item in ranked)
     noise_penalty_terms = sorted(
         {term for item in ranked for term in list(item.get("noisePenaltyTerms") or [])}
-    )
-    policy_boost_terms = sorted(
-        {term for item in ranked for term in list(item.get("policyBoostTerms") or [])}
     )
     dynamic_threshold = min((float(item.get("dynamicThreshold") or threshold) for item in ranked), default=threshold)
     citation_candidates = [
@@ -862,8 +913,6 @@ def search_relevant_chunks(
             "keywordBoostApplied": keyword_boost_applied,
             "noisePenaltyApplied": noise_penalty_applied,
             "noisePenaltyTerms": noise_penalty_terms,
-            "policyBoostApplied": policy_boost_applied,
-            "policyBoostTerms": policy_boost_terms,
             "semanticEvidenceApplied": semantic_evidence_applied,
             "semanticRescued": semantic_rescued,
             "finalPromptChunkCount": len(prompt_candidates),
@@ -883,6 +932,7 @@ def retrieve_for_precheck(
     top_k: int,
     corpus_domain_policy: dict[str, Any],
     search_control_policy: dict[str, Any],
+    rag_settings: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return search_relevant_chunks(
         db,
@@ -893,4 +943,5 @@ def retrieve_for_precheck(
         corpus_domain_policy=corpus_domain_policy,
         search_control_policy=search_control_policy,
         include_inactive=False,
+        rag_settings=rag_settings,
     )

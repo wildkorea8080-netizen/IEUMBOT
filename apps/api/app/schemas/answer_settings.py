@@ -63,12 +63,32 @@ class EscalationOperatingSettings(ApiSchema):
     after_hours_behavior_mode: AfterHoursBehaviorMode = "show_notice"
 
 
+class RagSettings(ApiSchema):
+    """RAG 검색/청킹 파라미터 설정"""
+
+    # 검색 설정
+    top_k: int = Field(default=5, ge=1, le=20)
+    retrieval_threshold_document: float = Field(default=0.28, ge=0.0, le=1.0)
+    retrieval_threshold_website: float = Field(default=0.25, ge=0.0, le=1.0)
+    retrieval_threshold_faq: float = Field(default=0.22, ge=0.0, le=1.0)
+
+    # 청킹 설정
+    chunk_size: int = Field(default=900, ge=200, le=2000)
+    chunk_overlap: int = Field(default=120, ge=0, le=500)
+
+    # 크롤링 설정
+    crawl_delay_min: float = Field(default=0.5, ge=0.0, le=5.0)
+    crawl_delay_max: float = Field(default=1.5, ge=0.0, le=10.0)
+    crawl_max_consecutive_failures: int = Field(default=5, ge=1, le=20)
+
+
 class AnswerSettings(ApiSchema):
     prompt_instruction: PromptInstructionSettings = Field(default_factory=PromptInstructionSettings)
     answer_policy: AnswerPolicySettings = Field(default_factory=AnswerPolicySettings)
     answer_format: AnswerFormatSettings = Field(default_factory=AnswerFormatSettings)
     model_runtime: ModelRuntimeSettings = Field(default_factory=ModelRuntimeSettings)
     escalation_operating: EscalationOperatingSettings = Field(default_factory=EscalationOperatingSettings)
+    rag: RagSettings = Field(default_factory=RagSettings)
 
 
 class AnswerSettingsUpsertRequest(ApiSchema):

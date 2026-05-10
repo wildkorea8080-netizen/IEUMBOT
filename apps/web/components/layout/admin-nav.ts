@@ -19,4 +19,5 @@ export const adminNavItems = [
   { href: "/admin/notifications", label: "알림", section: "Operations", icon: "notification" },
   { href: "/admin/audit", label: "감사 로그", section: "Operations", icon: "logs" },
   { href: "/admin/install-guide", label: "설치 가이드", section: "Operations", icon: "widget" },
+  { href: "/admin/ai/rag", label: "RAG 검색 설정", section: "AI Config", icon: "Search" },
 ] as const;

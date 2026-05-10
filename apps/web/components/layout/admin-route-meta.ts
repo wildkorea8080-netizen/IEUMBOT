@@ -28,6 +28,7 @@ const ADMIN_ROUTE_META: Array<{ href: string; meta: RouteMeta }> = [
   { href: "/admin/conversation-analysis", meta: { title: "대화 분석", breadcrumbs: ["기관관리자", "고급", "대화 분석"] } },
   { href: "/admin/test-chat", meta: { title: "테스트 채팅", breadcrumbs: ["기관관리자", "고급", "테스트 채팅"] } },
   { href: "/admin/test-chatbot", meta: { title: "챗봇 테스트", breadcrumbs: ["기관관리자", "고급", "챗봇 테스트"] } },
+  { href: "/admin/ai/rag", meta: { title: "RAG 검색 설정", breadcrumbs: ["기관관리자", "AI 설정", "RAG 검색 설정"] } },
 ];
 
 export function getAdminRouteMeta(pathname: string): RouteMeta {

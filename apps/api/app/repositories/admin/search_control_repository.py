@@ -2,7 +2,7 @@ import uuid
 from datetime import date
 from typing import Any
 
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -265,27 +265,49 @@ def fetch_retrieval_candidates(
             or_(DocumentVersion.expiration_date.is_(None), DocumentVersion.expiration_date >= today),
         )
 
-    token_clauses = []
+    or_clauses = []
     for term in question_terms:
         pattern = f"%{term}%"
-        token_clauses.append(func.lower(DocumentChunk.text_content).like(pattern))
-        token_clauses.append(func.lower(func.coalesce(DocumentChunk.section_title, "")).like(pattern))
-        token_clauses.append(func.lower(Document.title).like(pattern))
+        or_clauses.append(func.lower(DocumentChunk.text_content).like(pattern))
+        or_clauses.append(func.lower(func.coalesce(DocumentChunk.section_title, "")).like(pattern))
+        or_clauses.append(func.lower(Document.title).like(pattern))
 
-    rows: list[tuple[DocumentChunk, Document, DocumentVersion]] = []
-    seen_chunk_ids: set[str] = set()
+    lexical_rows: list[tuple[DocumentChunk, Document, DocumentVersion]] = []
 
-    if token_clauses:
-        lexical_stmt = base_stmt.where(or_(*token_clauses)).order_by(
+    if or_clauses:
+        and_rows: list[tuple[DocumentChunk, Document, DocumentVersion]] = []
+        if len(question_terms) >= 2:
+            and_clauses = []
+            for term in question_terms[:4]:
+                pattern = f"%{term}%"
+                and_clauses.append(func.lower(DocumentChunk.text_content).like(pattern))
+            and_stmt = base_stmt.where(and_(*and_clauses)).order_by(
+                DocumentVersion.document_priority.asc(),
+                DocumentVersion.version_number.desc(),
+                DocumentChunk.chunk_order.asc(),
+            ).limit(max(1, limit_count // 2))
+            try:
+                and_rows = list(db.execute(and_stmt).fetchall())
+            except Exception:
+                and_rows = []
+
+        or_stmt = base_stmt.where(or_(*or_clauses)).order_by(
             DocumentVersion.document_priority.asc(),
             DocumentVersion.version_number.desc(),
             DocumentChunk.chunk_order.asc(),
         ).limit(limit_count)
-        for row in db.execute(lexical_stmt).all():
-            chunk = row[0]
-            seen_chunk_ids.add(str(chunk.id))
-            rows.append(row)
+        or_rows = list(db.execute(or_stmt).fetchall())
 
+        seen_lex: set[str] = set()
+        combined_lex: list[tuple[DocumentChunk, Document, DocumentVersion]] = []
+        for row in and_rows + or_rows:
+            cid = str(row[0].id)
+            if cid not in seen_lex:
+                seen_lex.add(cid)
+                combined_lex.append(row)
+        lexical_rows = combined_lex
+
+    vector_rows: list[tuple[DocumentChunk, Document, DocumentVersion]] = []
     normalized_query_embedding = coerce_embedding_vector(query_embedding)
     if normalized_query_embedding is not None:
         vector_stmt = (
@@ -295,14 +317,37 @@ def fetch_retrieval_candidates(
                 DocumentVersion.document_priority.asc(),
                 DocumentVersion.version_number.desc(),
             )
-            .limit(limit_count)
+            .limit(limit_count * 2)
         )
-        for row in db.execute(vector_stmt).all():
-            chunk = row[0]
-            if str(chunk.id) in seen_chunk_ids:
-                continue
-            seen_chunk_ids.add(str(chunk.id))
-            rows.append(row)
+        vector_rows = list(db.execute(vector_stmt).fetchall())
+
+    chunk_scores: dict[str, float] = {}
+    chunk_rows: dict[str, tuple[DocumentChunk, Document, DocumentVersion]] = {}
+
+    for rank, row in enumerate(lexical_rows):
+        cid = str(row[0].id)
+        keyword_rank_score = max(0.0, 1.0 - rank * 0.05)
+        chunk_scores[cid] = chunk_scores.get(cid, 0.0) + keyword_rank_score * 0.4
+        chunk_rows[cid] = row
+
+    for rank, row in enumerate(vector_rows):
+        cid = str(row[0].id)
+        vector_rank_score = max(0.0, 1.0 - rank * 0.05)
+        chunk_scores[cid] = chunk_scores.get(cid, 0.0) + vector_rank_score * 0.6
+        chunk_rows[cid] = row
+
+    keyword_ids = {str(row[0].id) for row in lexical_rows}
+    vector_ids = {str(row[0].id) for row in vector_rows}
+    both_ids = keyword_ids & vector_ids
+    for cid in both_ids:
+        chunk_scores[cid] = chunk_scores.get(cid, 0.0) + 0.1
+
+    sorted_ids = sorted(
+        chunk_scores.keys(),
+        key=lambda cid: chunk_scores[cid],
+        reverse=True,
+    )[:limit_count]
+    rows = [chunk_rows[cid] for cid in sorted_ids]
 
     if not rows:
         fallback_stmt = base_stmt.order_by(

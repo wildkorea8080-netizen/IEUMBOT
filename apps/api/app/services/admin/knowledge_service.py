@@ -1,6 +1,10 @@
+import gzip
+import os
+import random
 import re
 import shutil
 import ssl
+import time
 import uuid
 import zlib
 import logging
@@ -45,7 +49,7 @@ from app.services.admin.scope_service import (
     ensure_web_source_in_scope,
     require_institution_organization_id,
 )
-from app.services.embedding_service import EmbeddingFailure, generate_embedding_or_raise
+from app.services.embedding_service import EmbeddingFailure, generate_embedding_or_raise, generate_embeddings_batch
 
 logger = logging.getLogger(__name__)
 
@@ -63,10 +67,20 @@ META_REFRESH_REGEX = re.compile(
     r"""<meta[^>]+http-equiv=["']?refresh["']?[^>]+content=["'][^"']*url=([^"']+)["']""",
     re.IGNORECASE,
 )
-USER_AGENT = "IEUMBOTCrawler/1.0 (+https://ieumbot.local)"
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/120.0.0.0 Safari/537.36"
+)
+WEBSITE_REQUEST_TIMEOUT_SECONDS = 15
+CRAWL_DELAY_MIN = float(os.getenv("CRAWL_DELAY_MIN", "0.5"))
+CRAWL_DELAY_MAX = float(os.getenv("CRAWL_DELAY_MAX", "1.5"))
+MAX_CONSECUTIVE_CRAWL_FAILURES = int(os.getenv("CRAWL_MAX_CONSECUTIVE_FAILURES", "5"))
 DEFAULT_CRAWL_PAGE_LIMIT = 12
 DEFAULT_FULL_SITE_CRAWL_PAGE_LIMIT = 300
 MAX_CRAWL_PAGE_LIMIT = 1000
+CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "900"))
+CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "120"))
 FULL_SITE_CRAWL_DEPTH = 50
 PDF_TEXT_SUFFICIENT_LENGTH = 48
 PDF_OCR_DPI = 220
@@ -125,18 +139,27 @@ UNSUPPORTED_ATTACHMENT_FILE_TYPES = {".doc", ".xls", ".ppt"}
 HTML_REMOVED_TAGS = {
     "script",
     "style",
+    "meta",
+    "link",
     "nav",
     "footer",
     "header",
     "aside",
     "noscript",
     "form",
+    "input",
     "button",
     "select",
+    "textarea",
     "option",
     "iframe",
     "svg",
+    "picture",
+    "figure",
+    "template",
+    "slot",
 }
+HTML_VOID_REMOVED_TAGS = {"meta", "link", "input"}
 HTML_BLOCK_TAGS = {
     "address",
     "article",
@@ -190,6 +213,31 @@ NAVIGATION_KEYWORDS = (
     "TEL",
     "FAX",
     "Copyright",
+    "전체메뉴",
+    "메뉴닫기",
+    "퀵메뉴",
+    "화면낭독기",
+    "글자크기",
+    "고대비",
+    "새창열림",
+    "새 창",
+    "팝업",
+    "sns공유",
+    "페이스북",
+    "트위터",
+    "카카오",
+    "인쇄하기",
+    "스크랩",
+    "즐겨찾기추가",
+    "페이지 상단으로",
+    "TOP",
+    "위로가기",
+    "이전페이지",
+    "다음페이지",
+    "조회수",
+    "등록일",
+    "수정일",
+    "담당자",
     "주소",
 )
 NAVIGATION_KEYWORDS_NORMALIZED = tuple(keyword.lower() for keyword in NAVIGATION_KEYWORDS)
@@ -258,6 +306,8 @@ class _HTMLTextExtractor(HTMLParser):
         self._links: list[str] = []
         self._title_chunks: list[str] = []
         self._in_title = False
+        self._heading_tag: str | None = None
+        self._heading_chunks: list[str] = []
         self._link_depth = 0
         self.removed_navigation_lines = 0
         self.extraction_method = "body"
@@ -267,6 +317,8 @@ class _HTMLTextExtractor(HTMLParser):
         tag = tag.lower()
         normalized_attrs = {str(key).lower(): str(value or "") for key, value in attrs}
         if tag in HTML_REMOVED_TAGS:
+            if tag in HTML_VOID_REMOVED_TAGS:
+                return
             self._skip_depth += 1
             return
         if self._skip_depth > 0:
@@ -275,6 +327,9 @@ class _HTMLTextExtractor(HTMLParser):
         self._tag_stack.append((tag, normalized_attrs))
         if tag == "title":
             self._in_title = True
+        if tag in {"h1", "h2", "h3", "h4"}:
+            self._heading_tag = tag
+            self._heading_chunks = []
         if tag == "a":
             self._link_depth += 1
             href = normalized_attrs.get("href")
@@ -298,6 +353,13 @@ class _HTMLTextExtractor(HTMLParser):
 
         if tag == "title":
             self._in_title = False
+        if tag == self._heading_tag:
+            heading_text = " ".join("".join(self._heading_chunks).split()).strip()
+            if heading_text:
+                level = int(tag[1])
+                self._append_text(f"\n{'#' * level} {heading_text}\n")
+            self._heading_tag = None
+            self._heading_chunks = []
         if tag == "a" and self._link_depth > 0:
             self._link_depth -= 1
         if tag in HTML_BLOCK_TAGS:
@@ -322,6 +384,9 @@ class _HTMLTextExtractor(HTMLParser):
             return
         if self._in_title:
             self._title_chunks.append(data)
+        if self._heading_tag is not None:
+            self._heading_chunks.append(data)
+            return
         self._append_text(data)
 
     def _append_text(self, text: str) -> None:
@@ -375,18 +440,20 @@ class _HTMLTextExtractor(HTMLParser):
         korean_chars = len(KOREAN_TEXT_REGEX.findall(text))
         korean_sentence_count = len(KOREAN_SENTENCE_REGEX.findall(text))
         punctuation_bonus = 1.5 if PUNCTUATION_REGEX.search(text) else 0.0
+        public_keyword_bonus = 10.0 if any(keyword in text for keyword in ("사업", "지원", "신청", "공고", "안내", "정책")) else 0.0
         nav_keyword_hits = _count_navigation_keyword_hits(text)
         nav_ratio = nav_keyword_hits / max(1, len(text.split()))
         link_ratio = link_chars / max(1, text_length)
         if text_length < 80 or korean_chars < 20:
             return -50.0
         return (
-            korean_sentence_count * 4.0
+            korean_sentence_count * 5.0
             + punctuation_bonus
+            + public_keyword_bonus
             + min(text_length / 1200, 3.0)
             + min(korean_chars / 400, 2.0)
-            - nav_ratio * 35.0
-            - link_ratio * 20.0
+            - nav_ratio * 40.0
+            - link_ratio * 25.0
         )
 
     def get_text(self) -> str:
@@ -557,6 +624,16 @@ def _is_low_quality_chunk(text: str) -> bool:
     compact = " ".join(text.split()).strip()
     if len(compact) < 100:
         return True
+    if re.match(r"^https?://", compact, re.IGNORECASE):
+        return True
+    significant_chars = [char for char in compact if not char.isspace()]
+    if significant_chars:
+        numeric_or_symbol_chars = sum(1 for char in significant_chars if not re.match(r"[A-Za-z가-힣]", char))
+        letter_chars = sum(1 for char in significant_chars if re.match(r"[A-Za-z가-힣]", char))
+        if numeric_or_symbol_chars / len(significant_chars) > 0.7:
+            return True
+        if letter_chars / len(significant_chars) < 0.2:
+            return True
     if _looks_like_pipe_link_menu(compact):
         return True
     if _navigation_line_ratio(text) >= 0.35:
@@ -679,38 +756,164 @@ def _log_knowledge_diag(
     )
 
 
-def _split_text_chunks(text: str, *, chunk_size: int = 900, overlap: int = 120) -> list[str]:
-    normalized = text.strip()
-    if not normalized:
+def _split_text_chunks(
+    text: str,
+    chunk_size: int = CHUNK_SIZE,
+    overlap: int = CHUNK_OVERLAP,
+) -> list[dict]:
+    """
+    의미 단위 기반 청킹 (Semantic Chunking).
+
+    분할 우선순위:
+    1. 섹션 제목 경계 (###, ##, # 또는 숫자제목 패턴)
+    2. 빈 줄 2개 이상 (문단 경계)
+    3. 빈 줄 1개 (문단)
+    4. 마침표/물음표/느낌표 뒤 줄바꿈 (문장 경계)
+    5. chunk_size 초과 시 강제 분할 (overlap 적용)
+
+    반환: [{"text": str, "section_title": str | None}, ...]
+    """
+    import re
+
+    if not text or not text.strip():
         return []
 
-    paragraphs = [part.strip() for part in normalized.split("\n") if part.strip()]
-    chunks: list[str] = []
-    current = ""
+    SECTION_PATTERNS = [
+        (re.compile(r"^(#{1,4})\s+(.+)$", re.MULTILINE), True),
+        (re.compile(r"^(\d+[\.\d]*\.?\s+|제\d+[조장절항]\s*)(.{2,30})$", re.MULTILINE), True),
+        (re.compile(r"^[가나다라마바사아자차카타파하]\.\s+(.{2,30})$", re.MULTILINE), False),
+        (re.compile(r"^[\[\【](.{2,20})[\]\】]$", re.MULTILINE), True),
+    ]
 
-    for paragraph in paragraphs:
-        candidate = f"{current}\n{paragraph}".strip() if current else paragraph
-        if len(candidate) <= chunk_size:
-            current = candidate
-            continue
-        if current:
-            chunks.append(current)
-        if len(paragraph) <= chunk_size:
-            current = paragraph
-            continue
-        start = 0
-        while start < len(paragraph):
-            end = min(len(paragraph), start + chunk_size)
-            piece = paragraph[start:end].strip()
-            if piece:
-                chunks.append(piece)
-            if end >= len(paragraph):
+    lines = text.split("\n")
+    sections: list[tuple[str | None, list[str]]] = []
+
+    current_title: str | None = None
+    current_lines: list[str] = []
+
+    for line in lines:
+        detected_title = None
+        is_strong_section = False
+        for pattern, strong_section in SECTION_PATTERNS:
+            m = pattern.match(line.strip())
+            if m:
+                detected_title = m.group(m.lastindex).strip()
+                is_strong_section = strong_section
                 break
-            start = max(end - overlap, start + 1)
-        current = ""
 
-    if current:
-        chunks.append(current)
+        if detected_title and not is_strong_section and current_title:
+            current_lines.append(line)
+            continue
+
+        if detected_title and current_lines:
+            sections.append((current_title, current_lines))
+            current_title = detected_title
+            current_lines = [line]
+        else:
+            if detected_title:
+                current_title = detected_title
+            current_lines.append(line)
+
+    if current_lines:
+        sections.append((current_title, current_lines))
+
+    chunks: list[dict] = []
+
+    for section_title, section_lines in sections:
+        section_text = "\n".join(section_lines).strip()
+        if not section_text:
+            continue
+
+        if len(section_text) <= chunk_size:
+            chunks.append(
+                {
+                    "text": section_text,
+                    "section_title": section_title,
+                }
+            )
+        else:
+            sub_chunks = _split_section_into_chunks(
+                section_text,
+                section_title=section_title,
+                chunk_size=chunk_size,
+                overlap=overlap,
+            )
+            chunks.extend(sub_chunks)
+
+    return [c for c in chunks if c["text"].strip() and len(c["text"].strip()) >= 20]
+
+
+def _split_section_into_chunks(
+    text: str,
+    *,
+    section_title: str | None,
+    chunk_size: int,
+    overlap: int,
+) -> list[dict]:
+    """
+    섹션 내부를 문단/문장 경계로 분할.
+    chunk_size 초과 시 overlap 적용.
+    """
+    import re
+
+    paragraphs = re.split(r"\n{2,}", text)
+
+    chunks: list[dict] = []
+    buffer = ""
+    step = max(1, chunk_size - overlap)
+
+    for para in paragraphs:
+        para = para.strip()
+        if not para:
+            continue
+
+        if len(buffer) + len(para) + 1 <= chunk_size:
+            buffer = (buffer + "\n\n" + para).strip()
+        else:
+            if buffer:
+                chunks.append(
+                    {
+                        "text": buffer,
+                        "section_title": section_title,
+                    }
+                )
+                overlap_text = buffer[-overlap:] if len(buffer) > overlap else buffer
+                buffer = (overlap_text + "\n\n" + para).strip()
+            else:
+                sentences = re.split(r"(?<=[.!?。？！])\s+", para)
+                sent_buffer = ""
+                for sent in sentences:
+                    if len(sent_buffer) + len(sent) + 1 <= chunk_size:
+                        sent_buffer = (sent_buffer + " " + sent).strip()
+                    else:
+                        if sent_buffer:
+                            chunks.append(
+                                {
+                                    "text": sent_buffer,
+                                    "section_title": section_title,
+                                }
+                            )
+                            sent_buffer = sent
+                        else:
+                            for i in range(0, len(sent), step):
+                                chunks.append(
+                                    {
+                                        "text": sent[i : i + chunk_size],
+                                        "section_title": section_title,
+                                    }
+                                )
+                            sent_buffer = ""
+                if sent_buffer:
+                    buffer = sent_buffer
+                continue
+
+    if buffer:
+        chunks.append(
+            {
+                "text": buffer,
+                "section_title": section_title,
+            }
+        )
 
     return chunks
 
@@ -751,9 +954,36 @@ def _infer_section_title(chunk_text: str, *, default_title: str) -> str:
     return default_title
 
 
-def _split_website_chunks(combined_text: str, *, default_title: str) -> list[dict[str, str | None]]:
+def _split_website_blocks(combined_text: str) -> list[str]:
+    blocks: list[str] = []
+    current_lines: list[str] = []
+    for line in combined_text.splitlines():
+        stripped = line.strip()
+        starts_page = stripped.upper().startswith("[URL]") and (
+            not current_lines or not current_lines[0].strip().upper().startswith("[ATTACHMENT]")
+        )
+        starts_attachment = stripped.upper().startswith("[ATTACHMENT]")
+        if current_lines and (starts_page or starts_attachment):
+            block = "\n".join(current_lines).strip()
+            if block:
+                blocks.append(block)
+            current_lines = []
+        current_lines.append(line)
+    if current_lines:
+        block = "\n".join(current_lines).strip()
+        if block:
+            blocks.append(block)
+    return blocks
+
+
+def _split_website_chunks(
+    combined_text: str,
+    *,
+    default_title: str,
+    chunk_size: int = CHUNK_SIZE,
+) -> list[dict[str, str | None]]:
     items: list[dict[str, str | None]] = []
-    blocks = [block.strip() for block in re.split(r"\n{2,}", combined_text.strip()) if block.strip()]
+    blocks = _split_website_blocks(combined_text.strip())
     for block in blocks:
         marker_metadata, content_text = _strip_website_block_markers(block)
         marker = SOURCE_URL_MARKER_REGEX.search(block)
@@ -762,11 +992,12 @@ def _split_website_chunks(combined_text: str, *, default_title: str) -> list[dic
         final_url = marker_metadata.get("final_url") or source_url
         extraction_method = marker_metadata.get("extraction_method")
         navigation_removed = marker_metadata.get("navigation_removed")
-        candidate_chunks = _split_text_chunks(content_text)
-        for chunk_text in candidate_chunks:
+        candidate_chunks = _split_text_chunks(content_text, chunk_size=chunk_size)
+        for chunk_item in candidate_chunks:
+            chunk_text = str(chunk_item.get("text") or "")
             if _is_low_quality_chunk(chunk_text):
                 continue
-            section_title = _infer_section_title(chunk_text, default_title=page_title)
+            section_title = chunk_item.get("section_title") or _infer_section_title(chunk_text, default_title=page_title)
             items.append(
                 {
                     "text": chunk_text,
@@ -794,24 +1025,106 @@ def _detect_client_redirect_url(html: str, *, base_url: str) -> str | None:
     return None
 
 
+class _WebsiteFetchSkipped(Exception):
+    def __init__(self, url: str, status_code: int | None, reason: str) -> None:
+        self.url = url
+        self.status_code = status_code
+        self.reason = reason
+        super().__init__(f"{reason}: {url} status={status_code or ''}".strip())
+
+
+def _website_request_headers(accept: str) -> dict[str, str]:
+    return {
+        "User-Agent": USER_AGENT,
+        "Accept": accept,
+        "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
+        "Accept-Encoding": "gzip, deflate",
+        "Connection": "keep-alive",
+    }
+
+
+def _decode_website_payload(payload: bytes, *, content_type: str | None, content_encoding: str | None) -> str:
+    encoding = (content_encoding or "").lower()
+    if "gzip" in encoding:
+        payload = gzip.decompress(payload)
+    elif "deflate" in encoding:
+        try:
+            payload = zlib.decompress(payload)
+        except zlib.error:
+            payload = zlib.decompress(payload, -zlib.MAX_WBITS)
+
+    charset = None
+    if content_type:
+        match = re.search(r"charset\s*=\s*['\"]?([^;'\"]+)", content_type, re.IGNORECASE)
+        if match:
+            charset = match.group(1).strip()
+    if not charset:
+        sample = payload[:4096].decode("ascii", errors="ignore")
+        match = re.search(r"<meta[^>]+charset\s*=\s*['\"]?\s*([A-Za-z0-9._-]+)", sample, re.IGNORECASE)
+        if match:
+            charset = match.group(1).strip()
+    if not charset:
+        try:
+            from charset_normalizer import from_bytes
+
+            detected = from_bytes(payload).best()
+            if detected and detected.encoding:
+                charset = detected.encoding
+        except Exception:  # noqa: BLE001
+            try:
+                import chardet
+
+                detected = chardet.detect(payload)
+                if detected.get("encoding"):
+                    charset = str(detected["encoding"])
+            except Exception:  # noqa: BLE001
+                charset = None
+    return payload.decode(charset or "utf-8", errors="replace")
+
+
+def _read_website_response(response) -> tuple[str, str, int | None]:
+    content_type = response.headers.get("Content-Type")
+    content_encoding = response.headers.get("Content-Encoding")
+    html = _decode_website_payload(
+        response.read(),
+        content_type=content_type,
+        content_encoding=content_encoding,
+    )
+    final_url = response.geturl()
+    http_status_code = getattr(response, "status", None)
+    return html, final_url, http_status_code
+
+
 def _fetch_website_page_once(url: str) -> tuple[str, str, int | None]:
     request = Request(
         url,
-        headers={
-            "User-Agent": USER_AGENT,
-            "Accept": "text/html,application/xhtml+xml",
-        },
+        headers=_website_request_headers("text/html,application/xhtml+xml,*/*;q=0.9"),
     )
     opener = build_opener(
         ProxyHandler({}),
         HTTPSHandler(context=ssl.create_default_context()),
     )
-    with opener.open(request, timeout=20) as response:
-        charset = response.headers.get_content_charset() or "utf-8"
-        html = response.read().decode(charset, errors="replace")
-        final_url = response.geturl()
-        http_status_code = getattr(response, "status", None)
-    return html, final_url, http_status_code
+    for attempt in range(2):
+        try:
+            with opener.open(request, timeout=WEBSITE_REQUEST_TIMEOUT_SECONDS) as response:
+                return _read_website_response(response)
+        except HTTPError as exc:
+            status_code = exc.code
+            if status_code == 429 and attempt == 0:
+                logger.warning("[WEB_FETCH_RETRY] url=%s status=429 wait_seconds=3", url)
+                time.sleep(3)
+                continue
+            if status_code == 404:
+                logger.info("[WEB_FETCH_SKIP] url=%s status=404 reason=not_found", url)
+                raise _WebsiteFetchSkipped(url, status_code, "not_found") from exc
+            if status_code in {401, 403}:
+                logger.warning("[WEB_FETCH_SKIP] url=%s status=%s reason=access_denied", url, status_code)
+                raise _WebsiteFetchSkipped(url, status_code, "access_denied") from exc
+            if 500 <= status_code <= 599:
+                logger.warning("[WEB_FETCH_SKIP] url=%s status=%s reason=server_error", url, status_code)
+                raise _WebsiteFetchSkipped(url, status_code, "server_error") from exc
+            raise
+    raise _WebsiteFetchSkipped(url, 429, "rate_limited")
 
 
 def _fetch_website_page(url: str) -> tuple[str, str, list[str], str, int | None, str | None, str, bool, int]:
@@ -843,16 +1156,13 @@ def _fetch_website_page(url: str) -> tuple[str, str, list[str], str, int | None,
 def _fetch_binary_resource(url: str) -> tuple[bytes, str | None]:
     request = Request(
         url,
-        headers={
-            "User-Agent": USER_AGENT,
-            "Accept": "*/*",
-        },
+        headers=_website_request_headers("*/*"),
     )
     opener = build_opener(
         ProxyHandler({}),
         HTTPSHandler(context=ssl.create_default_context()),
     )
-    with opener.open(request, timeout=20) as response:
+    with opener.open(request, timeout=WEBSITE_REQUEST_TIMEOUT_SECONDS) as response:
         content_type = response.headers.get_content_type()
         payload = response.read()
     return payload, content_type
@@ -919,6 +1229,38 @@ def _rebuild_text_from_existing_chunks(db: Session, document: Document, version:
     return "\n\n".join(chunk for chunk in chunks if chunk).strip()
 
 
+def _load_rag_settings_for_chatbot(
+    db: Session,
+    *,
+    organization_id: str,
+    chatbot_id: str,
+) -> dict | None:
+    try:
+        from app.services.settings.answer_settings_service import (
+            get_effective_answer_settings_for_runtime,
+        )
+
+        answer_settings = get_effective_answer_settings_for_runtime(
+            db,
+            organization_id=organization_id,
+            chatbot_id=chatbot_id,
+        )
+        rag = answer_settings.rag
+        return {
+            "chunkSize": rag.chunk_size,
+            "chunkOverlap": rag.chunk_overlap,
+            "crawlDelayMin": rag.crawl_delay_min,
+            "crawlDelayMax": rag.crawl_delay_max,
+            "crawlMaxConsecutiveFailures": rag.crawl_max_consecutive_failures,
+        }
+    except Exception:
+        logger.exception(
+            "[RAG_SETTINGS] failed to load; using defaults chatbot_id=%s",
+            chatbot_id,
+        )
+        return None
+
+
 def _ingest_document_version_content(
     db: Session,
     *,
@@ -931,6 +1273,7 @@ def _ingest_document_version_content(
     file_bytes: bytes,
     content_type: str | None,
     metadata_updates: dict | None = None,
+    rag_settings: dict | None = None,
 ) -> None:
     now = datetime.now(UTC)
     old_version_status = version.status
@@ -1013,7 +1356,13 @@ def _ingest_document_version_content(
     version.error_code = None
     version.error_message = None
 
-    chunks = _split_text_chunks(extracted_text)
+    _chunk_size = int((rag_settings or {}).get("chunkSize", CHUNK_SIZE))
+    _chunk_overlap = int((rag_settings or {}).get("chunkOverlap", CHUNK_OVERLAP))
+    chunks = _split_text_chunks(
+        extracted_text,
+        chunk_size=_chunk_size,
+        overlap=_chunk_overlap,
+    )
     version.extracted_text_length = len(extracted_text)
     version.chunk_count = len(chunks)
     if not chunks:
@@ -1067,16 +1416,26 @@ def _ingest_document_version_content(
 
     embedding_count = 0
     embedding_error_counts: dict[str, int] = {}
-    for index, chunk_text in enumerate(chunks, start=1):
-        embedding = _generate_chunk_embedding(
-            db,
-            item_id=document.id,
-            chunk_ref=f"{document.id}:{index}",
-            text=f"{document.title}\n{chunk_text}",
-            error_counts=embedding_error_counts,
-        )
+    embedding_texts = [
+        f"{str(chunk_item.get('section_title') or document.title)}\n{str(chunk_item.get('text') or '')}"
+        for chunk_item in chunks
+    ]
+    embeddings = generate_embeddings_batch(
+        db,
+        organization_id=organization_id,
+        chatbot_id=chatbot_id,
+        texts=embedding_texts,
+    )
+    for index, chunk_item in enumerate(chunks, start=1):
+        chunk_text = str(chunk_item.get("text") or "")
+        section_title = str(chunk_item.get("section_title") or document.title)
+        embedding = embeddings[index - 1] if index - 1 < len(embeddings) else None
         if _embedding_generated(embedding):
             embedding_count += 1
+        else:
+            embedding_error_counts["EMBEDDING_BATCH_FAILED"] = (
+                embedding_error_counts.get("EMBEDDING_BATCH_FAILED", 0) + 1
+            )
         db.add(
             DocumentChunk(
                 organization_id=uuid.UUID(organization_id),
@@ -1085,10 +1444,14 @@ def _ingest_document_version_content(
                 document_version_id=version.id,
                 chunk_order=index,
                 page_number=None,
-                section_title=document.title,
+                section_title=section_title,
                 corpus_domain=version.corpus_domain,
                 text_content=chunk_text,
-                metadata_json={**merged_metadata, "sourceType": merged_metadata.get("sourceType") or version.source_type},
+                metadata_json={
+                    **merged_metadata,
+                    "sourceType": merged_metadata.get("sourceType") or version.source_type,
+                    "section_title": section_title,
+                },
                 embedding=embedding,
                 token_count=len(chunk_text.split()),
                 content_hash=sha256(chunk_text.encode("utf-8")).hexdigest(),
@@ -1160,6 +1523,7 @@ def _sync_web_source_attachment_documents(
     web_source: WebSource,
     web_metadata: dict,
     attachment_items: list[dict[str, object]],
+    rag_settings: dict | None = None,
 ) -> None:
     now = datetime.now(UTC)
     existing_docs = _list_web_source_attachment_documents(
@@ -1278,6 +1642,7 @@ def _sync_web_source_attachment_documents(
                 "attachment_url": attachment_url,
                 "parent_website_url": web_source.base_url,
             },
+            rag_settings=rag_settings,
         )
 
 
@@ -1716,12 +2081,16 @@ def _crawl_website(
     excluded_paths: list[str] | None,
     crawl_all_pages: bool,
     include_attachments: bool,
+    delay_min: float = CRAWL_DELAY_MIN,
+    delay_max: float = CRAWL_DELAY_MAX,
+    max_consecutive_failures: int = MAX_CONSECUTIVE_CRAWL_FAILURES,
 ) -> tuple[str, str, list[str], list[str], str | None, int | None, dict[str, int | str | bool | None]]:
     parsed_root = urlparse(base_url)
     root_hostname = parsed_root.hostname or ""
     normalized_excluded = _normalize_excluded_paths(excluded_paths)
     sitemap_urls = _collect_sitemap_urls(base_url, root_hostname, limit=max_pages) if root_hostname else []
     queue: list[tuple[str, int]] = [(base_url, 0), *((url, 1) for url in sitemap_urls if url != base_url)]
+    queued: set[str] = {url for url, _depth in queue}
     visited: set[str] = set()
     crawled_urls: list[str] = []
     attachment_urls: list[str] = []
@@ -1734,12 +2103,14 @@ def _crawl_website(
     first_extraction_method: str | None = None
     navigation_removed = False
     crawl_errors: list[str] = []
+    consecutive_failures = 0
 
     max_depth = FULL_SITE_CRAWL_DEPTH if crawl_all_pages else max(0, crawl_depth)
     page_limit = max(1, min(max_pages, MAX_CRAWL_PAGE_LIMIT))
 
     while queue and len(crawled_urls) < page_limit:
         current_url, depth = queue.pop(0)
+        queued.discard(current_url)
         if current_url in visited:
             continue
         visited.add(current_url)
@@ -1752,6 +2123,7 @@ def _crawl_website(
         if any(current_path.startswith(path) for path in normalized_excluded):
             continue
 
+        time.sleep(random.uniform(delay_min, delay_max))
         try:
             (
                 html,
@@ -1764,10 +2136,42 @@ def _crawl_website(
                 page_navigation_removed,
                 removed_navigation_lines,
             ) = _fetch_website_page(current_url)
-        except Exception as exc:  # noqa: BLE001
-            crawl_errors.append(f"{current_url}: {exc}")
-            logger.warning("[CRAWL_ERROR] url=%s error=%s", current_url, exc)
+        except _WebsiteFetchSkipped as exc:
+            consecutive_failures += 1
+            crawl_errors.append(f"{current_url}: {exc.reason}")
+            logger.warning(
+                "[CRAWL_SKIP] url=%s status=%s reason=%s consecutive_failures=%s",
+                current_url,
+                exc.status_code or "",
+                exc.reason,
+                consecutive_failures,
+            )
+            if consecutive_failures >= max_consecutive_failures:
+                logger.warning(
+                    "[CRAWL_STOP] reason=consecutive_failures count=%s page_limit=%s",
+                    consecutive_failures,
+                    page_limit,
+                )
+                break
             continue
+        except Exception as exc:  # noqa: BLE001
+            consecutive_failures += 1
+            crawl_errors.append(f"{current_url}: {exc}")
+            logger.warning(
+                "[CRAWL_ERROR] url=%s error=%s consecutive_failures=%s",
+                current_url,
+                exc,
+                consecutive_failures,
+            )
+            if consecutive_failures >= max_consecutive_failures:
+                logger.warning(
+                    "[CRAWL_STOP] reason=consecutive_failures count=%s page_limit=%s",
+                    consecutive_failures,
+                    page_limit,
+                )
+                break
+            continue
+        consecutive_failures = 0
         if first_final_url is None:
             first_final_url = final_url
         if first_http_status_code is None:
@@ -1791,14 +2195,22 @@ def _crawl_website(
                     ]
                 ).strip()
             )
+        if len(crawled_urls) % 10 == 0:
+            logger.info("크롤링 진행: %s/%s 페이지", len(crawled_urls), page_limit)
         logger.info(
             "[WEB_CRAWL] url=%s status=%s extracted_text_length=%s chunk_count_before_filter=%s "
             "chunk_count_after_filter=%s removed_navigation_lines=%s extraction_method=%s",
             final_url or current_url,
             http_status_code or "",
             len(text),
-            len(_split_text_chunks(text)),
-            len([chunk for chunk in _split_text_chunks(text) if not _is_low_quality_chunk(chunk)]),
+            len(_split_text_chunks(text, chunk_size=CHUNK_SIZE, overlap=CHUNK_OVERLAP)),
+            len(
+                [
+                    chunk
+                    for chunk in _split_text_chunks(text, chunk_size=CHUNK_SIZE, overlap=CHUNK_OVERLAP)
+                    if not _is_low_quality_chunk(str(chunk.get("text") or ""))
+                ]
+            ),
             removed_navigation_lines,
             extraction_method,
         )
@@ -1808,7 +2220,7 @@ def _crawl_website(
 
         for href in links:
             normalized = _normalize_crawl_url(current_url, href)
-            if not normalized or normalized in visited:
+            if not normalized or normalized in visited or normalized in queued:
                 if href and not normalized:
                     logger.info("[CRAWL_SKIP] url=%s reason=attachment_or_invalid_url", href)
                 continue
@@ -1823,6 +2235,7 @@ def _crawl_website(
                     logger.info("[CRAWL_SKIP] url=%s reason=attachment_or_invalid_url", normalized)
                 continue
             queue.append((normalized, depth + 1))
+            queued.add(normalized)
 
     return (
         "\n\n".join(html_blocks),
@@ -1998,6 +2411,7 @@ def _ingest_web_source_content(
     chatbot_id: str,
     web_source: WebSource,
     job: IngestionJob,
+    rag_settings: dict | None = None,
 ) -> None:
     now = datetime.now(UTC)
     old_web_status = web_source.status
@@ -2012,6 +2426,14 @@ def _ingest_web_source_content(
         crawl_page_limit = _resolve_crawl_page_limit(web_source.metadata_json)
         crawl_all_pages = _resolve_crawl_all_pages(web_source.metadata_json)
         include_attachments = _resolve_include_attachments(web_source.metadata_json)
+        _delay_min = float((rag_settings or {}).get("crawlDelayMin", CRAWL_DELAY_MIN))
+        _delay_max = float((rag_settings or {}).get("crawlDelayMax", CRAWL_DELAY_MAX))
+        _max_failures = int(
+            (rag_settings or {}).get(
+                "crawlMaxConsecutiveFailures",
+                MAX_CONSECUTIVE_CRAWL_FAILURES,
+            )
+        )
         (
             html,
             extracted_text,
@@ -2027,6 +2449,9 @@ def _ingest_web_source_content(
             excluded_paths=list(web_source.excluded_paths or []),
             crawl_all_pages=crawl_all_pages,
             include_attachments=include_attachments,
+            delay_min=_delay_min,
+            delay_max=_delay_max,
+            max_consecutive_failures=_max_failures,
         )
     except HTTPError as exc:
         _set_job_failed(
@@ -2068,6 +2493,7 @@ def _ingest_web_source_content(
             web_source=web_source,
             web_metadata=dict(web_source.metadata_json or {}),
             attachment_items=attachment_files,
+            rag_settings=rag_settings,
         )
     attachment_files = _serialize_attachment_items(attachment_files)
     combined_text = extracted_text.strip()
@@ -2188,7 +2614,12 @@ def _ingest_web_source_content(
     db.add(version)
     db.flush()
 
-    chunks = _split_website_chunks(combined_text, default_title=web_source.name)
+    _chunk_size = int((rag_settings or {}).get("chunkSize", CHUNK_SIZE))
+    chunks = _split_website_chunks(
+        combined_text,
+        default_title=web_source.name,
+        chunk_size=_chunk_size,
+    )
     logger.info("[WEB_CRAWL] text_length=%s chunk_count=%s", len(combined_text), len(chunks))
     web_source.extracted_text_length = len(combined_text)
     web_source.chunk_count = len(chunks)
@@ -2213,6 +2644,16 @@ def _ingest_web_source_content(
 
     embedding_count = 0
     embedding_error_counts: dict[str, int] = {}
+    embedding_texts = [
+        f"{str(chunk_item.get('section_title') or web_source.name)}\n{str(chunk_item['text'] or '')}"
+        for chunk_item in chunks
+    ]
+    embeddings = generate_embeddings_batch(
+        db,
+        organization_id=organization_id,
+        chatbot_id=chatbot_id,
+        texts=embedding_texts,
+    )
     for index, chunk_item in enumerate(chunks, start=1):
         chunk_text = str(chunk_item["text"] or "")
         chunk_url = str(chunk_item["url"] or web_source.base_url)
@@ -2223,15 +2664,13 @@ def _ingest_web_source_content(
         navigation_removed = str(
             chunk_item.get("navigation_removed") or crawl_diagnostics.get("navigation_removed") or ""
         )
-        embedding = _generate_chunk_embedding(
-            db,
-            item_id=web_source.id,
-            chunk_ref=f"{web_source.id}:{index}",
-            text=f"{section_title}\n{chunk_text}",
-            error_counts=embedding_error_counts,
-        )
+        embedding = embeddings[index - 1] if index - 1 < len(embeddings) else None
         if _embedding_generated(embedding):
             embedding_count += 1
+        else:
+            embedding_error_counts["EMBEDDING_BATCH_FAILED"] = (
+                embedding_error_counts.get("EMBEDDING_BATCH_FAILED", 0) + 1
+            )
         db.add(
             DocumentChunk(
                 organization_id=uuid.UUID(organization_id),
@@ -3238,6 +3677,11 @@ def _process_reindex_job(principal: AdminPrincipal, knowledge_id: str, job_id: s
                     file_bytes = rebuilt_text.encode("utf-8")
 
                 if file_bytes:
+                    _rag_settings = _load_rag_settings_for_chatbot(
+                        db,
+                        organization_id=organization_id,
+                        chatbot_id=str(doc.chatbot_id),
+                    )
                     _ingest_document_version_content(
                         db,
                         organization_id=organization_id,
@@ -3248,6 +3692,7 @@ def _process_reindex_job(principal: AdminPrincipal, knowledge_id: str, job_id: s
                         file_name=version.file_name,
                         file_bytes=file_bytes,
                         content_type=content_type,
+                        rag_settings=_rag_settings,
                     )
                 else:
                     _mark_reindex_failed(
@@ -3258,12 +3703,18 @@ def _process_reindex_job(principal: AdminPrincipal, knowledge_id: str, job_id: s
                     )
         elif job.web_source_id is not None:
             web_source = ensure_web_source_in_scope(db, principal=principal, web_source_id=str(job.web_source_id))
+            _rag_settings = _load_rag_settings_for_chatbot(
+                db,
+                organization_id=organization_id,
+                chatbot_id=str(web_source.chatbot_id),
+            )
             _ingest_web_source_content(
                 db,
                 organization_id=organization_id,
                 chatbot_id=str(web_source.chatbot_id),
                 web_source=web_source,
                 job=job,
+                rag_settings=_rag_settings,
             )
 
         db.commit()
@@ -3449,6 +3900,11 @@ async def create_file_knowledge_service(
     )
     db.add(job)
     db.flush()
+    _rag_settings = _load_rag_settings_for_chatbot(
+        db,
+        organization_id=organization_id,
+        chatbot_id=str(chatbot.id),
+    )
     _ingest_document_version_content(
         db,
         organization_id=organization_id,
@@ -3460,6 +3916,7 @@ async def create_file_knowledge_service(
         file_bytes=content,
         content_type=upload_content_type,
         metadata_updates={"sourceType": "file"},
+        rag_settings=_rag_settings,
     )
     db.commit()
     return get_knowledge_service(db, principal=principal, knowledge_id=str(doc.id))
@@ -3535,6 +3992,11 @@ def create_text_knowledge_service(
     )
     db.add(job)
     db.flush()
+    _rag_settings = _load_rag_settings_for_chatbot(
+        db,
+        organization_id=organization_id,
+        chatbot_id=str(chatbot.id),
+    )
     _ingest_document_version_content(
         db,
         organization_id=organization_id,
@@ -3546,6 +4008,7 @@ def create_text_knowledge_service(
         file_bytes=body.content.encode("utf-8"),
         content_type="text/plain",
         metadata_updates={"sourceType": "text"},
+        rag_settings=_rag_settings,
     )
     db.commit()
     return get_knowledge_service(db, principal=principal, knowledge_id=str(doc.id))
