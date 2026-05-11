@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, type ReactNode } from "react";
-import { Save, Loader2, CheckCircle } from "lucide-react";
+import { Save, Loader2, CheckCircle, Plus } from "lucide-react";
 
 import { writeSelectedAdminChatbot } from "../../lib/admin-ui/selected-chatbot";
 
@@ -100,6 +100,22 @@ export function AiSettingsLayout({
       </div>
 
       {notice}
+
+      {chatbotOptions.length === 0 && (
+        <div style={{ margin: "8px 0 20px", padding: "20px 24px", borderRadius: 12, border: "1px solid #bfdbfe", background: "#eff6ff", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
+          <div>
+            <p style={{ fontSize: 14, fontWeight: 600, color: "#1e40af", marginBottom: 4 }}>아직 챗봇이 없습니다</p>
+            <p style={{ fontSize: 13, color: "#3b82f6" }}>챗봇을 먼저 생성해야 설정을 구성할 수 있습니다.</p>
+          </div>
+          <Link
+            href="/admin/chatbots"
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 18px", borderRadius: 8, background: "#2563eb", color: "white", fontSize: 13, fontWeight: 600, textDecoration: "none", whiteSpace: "nowrap", flexShrink: 0 }}
+          >
+            <Plus style={{ width: 14, height: 14 }} />
+            챗봇 생성하기
+          </Link>
+        </div>
+      )}
 
       {children}
     </div>

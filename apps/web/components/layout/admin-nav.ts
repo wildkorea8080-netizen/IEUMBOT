@@ -28,6 +28,7 @@ export const adminNav: NavGroup[] = [
   {
     title: "챗봇 설정",
     items: [
+      { label: "챗봇 관리",   href: "/admin/chatbots",         icon: "BotMessageSquare" },
       { label: "기본 설정",   href: "/admin/ai/basic",         icon: "Bot" },
       { label: "응답 스타일", href: "/admin/ai/style",         icon: "Palette" },
       { label: "AI 고급설정", href: "/admin/answer-settings",  icon: "Settings2" },
