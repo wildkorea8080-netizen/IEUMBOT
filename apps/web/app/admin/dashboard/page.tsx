@@ -1,12 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Bar,
-  BarChart,
   CartesianGrid,
-  Legend,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -14,13 +11,12 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import {
+  Users, MessageSquare, CheckCircle, Clock,
+  ChevronRight, RefreshCw,
+} from "lucide-react";
 
-import { EmptyState } from "../../../components/ui/empty-state";
-import { AdminIcon } from "../../../components/ui/admin-icons";
-import { PageHeader } from "../../../components/ui/page-header";
-import { SectionCard } from "../../../components/ui/section-card";
 import { StatCard } from "../../../components/ui/stat-card";
-import { StatusBadge } from "../../../components/ui/status-badge";
 import { ApiClientError } from "../../../lib/api";
 import {
   getDashboardQuestionTypes,
@@ -35,266 +31,360 @@ import type {
   DashboardUsageTrendItem,
 } from "../../../lib/api/admin-operations-types";
 
+// ── 유틸 ─────────────────────────────────────────────────
+
+function todayStr() {
+  return new Date().toISOString().slice(0, 10);
+}
+function daysAgoStr(n: number) {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return d.toISOString().slice(0, 10);
+}
+function thisMonday() {
+  const d = new Date();
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return d.toISOString().slice(0, 10);
+}
+function thisMonthStart() {
+  const d = new Date();
+  d.setDate(1);
+  return d.toISOString().slice(0, 10);
+}
+function formatChartDate(v: string) {
+  return v.slice(5).replace("-", ".");
+}
 function getErrorMessage(error: unknown): string {
-  if (error instanceof ApiClientError) {
-    return `${error.code}: ${error.message}`;
-  }
-  if (error instanceof Error) {
-    return error.message;
-  }
+  if (error instanceof ApiClientError) return `${error.code}: ${error.message}`;
+  if (error instanceof Error) return error.message;
   return "대시보드 데이터를 불러오지 못했습니다.";
 }
 
-function toDateRangeLast30Days(): { from: string; to: string } {
-  const now = new Date();
-  const to = now.toISOString().slice(0, 10);
-  const fromDate = new Date(now);
-  fromDate.setDate(fromDate.getDate() - 29);
-  const from = fromDate.toISOString().slice(0, 10);
-  return { from, to };
+// 최근 대화 상태 → badge 스타일
+function chatBadge(status: DashboardRecentChatItem["status"]) {
+  if (status === "success")    return { bg: "#f0fdf4", color: "#16a34a", label: "답변성공" };
+  if (status === "escalation") return { bg: "#f1f5f9", color: "#64748b", label: "이관" };
+  return                               { bg: "#fffbeb", color: "#d97706", label: "근거부족" };
 }
 
-function formatChartDate(value: string): string {
-  return value.slice(5).replace("-", ".");
-}
+// 질문유형 바 색상
+const BAR_COLORS = ["#2563eb", "#60a5fa", "#bfdbfe", "#e2e8f0", "#e2e8f0"];
 
-function getRecentStatusTone(status: DashboardRecentChatItem["status"]): "success" | "warning" | "info" {
-  if (status === "success") return "success";
-  if (status === "escalation") return "warning";
-  return "info";
-}
-
-function getRecentStatusLabel(status: DashboardRecentChatItem["status"]): string {
-  if (status === "success") return "성공";
-  if (status === "escalation") return "이관";
-  return "대체응답";
-}
+// ── 컴포넌트 ─────────────────────────────────────────────
 
 export default function DashboardPage() {
-  const [summary, setSummary] = useState<DashboardSummaryResponse | null>(null);
-  const [usageTrend, setUsageTrend] = useState<DashboardUsageTrendItem[]>([]);
+  const today = todayStr();
+  const [startDate, setStartDate] = useState(daysAgoStr(29));
+  const [endDate, setEndDate]     = useState(today);
+  const [pending, setPending]     = useState({ start: daysAgoStr(29), end: today });
+
+  const [summary, setSummary]         = useState<DashboardSummaryResponse | null>(null);
+  const [usageTrend, setUsageTrend]   = useState<DashboardUsageTrendItem[]>([]);
   const [questionTypes, setQuestionTypes] = useState<DashboardQuestionTypeItem[]>([]);
   const [recentChats, setRecentChats] = useState<DashboardRecentChatItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading]     = useState(true);
+  const [error, setError]             = useState<string | null>(null);
 
-  const range = useMemo(() => toDateRangeLast30Days(), []);
+  const range = useMemo(() => ({ from: startDate, to: endDate }), [startDate, endDate]);
 
-  useEffect(() => {
-    let mounted = true;
-
-    (async () => {
-      setIsLoading(true);
-      setError(null);
-
-      try {
-        const [summaryResponse, usageTrendResponse, questionTypeResponse, recentChatResponse] =
-          await Promise.all([
-            getDashboardSummary(),
-            getDashboardUsageTrend(range),
-            getDashboardQuestionTypes(range),
-            getDashboardRecentChats({ limit: 8 }),
-          ]);
-
-        if (!mounted) return;
-
-        setSummary(summaryResponse);
-        setUsageTrend(usageTrendResponse);
-        setQuestionTypes(questionTypeResponse);
-        setRecentChats(recentChatResponse);
-      } catch (loadError) {
-        if (!mounted) return;
-        setError(getErrorMessage(loadError));
-      } finally {
-        if (mounted) setIsLoading(false);
-      }
-    })();
-
-    return () => {
-      mounted = false;
-    };
+  const loadData = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const [s, u, q, r] = await Promise.all([
+        getDashboardSummary(),
+        getDashboardUsageTrend(range),
+        getDashboardQuestionTypes(range),
+        getDashboardRecentChats({ limit: 8 }),
+      ]);
+      setSummary(s);
+      setUsageTrend(u);
+      setQuestionTypes(q);
+      setRecentChats(r);
+    } catch (e) {
+      setError(getErrorMessage(e));
+    } finally {
+      setIsLoading(false);
+    }
   }, [range]);
 
+  useEffect(() => { void loadData(); }, [loadData]);
+
+  const handleApply = () => {
+    setStartDate(pending.start);
+    setEndDate(pending.end);
+  };
+
+  const setPreset = (type: "today" | "week" | "month") => {
+    const presets = {
+      today: { start: today, end: today },
+      week:  { start: thisMonday(), end: today },
+      month: { start: thisMonthStart(), end: today },
+    };
+    setPending(presets[type]);
+    setStartDate(presets[type].start);
+    setEndDate(presets[type].end);
+  };
+
+  const totalQType = questionTypes.reduce((s, t) => s + t.count, 0);
+  const usagePercent = summary ? Math.min(100, Math.round((summary.totalConversations / Math.max(summary.totalConversations, 1)) * 100)) : 0;
+
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title="기관관리자 대시보드"
-        description="사용량, 질문 분포, 최근 대화 현황을 한 화면에서 확인할 수 있도록 SaaS 스타일로 정리했습니다."
-        breadcrumbs={["기관관리자", "대시보드"]}
-        badge={
-          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
-            ORG ADMIN
-          </span>
-        }
-        actions={
-          <>
-            <Link
-              href="/admin/conversations"
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-            >
-              <AdminIcon name="conversation" className="h-4 w-4" />
-              대화 관리
-            </Link>
-            <Link
-              href="/admin/knowledge/register"
-              className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-3 py-2 text-sm font-medium text-white"
-            >
-              <AdminIcon name="plus" className="h-4 w-4" />
-              지식 등록
-            </Link>
-          </>
-        }
-      />
+    <div className="space-y-4">
 
-      {error ? (
-        <SectionCard title="오류" description="대시보드 데이터를 불러오는 중 문제가 발생했습니다.">
-          <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p>
-        </SectionCard>
-      ) : null}
+      {/* ── 상단 필터 바 ── */}
+      <div className="bg-white rounded-xl border border-neutral-200 shadow-card p-4 flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-2">
+          <input
+            type="date"
+            value={pending.start}
+            max={pending.end}
+            onChange={e => setPending(p => ({ ...p, start: e.target.value }))}
+            className="input-field"
+            style={{ width: 140 }}
+          />
+          <span style={{ color: "#94a3b8", fontSize: 13 }}>~</span>
+          <input
+            type="date"
+            value={pending.end}
+            min={pending.start}
+            max={today}
+            onChange={e => setPending(p => ({ ...p, end: e.target.value }))}
+            className="input-field"
+            style={{ width: 140 }}
+          />
+        </div>
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="총 사용자 수" value={summary?.totalUsers ?? "-"} icon="users" />
-        <StatCard label="총 대화 수" value={summary?.totalConversations ?? "-"} icon="conversation" tone="neutral" />
+        <div className="flex items-center gap-1.5">
+          {(["today", "week", "month"] as const).map((preset) => (
+            <button
+              key={preset}
+              type="button"
+              onClick={() => setPreset(preset)}
+              className="btn-secondary"
+              style={{ padding: "5px 10px", fontSize: 12 }}
+            >
+              {{ today: "오늘", week: "이번주", month: "이번달" }[preset]}
+            </button>
+          ))}
+        </div>
+
+        <button
+          type="button"
+          onClick={handleApply}
+          disabled={isLoading}
+          className="btn-primary ml-auto flex items-center gap-1.5"
+          style={{ padding: "6px 14px" }}
+        >
+          <RefreshCw style={{ width: 13, height: 13 }} />
+          조회하기
+        </button>
+      </div>
+
+      {error && (
+        <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 10, padding: "10px 16px", fontSize: 13, color: "#dc2626" }}>
+          {error}
+        </div>
+      )}
+
+      {/* ── 지표 카드 4개 ── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard
+          label="총 사용자 수"
+          value={summary?.totalUsers ?? "—"}
+          icon={<Users style={{ width: 18, height: 18 }} />}
+          color="blue"
+        />
+        <StatCard
+          label="총 대화 수"
+          value={summary?.totalConversations ?? "—"}
+          icon={<MessageSquare style={{ width: 18, height: 18 }} />}
+          color="green"
+        />
         <StatCard
           label="답변 성공률"
-          value={summary ? `${summary.successRate}%` : "-"}
-          icon="success"
-          tone="success"
+          value={summary ? `${summary.successRate}%` : "—"}
+          icon={<CheckCircle style={{ width: 18, height: 18 }} />}
+          color="blue"
         />
         <StatCard
           label="평균 응답시간"
-          value={summary ? `${summary.avgResponseTime}s` : "-"}
-          icon="usage"
-          tone="primary"
+          value={summary ? `${summary.avgResponseTime}초` : "—"}
+          icon={<Clock style={{ width: 18, height: 18 }} />}
+          color="orange"
         />
-      </section>
+      </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1.65fr_1fr]">
-        <SectionCard title="사용량 추이" description="최근 30일 기준 날짜별 사용자 수와 대화 수를 표시합니다.">
+      {/* ── 중단: 차트 + 월간 사용량 ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_260px] gap-4">
+
+        {/* 사용량 추이 차트 */}
+        <div className="bg-white rounded-xl border border-neutral-200 shadow-card p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h2 style={{ fontSize: 15, fontWeight: 600, color: "#1e293b", margin: 0 }}>사용량 추이</h2>
+            <span style={{ fontSize: 12, color: "#94a3b8" }}>{startDate} ~ {endDate}</span>
+          </div>
+
           {isLoading ? (
-            <p className="text-sm text-slate-500">사용량 추이를 불러오는 중입니다...</p>
+            <div style={{ height: 240, display: "flex", alignItems: "center", justifyContent: "center", color: "#94a3b8", fontSize: 13 }}>
+              불러오는 중...
+            </div>
           ) : usageTrend.length === 0 ? (
-            <EmptyState
-              title="사용량 데이터가 아직 없습니다"
-              description="날짜별 사용 데이터가 누적되면 이 영역에 그래프를 표시합니다."
-              icon="usage"
-            />
+            <div style={{ height: 240, display: "flex", alignItems: "center", justifyContent: "center", color: "#94a3b8", fontSize: 13 }}>
+              데이터가 없습니다
+            </div>
           ) : (
-            <div className="h-[320px] rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+            <div style={{ height: 240 }}>
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={usageTrend}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
-                  <XAxis dataKey="date" tickFormatter={formatChartDate} stroke="#64748B" tickLine={false} axisLine={false} />
-                  <YAxis stroke="#64748B" tickLine={false} axisLine={false} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                  <XAxis dataKey="date" tickFormatter={formatChartDate} stroke="#94a3b8" tickLine={false} axisLine={false} style={{ fontSize: 11 }} />
+                  <YAxis stroke="#94a3b8" tickLine={false} axisLine={false} style={{ fontSize: 11 }} />
                   <Tooltip
-                    contentStyle={{
-                      borderRadius: 16,
-                      border: "1px solid #E2E8F0",
-                      boxShadow: "0 10px 30px rgba(15, 23, 42, 0.08)",
-                    }}
-                    labelFormatter={(label) => `날짜 ${label}`}
+                    contentStyle={{ borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 12 }}
+                    labelFormatter={l => `${l}`}
                   />
-                  <Legend />
-                  <Line
-                    type="monotone"
-                    dataKey="messages"
-                    name="대화 수"
-                    stroke="#4F46E5"
-                    strokeWidth={3}
-                    dot={{ r: 3 }}
-                    activeDot={{ r: 5 }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="users"
-                    name="사용자 수"
-                    stroke="#10B981"
-                    strokeWidth={3}
-                    dot={{ r: 3 }}
-                    activeDot={{ r: 5 }}
-                  />
+                  <Line type="monotone" dataKey="messages" name="대화" stroke="#2563eb" strokeWidth={2} dot={{ r: 2, fill: "white", stroke: "#2563eb" }} activeDot={{ r: 4 }} />
+                  <Line type="monotone" dataKey="users"    name="사용자" stroke="#16a34a" strokeWidth={2} dot={{ r: 2, fill: "white", stroke: "#16a34a" }} activeDot={{ r: 4 }} />
                 </LineChart>
               </ResponsiveContainer>
             </div>
           )}
-        </SectionCard>
+        </div>
 
-        <SectionCard title="질문 유형 분석" description="카테고리별 질문 수를 막대 그래프로 표시합니다.">
-          {isLoading ? (
-            <p className="text-sm text-slate-500">질문 유형을 집계하는 중입니다...</p>
-          ) : questionTypes.length === 0 ? (
-            <EmptyState
-              title="질문 유형 데이터가 아직 없습니다"
-              description="카테고리 집계 데이터가 생기면 이 영역에 자동으로 반영됩니다."
-              icon="conversation"
-            />
-          ) : (
-            <div className="h-[320px] rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={questionTypes} layout="vertical" margin={{ left: 12, right: 12 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" horizontal={false} />
-                  <XAxis type="number" stroke="#64748B" tickLine={false} axisLine={false} />
-                  <YAxis
-                    type="category"
-                    dataKey="label"
-                    stroke="#64748B"
-                    tickLine={false}
-                    axisLine={false}
-                    width={96}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      borderRadius: 16,
-                      border: "1px solid #E2E8F0",
-                      boxShadow: "0 10px 30px rgba(15, 23, 42, 0.08)",
-                    }}
-                  />
-                  <Bar dataKey="count" name="질문 수" fill="#4F46E5" radius={[0, 8, 8, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+        {/* 월간 사용량 프로그레스 */}
+        <div className="bg-white rounded-xl border border-neutral-200 shadow-card p-5 flex flex-col">
+          <h2 style={{ fontSize: 15, fontWeight: 600, color: "#1e293b", margin: 0, marginBottom: 4 }}>월간 대화 사용량</h2>
+          <p style={{ fontSize: 11, color: "#94a3b8", margin: "0 0 20px" }}>{thisMonthStart()} ~ {today}</p>
+
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", gap: 12 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#64748b", marginBottom: 6 }}>
+              <span>이번 달 대화</span>
+              <span style={{ fontWeight: 600, color: "#1e293b" }}>{summary?.totalConversations ?? 0}건</span>
             </div>
-          )}
-        </SectionCard>
+
+            {/* 프로그레스바 */}
+            <div style={{ background: "#f1f5f9", borderRadius: 99, height: 10, overflow: "hidden" }}>
+              <div
+                style={{
+                  width: `${usagePercent}%`,
+                  height: "100%",
+                  background: "#2563eb",
+                  borderRadius: 99,
+                  transition: "width 0.6s ease",
+                }}
+              />
+            </div>
+
+            <p style={{ fontSize: 12, color: "#94a3b8", margin: 0 }}>
+              {summary?.totalConversations ?? 0}건 / 무제한
+            </p>
+          </div>
+
+          <div style={{ borderTop: "1px solid #f1f5f9", marginTop: 20, paddingTop: 16 }}>
+            <div style={{ fontSize: 12, color: "#64748b", marginBottom: 8 }}>총 사용자</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: "#1e293b" }}>{summary?.totalUsers ?? 0}<span style={{ fontSize: 13, fontWeight: 400, color: "#94a3b8", marginLeft: 4 }}>명</span></div>
+          </div>
+        </div>
       </div>
 
-      <SectionCard
-        title="최근 대화"
-        description="최근 대화의 시간, 질문, 상태를 빠르게 확인할 수 있도록 리스트로 구성했습니다."
-        action={
-          <Link href="/admin/conversations" className="text-sm font-medium text-indigo-600 hover:text-indigo-500">
-            전체 보기
-          </Link>
-        }
-      >
-        {isLoading ? (
-          <p className="text-sm text-slate-500">최근 대화를 불러오는 중입니다...</p>
-        ) : recentChats.length === 0 ? (
-          <EmptyState
-            title="최근 대화가 없습니다"
-            description="대화가 쌓이면 최근 대화 리스트가 이곳에 표시됩니다."
-            icon="conversation"
-          />
-        ) : (
-          <div className="grid gap-3">
-            {recentChats.map((item) => (
-              <div
-                key={`${item.createdAt}-${item.question ?? ""}`}
-                className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-4 md:grid-cols-[180px_1fr_auto] md:items-center"
-              >
-                <div className="text-sm font-medium text-slate-700">
-                  {new Date(item.createdAt).toLocaleString("ko-KR")}
-                </div>
-                <div className="text-sm text-slate-900">{item.question ?? "질문 내용이 없습니다."}</div>
-                <div className="justify-self-start md:justify-self-end">
-                  <StatusBadge tone={getRecentStatusTone(item.status)}>
-                    {getRecentStatusLabel(item.status)}
-                  </StatusBadge>
-                </div>
-              </div>
-            ))}
+      {/* ── 하단: 질문 유형 + 최근 대화 ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+        {/* 질문 유형 Top 5 */}
+        <div className="bg-white rounded-xl border border-neutral-200 shadow-card p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h2 style={{ fontSize: 15, fontWeight: 600, color: "#1e293b", margin: 0 }}>질문 유형 Top 5</h2>
+            <Link href="/admin/quality-report" style={{ fontSize: 12, color: "#2563eb", display: "flex", alignItems: "center", gap: 2, textDecoration: "none" }}>
+              전체 보기 <ChevronRight style={{ width: 13, height: 13 }} />
+            </Link>
           </div>
-        )}
-      </SectionCard>
+
+          {isLoading ? (
+            <div style={{ color: "#94a3b8", fontSize: 13 }}>불러오는 중...</div>
+          ) : questionTypes.length === 0 ? (
+            <div style={{ color: "#94a3b8", fontSize: 13 }}>데이터가 없습니다</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+              {questionTypes.slice(0, 5).map((item, i) => {
+                const pct = totalQType > 0 ? Math.round((item.count / totalQType) * 100) : 0;
+                return (
+                  <div key={item.label} style={{ paddingTop: 10, paddingBottom: 10, borderBottom: i < 4 ? "1px solid #f1f5f9" : "none" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <div style={{
+                          width: 20, height: 20, borderRadius: "50%",
+                          background: BAR_COLORS[i] ?? "#e2e8f0",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          fontSize: 10, fontWeight: 700, color: i < 2 ? "white" : "#64748b",
+                          flexShrink: 0,
+                        }}>
+                          {i + 1}
+                        </div>
+                        <span style={{ fontSize: 13, color: "#334155" }}>{item.label}</span>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: "#1e293b" }}>{item.count}</span>
+                        <span style={{ fontSize: 11, color: "#94a3b8" }}>{pct}%</span>
+                      </div>
+                    </div>
+                    <div style={{ background: "#f1f5f9", borderRadius: 99, height: 4 }}>
+                      <div style={{ width: `${pct}%`, height: "100%", background: BAR_COLORS[i] ?? "#e2e8f0", borderRadius: 99 }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* 최근 대화 목록 */}
+        <div className="bg-white rounded-xl border border-neutral-200 shadow-card p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h2 style={{ fontSize: 15, fontWeight: 600, color: "#1e293b", margin: 0 }}>최근 대화</h2>
+            <Link href="/admin/conversations" style={{ fontSize: 12, color: "#2563eb", display: "flex", alignItems: "center", gap: 2, textDecoration: "none" }}>
+              전체 보기 <ChevronRight style={{ width: 13, height: 13 }} />
+            </Link>
+          </div>
+
+          {isLoading ? (
+            <div style={{ color: "#94a3b8", fontSize: 13 }}>불러오는 중...</div>
+          ) : recentChats.length === 0 ? (
+            <div style={{ color: "#94a3b8", fontSize: 13 }}>최근 대화가 없습니다</div>
+          ) : (
+            <div>
+              {recentChats.map((item, i) => {
+                const badge = chatBadge(item.status);
+                return (
+                  <div
+                    key={`${item.createdAt}-${i}`}
+                    style={{
+                      padding: "10px 0",
+                      borderBottom: i < recentChats.length - 1 ? "1px solid #f1f5f9" : "none",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                      <span style={{ fontSize: 11, color: "#94a3b8" }}>
+                        {new Date(item.createdAt).toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                      <span style={{
+                        fontSize: 11, fontWeight: 600,
+                        background: badge.bg, color: badge.color,
+                        padding: "2px 8px", borderRadius: 99,
+                      }}>
+                        {badge.label}
+                      </span>
+                    </div>
+                    <p style={{ fontSize: 13, color: "#334155", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {item.question ?? "질문 내용이 없습니다."}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
