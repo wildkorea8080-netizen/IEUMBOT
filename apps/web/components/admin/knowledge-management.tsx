@@ -2,8 +2,11 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import {
+  Search, RefreshCw, Trash2, Wand2,
+  CheckCircle, Loader2, XCircle, Clock, BookOpen,
+} from "lucide-react";
 
-import { PagePanel } from "../ui/page-panel";
 import { FaqGenerateModal } from "./FaqGenerateModal";
 import { ApiClientError } from "../../lib/api";
 import {
@@ -360,316 +363,219 @@ export function KnowledgeManagement() {
     }
   };
 
+  // 탭별 카운트
+  const fileItems = items.filter(it => it.sourceType === "file" || it.sourceType === "text");
+  const websiteItems = items.filter(it => it.sourceType === "website");
+
+  // 상태 아이콘
+  const StatusBadge = ({ item }: { item: KnowledgeItem }) => {
+    const ds = effectiveStatus(item);
+    if (ds === "completed" || ds === "ready") return <span className="badge-success flex items-center gap-1"><CheckCircle style={{ width: 11, height: 11 }} />학습완료</span>;
+    if (ds === "processing") return <span className="badge-warning flex items-center gap-1"><Loader2 style={{ width: 11, height: 11, animation: "spin 1s linear infinite" }} />학습중</span>;
+    if (ds === "failed") return <span className="badge-danger flex items-center gap-1"><XCircle style={{ width: 11, height: 11 }} />실패</span>;
+    if (ds === "queued") return <span className="badge-neutral flex items-center gap-1"><Clock style={{ width: 11, height: 11 }} />대기중</span>;
+    if (ds === "needs_reindex") return <span className="badge-warning flex items-center gap-1">재학습필요</span>;
+    return <span className="badge-neutral">{statusLabel(ds)}</span>;
+  };
+
   return (
-    <div className="space-y-6">
-      <PagePanel
-        title="지식 관리"
-        description="파일, 텍스트, 웹사이트 지식을 검색하고 상태, 태그, 재색인, 활성화 여부를 관리합니다."
-      >
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1">
+    <div className="space-y-4">
+
+      {/* 탭 + 우측 액션 */}
+      <div className="flex items-center justify-between" style={{ borderBottom: "1px solid #e2e8f0" }}>
+        <div className="flex">
+          {([["file_text", `파일·텍스트 (${fileItems.length})`], ["website", `웹사이트 (${websiteItems.length})`]] as [KnowledgeSourceGroup, string][]).map(([group, label]) => (
             <button
+              key={group}
               type="button"
-              onClick={() => setSourceGroup("file_text")}
-              className={`rounded-lg px-4 py-2 text-sm font-medium ${
-                sourceGroup === "file_text" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600"
-              }`}
+              onClick={() => setSourceGroup(group)}
+              style={{
+                padding: "12px 16px",
+                fontSize: 14,
+                fontWeight: sourceGroup === group ? 600 : 400,
+                color: sourceGroup === group ? "#2563eb" : "#64748b",
+                borderBottom: `2px solid ${sourceGroup === group ? "#2563eb" : "transparent"}`,
+                background: "none",
+                border: "none",
+                borderBottomWidth: 2,
+                borderBottomStyle: "solid",
+                borderBottomColor: sourceGroup === group ? "#2563eb" : "transparent",
+                cursor: "pointer",
+                transition: "all 0.15s",
+              }}
             >
-              파일 및 텍스트
+              {label}
             </button>
-            <button
-              type="button"
-              onClick={() => setSourceGroup("website")}
-              className={`rounded-lg px-4 py-2 text-sm font-medium ${
-                sourceGroup === "website" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600"
-              }`}
-            >
-              웹사이트
-            </button>
-          </div>
-          <Link href="/admin/knowledge/register" className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white">
-            지식 등록
-          </Link>
+          ))}
         </div>
+        <Link href="/admin/knowledge/register" className="btn-primary" style={{ fontSize: 13, padding: "7px 14px" }}>
+          + 지식 등록
+        </Link>
+      </div>
 
-        <div className="mb-4 mt-4 flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-          <label className="flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              checked={skipDuplicateReindex}
-              disabled={!settingsChatbotId}
-              onChange={(event) => void handleSkipDuplicateToggle(event.target.checked)}
-              className="h-4 w-4 rounded border-slate-300"
-            />
-            <span className="text-sm font-medium text-slate-700">
-              중복 파일 재학습 방지
-            </span>
-          </label>
-          <span className="text-xs text-slate-500">
-            동일한 파일명을 다시 업로드해도 재학습하지 않습니다
-          </span>
+      {/* 중복 방지 설정 */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, padding: "8px 14px" }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+          <input type="checkbox" checked={skipDuplicateReindex} disabled={!settingsChatbotId} onChange={e => void handleSkipDuplicateToggle(e.target.checked)} />
+          <span style={{ fontSize: 13, fontWeight: 500, color: "#334155" }}>중복 파일 재학습 방지</span>
+        </label>
+        <span style={{ fontSize: 12, color: "#94a3b8" }}>동일한 파일명을 다시 업로드해도 재학습하지 않습니다</span>
+      </div>
+
+      {/* 검색 + 필터 바 */}
+      <div className="bg-white rounded-xl border border-neutral-200 p-4 flex flex-wrap items-center gap-3">
+        <div style={{ position: "relative", flex: 1, minWidth: 200 }}>
+          <Search style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", width: 15, height: 15, color: "#94a3b8" }} />
+          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="제목, 내용, 메모 또는 태그 검색" className="input-field" style={{ paddingLeft: 32 }} />
         </div>
+        <select value={category} onChange={e => setCategory(e.target.value)} className="input-field" style={{ width: 140 }}>
+          <option value="">전체 카테고리</option>
+          {categories.map(opt => <option key={opt} value={opt ?? ""}>{opt}</option>)}
+        </select>
+        <select value={status} onChange={e => setStatus(e.target.value)} className="input-field" style={{ width: 120 }}>
+          <option value="">전체 상태</option>
+          <option value="queued">대기중</option>
+          <option value="processing">처리중</option>
+          <option value="completed">완료</option>
+          <option value="failed">실패</option>
+          <option value="inactive">비활성</option>
+        </select>
+        <button type="button" onClick={() => void load()} className="btn-secondary flex items-center gap-1.5" style={{ fontSize: 13 }}>
+          <Search style={{ width: 13, height: 13 }} />검색
+        </button>
+      </div>
 
-        <div className="mt-5 grid gap-3 lg:grid-cols-[180px_180px_180px_1fr_auto]">
-          <select
-            value={category}
-            onChange={(event) => setCategory(event.target.value)}
-            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
-          >
-            <option value="">전체 카테고리</option>
-            {categories.map((option) => (
-              <option key={option} value={option ?? ""}>
-                {option}
-              </option>
-            ))}
-          </select>
-          <select
-            value={field}
-            onChange={(event) => setField(event.target.value)}
-            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
-          >
-            <option value="">전체 분야</option>
-            {fields.map((option) => (
-              <option key={option} value={option ?? ""}>
-                {option}
-              </option>
-            ))}
-          </select>
-          <select
-            value={status}
-            onChange={(event) => setStatus(event.target.value)}
-            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
-          >
-            <option value="">전체 상태</option>
-            <option value="queued">대기 중</option>
-            <option value="processing">처리 중</option>
-            <option value="completed">완료</option>
-            <option value="failed">실패</option>
-            <option value="inactive">비활성</option>
-          </select>
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="제목, 내용, 메모 또는 태그 검색"
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-          />
-          <button
-            type="button"
-            onClick={() => void load()}
-            className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700"
-          >
-            검색
-          </button>
+      {/* 알림 */}
+      {error && <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8, padding: "8px 14px", fontSize: 13, color: "#dc2626" }}>{error}</div>}
+      {notice && <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 8, padding: "8px 14px", fontSize: 13, color: "#1d4ed8" }}>{notice}</div>}
+
+      {/* 벌크 액션 */}
+      {selectedIds.length > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 13, color: "#64748b" }}>{selectedIds.length}건 선택됨</span>
+          <button type="button" disabled={isSaving} onClick={() => void runBulkAction("inactive")} className="btn-secondary" style={{ fontSize: 12, padding: "5px 12px" }}>비활성화</button>
+          <button type="button" disabled={isSaving} onClick={() => void runBulkAction("delete")} style={{ fontSize: 12, padding: "5px 12px", background: "white", border: "1px solid #fca5a5", borderRadius: 8, color: "#dc2626", cursor: "pointer" }}>삭제</button>
         </div>
+      )}
 
-        <div className="mt-4 flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            disabled={selectedIds.length === 0 || isSaving}
-            onClick={() => void runBulkAction("inactive")}
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 disabled:opacity-50"
-          >
-            선택 항목 비활성화
-          </button>
-          <button
-            type="button"
-            disabled={selectedIds.length === 0 || isSaving}
-            onClick={() => void runBulkAction("delete")}
-            className="rounded-lg border border-red-300 px-3 py-2 text-sm text-red-700 disabled:opacity-50"
-          >
-            선택 항목 삭제
-          </button>
-          <span className="text-sm text-slate-500">선택 {selectedIds.length}건</span>
+      {/* 테이블 */}
+      {isLoading ? (
+        <div style={{ textAlign: "center", padding: "40px 0", color: "#94a3b8", fontSize: 13 }}>
+          <Loader2 style={{ width: 24, height: 24, margin: "0 auto 8px", animation: "spin 1s linear infinite" }} />
+          목록을 불러오는 중입니다.
         </div>
-
-        {error ? <p className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
-        {notice ? <p className="mt-4 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">{notice}</p> : null}
-        {isLoading ? <p className="mt-4 text-sm text-slate-500">목록을 불러오는 중입니다.</p> : null}
-
-        {!isLoading ? (
-          <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-200">
-            <table className="min-w-[1280px] table-fixed text-sm">
-              <thead className="bg-slate-50 text-left text-slate-600">
+      ) : items.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "60px 0" }}>
+          <BookOpen style={{ width: 48, height: 48, color: "#cbd5e1", margin: "0 auto 12px" }} />
+          <div style={{ fontSize: 15, fontWeight: 600, color: "#334155", marginBottom: 6 }}>등록된 지식이 없습니다</div>
+          <div style={{ fontSize: 13, color: "#94a3b8", marginBottom: 20 }}>지식 등록 버튼을 클릭해 문서를 추가해보세요</div>
+          <Link href="/admin/knowledge/register" className="btn-primary" style={{ fontSize: 13 }}>지식 등록하기</Link>
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl border border-neutral-200 overflow-x-auto">
+          <table style={{ width: "100%", minWidth: 1100, fontSize: 13, borderCollapse: "collapse" }}>
+            <thead>
+              <tr>
+                <th className="table-header" style={{ width: 40 }}>
+                  <input type="checkbox" checked={items.length > 0 && selectedIds.length === items.length} onChange={toggleAll} />
+                </th>
+                <th className="table-header" style={{ width: 80 }}>구분</th>
+                <th className="table-header" style={{ width: 100 }}>카테고리</th>
+                <th className="table-header">제목</th>
+                <th className="table-header" style={{ width: 120 }}>태그</th>
+                <th className="table-header" style={{ width: 110 }}>상태</th>
+                <th className="table-header" style={{ width: 130 }}>처리 시각</th>
+                <th className="table-header" style={{ width: 120 }}>작업</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.length === 0 ? (
                 <tr>
-                  <th className="w-12 px-3 py-3">
-                    <input
-                      type="checkbox"
-                      checked={items.length > 0 && selectedIds.length === items.length}
-                      onChange={toggleAll}
-                    />
-                  </th>
-                  <th className="w-28 px-3 py-3">카테고리</th>
-                  <th className="w-28 px-3 py-3">분야</th>
-                  <th className="px-3 py-3">제목</th>
-                  <th className="w-40 px-3 py-3">태그</th>
-                  <th className="w-28 px-3 py-3">상태</th>
-                  <th className="w-36 px-3 py-3">텍스트 길이</th>
-                  <th className="w-28 px-3 py-3">청크</th>
-                  <th className="w-28 px-3 py-3">임베딩</th>
-                  <th className="w-44 px-3 py-3">마지막 처리</th>
-                  <th className="w-64 px-3 py-3">원본</th>
-                  <th className="w-64 px-3 py-3">진단</th>
-                  <th className="w-56 px-3 py-3">작업</th>
+                  <td colSpan={8} style={{ padding: "40px 0", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>
+                    조건에 맞는 지식이 없습니다.
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 bg-white">
-                {items.length === 0 ? (
-                  <tr>
-                    <td colSpan={13} className="px-3 py-10 text-center text-sm text-slate-500">
-                      조건에 맞는 지식이 없습니다.
+              ) : (
+                items.map((item) => (
+                  <tr
+                    key={item.id}
+                    style={{ borderBottom: "1px solid #f1f5f9" }}
+                    className="hover:bg-neutral-50 transition-colors"
+                  >
+                    {/* 체크박스 */}
+                    <td style={{ padding: "12px 16px", verticalAlign: "middle" }}>
+                      <input type="checkbox" checked={selectedIds.includes(item.id)} onChange={() => setSelectedIds(c => c.includes(item.id) ? c.filter(id => id !== item.id) : [...c, item.id])} />
+                    </td>
+                    {/* 구분 */}
+                    <td style={{ padding: "12px 16px", verticalAlign: "middle" }}>
+                      <span className="badge-neutral" style={{ fontSize: 11 }}>{sourceTypeLabel(item.sourceType)}</span>
+                    </td>
+                    {/* 카테고리 */}
+                    <td style={{ padding: "12px 16px", fontSize: 13, color: "#64748b", verticalAlign: "middle" }}>
+                      {item.category ?? "-"}
+                    </td>
+                    {/* 제목 */}
+                    <td style={{ padding: "12px 16px", verticalAlign: "middle" }}>
+                      <div style={{ fontWeight: 500, color: "#1e293b", fontSize: 13 }}>
+                        {item.title}
+                        {item.sensitiveDetected && <span style={{ marginLeft: 6, fontSize: 11, color: "#d97706" }}>🔒 민감정보</span>}
+                      </div>
+                      {item.summary && (
+                        <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 360 }}>
+                          {item.summary}
+                        </div>
+                      )}
+                      {getDiagnosticWarnings(item).length > 0 && (
+                        <div style={{ marginTop: 4, display: "flex", flexWrap: "wrap", gap: 4 }}>
+                          {getDiagnosticWarnings(item).slice(0, 2).map(w => (
+                            <span key={w} style={{ fontSize: 10, background: "#fffbeb", color: "#d97706", padding: "1px 6px", borderRadius: 4 }}>{w}</span>
+                          ))}
+                        </div>
+                      )}
+                    </td>
+                    {/* 태그 */}
+                    <td style={{ padding: "12px 16px", verticalAlign: "middle" }}>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                        {item.tags.slice(0, 3).map(t => <span key={t} className="badge-neutral" style={{ fontSize: 10 }}>{t}</span>)}
+                        {item.tags.length > 3 && <span className="badge-neutral" style={{ fontSize: 10 }}>+{item.tags.length - 3}</span>}
+                        {item.tags.length === 0 && <span style={{ fontSize: 12, color: "#cbd5e1" }}>-</span>}
+                      </div>
+                    </td>
+                    {/* 상태 */}
+                    <td style={{ padding: "12px 16px", verticalAlign: "middle" }}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        <StatusBadge item={item} />
+                        {item.canSearch && <span className="badge-success" style={{ fontSize: 10 }}>검색가능</span>}
+                      </div>
+                    </td>
+                    {/* 처리 시각 */}
+                    <td style={{ padding: "12px 16px", fontSize: 12, color: "#94a3b8", verticalAlign: "middle" }}>
+                      {formatDateTime(item.lastProcessedAt ?? item.indexedAt)}
+                    </td>
+                    {/* 액션 아이콘 버튼 */}
+                    <td style={{ padding: "12px 16px", verticalAlign: "middle" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                        <button type="button" onClick={() => void openDetail(item.id)} title="상세" className="btn-secondary" style={{ padding: "5px 10px", fontSize: 12 }}>상세</button>
+                        <button type="button" onClick={() => void performRowAction(item.id, "reindex")} title="재색인" style={{ padding: 6, background: "none", border: "1px solid #e2e8f0", borderRadius: 6, cursor: "pointer", color: "#64748b", display: "flex" }}>
+                          <RefreshCw style={{ width: 13, height: 13 }} />
+                        </button>
+                        {item.sourceType !== "website" && (
+                          <button type="button" onClick={() => setFaqTargetItem(item)} title="FAQ 생성" style={{ padding: 6, background: "none", border: "1px solid #e2e8f0", borderRadius: 6, cursor: "pointer", color: "#2563eb", display: "flex" }}>
+                            <Wand2 style={{ width: 13, height: 13 }} />
+                          </button>
+                        )}
+                        <button type="button" onClick={() => void performRowAction(item.id, "delete")} title="삭제" style={{ padding: 6, background: "none", border: "1px solid #fca5a5", borderRadius: 6, cursor: "pointer", color: "#dc2626", display: "flex" }}>
+                          <Trash2 style={{ width: 13, height: 13 }} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
-                ) : (
-                  items.map((item) => (
-                    <tr key={item.id} className="align-top">
-                      <td className="px-3 py-4">
-                        <input
-                          type="checkbox"
-                          checked={selectedIds.includes(item.id)}
-                          onChange={() =>
-                            setSelectedIds((current) =>
-                              current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id],
-                            )
-                          }
-                        />
-                      </td>
-                      <td className="px-3 py-4 text-slate-700">{item.category ?? "-"}</td>
-                      <td className="px-3 py-4 text-slate-700">{item.field ?? "-"}</td>
-                      <td className="px-3 py-4">
-                        <div className="space-y-2">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <div className="font-medium text-slate-900">{item.title}</div>
-                            {item.isWebsiteAttachment ? (
-                              <span className="rounded-full bg-violet-100 px-2 py-1 text-[11px] font-medium text-violet-700">
-                                웹사이트 첨부파일
-                              </span>
-                            ) : null}
-                          </div>
-                          <p className="text-xs leading-5 text-slate-500">{item.summary ?? "-"}</p>
-                          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                            <span className="rounded-full bg-slate-100 px-2 py-1">{sourceTypeLabel(item.sourceType)}</span>
-                            {item.sourceLabel ? <span className="truncate">{item.sourceLabel}</span> : null}
-                            {item.isWebsiteAttachment && item.parentWebsiteUrl ? (
-                              <a
-                                href={item.parentWebsiteUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="truncate text-violet-700 hover:underline"
-                              >
-                                원본 웹사이트
-                              </a>
-                            ) : null}
-                            {item.sensitiveDetected ? (
-                              <span className="rounded-full bg-rose-100 px-2 py-1 text-rose-700">민감</span>
-                            ) : null}
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-3 py-4">
-                        <div className="flex flex-wrap gap-2">
-                          {item.tags.length === 0 ? <span className="text-xs text-slate-400">-</span> : null}
-                          {item.tags.map((tag) => (
-                            <span key={tag} className="rounded-full bg-blue-50 px-2 py-1 text-xs text-blue-700">
-                              {tag}
-                            </span>
-                          ))}
-                        </div>
-                      </td>
-                      <td className="px-3 py-4">
-                        <div className="space-y-2">
-                          <span className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${statusClass(effectiveStatus(item))}`}>
-                            {statusLabel(effectiveStatus(item))}
-                          </span>
-                          {item.canSearch ? (
-                            <span className="inline-flex rounded-full bg-emerald-50 px-2 py-1 text-xs text-emerald-700">
-                              검색 가능
-                            </span>
-                          ) : null}
-                          {item.staleRecovered ? (
-                            <span className="inline-flex rounded-full bg-sky-50 px-2 py-1 text-xs text-sky-700">
-                              상태 복구됨
-                            </span>
-                          ) : null}
-                          {(item.reindexRequired || effectiveStatus(item) === "needs_reindex" || effectiveStatus(item) === "stale_failed") ? (
-                            <span className="inline-flex rounded-full bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700">
-                              재색인 필요
-                            </span>
-                          ) : null}
-                        </div>
-                      </td>
-                      <td className="px-3 py-4 text-slate-600">{formatCount(item.extractedTextLength)}</td>
-                      <td className="px-3 py-4 text-slate-600">{formatCount(item.chunkCount)}</td>
-                      <td className="px-3 py-4 text-slate-600">{formatCount(item.embeddingCount)}</td>
-                      <td className="px-3 py-4 text-xs text-slate-500">{formatDateTime(item.lastProcessedAt ?? item.indexedAt)}</td>
-                      <td className="px-3 py-4 text-xs text-slate-500">
-                        <div className="max-w-64 break-all">
-                          {item.fileName ?? item.sourceUrl ?? item.finalUrl ?? item.sourceLabel ?? "-"}
-                        </div>
-                        {item.httpStatusCode ? <div className="mt-1">HTTP {item.httpStatusCode}</div> : null}
-                      </td>
-                      <td className="px-3 py-4">
-                        <div className="space-y-1">
-                          {getDiagnosticWarnings(item).length === 0 ? <span className="text-xs text-slate-400">-</span> : null}
-                          {getDiagnosticWarnings(item).map((warning) => (
-                            <span
-                              key={warning}
-                              className="block rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-700"
-                            >
-                              {warning}
-                            </span>
-                          ))}
-                          {item.errorMessage ? <div className="text-xs text-red-600">{item.errorMessage}</div> : null}
-                        </div>
-                      </td>
-                      <td className="px-3 py-4">
-                        <div className="flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            onClick={() => void openDetail(item.id)}
-                            className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-700"
-                          >
-                            상세
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void performRowAction(item.id, "toggle", item.isActive)}
-                            className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-700"
-                          >
-                            {item.isActive ? "비활성화" : "활성화"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void performRowAction(item.id, "reindex")}
-                            className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-700"
-                          >
-                            재색인
-                          </button>
-                          {item.sourceType !== "website" && (
-                            <button
-                              type="button"
-                              onClick={() => setFaqTargetItem(item)}
-                              className="rounded-lg border border-indigo-300 px-3 py-1.5 text-xs text-indigo-700"
-                            >
-                              FAQ 생성
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => void performRowAction(item.id, "delete")}
-                            className="rounded-lg border border-red-300 px-3 py-1.5 text-xs text-red-700"
-                          >
-                            삭제
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        ) : null}
-      </PagePanel>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {(detail || isDetailLoading) && (
         <div className="fixed inset-0 z-40 bg-slate-950/30">
