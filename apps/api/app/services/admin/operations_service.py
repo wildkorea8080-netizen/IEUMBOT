@@ -31,6 +31,7 @@ from app.repositories.logs.audit_log_repository import create_audit_log
 from app.repositories.logs.chat_trace_repository import get_latest_user_question_for_session
 from app.repositories.super_admin.chatbots_widgets_repository import (
     create_chatbot,
+    create_widget_deployment,
     get_chatbot_by_org_name,
 )
 from app.schemas.admin_operations import (
@@ -1042,6 +1043,33 @@ def patch_chatbot_service(
         created_at=row.created_at.isoformat(),
         updated_at=row.updated_at.isoformat(),
     )
+
+
+def create_admin_widget_service(
+    db: Session,
+    *,
+    principal: AdminPrincipal,
+    chatbot_id: str,
+) -> AdminWidgetResponse:
+    organization_id = require_institution_organization_id(principal)
+    chatbot_id = _validate_uuid(chatbot_id, "CHATBOT_NOT_FOUND")
+    ensure_chatbot_in_scope(db, principal=principal, chatbot_id=chatbot_id)
+
+    existing = get_widget_by_chatbot(db, organization_id=organization_id, chatbot_id=chatbot_id)
+    if existing is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="WIDGET_ALREADY_EXISTS")
+
+    install_script = build_widget_install_script(chatbot_id=chatbot_id)
+    create_widget_deployment(
+        db,
+        organization_id=organization_id,
+        chatbot_id=chatbot_id,
+        allowed_domains=[],
+        status="active",
+        install_script=install_script,
+    )
+    db.commit()
+    return get_widget_service(db, principal=principal, chatbot_id=chatbot_id)
 
 
 def get_widget_service(

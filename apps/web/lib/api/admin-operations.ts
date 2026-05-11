@@ -347,6 +347,10 @@ export function getAdminChatLogsExportUrl(params?: {
   return `/api/admin/logs/chat/export-csv${query ? `?${query}` : ""}`;
 }
 
+export async function createAdminWidget(chatbotId: string): Promise<AdminWidgetResponse> {
+  return apiClient.request<AdminWidgetResponse>(`/admin/chatbots/${chatbotId}/widget`, { method: "POST" });
+}
+
 export async function getAdminWidget(chatbotId: string): Promise<AdminWidgetResponse> {
   return apiClient.request<AdminWidgetResponse>(`/admin/chatbots/${chatbotId}/widget`);
 }

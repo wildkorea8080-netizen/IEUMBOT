@@ -29,6 +29,7 @@ from app.schemas.admin_operations import (
 from app.schemas.chat_policy import PreAnswerRequest
 from app.schemas.chat_runtime import ChatRuntimeResponse
 from app.services.admin.operations_service import (
+    create_admin_widget_service,
     create_chatbot_service,
     delete_document_service,
     get_chatbot_service,
@@ -269,6 +270,19 @@ def admin_patch_chatbot(
         principal=principal,
         chatbot_id=chatbot_id,
         body=body,
+    )
+
+
+@router.post("/chatbots/{chatbot_id}/widget", response_model=AdminWidgetResponse, status_code=status.HTTP_201_CREATED)
+def admin_create_widget(
+    chatbot_id: str,
+    principal: AdminPrincipal = Depends(require_institution_admin_auth),
+    db: Session = Depends(get_db_session),
+) -> AdminWidgetResponse:
+    return create_admin_widget_service(
+        db,
+        principal=principal,
+        chatbot_id=chatbot_id,
     )
 
 

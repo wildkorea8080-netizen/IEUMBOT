@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { PagePanel } from "../../../components/ui/page-panel";
 import { ApiClientError } from "../../../lib/api";
 import {
+  createAdminWidget,
   deleteAdminWidgetIcon,
   getAdminChatbots,
   getAdminWidget,
@@ -189,6 +190,8 @@ export default function WidgetPage() {
   const [launcherIconFile, setLauncherIconFile] = useState<File | null>(null);
   const [launcherIconInputKey, setLauncherIconInputKey] = useState(0);
   const [data, setData] = useState<AdminWidgetResponse | null>(null);
+  const [widgetNotFound, setWidgetNotFound] = useState(false);
+  const [isCreatingWidget, setIsCreatingWidget] = useState(false);
   const [isBooting, setIsBooting] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -407,6 +410,34 @@ export default function WidgetPage() {
     };
   }, []);
 
+  function applyWidgetData(res: AdminWidgetResponse) {
+    setData(res);
+    setWidgetNotFound(false);
+    setDomainsInput((res.allowedDomains ?? []).join(", "));
+    setLauncherLabel(res.launcherLabel ?? "");
+    const nextLauncherIcon =
+      res.launcherIcon === "love-chat"
+        ? "custom"
+        : res.launcherIcon === "custom" && !(res.launcherIconUrl ?? "").trim()
+          ? "chat"
+          : (res.launcherIcon ?? "chat");
+    const nextLauncherIconUrl =
+      res.launcherIcon === "love-chat" ? LOVE_CHAT_ICON_SRC : (res.launcherIconUrl ?? "");
+    setLauncherIcon(nextLauncherIcon);
+    setLauncherIconUrl(nextLauncherIconUrl);
+    setLauncherHoverMessage(res.launcherHoverMessage ?? "");
+    setChatbotDisplayName(res.chatbotDisplayName ?? "");
+    setInstitutionName(res.institutionName ?? "");
+    setLogoUrl(res.logoUrl ?? "");
+    setIntroMessage(res.introMessage ?? "");
+    setThemeColor(res.themeColor ?? "#2563EB");
+    setColorPreset(res.colorPreset ?? "default");
+    setWelcomeMessage(res.welcomeMessage ?? "");
+    setBannerTitle(res.bannerTitle ?? "");
+    setBannerDescription(res.bannerDescription ?? "");
+    setStarterQuestionsInput((res.starterQuestions ?? []).join("\n"));
+  }
+
   useEffect(() => {
     if (!selectedChatbotId) return;
     let cancelled = false;
@@ -414,37 +445,17 @@ export default function WidgetPage() {
       setIsLoading(true);
       setError(null);
       setSuccess(null);
+      setWidgetNotFound(false);
       try {
         const res = await getAdminWidget(selectedChatbotId);
         if (cancelled) return;
-        setData(res);
-        setDomainsInput((res.allowedDomains ?? []).join(", "));
-        setLauncherLabel(res.launcherLabel ?? "");
-        const nextLauncherIcon =
-          res.launcherIcon === "love-chat"
-            ? "custom"
-            : res.launcherIcon === "custom" && !(res.launcherIconUrl ?? "").trim()
-              ? "chat"
-              : (res.launcherIcon ?? "chat");
-        const nextLauncherIconUrl =
-          res.launcherIcon === "love-chat"
-            ? LOVE_CHAT_ICON_SRC
-            : (res.launcherIconUrl ?? "");
-        setLauncherIcon(nextLauncherIcon);
-        setLauncherIconUrl(nextLauncherIconUrl);
-        setLauncherHoverMessage(res.launcherHoverMessage ?? "");
-        setChatbotDisplayName(res.chatbotDisplayName ?? "");
-        setInstitutionName(res.institutionName ?? "");
-        setLogoUrl(res.logoUrl ?? "");
-        setIntroMessage(res.introMessage ?? "");
-        setThemeColor(res.themeColor ?? "#2563EB");
-        setColorPreset(res.colorPreset ?? "default");
-        setWelcomeMessage(res.welcomeMessage ?? "");
-        setBannerTitle(res.bannerTitle ?? "");
-        setBannerDescription(res.bannerDescription ?? "");
-        setStarterQuestionsInput((res.starterQuestions ?? []).join("\n"));
+        applyWidgetData(res);
       } catch (err) {
-        if (!cancelled) {
+        if (cancelled) return;
+        if (err instanceof ApiClientError && err.code === "WIDGET_NOT_FOUND") {
+          setWidgetNotFound(true);
+          setData(null);
+        } else {
           setError(getErrorMessage(err));
           setData(null);
         }
@@ -453,10 +464,23 @@ export default function WidgetPage() {
       }
     };
     void loadWidget();
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedChatbotId]);
+    return () => { cancelled = true; };
+  }, [selectedChatbotId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleCreateWidget = async () => {
+    if (!selectedChatbotId) return;
+    setIsCreatingWidget(true);
+    setError(null);
+    try {
+      const res = await createAdminWidget(selectedChatbotId);
+      applyWidgetData(res);
+      setSuccess("위젯이 생성되었습니다.");
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setIsCreatingWidget(false);
+    }
+  };
 
   const saveSettings = async () => {
     if (!selectedChatbotId) return;
@@ -606,6 +630,20 @@ export default function WidgetPage() {
         {!isBooting && chatbots.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
             먼저 챗봇을 생성한 뒤 위젯 설정을 진행해 주세요.
+          </div>
+        ) : null}
+        {!isLoading && widgetNotFound && selectedChatbotId ? (
+          <div className="rounded-2xl border border-dashed border-blue-200 bg-blue-50 px-6 py-10 text-center">
+            <p className="text-base font-semibold text-blue-900">이 챗봇에 연결된 위젯이 없습니다</p>
+            <p className="mt-2 text-sm text-blue-700">위젯을 생성하면 설치 스크립트와 설정 화면을 바로 사용할 수 있습니다.</p>
+            <button
+              type="button"
+              onClick={() => void handleCreateWidget()}
+              disabled={isCreatingWidget}
+              className="mt-5 rounded-lg bg-blue-700 px-6 py-2.5 text-sm font-medium text-white disabled:opacity-60"
+            >
+              {isCreatingWidget ? "생성 중..." : "위젯 생성하기"}
+            </button>
           </div>
         ) : null}
 
