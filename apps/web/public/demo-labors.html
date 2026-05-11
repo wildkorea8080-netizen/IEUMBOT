@@ -1,0 +1,1065 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>서울노동권익센터 - 데모 페이지</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* ── 전역 ── */
+    body { font-family: "Pretendard", "Noto Sans KR", "Apple SD Gothic Neo", sans-serif; font-size: 15px; color: #222; background: #fff; }
+    a, button { cursor: default !important; pointer-events: none; text-decoration: none; color: inherit; }
+    img { max-width: 100%; display: block; }
+
+    .container { max-width: 1200px; margin: 0 auto; padding: 0 20px; }
+    .nolink { cursor: default; }
+
+    /* ── 상단 유틸리티 바 ── */
+    .util-bar {
+      background: #1a3a6e;
+      padding: 6px 0;
+    }
+    .util-bar .inner {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 20px;
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 14px;
+    }
+    .util-bar .sns-icon {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.15);
+      color: #fff;
+      font-size: 12px;
+      cursor: default;
+    }
+    .util-bar span {
+      color: rgba(255,255,255,0.7);
+      font-size: 12px;
+    }
+    .util-bar .sep { color: rgba(255,255,255,0.3); font-size: 10px; }
+
+    /* ── 헤더 ── */
+    .header {
+      background: #fff;
+      border-bottom: 1px solid #e8e8e8;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    }
+    .header-inner {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 74px;
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .logo-icon {
+      width: 44px;
+      height: 44px;
+      background: linear-gradient(135deg, #1a3a6e, #2563eb);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-weight: 900;
+      font-size: 18px;
+      letter-spacing: -1px;
+    }
+    .logo-text .ko { font-size: 17px; font-weight: 800; color: #1a3a6e; line-height: 1.1; }
+    .logo-text .en { font-size: 11px; color: #888; font-weight: 400; }
+
+    .gnb { display: flex; gap: 0; list-style: none; }
+    .gnb > li {
+      position: relative;
+    }
+    .gnb > li > span {
+      display: block;
+      padding: 0 20px;
+      height: 74px;
+      line-height: 74px;
+      font-size: 15px;
+      font-weight: 700;
+      color: #1a3a6e;
+      cursor: default;
+      white-space: nowrap;
+      transition: color .2s;
+    }
+    .gnb > li:hover > span { color: #2563eb; }
+    .gnb > li:hover .sub-menu { display: block; }
+    .sub-menu {
+      display: none;
+      position: absolute;
+      top: 74px;
+      left: 0;
+      background: #fff;
+      border: 1px solid #e8e8e8;
+      border-top: 2px solid #1a3a6e;
+      min-width: 160px;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.1);
+      z-index: 200;
+    }
+    .sub-menu li { list-style: none; }
+    .sub-menu li span {
+      display: block;
+      padding: 11px 20px;
+      font-size: 13.5px;
+      color: #333;
+      cursor: default;
+      border-bottom: 1px solid #f0f0f0;
+      white-space: nowrap;
+    }
+    .sub-menu li span:hover { background: #f4f8ff; color: #1a3a6e; }
+
+    /* ── 히어로 배너 ── */
+    .hero {
+      background: linear-gradient(135deg, #0d2a5c 0%, #1a3a6e 45%, #1e4fa8 100%);
+      color: #fff;
+      padding: 70px 0 60px;
+      position: relative;
+      overflow: hidden;
+    }
+    .hero::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.03'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+    }
+    .hero-inner {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 40px;
+    }
+    .hero-text .tag {
+      display: inline-block;
+      background: rgba(255,255,255,0.15);
+      border: 1px solid rgba(255,255,255,0.3);
+      padding: 5px 14px;
+      border-radius: 20px;
+      font-size: 12px;
+      letter-spacing: 0.05em;
+      margin-bottom: 18px;
+      color: rgba(255,255,255,0.9);
+    }
+    .hero-text h1 {
+      font-size: 38px;
+      font-weight: 900;
+      line-height: 1.25;
+      letter-spacing: -0.02em;
+      margin-bottom: 14px;
+    }
+    .hero-text h1 em {
+      font-style: normal;
+      color: #7dd3fc;
+    }
+    .hero-text p {
+      font-size: 16px;
+      color: rgba(255,255,255,0.8);
+      line-height: 1.6;
+      margin-bottom: 30px;
+    }
+    .hero-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: #fff;
+      color: #1a3a6e;
+      padding: 13px 26px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: default;
+      margin-right: 12px;
+    }
+    .hero-btn.outline {
+      background: transparent;
+      border: 2px solid rgba(255,255,255,0.6);
+      color: #fff;
+    }
+    .hero-visual {
+      flex-shrink: 0;
+      display: flex;
+      gap: 16px;
+    }
+    .hero-card {
+      width: 140px;
+      background: rgba(255,255,255,0.12);
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 16px;
+      padding: 20px 16px;
+      text-align: center;
+      backdrop-filter: blur(4px);
+    }
+    .hero-card .num {
+      font-size: 28px;
+      font-weight: 900;
+      color: #7dd3fc;
+      line-height: 1;
+    }
+    .hero-card .unit { font-size: 13px; color: #7dd3fc; }
+    .hero-card .label { font-size: 12px; color: rgba(255,255,255,0.7); margin-top: 6px; }
+
+    /* ── 긴급 상담 배너 ── */
+    .hotline-bar {
+      background: #1e4fa8;
+      padding: 14px 0;
+    }
+    .hotline-inner {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+    .hotline-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .hotline-item .icon {
+      width: 36px;
+      height: 36px;
+      background: rgba(255,255,255,0.15);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+    }
+    .hotline-item .info .label { font-size: 11px; color: rgba(255,255,255,0.7); }
+    .hotline-item .info .number { font-size: 18px; font-weight: 800; color: #fff; letter-spacing: 0.02em; }
+
+    /* ── 프로그램 배너 슬라이더 ── */
+    .section { padding: 52px 0; }
+    .section-title {
+      text-align: center;
+      margin-bottom: 36px;
+    }
+    .section-title .sub {
+      font-size: 12px;
+      font-weight: 700;
+      color: #2563eb;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .section-title h2 {
+      font-size: 26px;
+      font-weight: 800;
+      color: #1a3a6e;
+      letter-spacing: -0.02em;
+    }
+    .section-title .line {
+      width: 40px;
+      height: 3px;
+      background: #2563eb;
+      margin: 12px auto 0;
+      border-radius: 2px;
+    }
+
+    /* 배너 카드 슬라이더 */
+    .banner-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+    }
+    .banner-card {
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+      cursor: default;
+      transition: transform .2s, box-shadow .2s;
+    }
+    .banner-card:hover { transform: translateY(-4px); box-shadow: 0 10px 30px rgba(0,0,0,0.12); }
+    .banner-card-head {
+      padding: 26px 24px 20px;
+      color: #fff;
+      position: relative;
+    }
+    .banner-card-head .badge {
+      display: inline-block;
+      background: rgba(255,255,255,0.22);
+      border: 1px solid rgba(255,255,255,0.35);
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 11px;
+      margin-bottom: 10px;
+    }
+    .banner-card-head h3 { font-size: 17px; font-weight: 800; line-height: 1.35; }
+    .banner-card-head p { font-size: 12.5px; color: rgba(255,255,255,0.82); margin-top: 6px; }
+    .banner-card-body {
+      background: #fff;
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .banner-card-body .date { font-size: 12px; color: #888; }
+    .banner-card-body .more {
+      font-size: 12px;
+      font-weight: 700;
+      color: #2563eb;
+      cursor: default;
+    }
+    .bc1 .banner-card-head { background: linear-gradient(135deg, #f59e0b, #d97706); }
+    .bc2 .banner-card-head { background: linear-gradient(135deg, #059669, #047857); }
+    .bc3 .banner-card-head { background: linear-gradient(135deg, #7c3aed, #5b21b6); }
+    .bc4 .banner-card-head { background: linear-gradient(135deg, #0ea5e9, #0284c7); }
+    .bc5 .banner-card-head { background: linear-gradient(135deg, #dc2626, #b91c1c); }
+    .bc6 .banner-card-head { background: linear-gradient(135deg, #1a3a6e, #2563eb); }
+
+    /* ── 서비스 카드 ── */
+    .services-bg { background: #f4f7fc; }
+    .service-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+    }
+    .service-card {
+      background: #fff;
+      border-radius: 14px;
+      padding: 28px 22px;
+      text-align: center;
+      cursor: default;
+      border: 2px solid transparent;
+      transition: border-color .2s, box-shadow .2s, transform .2s;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+    }
+    .service-card:hover {
+      border-color: #2563eb;
+      box-shadow: 0 8px 24px rgba(37,99,235,0.12);
+      transform: translateY(-3px);
+    }
+    .service-icon {
+      width: 56px;
+      height: 56px;
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      margin: 0 auto 14px;
+    }
+    .service-card h3 { font-size: 14px; font-weight: 700; color: #1a3a6e; line-height: 1.4; }
+    .service-card p { font-size: 12px; color: #888; margin-top: 6px; line-height: 1.5; }
+
+    /* ── 공지사항 + 활동 ── */
+    .news-section { padding: 52px 0; }
+    .news-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 30px;
+    }
+    .news-box {
+      background: #fff;
+      border-radius: 16px;
+      padding: 28px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+    }
+    .news-box-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+      padding-bottom: 14px;
+      border-bottom: 2px solid #1a3a6e;
+    }
+    .news-box-header h3 { font-size: 17px; font-weight: 800; color: #1a3a6e; }
+    .news-box-header .more { font-size: 12px; color: #888; cursor: default; }
+    .notice-list { list-style: none; }
+    .notice-list li {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 11px 0;
+      border-bottom: 1px solid #f0f0f0;
+      cursor: default;
+    }
+    .notice-list li:last-child { border-bottom: none; }
+    .notice-list li .badge-new {
+      background: #dc2626;
+      color: #fff;
+      font-size: 9px;
+      font-weight: 700;
+      padding: 1px 5px;
+      border-radius: 4px;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
+    .notice-list li .title { font-size: 13.5px; color: #333; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .notice-list li .date { font-size: 12px; color: #aaa; margin-left: 12px; white-space: nowrap; }
+
+    /* 활동 갤러리 */
+    .activity-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+    }
+    .activity-item {
+      border-radius: 12px;
+      overflow: hidden;
+      cursor: default;
+      position: relative;
+    }
+    .activity-thumb {
+      width: 100%;
+      height: 110px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+      color: rgba(255,255,255,0.7);
+    }
+    .activity-info {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: linear-gradient(to top, rgba(0,0,0,0.75), transparent);
+      padding: 10px 12px 8px;
+      color: #fff;
+    }
+    .activity-info p { font-size: 12px; font-weight: 600; line-height: 1.3; }
+
+    /* ── 자료실 ── */
+    .resources-bg { background: #f4f7fc; }
+    .resource-tabs {
+      display: flex;
+      gap: 0;
+      border-bottom: 2px solid #ddd;
+      margin-bottom: 24px;
+    }
+    .resource-tab {
+      padding: 10px 22px;
+      font-size: 14px;
+      font-weight: 600;
+      color: #888;
+      cursor: default;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -2px;
+    }
+    .resource-tab.active { color: #1a3a6e; border-bottom-color: #1a3a6e; }
+    .resource-list { list-style: none; }
+    .resource-list li {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 13px 0;
+      border-bottom: 1px solid #eee;
+      cursor: default;
+    }
+    .resource-list li:last-child { border-bottom: none; }
+    .resource-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      background: #eff6ff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      flex-shrink: 0;
+    }
+    .resource-list li .info .title { font-size: 13.5px; color: #222; font-weight: 500; }
+    .resource-list li .info .meta { font-size: 11.5px; color: #aaa; margin-top: 2px; }
+    .resource-list li .date { font-size: 12px; color: #bbb; margin-left: auto; white-space: nowrap; }
+
+    /* ── 관련기관 링크 ── */
+    .related-section { padding: 36px 0; background: #1a3a6e; }
+    .related-inner { max-width: 1200px; margin: 0 auto; padding: 0 20px; }
+    .related-title { font-size: 14px; font-weight: 700; color: rgba(255,255,255,0.6); margin-bottom: 16px; letter-spacing: 0.05em; text-transform: uppercase; }
+    .related-links { display: flex; flex-wrap: wrap; gap: 8px; }
+    .related-link {
+      display: inline-block;
+      padding: 7px 16px;
+      border: 1px solid rgba(255,255,255,0.25);
+      border-radius: 20px;
+      font-size: 12.5px;
+      color: rgba(255,255,255,0.8);
+      cursor: default;
+      transition: background .15s;
+    }
+    .related-link:hover { background: rgba(255,255,255,0.12); }
+
+    /* ── 푸터 ── */
+    .footer {
+      background: #111827;
+      color: rgba(255,255,255,0.6);
+      padding: 44px 0 28px;
+    }
+    .footer-grid {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 20px;
+      display: grid;
+      grid-template-columns: 1.4fr 1fr 1fr 1fr;
+      gap: 32px;
+      padding-bottom: 36px;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+    .footer-logo .ko { font-size: 17px; font-weight: 800; color: #fff; }
+    .footer-logo .en { font-size: 11px; color: rgba(255,255,255,0.4); margin-top: 2px; }
+    .footer-info { margin-top: 14px; font-size: 12.5px; line-height: 1.9; }
+    .footer-info strong { color: rgba(255,255,255,0.85); }
+    .footer-sns { display: flex; gap: 8px; margin-top: 16px; }
+    .footer-sns-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: rgba(255,255,255,0.1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      cursor: default;
+      color: rgba(255,255,255,0.6);
+    }
+    .footer-col h4 { font-size: 13px; font-weight: 700; color: #fff; margin-bottom: 14px; }
+    .footer-col ul { list-style: none; }
+    .footer-col ul li { font-size: 12.5px; margin-bottom: 8px; cursor: default; }
+    .footer-col ul li:hover { color: rgba(255,255,255,0.9); }
+    .footer-bottom {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px 20px 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 12px;
+      color: rgba(255,255,255,0.35);
+    }
+
+    /* ── 데모 배지 ── */
+    .demo-badge {
+      position: fixed;
+      top: 12px;
+      right: 12px;
+      background: #dc2626;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 5px 12px;
+      border-radius: 20px;
+      z-index: 9999;
+      letter-spacing: 0.05em;
+      box-shadow: 0 2px 8px rgba(220,38,38,0.4);
+    }
+
+    /* 반응형 */
+    @media (max-width: 900px) {
+      .banner-grid { grid-template-columns: repeat(2, 1fr); }
+      .service-grid { grid-template-columns: repeat(2, 1fr); }
+      .news-grid { grid-template-columns: 1fr; }
+      .footer-grid { grid-template-columns: 1fr 1fr; }
+      .hero-visual { display: none; }
+      .hero-text h1 { font-size: 28px; }
+    }
+    @media (max-width: 600px) {
+      .banner-grid { grid-template-columns: 1fr; }
+      .service-grid { grid-template-columns: repeat(2, 1fr); }
+      .footer-grid { grid-template-columns: 1fr; }
+      .gnb { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- 데모 표시 -->
+<div class="demo-badge">DEMO PAGE</div>
+
+<!-- 상단 유틸리티 바 -->
+<div class="util-bar">
+  <div class="inner">
+    <span>서울노동권익센터 공식 SNS</span>
+    <div class="sep">|</div>
+    <div class="sns-icon" title="네이버 블로그">N</div>
+    <div class="sns-icon" title="Facebook">f</div>
+    <div class="sns-icon" title="YouTube">▶</div>
+    <div class="sns-icon" title="Instagram">◎</div>
+    <div class="sns-icon" title="KakaoTalk">K</div>
+  </div>
+</div>
+
+<!-- 헤더 -->
+<header class="header">
+  <div class="header-inner">
+    <div class="logo">
+      <div class="logo-icon">서울</div>
+      <div class="logo-text">
+        <div class="ko">서울노동권익센터</div>
+        <div class="en">Seoul Labor Rights Center</div>
+      </div>
+    </div>
+    <nav>
+      <ul class="gnb">
+        <li>
+          <span>센터소개</span>
+          <ul class="sub-menu">
+            <li><span>인사말</span></li>
+            <li><span>비전·CI·캐릭터</span></li>
+            <li><span>연혁</span></li>
+            <li><span>조직도</span></li>
+            <li><span>오시는 길</span></li>
+          </ul>
+        </li>
+        <li>
+          <span>센터소식</span>
+          <ul class="sub-menu">
+            <li><span>공지사항</span></li>
+            <li><span>센터활동</span></li>
+            <li><span>언론소식</span></li>
+          </ul>
+        </li>
+        <li>
+          <span>사업안내</span>
+          <ul class="sub-menu">
+            <li><span>사업 한눈에 보기</span></li>
+            <li><span>법률지원</span></li>
+            <li><span>정책교육</span></li>
+            <li><span>노동안전</span></li>
+            <li><span>감정노동</span></li>
+            <li><span>정보화·홍보</span></li>
+            <li><span>쉼터운영</span></li>
+          </ul>
+        </li>
+        <li>
+          <span>신청하기</span>
+        </li>
+        <li>
+          <span>자료실</span>
+          <ul class="sub-menu">
+            <li><span>센터연구자료</span></li>
+            <li><span>센터일반자료</span></li>
+            <li><span>외부자료</span></li>
+            <li><span>미디어자료</span></li>
+          </ul>
+        </li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<!-- 히어로 배너 -->
+<section class="hero">
+  <div class="hero-inner">
+    <div class="hero-text">
+      <div class="tag">서울특별시 노동권 보호 기관</div>
+      <h1>노동자가 행복한<br /><em>노동존중 세상</em></h1>
+      <p>서울노동권익센터가 함께 하겠습니다<br />무료 법률상담·심리상담·노무컨설팅·건강검진 지원</p>
+      <span class="hero-btn">상담 신청하기</span>
+      <span class="hero-btn outline">사업 안내 보기</span>
+    </div>
+    <div class="hero-visual">
+      <div class="hero-card">
+        <div class="num">15,000<span class="unit">+</span></div>
+        <div class="label">연간 상담 건수</div>
+      </div>
+      <div class="hero-card">
+        <div class="num">100%</div>
+        <div class="label">무료 서비스</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 긴급 상담 전화 바 -->
+<div class="hotline-bar">
+  <div class="hotline-inner">
+    <div class="hotline-item">
+      <div class="icon">📞</div>
+      <div class="info">
+        <div class="label">노동상담 전화</div>
+        <div class="number">1661-2020</div>
+      </div>
+    </div>
+    <div class="hotline-item">
+      <div class="icon">📋</div>
+      <div class="info">
+        <div class="label">세무상담 전화</div>
+        <div class="number">02-6953-4585~6</div>
+      </div>
+    </div>
+    <div class="hotline-item">
+      <div class="icon">💙</div>
+      <div class="info">
+        <div class="label">심리상담 전화</div>
+        <div class="number">02-6953-4622~3</div>
+      </div>
+    </div>
+    <div class="hotline-item">
+      <div class="icon">🏢</div>
+      <div class="info">
+        <div class="label">대표 전화</div>
+        <div class="number">02-6925-4349</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 프로그램 배너 -->
+<section class="section">
+  <div class="container">
+    <div class="section-title">
+      <div class="sub">PROGRAMS</div>
+      <h2>현재 진행 중인 프로그램</h2>
+      <div class="line"></div>
+    </div>
+    <div class="banner-grid">
+      <div class="banner-card bc1">
+        <div class="banner-card-head">
+          <div class="badge">이벤트</div>
+          <h3>공식 카카오톡 친구추가<br />이벤트</h3>
+          <p>커피 쿠폰 300명 증정 · 2026.4.20~5.19</p>
+        </div>
+        <div class="banner-card-body">
+          <span class="date">2026.04.21</span>
+          <span class="more">자세히 보기 →</span>
+        </div>
+      </div>
+      <div class="banner-card bc2">
+        <div class="banner-card-head">
+          <div class="badge">교육 프로그램</div>
+          <h3>길에서 만나는<br />노동의 역사</h3>
+          <p>5/15, 6/12, 9/18, 10/23 (금) · 선착순 20명</p>
+        </div>
+        <div class="banner-card-body">
+          <span class="date">2026.05.06</span>
+          <span class="more">신청하기 →</span>
+        </div>
+      </div>
+      <div class="banner-card bc3">
+        <div class="banner-card-head">
+          <div class="badge">심리지원</div>
+          <h3>함께하는<br />마음돌봄 프로그램</h3>
+          <p>감정노동·직장 내 괴롭힘 1:1 심리상담 지원</p>
+        </div>
+        <div class="banner-card-body">
+          <span class="date">2026.03.09</span>
+          <span class="more">신청하기 →</span>
+        </div>
+      </div>
+      <div class="banner-card bc4">
+        <div class="banner-card-head">
+          <div class="badge">건강 지원</div>
+          <h3>취약노동자 맞춤형<br />건강검진 지원</h3>
+          <p>약 15만 원 상당 · 2026.4.8~5.31 신청</p>
+        </div>
+        <div class="banner-card-body">
+          <span class="date">2026.04.08</span>
+          <span class="more">신청하기 →</span>
+        </div>
+      </div>
+      <div class="banner-card bc5">
+        <div class="banner-card-head">
+          <div class="badge">세무상담</div>
+          <h3>5월 종합소득세 신고 대비<br />집중 세무상담</h3>
+          <p>02-6953-4585~6 전화 예약</p>
+        </div>
+        <div class="banner-card-body">
+          <span class="date">2026.05.01</span>
+          <span class="more">자세히 보기 →</span>
+        </div>
+      </div>
+      <div class="banner-card bc6">
+        <div class="banner-card-head">
+          <div class="badge">이동상담</div>
+          <h3>퇴근시간대 지하철역<br />찾아가는 노동상담</h3>
+          <p>노동자가 있는 곳으로 직접 찾아갑니다</p>
+        </div>
+        <div class="banner-card-body">
+          <span class="date">상시 운영</span>
+          <span class="more">일정 보기 →</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 주요 서비스 -->
+<section class="section services-bg">
+  <div class="container">
+    <div class="section-title">
+      <div class="sub">SERVICES</div>
+      <h2>주요 서비스</h2>
+      <div class="line"></div>
+    </div>
+    <div class="service-grid">
+      <div class="service-card">
+        <div class="service-icon" style="background:#eff6ff;">⚖️</div>
+        <h3>무료 노동법률상담</h3>
+        <p>방문·전화·온라인·영상 상담 지원</p>
+      </div>
+      <div class="service-card">
+        <div class="service-icon" style="background:#f0fdf4;">🏭</div>
+        <h3>중소사업장 노무컨설팅</h3>
+        <p>임금·근로시간·휴가 정책 컨설팅</p>
+      </div>
+      <div class="service-card">
+        <div class="service-icon" style="background:#fef3c7;">💰</div>
+        <h3>세무 상담</h3>
+        <p>종합소득세·프리랜서 세무 지원</p>
+      </div>
+      <div class="service-card">
+        <div class="service-icon" style="background:#fdf2f8;">💙</div>
+        <h3>감정노동·심리상담</h3>
+        <p>1:1 심리상담·집단치료·교육 지원</p>
+      </div>
+      <div class="service-card">
+        <div class="service-icon" style="background:#fff7ed;">🦺</div>
+        <h3>노동안전·건강지원</h3>
+        <p>취약노동자 건강검진·산업안전 교육</p>
+      </div>
+      <div class="service-card">
+        <div class="service-icon" style="background:#f0fdf4;">🎓</div>
+        <h3>정책·시민 교육</h3>
+        <p>청년·사업주·시민 노동권 교육 운영</p>
+      </div>
+      <div class="service-card">
+        <div class="service-icon" style="background:#eff6ff;">🚌</div>
+        <h3>이동노동자 쉼터</h3>
+        <p>건강·법률·복지·산재 기초 상담</p>
+      </div>
+      <div class="service-card">
+        <div class="service-icon" style="background:#fef2f2;">📚</div>
+        <h3>노동환경 연구·조사</h3>
+        <p>서울시 노동실태 연구 및 정책 지원</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 공지사항 + 센터활동 -->
+<section class="news-section">
+  <div class="container">
+    <div class="news-grid">
+      <!-- 공지사항 -->
+      <div class="news-box">
+        <div class="news-box-header">
+          <h3>공지사항</h3>
+          <span class="more">더보기 +</span>
+        </div>
+        <ul class="notice-list">
+          <li>
+            <span class="title">서울시민 안전지킴이 모집<span class="badge-new">NEW</span></span>
+            <span class="date">2026.05.08</span>
+          </li>
+          <li>
+            <span class="title">구의역 참사 10주기 시민 추모행사 안내<span class="badge-new">NEW</span></span>
+            <span class="date">2026.05.08</span>
+          </li>
+          <li>
+            <span class="title">노동의 역사 탐방 프로그램 신청 안내</span>
+            <span class="date">2026.05.06</span>
+          </li>
+          <li>
+            <span class="title">2026년 임시 휴관 안내 (근로자의 날)</span>
+            <span class="date">2026.04.29</span>
+          </li>
+          <li>
+            <span class="title">카카오톡 공식 채널 친구추가 이벤트 안내</span>
+            <span class="date">2026.04.21</span>
+          </li>
+          <li>
+            <span class="title">2026년 맞춤형 건강검진 지원 신청 안내</span>
+            <span class="date">2026.04.08</span>
+          </li>
+        </ul>
+      </div>
+
+      <!-- 센터 활동 -->
+      <div class="news-box">
+        <div class="news-box-header">
+          <h3>센터활동</h3>
+          <span class="more">더보기 +</span>
+        </div>
+        <div class="activity-grid">
+          <div class="activity-item">
+            <div class="activity-thumb" style="background: linear-gradient(135deg,#f59e0b,#d97706);">🎵</div>
+            <div class="activity-info"><p>노동자 위한 트롯 교실 운영</p></div>
+          </div>
+          <div class="activity-item">
+            <div class="activity-thumb" style="background: linear-gradient(135deg,#dc2626,#b91c1c);">🕯️</div>
+            <div class="activity-info"><p>산업재해 추모 캠페인</p></div>
+          </div>
+          <div class="activity-item">
+            <div class="activity-thumb" style="background: linear-gradient(135deg,#059669,#047857);">🤸</div>
+            <div class="activity-info"><p>근골격계 예방 운동 프로그램</p></div>
+          </div>
+          <div class="activity-item">
+            <div class="activity-thumb" style="background: linear-gradient(135deg,#7c3aed,#5b21b6);">🤝</div>
+            <div class="activity-info"><p>외국인 노동자 지원기관 협약</p></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 자료실 -->
+<section class="section resources-bg">
+  <div class="container">
+    <div class="section-title">
+      <div class="sub">RESOURCES</div>
+      <h2>자료실</h2>
+      <div class="line"></div>
+    </div>
+    <div style="background:#fff; border-radius:16px; padding:28px; box-shadow:0 4px 16px rgba(0,0,0,0.06);">
+      <div class="resource-tabs">
+        <div class="resource-tab active">센터연구자료</div>
+        <div class="resource-tab">센터일반자료</div>
+        <div class="resource-tab">외부자료</div>
+        <div class="resource-tab">미디어자료</div>
+      </div>
+      <ul class="resource-list">
+        <li>
+          <div class="resource-icon">📊</div>
+          <div class="info">
+            <div class="title">2024 서울시 노동실태 조사 보고서</div>
+            <div class="meta">연구자료 · PDF</div>
+          </div>
+          <span class="date">2025.03.15</span>
+        </li>
+        <li>
+          <div class="resource-icon">📋</div>
+          <div class="info">
+            <div class="title">프리랜서 노동환경 실태조사 (2024)</div>
+            <div class="meta">연구자료 · PDF</div>
+          </div>
+          <span class="date">2024.12.20</span>
+        </li>
+        <li>
+          <div class="resource-icon">📕</div>
+          <div class="info">
+            <div class="title">아파트 경비원 권리 가이드북</div>
+            <div class="meta">연구자료 · PDF</div>
+          </div>
+          <span class="date">2024.09.10</span>
+        </li>
+        <li>
+          <div class="resource-icon">💬</div>
+          <div class="info">
+            <div class="title">2024년 상담사례집</div>
+            <div class="meta">연구자료 · PDF</div>
+          </div>
+          <span class="date">2024.07.05</span>
+        </li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 관련기관 링크 -->
+<div class="related-section">
+  <div class="related-inner">
+    <div class="related-title">관련 기관</div>
+    <div class="related-links">
+      <span class="related-link">서울특별시</span>
+      <span class="related-link">고용노동부</span>
+      <span class="related-link">노동위원회</span>
+      <span class="related-link">근로복지공단</span>
+      <span class="related-link">서울시 노동권 포털</span>
+      <span class="related-link">한국공인노무사회</span>
+      <span class="related-link">영등포 노동복지관</span>
+      <span class="related-link">아현 노동복지관</span>
+      <span class="related-link">서울사회경제센터</span>
+      <span class="related-link">일자리 포털</span>
+      <span class="related-link">시니어 돌봄센터</span>
+    </div>
+  </div>
+</div>
+
+<!-- 푸터 -->
+<footer class="footer">
+  <div class="footer-grid">
+    <div>
+      <div class="footer-logo">
+        <div class="ko">서울노동권익센터</div>
+        <div class="en">Seoul Labor Rights Center</div>
+      </div>
+      <div class="footer-info">
+        <strong>주소</strong> : (07244) 서울특별시 영등포구 국회대로44길 10 (4층)<br />
+        <strong>대표전화</strong> : 02-6925-4349<br />
+        <strong>노동상담</strong> : 1661-2020<br />
+        <strong>이메일</strong> : labors@labors.or.kr
+      </div>
+      <div class="footer-sns">
+        <div class="footer-sns-icon">N</div>
+        <div class="footer-sns-icon">f</div>
+        <div class="footer-sns-icon">▶</div>
+        <div class="footer-sns-icon">◎</div>
+        <div class="footer-sns-icon">K</div>
+      </div>
+    </div>
+    <div class="footer-col">
+      <h4>센터소개</h4>
+      <ul>
+        <li>인사말</li>
+        <li>비전·CI·캐릭터</li>
+        <li>연혁</li>
+        <li>조직도</li>
+        <li>오시는 길</li>
+      </ul>
+    </div>
+    <div class="footer-col">
+      <h4>사업안내</h4>
+      <ul>
+        <li>법률지원</li>
+        <li>정책교육</li>
+        <li>노동안전</li>
+        <li>감정노동</li>
+        <li>쉼터운영</li>
+      </ul>
+    </div>
+    <div class="footer-col">
+      <h4>자료실</h4>
+      <ul>
+        <li>센터연구자료</li>
+        <li>센터일반자료</li>
+        <li>미디어자료</li>
+        <li>공지사항</li>
+        <li>센터활동</li>
+      </ul>
+    </div>
+  </div>
+  <div class="footer-bottom">
+    <span>Copyright © 2026 서울노동권익센터. All Rights Reserved.</span>
+    <span>개인정보처리방침 · 이용약관</span>
+  </div>
+</footer>
+
+<!-- IEUMBOT 위젯 -->
+<script
+  src="/widget.js"
+  data-chatbot-id="06b9d388-519d-4fa5-9de8-d02309c460dd"
+  data-api-base-url="https://ieumbot-api.onrender.com/api"
+  data-open-on-load="false"
+  data-launcher-icon="custom"
+  data-launcher-icon-url="/widget-icons/generated/9.png"
+></script>
+
+</body>
+</html>
