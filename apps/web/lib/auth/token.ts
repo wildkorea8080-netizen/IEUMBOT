@@ -64,6 +64,9 @@ export function beginAdminImpersonation(params: {
       expiresAt: params.expiresAt,
     } as AdminImpersonationState),
   );
+  // 이전 기관의 챗봇 선택 정보를 초기화해 다른 기관 챗봇이 잔류하지 않도록 한다.
+  localStorage.removeItem("ieumbot_admin_ai_chatbot_id");
+  localStorage.removeItem("ieumbot_admin_selected_chatbot");
   dispatchImpersonationEvent();
 }
 

@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { Search, X } from "lucide-react";
 
-import { PagePanel } from "../ui/page-panel";
 import { ApiClientError } from "../../lib/api";
 import {
   getAdminConversationDetail,
@@ -16,36 +16,34 @@ import type {
 } from "../../lib/api/conversations-types";
 
 function getErrorMessage(error: unknown): string {
-  if (error instanceof ApiClientError) {
-    return `${error.code}: ${error.message}`;
-  }
-  if (error instanceof Error) {
-    return error.message;
-  }
+  if (error instanceof ApiClientError) return `${error.code}: ${error.message}`;
+  if (error instanceof Error) return error.message;
   return "대화 정보를 처리하지 못했습니다.";
 }
 
 function statusBadgeClass(status: string): string {
-  if (status === "answered") return "bg-emerald-100 text-emerald-700";
-  if (status === "insufficient_evidence") return "bg-amber-100 text-amber-700";
-  if (status === "escalated") return "bg-blue-100 text-blue-700";
-  if (status === "blocked") return "bg-rose-100 text-rose-700";
-  return "bg-slate-200 text-slate-700";
+  if (status === "answered") return "badge-success";
+  if (status === "insufficient_evidence") return "badge-warning";
+  if (status === "escalated") return "badge-info";
+  if (status === "blocked") return "badge-danger";
+  return "badge-neutral";
 }
 
 function sourceLabel(item: AdminConversationItem): string {
-  if (!item.hasCitations) return "없음";
+  if (!item.hasCitations) return "-";
   return `${item.citationCount}건`;
 }
 
 function formatDateTime(value?: string | null): string {
   if (!value) return "-";
-  return new Date(value).toLocaleString("ko-KR");
+  return new Date(value).toLocaleString("ko-KR", {
+    month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
+  });
 }
 
 function formatLatency(value?: number | null): string {
   if (typeof value !== "number") return "-";
-  return `${value}ms`;
+  return `${value.toLocaleString("ko-KR")}ms`;
 }
 
 export function ConversationsManagement() {
@@ -94,9 +92,7 @@ export function ConversationsManagement() {
     }
   }
 
-  useEffect(() => {
-    void loadConversations(1);
-  }, []);
+  useEffect(() => { void loadConversations(1); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function openDetail(sessionId: string) {
     setIsDetailLoading(true);
@@ -128,213 +124,228 @@ export function ConversationsManagement() {
   }
 
   return (
-    <div className="space-y-6">
-      <PagePanel
-        title="대화 관리"
-        description="상태, 출처, 에스컬레이션, 응답 시간 기준으로 일일 대화 이력을 확인합니다."
-      >
-        <div className="grid gap-3 lg:grid-cols-[160px_160px_170px_170px_170px_170px_1fr_auto]">
-          <input type="date" value={from} onChange={(event) => setFrom(event.target.value)} className="rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-          <input type="date" value={to} onChange={(event) => setTo(event.target.value)} className="rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-          <select value={answerStatus} onChange={(event) => setAnswerStatus(event.target.value)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
+    <div className="space-y-4">
+      {/* 페이지 헤더 */}
+      <div className="mb-2">
+        <h1 className="section-title">대화 관리</h1>
+        <p style={{ fontSize: 13, color: "#64748b", marginTop: 2 }}>상태·출처·에스컬레이션·응답시간 기준으로 일일 대화 이력을 확인합니다.</p>
+      </div>
+
+      {/* 필터 바 */}
+      <div className="bg-white rounded-xl border border-neutral-200 p-4">
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+          <input type="date" value={from} onChange={e => setFrom(e.target.value)}
+            className="input-field" style={{ width: 148 }} aria-label="시작일" />
+          <input type="date" value={to} onChange={e => setTo(e.target.value)}
+            className="input-field" style={{ width: 148 }} aria-label="종료일" />
+          <select value={answerStatus} onChange={e => setAnswerStatus(e.target.value)}
+            className="input-field" style={{ width: 148 }}>
             <option value="">전체 답변 상태</option>
             <option value="answered">답변 완료</option>
             <option value="insufficient_evidence">근거 부족</option>
             <option value="escalate">에스컬레이션</option>
             <option value="restricted">차단</option>
-            <option value="conflict">차단</option>
           </select>
-          <select value={escalated} onChange={(event) => setEscalated(event.target.value)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
-            <option value="">전체 에스컬레이션</option>
+          <select value={escalated} onChange={e => setEscalated(e.target.value)}
+            className="input-field" style={{ width: 148 }}>
+            <option value="">에스컬레이션 전체</option>
             <option value="true">에스컬레이션됨</option>
-            <option value="false">에스컬레이션 안 됨</option>
+            <option value="false">에스컬레이션 없음</option>
           </select>
-          <select value={hasCitations} onChange={(event) => setHasCitations(event.target.value)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
-            <option value="">전체 출처 상태</option>
+          <select value={hasCitations} onChange={e => setHasCitations(e.target.value)}
+            className="input-field" style={{ width: 128 }}>
+            <option value="">출처 전체</option>
             <option value="true">출처 있음</option>
             <option value="false">출처 없음</option>
           </select>
-          <select value={llmExecuted} onChange={(event) => setLlmExecuted(event.target.value)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
-            <option value="">전체 LLM 상태</option>
+          <select value={llmExecuted} onChange={e => setLlmExecuted(e.target.value)}
+            className="input-field" style={{ width: 128 }}>
+            <option value="">LLM 전체</option>
             <option value="true">LLM 실행</option>
             <option value="false">LLM 건너뜀</option>
           </select>
-          <input
-            value={question}
-            onChange={(event) => setQuestion(event.target.value)}
-            placeholder="질문 검색"
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-          />
-          <button type="button" onClick={() => void loadConversations(1)} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700">
+          <div style={{ position: "relative", flex: 1, minWidth: 180 }}>
+            <Search style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", width: 15, height: 15, color: "#94a3b8", pointerEvents: "none" }} />
+            <input
+              value={question}
+              onChange={e => setQuestion(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") void loadConversations(1); }}
+              placeholder="질문 검색..."
+              className="input-field"
+              style={{ paddingLeft: 32 }}
+            />
+          </div>
+          <button type="button" onClick={() => void loadConversations(1)} className="btn-primary" style={{ padding: "8px 20px" }}>
             검색
           </button>
         </div>
 
-        {error ? <p className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
-        {isLoading ? <p className="mt-4 text-sm text-slate-500">대화 목록을 불러오는 중...</p> : null}
+        {error && (
+          <p style={{ marginTop: 12, padding: "8px 12px", borderRadius: 8, background: "#fef2f2", border: "1px solid #fecaca", fontSize: 13, color: "#dc2626" }}>
+            {error}
+          </p>
+        )}
+      </div>
 
-        {!isLoading ? (
-          <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200">
-            <table className="min-w-full table-fixed text-sm">
-              <thead className="bg-slate-50 text-left text-slate-600">
+      {/* 테이블 */}
+      <div className="bg-white rounded-xl border border-neutral-200" style={{ overflow: "hidden" }}>
+        {isLoading ? (
+          <div style={{ padding: "40px 0", textAlign: "center", fontSize: 13, color: "#94a3b8" }}>불러오는 중...</div>
+        ) : (
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <thead>
+              <tr>
+                <th className="table-header" style={{ width: 120 }}>시간</th>
+                <th className="table-header">질문 미리보기</th>
+                <th className="table-header" style={{ width: 110 }}>답변 상태</th>
+                <th className="table-header" style={{ width: 72 }}>출처</th>
+                <th className="table-header" style={{ width: 90 }}>에스컬레이션</th>
+                <th className="table-header" style={{ width: 90 }}>응답시간</th>
+                <th className="table-header" style={{ width: 80 }}>상세</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.length === 0 ? (
                 <tr>
-                  <th className="w-44 px-3 py-3">시간</th>
-                  <th className="px-3 py-3">질문 미리보기</th>
-                  <th className="w-28 px-3 py-3">답변 상태</th>
-                  <th className="w-24 px-3 py-3">출처</th>
-                  <th className="w-24 px-3 py-3">에스컬레이션</th>
-                  <th className="w-28 px-3 py-3">지연 시간</th>
-                  <th className="w-44 px-3 py-3">작업</th>
+                  <td colSpan={7} className="table-cell" style={{ textAlign: "center", padding: "40px 0", color: "#94a3b8" }}>
+                    대화 이력이 없습니다.
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 bg-white">
-                {items.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="px-3 py-10 text-center text-sm text-slate-500">
-                      대화가 없습니다.
+              ) : (
+                items.map(item => (
+                  <tr key={item.sessionId} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                    <td className="table-cell" style={{ color: "#64748b", whiteSpace: "nowrap" }}>{formatDateTime(item.time)}</td>
+                    <td className="table-cell">
+                      <span style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", color: "#1e293b" }}>
+                        {item.questionPreview ?? "-"}
+                      </span>
+                    </td>
+                    <td className="table-cell">
+                      <span className={statusBadgeClass(item.answerStatus)}>{item.answerStatusLabel}</span>
+                    </td>
+                    <td className="table-cell" style={{ color: "#475569" }}>{sourceLabel(item)}</td>
+                    <td className="table-cell" style={{ color: "#475569" }}>{item.escalated ? "예" : "-"}</td>
+                    <td className="table-cell" style={{ color: "#475569", fontVariantNumeric: "tabular-nums" }}>{formatLatency(item.responseTimeMs)}</td>
+                    <td className="table-cell">
+                      <button type="button" onClick={() => void openDetail(item.sessionId)} className="btn-secondary" style={{ padding: "4px 12px", fontSize: 12 }}>
+                        보기
+                      </button>
                     </td>
                   </tr>
-                ) : (
-                  items.map((item) => (
-                    <tr key={item.sessionId}>
-                      <td className="px-3 py-4 text-slate-500">{formatDateTime(item.time)}</td>
-                      <td className="px-3 py-4">
-                        <p className="line-clamp-2 text-slate-900">{item.questionPreview ?? "-"}</p>
-                      </td>
-                      <td className="px-3 py-4">
-                        <span className={`rounded-full px-3 py-1 text-xs font-medium ${statusBadgeClass(item.answerStatus)}`}>
-                          {item.answerStatusLabel}
-                        </span>
-                      </td>
-                      <td className="px-3 py-4 text-slate-700">{sourceLabel(item)}</td>
-                      <td className="px-3 py-4 text-slate-700">{item.escalated ? "예" : "-"}</td>
-                      <td className="px-3 py-4 text-slate-700">{formatLatency(item.responseTimeMs)}</td>
-                      <td className="px-3 py-4">
-                        <div className="flex flex-wrap gap-2">
-                          <button type="button" onClick={() => void openDetail(item.sessionId)} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-700">
-                            상세
-                          </button>
-                          <Link href="/admin/conversation-analysis" className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-700">
-                            고급 분석
-                          </Link>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        ) : null}
+                ))
+              )}
+            </tbody>
+          </table>
+        )}
 
-        <div className="mt-4 flex items-center justify-between text-sm text-slate-600">
-          <span>
-            총 {totalCount}건 / {page}페이지 / {totalPages}페이지
-          </span>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              disabled={page <= 1}
-              onClick={() => void loadConversations(page - 1)}
-              className="rounded-lg border border-slate-300 px-3 py-2 disabled:opacity-50"
-            >
+        {/* 페이지네이션 */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderTop: "1px solid #f1f5f9", fontSize: 13, color: "#64748b" }}>
+          <span>총 {totalCount.toLocaleString("ko-KR")}건 — {page} / {totalPages} 페이지</span>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button type="button" disabled={page <= 1} onClick={() => void loadConversations(page - 1)}
+              className="btn-secondary" style={{ padding: "5px 14px", fontSize: 12, opacity: page <= 1 ? 0.4 : 1 }}>
               이전
             </button>
-            <button
-              type="button"
-              disabled={page >= totalPages}
-              onClick={() => void loadConversations(page + 1)}
-              className="rounded-lg border border-slate-300 px-3 py-2 disabled:opacity-50"
-            >
+            <button type="button" disabled={page >= totalPages} onClick={() => void loadConversations(page + 1)}
+              className="btn-secondary" style={{ padding: "5px 14px", fontSize: 12, opacity: page >= totalPages ? 0.4 : 1 }}>
               다음
             </button>
           </div>
         </div>
-      </PagePanel>
+      </div>
 
+      {/* 상세 슬라이드 패널 */}
       {(detail || isDetailLoading) && (
-        <div className="fixed inset-0 z-40 bg-slate-950/30">
-          <div className="ml-auto flex h-full w-full max-w-2xl flex-col overflow-y-auto bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+        <div style={{ position: "fixed", inset: 0, zIndex: 40, background: "rgba(15,23,42,0.3)" }} onClick={() => setDetail(null)}>
+          <div
+            style={{ position: "absolute", top: 0, right: 0, bottom: 0, width: "100%", maxWidth: 600, background: "white", boxShadow: "-4px 0 24px rgba(0,0,0,0.12)", display: "flex", flexDirection: "column", overflowY: "auto" }}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* 패널 헤더 */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 24px", borderBottom: "1px solid #e2e8f0", position: "sticky", top: 0, background: "white", zIndex: 1 }}>
               <div>
-                <h3 className="text-lg font-semibold text-slate-900">대화 상세</h3>
-                <p className="text-sm text-slate-500">운영자용 필드만 표시됩니다.</p>
+                <h3 style={{ fontSize: 16, fontWeight: 600, color: "#1e293b", margin: 0 }}>대화 상세</h3>
+                <p style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>운영자 전용 필드</p>
               </div>
-              <button type="button" onClick={() => setDetail(null)} className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700">
-                닫기
+              <button type="button" onClick={() => setDetail(null)}
+                style={{ background: "none", border: "none", cursor: "pointer", color: "#94a3b8", padding: 4 }}>
+                <X style={{ width: 20, height: 20 }} />
               </button>
             </div>
 
-            {isDetailLoading ? <p className="px-6 py-8 text-sm text-slate-500">상세 정보를 불러오는 중...</p> : null}
+            {isDetailLoading && (
+              <div style={{ padding: "40px 0", textAlign: "center", fontSize: 13, color: "#94a3b8" }}>상세 정보를 불러오는 중...</div>
+            )}
 
-            {detail ? (
-              <div className="space-y-6 px-6 py-6">
-                <div className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700 md:grid-cols-2">
-                  <div><strong className="mr-2 text-slate-900">답변 상태</strong>{detail.answerStatusLabel}</div>
-                  <div><strong className="mr-2 text-slate-900">지연 시간</strong>{formatLatency(detail.responseTimeMs)}</div>
-                  <div><strong className="mr-2 text-slate-900">생성일</strong>{formatDateTime(detail.createdAt)}</div>
-                  <div><strong className="mr-2 text-slate-900">세션 상태</strong>{detail.sessionStatus}</div>
-                  <div><strong className="mr-2 text-slate-900">출처</strong>{detail.hasCitations ? `${detail.citationSummary.length}건` : "없음"}</div>
-                  <div><strong className="mr-2 text-slate-900">LLM</strong>{detail.llmExecuted ? "실행됨" : "건너뜀 또는 없음"}</div>
+            {detail && (
+              <div style={{ padding: "20px 24px", display: "flex", flexDirection: "column", gap: 16 }}>
+                {/* 메타 */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, padding: 16, background: "#f8fafc", borderRadius: 10, border: "1px solid #e2e8f0", fontSize: 13 }}>
+                  <div><span style={{ color: "#64748b" }}>답변 상태 </span><strong style={{ color: "#1e293b" }}>{detail.answerStatusLabel}</strong></div>
+                  <div><span style={{ color: "#64748b" }}>응답시간 </span><strong style={{ color: "#1e293b" }}>{formatLatency(detail.responseTimeMs)}</strong></div>
+                  <div><span style={{ color: "#64748b" }}>생성일 </span><strong style={{ color: "#1e293b" }}>{formatDateTime(detail.createdAt)}</strong></div>
+                  <div><span style={{ color: "#64748b" }}>세션 상태 </span><strong style={{ color: "#1e293b" }}>{detail.sessionStatus}</strong></div>
+                  <div><span style={{ color: "#64748b" }}>출처 </span><strong style={{ color: "#1e293b" }}>{detail.hasCitations ? `${detail.citationSummary.length}건` : "없음"}</strong></div>
+                  <div><span style={{ color: "#64748b" }}>LLM </span><strong style={{ color: "#1e293b" }}>{detail.llmExecuted ? "실행됨" : "건너뜀"}</strong></div>
                 </div>
 
-                <div className="rounded-xl border border-slate-200 p-4">
-                  <h4 className="text-sm font-semibold text-slate-900">사용자 질문</h4>
-                  <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{detail.userQuestion ?? "-"}</p>
+                {/* 질문 */}
+                <div style={{ background: "#eff6ff", borderRadius: 10, padding: 14, border: "1px solid #bfdbfe" }}>
+                  <p style={{ fontSize: 11, fontWeight: 600, color: "#2563eb", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>사용자 질문</p>
+                  <p style={{ fontSize: 14, color: "#1e293b", whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{detail.userQuestion ?? "-"}</p>
                 </div>
 
-                <div className="rounded-xl border border-slate-200 p-4">
-                  <h4 className="text-sm font-semibold text-slate-900">답변</h4>
-                  <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{detail.assistantAnswer ?? "-"}</p>
+                {/* 답변 */}
+                <div style={{ background: "#f8fafc", borderRadius: 10, padding: 14, border: "1px solid #e2e8f0" }}>
+                  <p style={{ fontSize: 11, fontWeight: 600, color: "#475569", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>AI 답변</p>
+                  <p style={{ fontSize: 13, color: "#334155", whiteSpace: "pre-wrap", lineHeight: 1.7 }}>{detail.assistantAnswer ?? "-"}</p>
                 </div>
 
-                <div className="rounded-xl border border-slate-200 p-4">
-                  <h4 className="text-sm font-semibold text-slate-900">출처 요약</h4>
-                  {detail.citationSummary.length === 0 ? (
-                    <p className="mt-2 text-sm text-slate-500">출처가 없습니다.</p>
-                  ) : (
-                    <ul className="mt-2 space-y-2 text-sm text-slate-700">
-                      {detail.citationSummary.map((citation, index) => (
-                        <li key={`${citation.title ?? "source"}-${index}`} className="rounded-lg bg-slate-50 px-3 py-2">
-                          {citation.title ?? citation.sourceUrl ?? "출처"} / {citation.sectionTitle ?? "-"} / p.{citation.pageNumber ?? "-"}
-                        </li>
+                {/* 출처 */}
+                {detail.citationSummary.length > 0 && (
+                  <div style={{ borderRadius: 10, border: "1px solid #e2e8f0", overflow: "hidden" }}>
+                    <div style={{ padding: "10px 14px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", fontSize: 12, fontWeight: 600, color: "#475569" }}>출처 요약 ({detail.citationSummary.length}건)</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+                      {detail.citationSummary.map((c, i) => (
+                        <div key={i} style={{ padding: "8px 14px", borderBottom: i < detail.citationSummary.length - 1 ? "1px solid #f1f5f9" : "none", fontSize: 12, color: "#334155" }}>
+                          {c.title ?? c.sourceUrl ?? "출처"}{c.sectionTitle ? ` / ${c.sectionTitle}` : ""}{c.pageNumber != null ? ` / p.${c.pageNumber}` : ""}
+                        </div>
                       ))}
-                    </ul>
-                  )}
-                </div>
+                    </div>
+                  </div>
+                )}
 
-                <div className="grid gap-3 rounded-xl border border-slate-200 p-4 text-sm text-slate-700 md:grid-cols-2">
-                  <div><strong className="mr-2 text-slate-900">Fallback 메시지</strong>{detail.fallbackMessage ?? "-"}</div>
-                  <div><strong className="mr-2 text-slate-900">에스컬레이션 사유</strong>{detail.escalationReason ?? "-"}</div>
-                  <div><strong className="mr-2 text-slate-900">에스컬레이션 부서</strong>{detail.escalationTargetDepartment ?? "-"}</div>
-                  <div><strong className="mr-2 text-slate-900">에스컬레이션 큐</strong>{detail.escalationTargetQueue ?? "-"}</div>
-                </div>
+                {/* 에스컬레이션 */}
+                {(detail.escalationReason || detail.escalationTargetDepartment) && (
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, padding: 14, background: "#fefce8", borderRadius: 10, border: "1px solid #fde68a", fontSize: 13 }}>
+                    <div><span style={{ color: "#92400e" }}>사유 </span><span style={{ color: "#1e293b" }}>{detail.escalationReason ?? "-"}</span></div>
+                    <div><span style={{ color: "#92400e" }}>부서 </span><span style={{ color: "#1e293b" }}>{detail.escalationTargetDepartment ?? "-"}</span></div>
+                  </div>
+                )}
 
-                <div className="rounded-xl border border-slate-200 p-4">
-                  <h4 className="text-sm font-semibold text-slate-900">운영 메모</h4>
+                {/* 운영 메모 */}
+                <div style={{ borderRadius: 10, border: "1px solid #e2e8f0", padding: 14 }}>
+                  <p style={{ fontSize: 12, fontWeight: 600, color: "#475569", marginBottom: 8 }}>운영 메모</p>
                   <textarea
                     value={memo}
-                    onChange={(event) => setMemo(event.target.value)}
-                    rows={4}
-                    className="mt-3 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    onChange={e => setMemo(e.target.value)}
+                    rows={3}
+                    className="input-field"
                     placeholder="메모를 입력하세요"
                   />
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => void saveMemo()}
-                      disabled={isSaving}
-                      className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-                    >
-                      저장
+                  <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                    <button type="button" onClick={() => void saveMemo()} disabled={isSaving}
+                      className="btn-primary" style={{ padding: "7px 20px", fontSize: 13, opacity: isSaving ? 0.6 : 1 }}>
+                      {isSaving ? "저장 중..." : "저장"}
                     </button>
-                    <Link href={detail.advancedAnalysisUrl ?? "/admin/conversation-analysis"} className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700">
+                    <Link href={detail.advancedAnalysisUrl ?? "/admin/conversation-analysis"}
+                      className="btn-secondary" style={{ padding: "7px 16px", fontSize: 13 }}>
                       고급 분석
                     </Link>
                   </div>
                 </div>
               </div>
-            ) : null}
+            )}
           </div>
         </div>
       )}

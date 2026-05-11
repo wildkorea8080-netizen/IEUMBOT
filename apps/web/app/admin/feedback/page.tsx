@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { ThumbsUp, ThumbsDown, MessageSquare, BarChart2 } from "lucide-react";
 
-import { PagePanel } from "../../../components/ui/page-panel";
 import { ApiClientError } from "../../../lib/api";
 import {
   getAdminChatbots,
@@ -19,49 +19,49 @@ import type { AdminChatbotItem } from "../../../lib/api/admin-operations-types";
 
 const PAGE_SIZE = 20;
 
-function errorMessage(error: unknown): string {
+function errMsg(error: unknown): string {
   if (error instanceof ApiClientError) return `${error.code}: ${error.message}`;
   if (error instanceof Error) return error.message;
   return "데이터를 불러오지 못했습니다.";
 }
 
-function formatNumber(value: number): string {
-  return value.toLocaleString("ko-KR");
-}
-
-function formatPercent(value: number): string {
-  return `${value.toFixed(1)}%`;
-}
-
-function formatDate(value: string | null): string {
+function fmtNum(v: number) { return v.toLocaleString("ko-KR"); }
+function fmtPct(v: number) { return `${v.toFixed(1)}%`; }
+function fmtDate(value: string | null): string {
   if (!value) return "-";
   const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? value : d.toLocaleString("ko-KR", {
-    month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
-  });
+  return Number.isNaN(d.getTime()) ? value : d.toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
-function MetricCard(props: { label: string; value: string; helper?: string; accent?: boolean }) {
+function StatCard(props: { label: string; value: string; helper?: string; icon: React.ReactNode; color?: "green" | "red" | "blue" | "default" }) {
+  const bg = props.color === "green" ? "#f0fdf4" : props.color === "red" ? "#fef2f2" : props.color === "blue" ? "#eff6ff" : "white";
+  const border = props.color === "green" ? "#bbf7d0" : props.color === "red" ? "#fecaca" : props.color === "blue" ? "#bfdbfe" : "#e2e8f0";
+  const iconBg = props.color === "green" ? "#dcfce7" : props.color === "red" ? "#fee2e2" : props.color === "blue" ? "#dbeafe" : "#f1f5f9";
+  const iconColor = props.color === "green" ? "#16a34a" : props.color === "red" ? "#dc2626" : props.color === "blue" ? "#2563eb" : "#64748b";
+  const valColor = props.color === "green" ? "#16a34a" : props.color === "red" ? "#dc2626" : "#0f172a";
   return (
-    <article className={`rounded-lg border p-4 ${props.accent ? "border-emerald-200 bg-emerald-50" : "border-slate-200 bg-white"}`}>
-      <p className="text-sm text-slate-500">{props.label}</p>
-      <p className="mt-2 text-2xl font-semibold text-slate-950">{props.value}</p>
-      {props.helper ? <p className="mt-2 text-xs text-slate-500">{props.helper}</p> : null}
-    </article>
+    <div style={{ borderRadius: 12, border: `1px solid ${border}`, background: bg, padding: 16, display: "flex", alignItems: "flex-start", gap: 12 }}>
+      <div style={{ width: 36, height: 36, borderRadius: 8, background: iconBg, display: "flex", alignItems: "center", justifyContent: "center", color: iconColor, flexShrink: 0 }}>
+        {props.icon}
+      </div>
+      <div style={{ minWidth: 0 }}>
+        <p style={{ fontSize: 12, color: "#64748b" }}>{props.label}</p>
+        <p style={{ fontSize: 22, fontWeight: 700, color: valColor, marginTop: 4 }}>{props.value}</p>
+        {props.helper && <p style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>{props.helper}</p>}
+      </div>
+    </div>
   );
 }
 
-function PositiveBar(props: { rate: number }) {
-  const pct = Math.min(100, Math.max(0, props.rate));
+function PositiveBar({ rate }: { rate: number }) {
+  const pct = Math.min(100, Math.max(0, rate));
+  const barColor = pct >= 70 ? "#22c55e" : pct >= 40 ? "#f59e0b" : "#f87171";
   return (
-    <div className="flex items-center gap-2">
-      <div className="h-2 w-24 overflow-hidden rounded-full bg-slate-100">
-        <div
-          className={`h-full rounded-full ${pct >= 70 ? "bg-emerald-500" : pct >= 40 ? "bg-amber-400" : "bg-red-400"}`}
-          style={{ width: `${pct}%` }}
-        />
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ flex: 1, height: 6, borderRadius: 99, background: "#f1f5f9", overflow: "hidden" }}>
+        <div style={{ width: `${pct}%`, height: "100%", background: barColor, borderRadius: 99, transition: "width 0.3s" }} />
       </div>
-      <span className="text-xs text-slate-600">{formatPercent(pct)}</span>
+      <span style={{ fontSize: 12, color: "#475569", minWidth: 40, textAlign: "right" }}>{fmtPct(pct)}</span>
     </div>
   );
 }
@@ -93,7 +93,7 @@ export default function AdminFeedbackPage() {
       setLowRatedTotal(lowRes.total);
       if (chatbotRes) setChatbots(chatbotRes.items);
     } catch (err) {
-      setError(errorMessage(err));
+      setError(errMsg(err));
     } finally {
       setIsLoading(false);
     }
@@ -108,180 +108,178 @@ export default function AdminFeedbackPage() {
 
   return (
     <div className="space-y-4">
-      {/* 헤더 + 필터 */}
-      <PagePanel
-        title="피드백 현황"
-        description="사용자가 남긴 👍/👎 피드백을 기반으로 답변 품질을 분석합니다."
-      >
-        <div className="flex flex-wrap items-center gap-3">
-          <select
-            value={chatbotId}
-            onChange={(e) => { setChatbotId(e.target.value); setPage(0); }}
-            className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
-          >
+      {/* 페이지 헤더 */}
+      <div className="mb-2">
+        <h1 className="section-title">피드백 현황</h1>
+        <p style={{ fontSize: 13, color: "#64748b", marginTop: 2 }}>사용자가 남긴 좋아요/싫어요 피드백을 기반으로 답변 품질을 분석합니다.</p>
+      </div>
+
+      {/* 필터 바 */}
+      <div className="bg-white rounded-xl border border-neutral-200 p-4">
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
+          <select value={chatbotId} onChange={e => { setChatbotId(e.target.value); setPage(0); }} className="input-field" style={{ width: 200 }}>
             <option value="">전체 챗봇</option>
-            {chatbots.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
+            {chatbots.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
-          <button
-            type="button"
-            onClick={() => { setPage(0); void loadAll(chatbotId, 0); }}
-            disabled={isLoading}
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-          >
+          <button type="button" onClick={() => { setPage(0); void loadAll(chatbotId, 0); }} disabled={isLoading}
+            className="btn-secondary" style={{ padding: "8px 16px", opacity: isLoading ? 0.5 : 1 }}>
             {isLoading ? "로딩 중..." : "새로고침"}
           </button>
         </div>
-        {error ? (
-          <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{error}</p>
-        ) : null}
-      </PagePanel>
+        {error && (
+          <p style={{ marginTop: 12, padding: "8px 12px", borderRadius: 8, background: "#fef2f2", border: "1px solid #fecaca", fontSize: 13, color: "#dc2626" }}>
+            {error}
+          </p>
+        )}
+      </div>
 
-      {/* 요약 카드 4개 */}
+      {/* 지표 카드 4개 */}
       {summary ? (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <MetricCard label="전체 assistant 메시지" value={formatNumber(summary.totalAssistantMessages)} />
-          <MetricCard
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
+          <StatCard
+            label="전체 AI 메시지"
+            value={fmtNum(summary.totalAssistantMessages)}
+            icon={<MessageSquare style={{ width: 18, height: 18 }} />}
+            color="blue"
+          />
+          <StatCard
             label="피드백 수신"
-            value={formatNumber(summary.feedbackReceived)}
+            value={fmtNum(summary.feedbackReceived)}
             helper={summary.totalAssistantMessages > 0
-              ? `${((summary.feedbackReceived / summary.totalAssistantMessages) * 100).toFixed(1)}% 참여율`
+              ? `참여율 ${fmtPct((summary.feedbackReceived / summary.totalAssistantMessages) * 100)}`
               : undefined}
+            icon={<BarChart2 style={{ width: 18, height: 18 }} />}
           />
-          <MetricCard
-            label="👍 좋아요"
-            value={formatNumber(summary.thumbsUp)}
-            helper={summary.feedbackReceived > 0
-              ? `긍정률 ${formatPercent(summary.positiveRate)}`
-              : undefined}
-            accent={summary.positiveRate >= 70}
+          <StatCard
+            label="좋아요"
+            value={fmtNum(summary.thumbsUp)}
+            helper={summary.feedbackReceived > 0 ? `긍정률 ${fmtPct(summary.positiveRate)}` : undefined}
+            icon={<ThumbsUp style={{ width: 18, height: 18 }} />}
+            color={summary.positiveRate >= 70 ? "green" : "default"}
           />
-          <MetricCard label="👎 싫어요" value={formatNumber(summary.thumbsDown)} />
+          <StatCard
+            label="싫어요"
+            value={fmtNum(summary.thumbsDown)}
+            icon={<ThumbsDown style={{ width: 18, height: 18 }} />}
+            color={summary.thumbsDown > 0 ? "red" : "default"}
+          />
         </div>
       ) : isLoading ? (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          {[0, 1, 2, 3].map((i) => (
-            <div key={i} className="h-24 animate-pulse rounded-lg border border-slate-200 bg-slate-100" />
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
+          {[0, 1, 2, 3].map(i => (
+            <div key={i} style={{ height: 88, borderRadius: 12, border: "1px solid #e2e8f0", background: "#f8fafc", animation: "pulse 1.5s ease-in-out infinite" }} />
           ))}
         </div>
       ) : null}
 
-      {/* 문서별 피드백 테이블 */}
-      <PagePanel title="문서별 피드백" description="참조된 문서 기준으로 집계한 👍/👎 수와 긍정률입니다.">
-        <div className="overflow-hidden rounded-lg border border-slate-200">
-          <table className="min-w-full table-fixed text-sm">
-            <thead className="bg-slate-50 text-left text-slate-600">
-              <tr>
-                <th className="px-3 py-3">문서명</th>
-                <th className="w-20 px-3 py-3 text-right">👍</th>
-                <th className="w-20 px-3 py-3 text-right">👎</th>
-                <th className="w-20 px-3 py-3 text-right">합계</th>
-                <th className="w-40 px-3 py-3">긍정률</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 bg-white">
-              {byDocument.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="px-3 py-8 text-center text-sm text-slate-400">
-                    아직 피드백 데이터가 없습니다.
-                  </td>
-                </tr>
-              ) : (
-                byDocument.map((item, i) => (
-                  <tr key={item.documentId ?? i}>
-                    <td className="px-3 py-3">
-                      <p className="line-clamp-1 font-medium text-slate-800">{item.documentName}</p>
-                      {item.documentId ? (
-                        <p className="mt-0.5 text-xs text-slate-400 truncate">{item.documentId}</p>
-                      ) : null}
-                    </td>
-                    <td className="px-3 py-3 text-right text-emerald-700">{formatNumber(item.thumbsUp)}</td>
-                    <td className="px-3 py-3 text-right text-red-600">{formatNumber(item.thumbsDown)}</td>
-                    <td className="px-3 py-3 text-right text-slate-700">{formatNumber(item.totalFeedback)}</td>
-                    <td className="px-3 py-3">
-                      <PositiveBar rate={item.positiveRate} />
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+      {/* 긍정률 바 (summary 있을 때) */}
+      {summary && summary.feedbackReceived > 0 && (
+        <div className="bg-white rounded-xl border border-neutral-200 p-4">
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: "#1e293b" }}>전체 긍정률</span>
+            <span style={{ fontSize: 13, color: "#64748b" }}>{fmtNum(summary.thumbsUp)} / {fmtNum(summary.feedbackReceived)}건</span>
+          </div>
+          <PositiveBar rate={summary.positiveRate} />
         </div>
-      </PagePanel>
+      )}
 
-      {/* 낮은 평점 메시지 목록 */}
-      <PagePanel
-        title="👎 낮은 평점 메시지"
-        description="싫어요를 받은 메시지 목록입니다. 클릭하면 채팅 로그로 이동합니다."
-      >
-        <div className="overflow-hidden rounded-lg border border-slate-200">
-          <table className="min-w-full table-fixed text-sm">
-            <thead className="bg-slate-50 text-left text-slate-600">
-              <tr>
-                <th className="px-3 py-3">질문</th>
-                <th className="w-64 px-3 py-3">답변(앞 100자)</th>
-                <th className="w-36 px-3 py-3">피드백 일시</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 bg-white">
-              {lowRated.length === 0 ? (
-                <tr>
-                  <td colSpan={3} className="px-3 py-8 text-center text-sm text-slate-400">
-                    👎 피드백이 없습니다.
-                  </td>
-                </tr>
-              ) : (
-                lowRated.map((item) => (
-                  <tr
-                    key={item.messageId}
-                    className="cursor-pointer hover:bg-slate-50"
-                    onClick={() => {
-                      window.location.href = `/admin/chat-logs?messageId=${item.messageId}`;
-                    }}
-                  >
-                    <td className="px-3 py-3">
-                      <p className="line-clamp-2 text-slate-800">{item.normalizedQuery || "-"}</p>
-                    </td>
-                    <td className="px-3 py-3">
-                      <p className="line-clamp-2 text-xs text-slate-500">
-                        {item.content.slice(0, 100)}{item.content.length > 100 ? "..." : ""}
-                      </p>
-                    </td>
-                    <td className="px-3 py-3 text-xs text-slate-500">{formatDate(item.feedbackAt)}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+      {/* 문서별 피드백 */}
+      <div className="bg-white rounded-xl border border-neutral-200" style={{ overflow: "hidden" }}>
+        <div style={{ padding: "14px 20px", borderBottom: "1px solid #f1f5f9" }}>
+          <h3 style={{ fontSize: 14, fontWeight: 600, color: "#1e293b", margin: 0 }}>문서별 피드백</h3>
+          <p style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>참조된 문서 기준으로 집계한 좋아요/싫어요와 긍정률</p>
         </div>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <thead>
+            <tr>
+              <th className="table-header">문서명</th>
+              <th className="table-header" style={{ width: 72, textAlign: "right" }}>👍</th>
+              <th className="table-header" style={{ width: 72, textAlign: "right" }}>👎</th>
+              <th className="table-header" style={{ width: 72, textAlign: "right" }}>합계</th>
+              <th className="table-header" style={{ width: 180 }}>긍정률</th>
+            </tr>
+          </thead>
+          <tbody>
+            {byDocument.length === 0 ? (
+              <tr>
+                <td colSpan={5} className="table-cell" style={{ textAlign: "center", padding: "32px 0", color: "#94a3b8" }}>
+                  아직 피드백 데이터가 없습니다.
+                </td>
+              </tr>
+            ) : (
+              byDocument.map((item, i) => (
+                <tr key={item.documentId ?? i} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                  <td className="table-cell">
+                    <p style={{ fontWeight: 500, color: "#1e293b", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 1, WebkitBoxOrient: "vertical" }}>{item.documentName}</p>
+                  </td>
+                  <td className="table-cell" style={{ textAlign: "right", color: "#16a34a", fontWeight: 600 }}>{fmtNum(item.thumbsUp)}</td>
+                  <td className="table-cell" style={{ textAlign: "right", color: "#dc2626", fontWeight: 600 }}>{fmtNum(item.thumbsDown)}</td>
+                  <td className="table-cell" style={{ textAlign: "right", color: "#475569" }}>{fmtNum(item.totalFeedback)}</td>
+                  <td className="table-cell"><PositiveBar rate={item.positiveRate} /></td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
 
-        {/* 페이지네이션 */}
-        {totalPages > 1 ? (
-          <div className="mt-3 flex items-center justify-between text-sm text-slate-600">
-            <span>{lowRatedTotal.toLocaleString("ko-KR")}개 중 {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, lowRatedTotal)}</span>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setPage((p) => Math.max(0, p - 1))}
-                disabled={page === 0}
-                className="rounded-md border border-slate-300 px-3 py-1.5 disabled:opacity-40"
-              >
+      {/* 낮은 평점 메시지 */}
+      <div className="bg-white rounded-xl border border-neutral-200" style={{ overflow: "hidden" }}>
+        <div style={{ padding: "14px 20px", borderBottom: "1px solid #f1f5f9" }}>
+          <h3 style={{ fontSize: 14, fontWeight: 600, color: "#1e293b", margin: 0 }}>싫어요 메시지</h3>
+          <p style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>싫어요를 받은 메시지 목록입니다.</p>
+        </div>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <thead>
+            <tr>
+              <th className="table-header">질문</th>
+              <th className="table-header" style={{ width: 260 }}>답변 (앞 100자)</th>
+              <th className="table-header" style={{ width: 120 }}>피드백 일시</th>
+            </tr>
+          </thead>
+          <tbody>
+            {lowRated.length === 0 ? (
+              <tr>
+                <td colSpan={3} className="table-cell" style={{ textAlign: "center", padding: "32px 0", color: "#94a3b8" }}>
+                  싫어요 피드백이 없습니다.
+                </td>
+              </tr>
+            ) : (
+              lowRated.map(item => (
+                <tr key={item.messageId} style={{ borderBottom: "1px solid #f1f5f9", cursor: "pointer" }}
+                  onClick={() => { window.location.href = `/admin/chat-logs?messageId=${item.messageId}`; }}>
+                  <td className="table-cell">
+                    <p style={{ color: "#1e293b", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{item.normalizedQuery || "-"}</p>
+                  </td>
+                  <td className="table-cell">
+                    <p style={{ fontSize: 12, color: "#64748b", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
+                      {item.content.slice(0, 100)}{item.content.length > 100 ? "..." : ""}
+                    </p>
+                  </td>
+                  <td className="table-cell" style={{ fontSize: 12, color: "#94a3b8", whiteSpace: "nowrap" }}>{fmtDate(item.feedbackAt)}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+
+        {totalPages > 1 && (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 20px", borderTop: "1px solid #f1f5f9", fontSize: 13, color: "#64748b" }}>
+            <span>{lowRatedTotal.toLocaleString("ko-KR")}건 중 {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, lowRatedTotal)}</span>
+            <div style={{ display: "flex", gap: 6 }}>
+              <button type="button" onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}
+                className="btn-secondary" style={{ padding: "5px 14px", fontSize: 12, opacity: page === 0 ? 0.4 : 1 }}>
                 이전
               </button>
-              <span className="px-2 py-1.5">{page + 1} / {totalPages}</span>
-              <button
-                type="button"
-                onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-                disabled={page >= totalPages - 1}
-                className="rounded-md border border-slate-300 px-3 py-1.5 disabled:opacity-40"
-              >
+              <span style={{ padding: "5px 8px" }}>{page + 1} / {totalPages}</span>
+              <button type="button" onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1}
+                className="btn-secondary" style={{ padding: "5px 14px", fontSize: 12, opacity: page >= totalPages - 1 ? 0.4 : 1 }}>
                 다음
               </button>
             </div>
           </div>
-        ) : null}
-      </PagePanel>
+        )}
+      </div>
     </div>
   );
 }

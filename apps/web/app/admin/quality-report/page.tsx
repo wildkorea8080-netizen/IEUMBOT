@@ -1,8 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { FileEdit } from "lucide-react";
 
-import { PagePanel } from "../../../components/ui/page-panel";
 import { ApiClientError } from "../../../lib/api";
 import { getAdminChatbots, getAdminQualityReport } from "../../../lib/api/admin-operations";
 import type {
@@ -25,96 +26,122 @@ function errorMessage(error: unknown): string {
   return "품질 리포트를 불러오지 못했습니다.";
 }
 
-function formatNumber(value?: number | null): string {
+function fmt(value?: number | null): string {
   if (typeof value !== "number") return "-";
   return value.toLocaleString("ko-KR");
 }
 
-function formatPercent(value?: number | null): string {
+function fmtPct(value?: number | null): string {
   if (typeof value !== "number") return "-";
   return `${value.toFixed(1)}%`;
 }
 
-function formatScore(value?: number | null): string {
+function fmtScore(value?: number | null): string {
   if (typeof value !== "number") return "-";
   return value.toFixed(3);
 }
 
-function formatLatency(value?: number | null): string {
+function fmtLatency(value?: number | null): string {
   if (typeof value !== "number") return "-";
   return `${Math.round(value).toLocaleString("ko-KR")}ms`;
 }
 
-function formatDate(value?: string | null): string {
+function fmtDate(value?: string | null): string {
   if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString("ko-KR", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
-function MetricCard(props: { label: string; value: string; helper?: string }) {
+function scoreColor(score?: number | null): string {
+  if (typeof score !== "number") return "#94a3b8";
+  if (score >= 0.7) return "#16a34a";
+  if (score >= 0.45) return "#d97706";
+  return "#dc2626";
+}
+
+function outcomeClass(outcome?: string | null): string {
+  if (!outcome) return "badge-neutral";
+  if (outcome === "answered") return "badge-success";
+  if (outcome === "insufficient_evidence") return "badge-warning";
+  if (outcome === "escalated") return "badge-info";
+  return "badge-danger";
+}
+
+type MetricCardProps = { label: string; value: string; helper?: string; color?: "default" | "green" | "red" | "orange" };
+
+function MetricCard({ label, value, helper, color = "default" }: MetricCardProps) {
+  const bg = color === "green" ? "#f0fdf4" : color === "red" ? "#fef2f2" : color === "orange" ? "#fffbeb" : "white";
+  const border = color === "green" ? "#bbf7d0" : color === "red" ? "#fecaca" : color === "orange" ? "#fde68a" : "#e2e8f0";
+  const valueColor = color === "green" ? "#16a34a" : color === "red" ? "#dc2626" : color === "orange" ? "#d97706" : "#0f172a";
   return (
-    <article className="rounded-lg border border-slate-200 bg-white p-4">
-      <p className="text-sm text-slate-500">{props.label}</p>
-      <p className="mt-2 text-2xl font-semibold text-slate-950">{props.value}</p>
-      {props.helper ? <p className="mt-2 text-xs text-slate-500">{props.helper}</p> : null}
+    <article style={{ borderRadius: 12, border: `1px solid ${border}`, background: bg, padding: 16 }}>
+      <p style={{ fontSize: 12, color: "#64748b" }}>{label}</p>
+      <p style={{ fontSize: 22, fontWeight: 700, color: valueColor, marginTop: 6 }}>{value}</p>
+      {helper && <p style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>{helper}</p>}
     </article>
   );
 }
 
-function QuestionTable(props: {
+function QuestionTable({ title, description, rows, emptyText }: {
   title: string;
   description: string;
   rows: AdminQualityQuestionItem[];
   emptyText: string;
 }) {
   return (
-    <PagePanel title={props.title} description={props.description}>
-      <div className="overflow-hidden rounded-lg border border-slate-200">
-        <table className="min-w-full table-fixed text-sm">
-          <thead className="bg-slate-50 text-left text-slate-600">
+    <div className="bg-white rounded-xl border border-neutral-200" style={{ overflow: "hidden", marginBottom: 16 }}>
+      <div style={{ padding: "14px 20px", borderBottom: "1px solid #f1f5f9" }}>
+        <h3 style={{ fontSize: 14, fontWeight: 600, color: "#1e293b", margin: 0 }}>{title}</h3>
+        <p style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>{description}</p>
+      </div>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+        <thead>
+          <tr>
+            <th className="table-header" style={{ width: 100 }}>시간</th>
+            <th className="table-header">질문</th>
+            <th className="table-header" style={{ width: 100 }}>상태</th>
+            <th className="table-header" style={{ width: 80 }}>점수</th>
+            <th className="table-header" style={{ width: 64 }}>프롬프트</th>
+            <th className="table-header" style={{ width: 64 }}>출처</th>
+            <th className="table-header" style={{ width: 72 }}>지식 등록</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 ? (
             <tr>
-              <th className="w-32 px-3 py-3">시간</th>
-              <th className="px-3 py-3">질문</th>
-              <th className="w-28 px-3 py-3">상태</th>
-              <th className="w-24 px-3 py-3">topScore</th>
-              <th className="w-24 px-3 py-3">Prompt</th>
-              <th className="w-24 px-3 py-3">Citation</th>
+              <td colSpan={7} className="table-cell" style={{ textAlign: "center", padding: "32px 0", color: "#94a3b8" }}>{emptyText}</td>
             </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100 bg-white">
-            {props.rows.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="px-3 py-8 text-center text-sm text-slate-500">
-                  {props.emptyText}
+          ) : (
+            rows.map((item, i) => (
+              <tr key={`${item.createdAt}-${i}`} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                <td className="table-cell" style={{ color: "#64748b", whiteSpace: "nowrap" }}>{fmtDate(item.createdAt)}</td>
+                <td className="table-cell">
+                  <p style={{ color: "#1e293b", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{item.question ?? "-"}</p>
+                  {item.fallbackReason && (
+                    <p style={{ fontSize: 11, color: "#dc2626", marginTop: 2, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 1, WebkitBoxOrient: "vertical" }}>{item.fallbackReason}</p>
+                  )}
+                </td>
+                <td className="table-cell">
+                  <span className={outcomeClass(item.outcome)}>{item.outcome ?? "-"}</span>
+                </td>
+                <td className="table-cell" style={{ color: scoreColor(item.topScore), fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{fmtScore(item.topScore)}</td>
+                <td className="table-cell" style={{ color: "#475569", textAlign: "center" }}>{fmt(item.usedInPromptCount)}</td>
+                <td className="table-cell" style={{ color: "#475569", textAlign: "center" }}>{fmt(item.citationCount)}</td>
+                <td className="table-cell">
+                  <Link
+                    href={`/admin/knowledge?q=${encodeURIComponent(item.question ?? "")}`}
+                    style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, color: "#2563eb", textDecoration: "none" }}
+                  >
+                    <FileEdit style={{ width: 13, height: 13 }} />등록
+                  </Link>
                 </td>
               </tr>
-            ) : (
-              props.rows.map((item, index) => (
-                <tr key={`${item.createdAt}-${index}`}>
-                  <td className="px-3 py-4 text-slate-500">{formatDate(item.createdAt)}</td>
-                  <td className="px-3 py-4">
-                    <p className="line-clamp-2 font-medium text-slate-900">{item.question ?? "-"}</p>
-                    {item.fallbackReason ? (
-                      <p className="mt-1 line-clamp-1 text-xs text-rose-600">{item.fallbackReason}</p>
-                    ) : null}
-                  </td>
-                  <td className="px-3 py-4 text-slate-700">{item.outcome ?? "-"}</td>
-                  <td className="px-3 py-4 text-slate-700">{formatScore(item.topScore)}</td>
-                  <td className="px-3 py-4 text-slate-700">{formatNumber(item.usedInPromptCount)}</td>
-                  <td className="px-3 py-4 text-slate-700">{formatNumber(item.citationCount)}</td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-    </PagePanel>
+            ))
+          )}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -133,107 +160,94 @@ export default function AdminQualityReportPage() {
     setIsLoading(true);
     setError(null);
     try {
-      const [reportResponse, chatbotResponse] = await Promise.all([
-        getAdminQualityReport({
-          chatbotId: chatbotId || undefined,
-          startDate,
-          endDate,
-          fallbackOnly,
-        }),
+      const [reportRes, chatbotRes] = await Promise.all([
+        getAdminQualityReport({ chatbotId: chatbotId || undefined, startDate, endDate, fallbackOnly }),
         getAdminChatbots(),
       ]);
-      setReport(reportResponse);
-      setChatbots(chatbotResponse.items);
-    } catch (loadError) {
-      setError(errorMessage(loadError));
+      setReport(reportRes);
+      setChatbots(chatbotRes.items);
+    } catch (err) {
+      setError(errorMessage(err));
     } finally {
       setIsLoading(false);
     }
   }
 
-  useEffect(() => {
-    void loadReport();
-  }, []);
+  useEffect(() => { void loadReport(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const answeredRate = report?.totalConversations
-    ? (report.answeredCount / report.totalConversations) * 100
-    : 0;
+    ? (report.answeredCount / report.totalConversations) * 100 : 0;
 
   return (
-    <div className="space-y-6">
-      <PagePanel
-        title="품질 리포트"
-        description="운영 대화 로그를 기준으로 RAG 검색 품질, fallback, citation 누락을 점검합니다."
-      >
-        <div className="grid gap-3 lg:grid-cols-[minmax(180px,1fr)_160px_160px_auto_auto]">
-          <select
-            value={chatbotId}
-            onChange={(event) => setChatbotId(event.target.value)}
-            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
-          >
+    <div className="space-y-4">
+      {/* 페이지 헤더 */}
+      <div className="mb-2">
+        <h1 className="section-title">품질 리포트</h1>
+        <p style={{ fontSize: 13, color: "#64748b", marginTop: 2 }}>RAG 검색 품질, fallback 비율, citation 누락을 기간별로 점검합니다.</p>
+      </div>
+
+      {/* 필터 바 */}
+      <div className="bg-white rounded-xl border border-neutral-200 p-4">
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+          <select value={chatbotId} onChange={e => setChatbotId(e.target.value)} className="input-field" style={{ width: 180 }}>
             <option value="">전체 챗봇</option>
-            {chatbots.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.name}
-              </option>
-            ))}
+            {chatbots.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
-          <input
-            type="date"
-            aria-label="시작일"
-            value={startDate}
-            onChange={(event) => setStartDate(event.target.value)}
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-          />
-          <input
-            type="date"
-            aria-label="종료일"
-            value={endDate}
-            onChange={(event) => setEndDate(event.target.value)}
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-          />
-          <label className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700">
-            <input
-              type="checkbox"
-              checked={fallbackOnly}
-              onChange={(event) => setFallbackOnly(event.target.checked)}
-              className="h-4 w-4 rounded border-slate-300"
-            />
-            fallback만
+          <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="input-field" style={{ width: 148 }} aria-label="시작일" />
+          <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="input-field" style={{ width: 148 }} aria-label="종료일" />
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, color: "#475569", cursor: "pointer" }}>
+            <input type="checkbox" checked={fallbackOnly} onChange={e => setFallbackOnly(e.target.checked)} style={{ width: 15, height: 15, accentColor: "#2563eb" }} />
+            fallback만 보기
           </label>
-          <button
-            type="button"
-            onClick={() => void loadReport()}
-            className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-medium text-white"
-          >
+          <button type="button" onClick={() => void loadReport()} className="btn-primary" style={{ padding: "8px 20px", marginLeft: "auto" }}>
             조회
           </button>
         </div>
-        {error ? <p className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
-        {isLoading ? <p className="mt-4 text-sm text-slate-500">품질 데이터를 불러오는 중입니다.</p> : null}
-        {!isLoading && report && report.totalConversations === 0 ? (
-          <p className="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
-            아직 분석할 대화 데이터가 없습니다.
+        {error && (
+          <p style={{ marginTop: 12, padding: "8px 12px", borderRadius: 8, background: "#fef2f2", border: "1px solid #fecaca", fontSize: 13, color: "#dc2626" }}>
+            {error}
           </p>
-        ) : null}
-      </PagePanel>
+        )}
+        {isLoading && <p style={{ marginTop: 12, fontSize: 13, color: "#94a3b8" }}>품질 데이터를 불러오는 중...</p>}
+        {!isLoading && report?.totalConversations === 0 && (
+          <div style={{ marginTop: 12, padding: "32px 0", textAlign: "center", fontSize: 13, color: "#94a3b8", background: "#f8fafc", borderRadius: 8, border: "1px solid #e2e8f0" }}>
+            아직 분석할 대화 데이터가 없습니다.
+          </div>
+        )}
+      </div>
 
-      {report && report.totalConversations > 0 ? (
+      {report && report.totalConversations > 0 && (
         <>
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-            <MetricCard label="총 대화 수" value={formatNumber(report.totalConversations)} />
-            <MetricCard label="답변 성공률" value={formatPercent(answeredRate)} helper={`${formatNumber(report.answeredCount)}건 답변`} />
-            <MetricCard label="fallback 비율" value={formatPercent(report.fallbackRate)} helper={`${formatNumber(report.fallbackCount)}건 fallback`} />
-            <MetricCard label="평균 응답시간" value={formatLatency(report.avgLatencyMs)} />
-            <MetricCard label="평균 topScore" value={formatScore(report.avgTopScore)} />
-            <MetricCard label="LLM 실행률" value={formatPercent(report.llmExecutedRate)} />
+          {/* 지표 카드 6개 */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+            <MetricCard label="총 대화 수" value={fmt(report.totalConversations)} />
+            <MetricCard
+              label="답변 성공률"
+              value={fmtPct(answeredRate)}
+              helper={`${fmt(report.answeredCount)}건 답변`}
+              color={answeredRate >= 70 ? "green" : answeredRate >= 50 ? "orange" : "red"}
+            />
+            <MetricCard
+              label="Fallback 비율"
+              value={fmtPct(report.fallbackRate)}
+              helper={`${fmt(report.fallbackCount)}건`}
+              color={report.fallbackRate != null && report.fallbackRate >= 30 ? "red" : report.fallbackRate != null && report.fallbackRate >= 15 ? "orange" : "default"}
+            />
+            <MetricCard label="평균 응답시간" value={fmtLatency(report.avgLatencyMs)} />
+            <MetricCard
+              label="평균 topScore"
+              value={fmtScore(report.avgTopScore)}
+              color={report.avgTopScore != null && report.avgTopScore >= 0.7 ? "green" : report.avgTopScore != null && report.avgTopScore >= 0.45 ? "orange" : "red"}
+            />
+            <MetricCard label="LLM 실행률" value={fmtPct(report.llmExecutedRate)} />
           </div>
 
-          <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
-            <div className="space-y-6">
+          {/* 테이블 + 사이드 */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: 16, alignItems: "start" }}>
+            <div>
               <QuestionTable
                 title="최근 실패 질문"
-                description="fallback, 제한, 충돌, 이관으로 종료된 최근 질문입니다."
+                description="fallback·제한·충돌·이관으로 종료된 최근 질문입니다."
                 rows={report.recentFailedQuestions}
                 emptyText="최근 실패 질문이 없습니다."
               />
@@ -244,34 +258,37 @@ export default function AdminQualityReportPage() {
                 emptyText="낮은 점수 질문이 없습니다."
               />
               <QuestionTable
-                title="citation 없는 답변"
+                title="출처 없는 답변"
                 description="답변은 성공했지만 citation이 저장되지 않은 항목입니다."
                 rows={report.noCitationAnswers}
-                emptyText="citation 없는 답변이 없습니다."
+                emptyText="출처 없는 답변이 없습니다."
               />
             </div>
 
-            <PagePanel title="fallback reason TOP" description="가장 자주 발생한 fallback 원인입니다.">
-              <div className="space-y-2">
+            {/* Fallback 원인 */}
+            <div className="bg-white rounded-xl border border-neutral-200" style={{ overflow: "hidden" }}>
+              <div style={{ padding: "14px 20px", borderBottom: "1px solid #f1f5f9" }}>
+                <h3 style={{ fontSize: 14, fontWeight: 600, color: "#1e293b", margin: 0 }}>Fallback 원인 TOP</h3>
+                <p style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>가장 자주 발생한 fallback 원인</p>
+              </div>
+              <div style={{ padding: "12px 16px", display: "flex", flexDirection: "column", gap: 8 }}>
                 {report.topFallbackReasons.length === 0 ? (
-                  <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-8 text-center text-sm text-slate-500">
-                    fallback 데이터가 없습니다.
-                  </p>
+                  <p style={{ textAlign: "center", fontSize: 13, color: "#94a3b8", padding: "24px 0" }}>fallback 데이터가 없습니다.</p>
                 ) : (
-                  report.topFallbackReasons.map((item) => (
-                    <div key={item.reason} className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-3">
-                      <p className="line-clamp-2 text-sm font-medium text-slate-800">{item.reason}</p>
-                      <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
-                        {formatNumber(item.count)}
+                  report.topFallbackReasons.map(item => (
+                    <div key={item.reason} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "10px 12px", borderRadius: 8, background: "#f8fafc", border: "1px solid #e2e8f0" }}>
+                      <p style={{ fontSize: 13, color: "#334155", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{item.reason}</p>
+                      <span style={{ flexShrink: 0, background: "#e0e7ff", color: "#3730a3", borderRadius: 99, padding: "2px 10px", fontSize: 12, fontWeight: 600 }}>
+                        {fmt(item.count)}
                       </span>
                     </div>
                   ))
                 )}
               </div>
-            </PagePanel>
+            </div>
           </div>
         </>
-      ) : null}
+      )}
     </div>
   );
 }
