@@ -3,33 +3,103 @@
 @tailwind utilities;
 
 @layer base {
-  html,
-  body {
-    @apply m-0 p-0 bg-slate-100 text-slate-900 antialiased;
-    font-family: "Pretendard Variable", "Pretendard", "Segoe UI", "Noto Sans KR", sans-serif;
+  html, body {
+    margin: 0;
+    padding: 0;
+    font-family: "Pretendard Variable", "Pretendard",
+                 "Noto Sans KR", "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background-color: #f8fafc;
+    color: #1e293b;
   }
 
   * {
-    @apply box-border;
+    box-sizing: border-box;
   }
 
-  body {
-    background-image:
-      radial-gradient(circle at top, rgba(99, 102, 241, 0.08), transparent 30%),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(248, 250, 252, 1));
-    min-height: 100vh;
+  /* 스크롤바 */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #f1f5f9;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
   }
 
-  button,
-  input,
-  select,
-  textarea {
-    @apply outline-none;
-  }
-
+  /* 포커스 */
   input:focus,
   select:focus,
   textarea:focus {
-    @apply border-indigo-300 ring-4 ring-indigo-100;
+    outline: none;
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  }
+
+  button {
+    cursor: pointer;
+  }
+}
+
+@layer components {
+  /* 카드 */
+  .card {
+    @apply bg-white rounded-xl border border-neutral-200 shadow-card;
+  }
+
+  /* 섹션 제목 */
+  .section-title {
+    @apply text-xs font-semibold text-neutral-400 uppercase tracking-wider px-3 mb-1;
+  }
+
+  /* 버튼 */
+  .btn-primary {
+    @apply bg-brand-600 hover:bg-brand-700 text-white
+           px-4 py-2 rounded-lg text-sm font-medium
+           transition-colors duration-150;
+  }
+  .btn-secondary {
+    @apply bg-white hover:bg-neutral-50 text-neutral-700
+           border border-neutral-200 px-4 py-2 rounded-lg
+           text-sm font-medium transition-colors duration-150;
+  }
+  .btn-danger {
+    @apply bg-danger-600 hover:bg-danger-700 text-white
+           px-4 py-2 rounded-lg text-sm font-medium
+           transition-colors duration-150;
+  }
+
+  /* 상태 뱃지 */
+  .badge {
+    @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium;
+  }
+  .badge-success { @apply badge bg-success-50 text-success-600; }
+  .badge-warning  { @apply badge bg-warning-50  text-warning-600;  }
+  .badge-danger   { @apply badge bg-danger-50   text-danger-600;   }
+  .badge-neutral  { @apply badge bg-neutral-100 text-neutral-500;  }
+
+  /* 입력 필드 */
+  .input-field {
+    @apply w-full px-3 py-2 text-sm border border-neutral-200
+           rounded-lg bg-white text-neutral-800
+           placeholder:text-neutral-400
+           focus:border-brand-600 focus:ring-2 focus:ring-brand-100
+           transition-colors duration-150;
+  }
+
+  /* 테이블 */
+  .table-header {
+    @apply text-xs font-semibold text-neutral-500 uppercase
+           tracking-wide bg-neutral-50 px-4 py-3;
+  }
+  .table-cell {
+    @apply px-4 py-3 text-sm text-neutral-700 border-b border-neutral-100;
   }
 }
