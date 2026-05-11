@@ -2,47 +2,41 @@
 
 import Link from "next/link";
 import { useEffect, type ReactNode } from "react";
+import { Save, Loader2, CheckCircle } from "lucide-react";
 
 import { writeSelectedAdminChatbot } from "../../lib/admin-ui/selected-chatbot";
-import { PagePanel } from "../ui/page-panel";
 
 export const AI_CHATBOT_STORAGE_KEY = "ieumbot_admin_ai_chatbot_id";
 
 const AI_TABS = [
-  { href: "/admin/ai/basic", label: "기본 설정" },
-  { href: "/admin/ai/style", label: "대화 스타일" },
-  { href: "/admin/ai/conditional", label: "조건별 설정" },
-  { href: "/admin/ai/rag", label: "RAG 검색 설정" },
+  { href: "/admin/ai/basic",       label: "기본 설정" },
+  { href: "/admin/ai/style",       label: "응답 스타일" },
+  { href: "/admin/answer-settings",label: "AI 고급설정" },
+  { href: "/admin/widget",         label: "위젯 설정" },
 ] as const;
 
-type ChatbotOption = {
-  id: string;
-  name: string;
-  status: string;
-};
+type ChatbotOption = { id: string; name: string; status: string };
 
 type AiSettingsLayoutProps = {
   activeHref: string;
-  title: string;
-  description: string;
   chatbotOptions: ChatbotOption[];
   selectedChatbotId: string;
   selectedChatbotName?: string;
   onSelectChatbot: (chatbotId: string) => void;
-  toolbar?: ReactNode;
   notice?: ReactNode;
   children: ReactNode;
+  // compat
+  title?: string;
+  description?: string;
+  toolbar?: ReactNode;
 };
 
 export function AiSettingsLayout({
   activeHref,
-  title,
-  description,
   chatbotOptions,
   selectedChatbotId,
   selectedChatbotName,
   onSelectChatbot,
-  toolbar,
   notice,
   children,
 }: AiSettingsLayoutProps) {
@@ -53,61 +47,57 @@ export function AiSettingsLayout({
   }, [selectedChatbotId, selectedChatbotName]);
 
   return (
-    <div className="space-y-6">
-      <PagePanel title={title} description={description}>
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-          <div className="space-y-3">
-            <div className="text-sm text-slate-600">
-              현재 챗봇: <strong className="text-slate-900">{selectedChatbotName ?? "-"}</strong>
-            </div>
-            <label className="block text-sm text-slate-700">
-              <span className="mb-1 block font-medium">챗봇 선택</span>
-              <select
-                value={selectedChatbotId}
-                onChange={(event) => onSelectChatbot(event.target.value)}
-                className="w-full min-w-[260px] rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
-              >
-                {chatbotOptions.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name} ({item.status})
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Link
-              href="/admin/answer-settings"
-              className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
-            >
-              고급 답변 설정
-            </Link>
-            <Link
-              href="/admin/guardrails"
-              className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
-            >
-              고급 가드레일
-            </Link>
-            {toolbar}
-          </div>
-        </div>
+    <div>
+      {/* 챗봇 선택기 */}
+      <div className="bg-white rounded-xl border border-neutral-200 p-4 mb-6">
+        <label style={{ display: "block", fontSize: 13, fontWeight: 500, color: "#64748b", marginBottom: 6 }}>
+          설정할 챗봇을 선택하세요
+        </label>
+        <select
+          value={selectedChatbotId}
+          onChange={e => onSelectChatbot(e.target.value)}
+          className="input-field"
+          style={{ maxWidth: 320 }}
+        >
+          {chatbotOptions.map(item => (
+            <option key={item.id} value={item.id}>{item.name} ({item.status})</option>
+          ))}
+        </select>
+        {selectedChatbotName && (
+          <p style={{ fontSize: 12, color: "#94a3b8", marginTop: 6 }}>
+            현재 챗봇: <strong style={{ color: "#1e293b" }}>{selectedChatbotName}</strong>
+          </p>
+        )}
+      </div>
 
-        <div className="mt-4 flex flex-wrap gap-2">
-          {AI_TABS.map((tab) => (
+      {/* 탭 네비게이션 */}
+      <div className="flex" style={{ borderBottom: "1px solid #e2e8f0", marginBottom: 24, gap: 4 }}>
+        {AI_TABS.map(tab => {
+          const isActive = activeHref === tab.href;
+          return (
             <Link
               key={tab.href}
               href={tab.href}
-              className={`rounded-full px-4 py-2 text-sm font-medium ${
-                activeHref === tab.href
-                  ? "bg-slate-900 text-white"
-                  : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-              }`}
+              style={{
+                padding: "10px 16px",
+                fontSize: 14,
+                fontWeight: isActive ? 600 : 400,
+                color: isActive ? "#2563eb" : "#64748b",
+                borderBottom: `2px solid ${isActive ? "#2563eb" : "transparent"}`,
+                borderTop: "none",
+                borderLeft: "none",
+                borderRight: "none",
+                background: isActive ? "#eff6ff" : "transparent",
+                textDecoration: "none",
+                borderRadius: "8px 8px 0 0",
+                transition: "all 0.15s",
+              }}
             >
               {tab.label}
             </Link>
-          ))}
-        </div>
-      </PagePanel>
+          );
+        })}
+      </div>
 
       {notice}
 
@@ -116,8 +106,102 @@ export function AiSettingsLayout({
   );
 }
 
+// ── 저장 버튼 (페이지 하단용) ─────────────────────────────
+
+export function SaveButton({
+  onClick,
+  disabled,
+  isSaving,
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+  isSaving?: boolean;
+}) {
+  return (
+    <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 32 }}>
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        className="btn-primary flex items-center gap-2"
+        style={{ padding: "10px 32px", fontSize: 15, opacity: disabled ? 0.5 : 1 }}
+      >
+        {isSaving ? (
+          <><Loader2 style={{ width: 16, height: 16, animation: "spin 1s linear infinite" }} />저장 중...</>
+        ) : (
+          <><Save style={{ width: 16, height: 16 }} />저장하기</>
+        )}
+      </button>
+    </div>
+  );
+}
+
+// ── 토스트 (우측 하단 고정) ───────────────────────────────
+
+export function ToastNotice(props: { tone: "success" | "error"; message: string }) {
+  const isSuccess = props.tone === "success";
+  return (
+    <div
+      style={{
+        position: "fixed",
+        bottom: 32,
+        right: 32,
+        zIndex: 9999,
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "12px 20px",
+        borderRadius: 10,
+        border: `1px solid ${isSuccess ? "#22c55e" : "#fca5a5"}`,
+        background: isSuccess ? "#f0fdf4" : "#fef2f2",
+        color: isSuccess ? "#16a34a" : "#dc2626",
+        fontSize: 14,
+        fontWeight: 500,
+        boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+        animation: "slideIn 0.2s ease",
+      }}
+    >
+      {isSuccess && <CheckCircle style={{ width: 16, height: 16, flexShrink: 0 }} />}
+      {props.message}
+    </div>
+  );
+}
+
+// ── 섹션 카드 ─────────────────────────────────────────────
+
+export function SectionCard({
+  title,
+  description,
+  icon,
+  children,
+}: {
+  title: string;
+  description?: string;
+  icon?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <div className="bg-white rounded-xl border border-neutral-200 p-6 mb-4">
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: description ? 4 : 16 }}>
+        {icon && (
+          <div style={{ width: 32, height: 32, borderRadius: 8, background: "#eff6ff", display: "flex", alignItems: "center", justifyContent: "center", color: "#2563eb", flexShrink: 0 }}>
+            {icon}
+          </div>
+        )}
+        <h2 style={{ fontSize: 15, fontWeight: 600, color: "#1e293b", margin: 0 }}>{title}</h2>
+      </div>
+      {description && (
+        <p style={{ fontSize: 13, color: "#64748b", marginBottom: 16, marginLeft: icon ? 42 : 0 }}>{description}</p>
+      )}
+      {children}
+    </div>
+  );
+}
+
+// ── 폼 필드 유틸 ─────────────────────────────────────────
+
 export function FieldLabel({ children }: { children: ReactNode }) {
-  return <span className="block font-medium text-slate-900">{children}</span>;
+  return <span style={{ display: "block", fontSize: 14, fontWeight: 500, color: "#334155", marginBottom: 6 }}>{children}</span>;
 }
 
 export function TextInputField(props: {
@@ -128,16 +212,11 @@ export function TextInputField(props: {
   helper?: string;
 }) {
   return (
-    <label className="block text-sm text-slate-700">
+    <div>
       <FieldLabel>{props.label}</FieldLabel>
-      <input
-        value={props.value}
-        onChange={(event) => props.onChange(event.target.value)}
-        placeholder={props.placeholder}
-        className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
-      />
-      {props.helper ? <span className="mt-1 block text-xs text-slate-500">{props.helper}</span> : null}
-    </label>
+      <input value={props.value} onChange={e => props.onChange(e.target.value)} placeholder={props.placeholder} className="input-field" />
+      {props.helper && <span style={{ display: "block", fontSize: 12, color: "#94a3b8", marginTop: 4 }}>{props.helper}</span>}
+    </div>
   );
 }
 
@@ -150,17 +229,49 @@ export function TextAreaField(props: {
   helper?: string;
 }) {
   return (
-    <label className="block text-sm text-slate-700">
+    <div>
       <FieldLabel>{props.label}</FieldLabel>
-      <textarea
-        rows={props.rows ?? 4}
-        value={props.value}
-        onChange={(event) => props.onChange(event.target.value)}
-        placeholder={props.placeholder}
-        className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
-      />
-      {props.helper ? <span className="mt-1 block text-xs text-slate-500">{props.helper}</span> : null}
-    </label>
+      <textarea rows={props.rows ?? 4} value={props.value} onChange={e => props.onChange(e.target.value)} placeholder={props.placeholder} className="input-field" />
+      {props.helper && <span style={{ display: "block", fontSize: 12, color: "#94a3b8", marginTop: 4 }}>{props.helper}</span>}
+    </div>
+  );
+}
+
+// ── 토글 스위치 ───────────────────────────────────────────
+
+export function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      style={{
+        position: "relative",
+        display: "inline-flex",
+        width: 44,
+        height: 24,
+        borderRadius: 99,
+        background: checked ? "#2563eb" : "#cbd5e1",
+        border: "none",
+        cursor: "pointer",
+        transition: "background 0.2s",
+        flexShrink: 0,
+        padding: 0,
+      }}
+    >
+      <span style={{
+        position: "absolute",
+        top: 2,
+        left: checked ? 22 : 2,
+        width: 20,
+        height: 20,
+        borderRadius: "50%",
+        background: "white",
+        boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+        transition: "left 0.2s",
+      }} />
+    </button>
   );
 }
 
@@ -171,59 +282,54 @@ export function ToggleField(props: {
   onChange: (value: boolean) => void;
 }) {
   return (
-    <label className="flex items-start justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3 text-sm">
-      <span>
-        <span className="block font-medium text-slate-900">{props.label}</span>
-        <span className="mt-1 block text-xs text-slate-600">{props.description}</span>
-      </span>
-      <input
-        type="checkbox"
-        checked={props.checked}
-        onChange={(event) => props.onChange(event.target.checked)}
-        className="mt-1 size-4"
-      />
-    </label>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 0", borderBottom: "1px solid #f1f5f9" }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 14, fontWeight: 500, color: "#1e293b" }}>{props.label}</div>
+        <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>{props.description}</div>
+      </div>
+      <ToggleSwitch checked={props.checked} onChange={props.onChange} />
+    </div>
   );
 }
+
+// ── 라디오 카드 그룹 ──────────────────────────────────────
 
 export function RadioCardGroup(props: {
   label: string;
   value: string;
   onChange: (value: string) => void;
-  options: Array<{ value: string; title: string; description: string }>;
+  options: Array<{ value: string; title: string; description: string; icon?: ReactNode }>;
 }) {
   return (
-    <div className="space-y-2">
+    <div>
       <FieldLabel>{props.label}</FieldLabel>
-      <div className="grid gap-3 md:grid-cols-3">
-        {props.options.map((option) => (
-          <label
-            key={option.value}
-            className={`cursor-pointer rounded-xl border p-4 text-sm ${
-              props.value === option.value ? "border-blue-600 bg-blue-50" : "border-slate-200 bg-white"
-            }`}
-          >
-            <input
-              type="radio"
-              name={props.label}
-              value={option.value}
-              checked={props.value === option.value}
-              onChange={(event) => props.onChange(event.target.value)}
-              className="sr-only"
-            />
-            <div className="font-medium text-slate-900">{option.title}</div>
-            <div className="mt-1 text-xs text-slate-600">{option.description}</div>
-          </label>
-        ))}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+        {props.options.map(option => {
+          const selected = props.value === option.value;
+          return (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => props.onChange(option.value)}
+              style={{
+                textAlign: "left",
+                padding: 16,
+                borderRadius: 12,
+                border: `2px solid ${selected ? "#2563eb" : "#e2e8f0"}`,
+                background: selected ? "#eff6ff" : "white",
+                cursor: "pointer",
+                transition: "all 0.15s",
+              }}
+            >
+              {option.icon && <div style={{ marginBottom: 8, fontSize: 20 }}>{option.icon}</div>}
+              <div style={{ fontSize: 14, fontWeight: 600, color: selected ? "#1d4ed8" : "#1e293b", marginBottom: 4 }}>
+                {option.title}
+              </div>
+              <div style={{ fontSize: 12, color: "#64748b", lineHeight: 1.5 }}>{option.description}</div>
+            </button>
+          );
+        })}
       </div>
     </div>
   );
-}
-
-export function ToastNotice(props: { tone: "success" | "error"; message: string }) {
-  const className =
-    props.tone === "success"
-      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-      : "border-red-200 bg-red-50 text-red-700";
-  return <div className={`rounded-lg border px-4 py-3 text-sm ${className}`}>{props.message}</div>;
 }
