@@ -177,6 +177,8 @@ export function KnowledgeManagement() {
   const [faqTargetItem, setFaqTargetItem] = useState<KnowledgeItem | null>(null);
   const [settingsChatbotId, setSettingsChatbotId] = useState<string | null>(null);
   const [skipDuplicateReindex, setSkipDuplicateReindex] = useState(false);
+  // 다른 탭의 건수 (탭 뱃지에 항상 양쪽 표시)
+  const [otherGroupCount, setOtherGroupCount] = useState<number>(0);
 
   const categories = useMemo(
     () => Array.from(new Set(items.map((item) => item.category).filter(Boolean))).sort(),
@@ -190,8 +192,9 @@ export function KnowledgeManagement() {
   const load = async () => {
     setIsLoading(true);
     setError(null);
+    const otherGroup = sourceGroup === "file_text" ? "website" : "file_text";
     try {
-      const [response, runtime, chatbotResponse] = await Promise.all([
+      const [response, otherRes, runtime, chatbotResponse] = await Promise.all([
         getKnowledgeList({
           sourceGroup,
           q: query.trim() || undefined,
@@ -199,10 +202,12 @@ export function KnowledgeManagement() {
           field: field || undefined,
           status: status || undefined,
         }),
+        getKnowledgeList({ sourceGroup: otherGroup }),
         getKnowledgeRuntimeStatus(),
         getAdminChatbots(),
       ]);
       setItems(response.items);
+      setOtherGroupCount(otherRes.items.length);
       setRuntimeStatus(runtime);
       const chatbot = chatbotResponse.items[0];
       setSettingsChatbotId(chatbot?.id ?? null);
@@ -363,9 +368,9 @@ export function KnowledgeManagement() {
     }
   };
 
-  // 탭별 카운트
-  const fileItems = items.filter(it => it.sourceType === "file" || it.sourceType === "text");
-  const websiteItems = items.filter(it => it.sourceType === "website");
+  // 탭별 카운트: 현재 탭은 items.length, 반대 탭은 otherGroupCount
+  const fileCount = sourceGroup === "file_text" ? items.length : otherGroupCount;
+  const websiteCount = sourceGroup === "website" ? items.length : otherGroupCount;
 
   // 상태 아이콘
   const StatusBadge = ({ item }: { item: KnowledgeItem }) => {
@@ -384,7 +389,7 @@ export function KnowledgeManagement() {
       {/* 탭 + 우측 액션 */}
       <div className="flex items-center justify-between" style={{ borderBottom: "1px solid #e2e8f0" }}>
         <div className="flex">
-          {([["file_text", `파일·텍스트 (${fileItems.length})`], ["website", `웹사이트 (${websiteItems.length})`]] as [KnowledgeSourceGroup, string][]).map(([group, label]) => (
+          {([["file_text", `파일·텍스트 (${fileCount})`], ["website", `웹사이트 (${websiteCount})`]] as [KnowledgeSourceGroup, string][]).map(([group, label]) => (
             <button
               key={group}
               type="button"
