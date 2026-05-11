@@ -1,72 +1,218 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
+import {
+  LayoutDashboard, Upload, BookOpen, AlertCircle,
+  Bot, Palette, Settings2, MonitorSmartphone, Code2,
+  MessageSquare, ScrollText, BarChart2, ThumbsUp,
+  Users, CreditCard, Shield, ChevronDown, LogOut,
+} from "lucide-react";
 
-import { AdminIcon } from "../ui/admin-icons";
-import { adminNavItems } from "./admin-nav";
+import { adminNav } from "./admin-nav";
+import {
+  ADMIN_SELECTED_CHATBOT_EVENT,
+  readSelectedAdminChatbot,
+  type SelectedAdminChatbot,
+} from "../../lib/admin-ui/selected-chatbot";
+import { apiClient } from "../../lib/api";
+import { clearAdminAccessToken } from "../../lib/auth/token";
+import { useRouter } from "next/navigation";
+
+const ICON_MAP: Record<string, React.ComponentType<React.SVGProps<SVGSVGElement>>> = {
+  LayoutDashboard, Upload, BookOpen, AlertCircle,
+  Bot, Palette, Settings2, MonitorSmartphone, Code2,
+  MessageSquare, ScrollText, BarChart2, ThumbsUp,
+  Users, CreditCard, Shield,
+};
+
+function NavIcon({
+  name,
+  className,
+  style,
+}: {
+  name: string;
+  className?: string;
+  style?: React.CSSProperties;
+}) {
+  const Icon = ICON_MAP[name];
+  return Icon ? <Icon className={className} style={style} /> : null;
+}
 
 export function AdminSidebar() {
   const pathname = usePathname();
-  const sectionMap = new Map<string, Array<(typeof adminNavItems)[number]>>();
+  const router = useRouter();
+  const [selectedChatbot, setSelectedChatbot] = useState<SelectedAdminChatbot | null>(null);
 
-  adminNavItems.forEach((item) => {
-    const current = sectionMap.get(item.section) ?? [];
-    current.push(item);
-    sectionMap.set(item.section, current);
-  });
+  useEffect(() => {
+    function sync() {
+      setSelectedChatbot(readSelectedAdminChatbot());
+    }
+    sync();
+    window.addEventListener("storage", sync);
+    window.addEventListener(ADMIN_SELECTED_CHATBOT_EVENT, sync as EventListener);
+    return () => {
+      window.removeEventListener("storage", sync);
+      window.removeEventListener(ADMIN_SELECTED_CHATBOT_EVENT, sync as EventListener);
+    };
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      await apiClient.request<void>("/admin/auth/logout", { method: "POST" });
+    } catch {
+      // ignore
+    } finally {
+      clearAdminAccessToken();
+      router.replace("/login");
+    }
+  };
 
   return (
-    <aside className="hidden w-80 shrink-0 border-r border-slate-200/80 bg-white lg:block">
-      <div className="border-b border-slate-200/80 px-6 py-6">
-        <div className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
-          ORG ADMIN
-        </div>
-        <div className="mt-4">
-          <p className="text-lg font-semibold tracking-tight text-slate-950">IEUMBOT Workspace</p>
-          <p className="mt-1 text-sm leading-6 text-slate-500">
-            기관 운영, 지식, 대화 품질을 관리하는 SaaS 관리자 화면입니다.
-          </p>
+    <aside
+      className="hidden lg:flex flex-col shrink-0 sticky top-0 h-screen overflow-y-auto bg-white"
+      style={{ width: 240, borderRight: "1px solid #e2e8f0" }}
+    >
+      {/* 로고 */}
+      <div
+        className="flex items-center shrink-0"
+        style={{ height: 64, paddingLeft: 20, borderBottom: "1px solid #f1f5f9" }}
+      >
+        <span style={{ fontSize: 18, fontWeight: 700, color: "#1d4ed8", letterSpacing: "-0.02em" }}>
+          IEUMBOT
+        </span>
+      </div>
+
+      {/* 챗봇 선택기 */}
+      <div style={{ padding: "8px 12px" }}>
+        <div
+          className="flex items-center justify-between cursor-pointer hover:bg-neutral-100 transition-colors"
+          style={{
+            padding: "10px 12px",
+            background: "#f8fafc",
+            borderRadius: 8,
+            fontSize: 13,
+          }}
+        >
+          <div className="flex flex-col min-w-0">
+            <span style={{ fontSize: 10, color: "#94a3b8", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+              현재 챗봇
+            </span>
+            <span
+              className="truncate"
+              style={{ color: "#334155", fontWeight: 500, marginTop: 1 }}
+            >
+              {selectedChatbot?.name ?? "챗봇을 선택하세요"}
+            </span>
+          </div>
+          <ChevronDown className="shrink-0 ml-1" style={{ width: 14, height: 14, color: "#94a3b8" }} />
         </div>
       </div>
 
-      <nav className="space-y-6 p-4">
-        {Array.from(sectionMap.entries()).map(([section, items]) => (
-          <div key={section}>
-            <p className="px-3 pb-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">
-              {section}
-            </p>
-            <div className="space-y-1">
-              {items.map((item) => {
-                const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
+      {/* 네비게이션 */}
+      <nav className="flex-1" style={{ padding: "8px 0" }}>
+        {adminNav.map((group, gi) => (
+          <div key={gi}>
+            {group.title ? (
+              <p
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: "#94a3b8",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.08em",
+                  padding: "16px 20px 4px",
+                }}
+              >
+                {group.title}
+              </p>
+            ) : null}
 
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={[
-                      "flex items-center gap-3 rounded-2xl px-3 py-3 text-sm transition-all",
-                      isActive
-                        ? "bg-slate-950 text-white shadow-sm"
-                        : "text-slate-700 hover:bg-slate-100 hover:text-slate-950",
-                    ].join(" ")}
-                  >
+            {group.items.map((item) => {
+              const isActive =
+                pathname === item.href ||
+                (item.href !== "/admin/dashboard" && pathname.startsWith(item.href));
+
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className="flex items-center gap-3 transition-colors"
+                  style={{
+                    padding: "8px 16px",
+                    margin: "1px 8px",
+                    borderRadius: 8,
+                    fontSize: 14,
+                    fontWeight: isActive ? 600 : 400,
+                    color: isActive ? "#1d4ed8" : "#475569",
+                    background: isActive ? "#eff6ff" : "transparent",
+                    textDecoration: "none",
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isActive) {
+                      e.currentTarget.style.background = "#f1f5f9";
+                      e.currentTarget.style.color = "#1e293b";
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isActive) {
+                      e.currentTarget.style.background = "transparent";
+                      e.currentTarget.style.color = "#475569";
+                    }
+                  }}
+                >
+                  <NavIcon
+                    name={item.icon}
+                    style={{
+                      width: 16,
+                      height: 16,
+                      color: isActive ? "#2563eb" : "#94a3b8",
+                      flexShrink: 0,
+                    }}
+                  />
+                  <span>{item.label}</span>
+                  {item.badge ? (
                     <span
-                      className={[
-                        "inline-flex rounded-xl p-2",
-                        isActive ? "bg-white/10 text-white" : "bg-slate-100 text-slate-500",
-                      ].join(" ")}
+                      className="ml-auto"
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 600,
+                        background: "#dbeafe",
+                        color: "#1d4ed8",
+                        borderRadius: 10,
+                        padding: "1px 6px",
+                      }}
                     >
-                      <AdminIcon name={item.icon} className="h-4 w-4" />
+                      {item.badge}
                     </span>
-                    <span className="font-medium">{item.label}</span>
-                  </Link>
-                );
-              })}
-            </div>
+                  ) : null}
+                </Link>
+              );
+            })}
           </div>
         ))}
       </nav>
+
+      {/* 하단 로그아웃 */}
+      <div style={{ borderTop: "1px solid #f1f5f9", padding: 12 }}>
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="flex w-full items-center gap-2 transition-colors hover:bg-neutral-100 rounded-lg"
+          style={{
+            padding: "8px 12px",
+            fontSize: 13,
+            color: "#64748b",
+            background: "transparent",
+            border: "none",
+            cursor: "pointer",
+          }}
+        >
+          <LogOut style={{ width: 14, height: 14 }} />
+          <span>로그아웃</span>
+        </button>
+      </div>
     </aside>
   );
 }

@@ -1,23 +1,58 @@
-export const adminNavItems = [
-  { href: "/admin/dashboard", label: "대시보드", section: "Overview", icon: "dashboard" },
-  { href: "/admin/chatbots", label: "챗봇 관리", section: "Workspace", icon: "chatbot" },
-  { href: "/admin/knowledge/register", label: "지식 등록", section: "Workspace", icon: "knowledge" },
-  { href: "/admin/knowledge/list", label: "지식 목록", section: "Workspace", icon: "knowledge" },
-  { href: "/admin/conversations", label: "대화 관리", section: "Workspace", icon: "conversation" },
-  { href: "/admin/usage", label: "사용량", section: "Workspace", icon: "usage" },
-  { href: "/admin/widget", label: "위젯 설정", section: "Workspace", icon: "widget" },
-  { href: "/admin/ai/basic", label: "기본 AI", section: "AI Config", icon: "ai" },
-  { href: "/admin/ai/style", label: "스타일 규칙", section: "AI Config", icon: "spark" },
-  { href: "/admin/ai/conditional", label: "조건부 규칙", section: "AI Config", icon: "spark" },
-  { href: "/admin/quality-report", label: "품질 리포트", section: "Operations", icon: "logs" },
-  { href: "/admin/feedback", label: "피드백 현황", section: "Operations", icon: "logs" },
-  { href: "/admin/knowledge-gap", label: "Knowledge Gap", section: "Operations", icon: "knowledge" },
-  { href: "/admin/roi-dashboard", label: "ROI Dashboard", section: "Operations", icon: "usage" },
-  { href: "/admin/billing", label: "결제 관리", section: "Operations", icon: "billing" },
-  { href: "/admin/users", label: "사용자", section: "Operations", icon: "users" },
-  { href: "/admin/security", label: "보안", section: "Operations", icon: "security" },
-  { href: "/admin/notifications", label: "알림", section: "Operations", icon: "notification" },
-  { href: "/admin/audit", label: "감사 로그", section: "Operations", icon: "logs" },
-  { href: "/admin/install-guide", label: "설치 가이드", section: "Operations", icon: "widget" },
-  { href: "/admin/ai/rag", label: "RAG 검색 설정", section: "AI Config", icon: "Search" },
-] as const;
+export interface NavItem {
+  label: string;
+  href: string;
+  icon: string;
+  badge?: string;
+}
+
+export interface NavGroup {
+  title?: string;
+  items: NavItem[];
+}
+
+export const adminNav: NavGroup[] = [
+  {
+    title: undefined,
+    items: [
+      { label: "대시보드", href: "/admin/dashboard", icon: "LayoutDashboard" },
+    ],
+  },
+  {
+    title: "지식 관리",
+    items: [
+      { label: "지식 등록",   href: "/admin/knowledge/register", icon: "Upload" },
+      { label: "지식 목록",   href: "/admin/knowledge/list",     icon: "BookOpen" },
+      { label: "미답변 질문", href: "/admin/knowledge-gap",      icon: "AlertCircle" },
+    ],
+  },
+  {
+    title: "챗봇 설정",
+    items: [
+      { label: "기본 설정",   href: "/admin/ai/basic",         icon: "Bot" },
+      { label: "응답 스타일", href: "/admin/ai/style",         icon: "Palette" },
+      { label: "AI 고급설정", href: "/admin/answer-settings",  icon: "Settings2" },
+      { label: "위젯 설정",   href: "/admin/widget",           icon: "MonitorSmartphone" },
+      { label: "설치 가이드", href: "/admin/install-guide",    icon: "Code2" },
+    ],
+  },
+  {
+    title: "운영 분석",
+    items: [
+      { label: "대화 목록",   href: "/admin/conversations",  icon: "MessageSquare" },
+      { label: "채팅 로그",   href: "/admin/logs",           icon: "ScrollText" },
+      { label: "품질 리포트", href: "/admin/quality-report", icon: "BarChart2" },
+      { label: "피드백 현황", href: "/admin/feedback",       icon: "ThumbsUp" },
+    ],
+  },
+  {
+    title: "시스템",
+    items: [
+      { label: "사용자 관리", href: "/admin/users",    icon: "Users" },
+      { label: "결제 관리",   href: "/admin/billing",  icon: "CreditCard" },
+      { label: "보안",        href: "/admin/security", icon: "Shield" },
+    ],
+  },
+];
+
+// 하위 호환: 기존 adminNavItems가 필요한 파일을 위해 flat 배열도 export
+export const adminNavItems = adminNav.flatMap((g) => g.items);
