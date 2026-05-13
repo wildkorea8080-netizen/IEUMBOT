@@ -29,6 +29,7 @@ from app.services.chat.entity_extraction_service import (
 from app.services.chat.citation_service import assemble_citations
 from app.services.chat.fallback_response_service import build_fallback_response
 from app.services.chat.policy_evaluation_service import evaluate_answer_policy
+from app.services.chat.privacy_guard_service import PrivacyDetectionResult, detect_and_mask_privacy
 from app.services.chat.prompt_assembly_service import build_answer_prompt
 from app.services.chat.retrieval_precheck_service import normalize_query, retrieve_for_precheck
 from app.services.enforcement_service import ensure_runtime_access_for_chatbot
@@ -46,16 +47,20 @@ SAFE_CHAT_ERROR_MESSAGE = (
     "현재 자동 답변 처리에 일시적인 문제가 있습니다. 잠시 후 다시 시도해 주시거나, "
     "질문을 조금 더 구체적으로 남겨주시면 확인 가능한 범위에서 다시 안내해 드리겠습니다."
 )
+PRIVACY_BLOCK_RESPONSE = (
+    "개인정보가 포함된 내용은 보안을 위해 처리할 수 없습니다. "
+    "전화번호, 주민등록번호, 카드번호, 생년월일 등은 제외하고 다시 입력해 주세요."
+)
 
-GREETING_RESPONSE = "안녕하세요. 무엇을 도와드릴까요?"
-THANKS_RESPONSE = "도움이 되었다니 다행입니다. 추가로 궁금하신 내용이 있으면 말씀해주세요."
-GOODBYE_RESPONSE = "이용해주셔서 감사합니다. 좋은 하루 보내세요."
-SMALL_TALK_FIRST_RESPONSE = (
-    "어떤 사업이나 절차에 대해 궁금하신지 조금 더 알려주시면 더 정확히 안내드릴 수 있습니다."
-)
-SMALL_TALK_REDIRECT_RESPONSE = (
-    "궁금하신 사업명, 신청 단계, 대상 기관 중 하나를 알려주시면 확인 가능한 범위에서 안내드리겠습니다."
-)
+GREETING_RESPONSE = "안녕하세요! 무엇을 도와드릴까요? "
+THANKS_RESPONSE = "도움이 되었다니 다행이에요. 또 궁금한 점이 있으면 말씀해 주세요 "
+GOODBYE_RESPONSE = "감사합니다. 좋은 하루 보내세요!"
+COMPLIMENT_RESPONSE = "좋게 봐주셔서 감사합니다. 궁금하신 내용이 있으면 편하게 물어봐 주세요 "
+WEATHER_RESPONSE = "그러게요, 기분 좋은 날씨네요! 다른 궁금한 점이 있으면 언제든 말씀해 주세요 "
+FUN_RESPONSE = "재미있으셨다니 다행이에요! 더 궁금한 점 있으면 언제든 말씀해 주세요 "
+EMOTION_RESPONSE = "말씀해 주셔서 감사합니다. 필요한 내용이 있으면 편하게 물어봐 주세요 "
+SMALL_TALK_FIRST_RESPONSE = "편하게 말씀해 주세요. 궁금하신 점이 있으면 바로 도와드릴게요 "
+SMALL_TALK_REDIRECT_RESPONSE = "궁금하신 내용이 있으면 언제든 말씀해 주세요 "
 SOFT_GUIDANCE_RESPONSES = [
     "어떤 사업이나 절차에 대해 궁금하신지 조금 더 알려주시면 더 정확히 안내드릴 수 있습니다.",
     (
@@ -89,50 +94,195 @@ DISSATISFACTION_KEYWORDS = [
 CONTACT_QUESTION_KEYWORDS = ["연락처", "전화", "전화번호", "문의처", "담당자", "담당부서"]
 CONTACT_LINE_KEYWORDS = ["문의처", "연락처", "전화", "전화번호", "담당자", "담당부서", "담당"]
 PHONE_NUMBER_REGEX = re.compile(r"(?:\d{2,3}[-.)]\d{3,4}[-.)]\d{4}|\d{2,3}\.\d{3,4}\.\d{4})")
+BUSINESS_SIGNAL_KEYWORDS = [
+    "사업",
+    "지원",
+    "교육",
+    "일정",
+    "자격",
+    "조건",
+    "신청",
+    "방법",
+    "서류",
+    "문의",
+    "연락",
+    "센터",
+    "기관",
+    "공단",
+    "시설",
+    "서비스",
+    "정책",
+    "절차",
+    "대상",
+    "기간",
+    "마감",
+    "접수",
+    "소개",
+    "문의처",
+]
+
+NATURAL_INTENT_RESPONSES = {
+    "greeting": GREETING_RESPONSE,
+    "thanks": THANKS_RESPONSE,
+    "goodbye": GOODBYE_RESPONSE,
+    "compliment": COMPLIMENT_RESPONSE,
+    "weather": WEATHER_RESPONSE,
+    "fun": FUN_RESPONSE,
+    "emotion": EMOTION_RESPONSE,
+}
+FALLBACK_FOLLOW_UP_QUESTIONS = [
+    "관련 사업명을 알려주실 수 있나요?",
+    "신청 단계나 대상 기관을 알려주실 수 있나요?",
+    "찾고 싶은 자료명을 알려주실 수 있나요?",
+]
 
 
 def _normalize_text(value: str) -> str:
     return " ".join(value.strip().lower().split())
 
 
-def _simple_natural_response(question: str, *, user_turn_count: int) -> tuple[str, str] | None:
+def _has_business_signal(normalized: str) -> bool:
+    return any(keyword in normalized for keyword in BUSINESS_SIGNAL_KEYWORDS)
+
+
+def _detect_simple_intent(question: str) -> str | None:
     normalized = _normalize_text(question)
     if not normalized:
         return None
 
-    has_business_signal = any(
-        keyword in normalized
-        for keyword in [
-            "사업",
-            "지원",
-            "교육",
-            "일정",
-            "자격",
-            "조건",
-            "신청",
-            "방법",
-            "서류",
-            "문의",
-            "연락",
-            "센터",
-            "기관",
-            "?",
-        ]
-    )
-    if has_business_signal:
+    if _has_business_signal(normalized):
         return None
 
-    if normalized in {"안녕", "안녕하세요", "반갑습니다", "반가워", "hi", "hello", "hey"}:
-        return ("answered", GREETING_RESPONSE)
-    if any(keyword in normalized for keyword in ["고마워", "고맙습니다", "감사", "thank you", "thanks"]):
-        return ("answered", THANKS_RESPONSE)
+    normalized_for_intent = normalized.strip(" .!?。！？")
+    compact = normalized_for_intent.replace(" ", "")
+    if compact in {"안녕", "안녕하세요", "반갑습니다", "반가워"} or normalized in {"hi", "hello", "hey"}:
+        return "greeting"
+    if any(keyword in normalized for keyword in ["고마워", "고맙습니다", "감사", "thank you", "thanks", "thx"]):
+        return "thanks"
     if any(keyword in normalized for keyword in ["안녕히", "잘가", "잘 가", "수고", "그만", "bye", "goodbye"]):
-        return ("answered", GOODBYE_RESPONSE)
-    if len(normalized) <= 30 and any(
-        keyword in normalized for keyword in ["뭐해", "잘 지내", "괜찮아", "심심", "농담", "how are you"]
+        return "goodbye"
+    if any(keyword in normalized for keyword in ["날씨", "맑", "비 오", "눈 오", "덥", "추워", "춥"]):
+        return "weather"
+    if any(keyword in normalized for keyword in ["재미", "웃기", "농담"]):
+        return "fun"
+    if any(keyword in normalized for keyword in ["좋네요", "좋아요", "좋습니다", "멋지", "훌륭", "최고", "친절", "잘하"]):
+        return "compliment"
+    if any(keyword in normalized for keyword in ["기분", "힘들", "피곤", "슬퍼", "우울", "괜찮아", "괜찮으세요"]):
+        return "emotion"
+    if len(normalized) <= 40 and any(
+        keyword in normalized
+        for keyword in [
+            "뭐해",
+            "뭐 하니",
+            "잘 지내",
+            "잘지내",
+            "심심",
+            "오늘 어때",
+            "주말 뭐해",
+            "what's up",
+            "hows it going",
+            "how are you",
+        ]
     ):
-        return ("answered", SMALL_TALK_FIRST_RESPONSE if user_turn_count <= 0 else SMALL_TALK_REDIRECT_RESPONSE)
+        return "smalltalk"
     return None
+
+
+def _simple_natural_response(question: str, *, user_turn_count: int) -> tuple[str, str, str] | None:
+    detected_intent = _detect_simple_intent(question)
+    if detected_intent is None:
+        return None
+    if detected_intent == "smalltalk":
+        response = SMALL_TALK_FIRST_RESPONSE if user_turn_count <= 0 else SMALL_TALK_REDIRECT_RESPONSE
+    else:
+        response = NATURAL_INTENT_RESPONSES[detected_intent]
+    return ("answered", response, detected_intent)
+
+
+def _candidate_text(candidates: list[dict[str, Any]]) -> str:
+    parts: list[str] = []
+    for item in candidates[:5]:
+        for key in ("sectionTitle", "sourceTitle", "documentName", "title"):
+            value = item.get(key)
+            if value:
+                parts.append(str(value))
+        signals = item.get("contentSignals")
+        if isinstance(signals, dict) and signals.get("textPreview"):
+            parts.append(str(signals.get("textPreview")))
+    return _normalize_text(" ".join(parts))
+
+
+def _dedupe_three(items: list[str]) -> list[str]:
+    result: list[str] = []
+    for item in items:
+        normalized = " ".join(item.split())
+        if normalized and normalized not in result:
+            result.append(normalized)
+        if len(result) == 3:
+            break
+    return result
+
+
+def _build_follow_up_questions(
+    *,
+    question: str,
+    outcome: str,
+    candidates: list[dict[str, Any]],
+    natural_conversation: bool,
+    privacy_blocked: bool = False,
+) -> list[str]:
+    if natural_conversation or privacy_blocked:
+        return []
+
+    if outcome != "answered":
+        return FALLBACK_FOLLOW_UP_QUESTIONS.copy()
+
+    normalized = _normalize_text(question)
+    context_text = f"{normalized} {_candidate_text(candidates)}"
+
+    if "융자" in context_text:
+        return [
+            "융자 신청 자격은 어떻게 되나요?",
+            "융자 신청 시 제출 서류는 무엇인가요?",
+            "융자 금리와 상환 조건은 어떻게 되나요?",
+        ]
+    if "사업신고" in context_text or ("사업" in context_text and "신고" in context_text):
+        return [
+            "사업신고 절차는 어떻게 되나요?",
+            "사업신고 시 필요한 서류는 무엇인가요?",
+            "변경신고는 언제 해야 하나요?",
+        ]
+    if "교육" in context_text or "해외인턴" in context_text or "인턴" in context_text:
+        return [
+            "교육 신청 자격은 어떻게 되나요?",
+            "모집 기간은 언제인가요?",
+            "제출 서류는 무엇인가요?",
+        ]
+    if any(keyword in context_text for keyword in ["기관 소개", "사업 소개", "주요 사업", "주요사업", "소개"]):
+        return [
+            "주요 지원사업은 무엇인가요?",
+            "신청 가능한 사업은 어떤 것이 있나요?",
+            "문의처는 어디인가요?",
+        ]
+
+    source_driven: list[str] = []
+    if "자격" in context_text or "조건" in context_text:
+        source_driven.append("신청 자격은 어떻게 되나요?")
+    if "서류" in context_text or "제출" in context_text:
+        source_driven.append("제출 서류는 무엇인가요?")
+    if "기간" in context_text or "모집" in context_text or "마감" in context_text:
+        source_driven.append("신청 기간은 언제인가요?")
+    if "문의" in context_text or "연락" in context_text or "담당" in context_text:
+        source_driven.append("문의처는 어디인가요?")
+
+    return _dedupe_three(
+        source_driven
+        + [
+            "관련 사업명을 알려주실 수 있나요?",
+            "신청 단계나 대상 기관을 알려주실 수 있나요?",
+            "찾고 싶은 자료명을 알려주실 수 있나요?",
+        ]
+    )
 
 
 def _build_public_runtime_trace(
@@ -145,9 +295,17 @@ def _build_public_runtime_trace(
     assistant_message_id: str,
     session_id: str,
     session_token: str,
+    detected_intent: str | None = None,
+    simple_response_applied: bool = False,
+    follow_up_questions: list[str] | None = None,
+    follow_up_source: str | None = None,
 ) -> dict[str, Any]:
     return {
         "normalizedQuery": normalized_query,
+        "detectedIntent": detected_intent,
+        "simpleResponseApplied": simple_response_applied,
+        "followUpQuestions": follow_up_questions or [],
+        "followUpSource": follow_up_source,
         "llm": {
             "executed": llm_executed,
             "errorCode": llm_error_code,
@@ -377,6 +535,8 @@ def build_chat_pipeline_error_response(
         "normalizedQuery": body.normalized_query or normalize_query(body.question),
         "fallbackReason": "UNKNOWN",
         "messageType": "error",
+        "followUpQuestions": FALLBACK_FOLLOW_UP_QUESTIONS.copy(),
+        "followUpSource": "rule_based",
         "retrieval": {
             "enabled": False,
             "retrievedCount": 0,
@@ -412,6 +572,7 @@ def build_chat_pipeline_error_response(
         outcome="insufficient_evidence",
         answer={"text": SAFE_CHAT_ERROR_MESSAGE, "warnings": ["CHAT_PIPELINE_RECOVERED_FROM_ERROR"]},
         citations=[],
+        follow_up_questions=FALLBACK_FOLLOW_UP_QUESTIONS.copy(),
         policy_decision={},
         trace=trace,
     )
@@ -621,6 +782,7 @@ def _persist_immediate_response(
     outcome: str,
     answer_text: str,
     reason: str,
+    detected_intent: str,
 ) -> ChatRuntimeResponse:
     request_id = f"chat_run_{uuid.uuid4().hex[:16]}"
     if session is None:
@@ -666,8 +828,12 @@ def _persist_immediate_response(
         normalized_query=normalized_query,
         retrieved_documents=[],
         selected_sources=[],
-        final_decision={"decision": "allow", "reason": reason, "flags": {"immediateResponse": True}},
-        validation_signals={"immediateResponse": True},
+        final_decision={
+            "decision": "allow",
+            "reason": reason,
+            "flags": {"immediateResponse": True, "detectedIntent": detected_intent},
+        },
+        validation_signals={"immediateResponse": True, "detectedIntent": detected_intent},
         metadata_json={"conversationTone": tone_summary},
     )
 
@@ -687,6 +853,7 @@ def _persist_immediate_response(
             "llmErrorCode": None,
             "policyDecision": "allow",
             "reason": reason,
+            "detectedIntent": detected_intent,
             "retrievalSummary": [],
             "citationSummary": [],
         },
@@ -701,6 +868,7 @@ def _persist_immediate_response(
         outcome=outcome,
         answer={"text": answer_text, "warnings": []},
         citations=[],
+        follow_up_questions=[],
         policy_decision={},
         trace=_build_public_runtime_trace(
             normalized_query=normalized_query,
@@ -711,7 +879,134 @@ def _persist_immediate_response(
             assistant_message_id=str(assistant_message.id),
             session_id=str(session.id),
             session_token=session_token,
+            detected_intent=detected_intent,
+            simple_response_applied=True,
+            follow_up_questions=[],
+            follow_up_source=None,
         ),
+    )
+
+
+def _persist_privacy_block_response(
+    db: Session,
+    *,
+    body: PreAnswerRequest,
+    chatbot: Any,
+    session: Any,
+    session_token: str,
+    normalized_query: str,
+    stream_mode: str,
+    privacy_result: PrivacyDetectionResult,
+) -> ChatRuntimeResponse:
+    request_id = f"chat_run_{uuid.uuid4().hex[:16]}"
+    if session is None:
+        session = create_chat_session(
+            db,
+            organization_id=str(chatbot.organization_id),
+            chatbot_id=str(chatbot.id),
+            session_token=session_token,
+            source_url=body.source_url,
+        )
+    elif body.source_url and not session.source_url:
+        session.source_url = body.source_url
+
+    privacy_flags = {
+        "privacyDetected": True,
+        "privacyTypes": privacy_result.types,
+        "maskedInput": privacy_result.masked_text,
+    }
+    final_decision = {
+        "decision": "restricted",
+        "reason": "privacy_detected",
+        "flags": privacy_flags,
+        "safeMessage": PRIVACY_BLOCK_RESPONSE,
+    }
+
+    user_message = create_chat_message(
+        db,
+        organization_id=str(chatbot.organization_id),
+        chatbot_id=str(chatbot.id),
+        session_id=str(session.id),
+        request_id=request_id,
+        role="user",
+        content=body.question,
+        content_masked=privacy_result.masked_text,
+        status="completed",
+        model_name=None,
+        result_type=None,
+        normalized_query=normalized_query,
+        retrieved_documents=[],
+        selected_sources=[],
+        final_decision={},
+        validation_signals=privacy_flags,
+        metadata_json={"privacy": privacy_flags},
+    )
+    assistant_message = create_chat_message(
+        db,
+        organization_id=str(chatbot.organization_id),
+        chatbot_id=str(chatbot.id),
+        session_id=str(session.id),
+        request_id=request_id,
+        role="assistant",
+        content=PRIVACY_BLOCK_RESPONSE,
+        status="completed",
+        model_name=None,
+        result_type="restricted",
+        normalized_query=normalized_query,
+        retrieved_documents=[],
+        selected_sources=[],
+        final_decision=final_decision,
+        validation_signals=privacy_flags,
+        metadata_json={"privacy": privacy_flags},
+        escalation_reason="privacy_detected",
+    )
+
+    create_audit_log(
+        db,
+        organization_id=str(chatbot.organization_id),
+        admin_id=None,
+        action="chat.final_pipeline.executed",
+        target_type="chatbot",
+        target_id=str(chatbot.id),
+        result="success",
+        request_id=request_id,
+        metadata_json={
+            "outcome": "restricted",
+            "streamMode": stream_mode,
+            "llmExecuted": False,
+            "llmErrorCode": None,
+            "policyDecision": "restricted",
+            "reason": "privacy_detected",
+            "privacy": privacy_flags,
+            "retrievalSummary": [],
+            "citationSummary": [],
+        },
+    )
+
+    session.last_message_at = datetime.now(UTC)
+    db.commit()
+
+    trace = _build_public_runtime_trace(
+        normalized_query=normalized_query,
+        llm_executed=False,
+        llm_error_code=None,
+        stream_mode=stream_mode,
+        user_message_id=str(user_message.id),
+        assistant_message_id=str(assistant_message.id),
+        session_id=str(session.id),
+        session_token=session_token,
+    )
+    trace.update(privacy_flags)
+
+    return ChatRuntimeResponse(
+        request_id=request_id,
+        chatbot_id=str(chatbot.id),
+        outcome="restricted",
+        answer={"text": PRIVACY_BLOCK_RESPONSE, "warnings": ["PRIVACY_DETECTED"]},
+        citations=[],
+        follow_up_questions=[],
+        policy_decision={},
+        trace=trace,
     )
 
 
@@ -739,9 +1034,28 @@ def run_final_chat_pipeline(
 
     normalized_query = body.normalized_query or normalize_query(body.question)
     session_token = body.session_token or f"session_{uuid.uuid4().hex[:20]}"
+    privacy_result = detect_and_mask_privacy(body.question)
+    if privacy_result.detected:
+        session = get_chat_session_by_token(
+            db,
+            organization_id=str(chatbot.organization_id),
+            chatbot_id=str(chatbot.id),
+            session_token=session_token,
+        )
+        return _persist_privacy_block_response(
+            db,
+            body=body,
+            chatbot=chatbot,
+            session=session,
+            session_token=session_token,
+            normalized_query=normalized_query,
+            stream_mode=stream_mode,
+            privacy_result=privacy_result,
+        )
+
     immediate_response = _simple_natural_response(body.question, user_turn_count=0)
     if immediate_response is not None:
-        outcome, answer_text = immediate_response
+        outcome, answer_text, detected_intent = immediate_response
         response = _persist_immediate_response(
             db,
             body=body,
@@ -754,9 +1068,14 @@ def run_final_chat_pipeline(
             outcome=outcome,
             answer_text=answer_text,
             reason="simple_natural_conversation",
+            detected_intent=detected_intent,
         )
         if include_debug_trace:
-            response.policy_decision = {"decision": "allow", "reason": "simple_natural_conversation", "flags": {}}
+            response.policy_decision = {
+                "decision": "allow",
+                "reason": "simple_natural_conversation",
+                "flags": {"detectedIntent": detected_intent, "simpleResponseApplied": True},
+            }
             response.trace = _build_admin_debug_trace(
                 outcome=outcome,
                 normalized_query=normalized_query,
@@ -776,6 +1095,8 @@ def run_final_chat_pipeline(
                 retrieval_latency_ms=None,
                 natural_conversation=True,
             )
+            response.trace["detectedIntent"] = detected_intent
+            response.trace["simpleResponseApplied"] = True
         return response
 
     session = get_chat_session_by_token(
@@ -877,6 +1198,7 @@ def run_final_chat_pipeline(
     model_provider: str | None = None
     model_name: str | None = answer_settings.model_runtime.model_name
 
+    detected_intent = policy_flags.get("detectedIntent") if isinstance(policy_flags.get("detectedIntent"), str) else None
     greeting_detected = bool(policy_flags.get("greetingDetected"))
     gratitude_detected = bool(policy_flags.get("gratitudeDetected"))
     small_talk_detected = bool(policy_flags.get("smallTalkDetected"))
@@ -906,7 +1228,12 @@ def run_final_chat_pipeline(
         answer_text = THANKS_RESPONSE
     elif small_talk_detected:
         outcome = "answered"
-        answer_text = SMALL_TALK_FIRST_RESPONSE if user_turn_count <= 0 else SMALL_TALK_REDIRECT_RESPONSE
+        if detected_intent == "goodbye":
+            answer_text = GOODBYE_RESPONSE
+        elif detected_intent in NATURAL_INTENT_RESPONSES:
+            answer_text = NATURAL_INTENT_RESPONSES[detected_intent]
+        else:
+            answer_text = SMALL_TALK_FIRST_RESPONSE if user_turn_count <= 0 else SMALL_TALK_REDIRECT_RESPONSE
     elif direct_contact_answer:
         # 연락처는 전화번호 파싱이 더 정확 — LLM 생략
         outcome = "answered"
@@ -1152,6 +1479,14 @@ def run_final_chat_pipeline(
         except Exception:
             db.rollback()
 
+    follow_up_questions = _build_follow_up_questions(
+        question=body.question,
+        outcome=outcome,
+        candidates=prompt_candidates,
+        natural_conversation=natural_conversation,
+    )
+    follow_up_source = "rule_based" if follow_up_questions else None
+
     public_trace = _build_public_runtime_trace(
         normalized_query=normalized_query,
         llm_executed=llm_executed,
@@ -1161,6 +1496,10 @@ def run_final_chat_pipeline(
         assistant_message_id=str(assistant_message.id),
         session_id=str(session.id),
         session_token=session_token,
+        detected_intent=detected_intent,
+        simple_response_applied=natural_conversation,
+        follow_up_questions=follow_up_questions,
+        follow_up_source=follow_up_source,
     )
     if include_debug_trace:
         public_trace = _build_admin_debug_trace(
@@ -1182,6 +1521,10 @@ def run_final_chat_pipeline(
             retrieval_latency_ms=retrieval_latency_ms,
             natural_conversation=natural_conversation,
         )
+        public_trace["detectedIntent"] = detected_intent
+        public_trace["simpleResponseApplied"] = natural_conversation
+        public_trace["followUpQuestions"] = follow_up_questions
+        public_trace["followUpSource"] = follow_up_source
 
     return ChatRuntimeResponse(
         request_id=request_id,
@@ -1189,6 +1532,7 @@ def run_final_chat_pipeline(
         outcome=outcome,
         answer={"text": answer_text, "warnings": warnings},
         citations=citations,
+        follow_up_questions=follow_up_questions,
         policy_decision=policy_decision if include_debug_trace else {},
         trace=public_trace,
     )

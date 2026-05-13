@@ -117,6 +117,28 @@ export default function AdminTestChatbotPage() {
     event.currentTarget.form?.requestSubmit();
   }
 
+  function renderFollowUpQuestions(items: string[] | undefined) {
+    const questions = (items ?? []).slice(0, 3);
+    if (questions.length === 0) return null;
+    return (
+      <div className="mt-3 rounded-lg border border-slate-700 bg-slate-800 p-3">
+        <p className="text-xs font-semibold text-slate-300">이런 질문들은 어떠신가요? </p>
+        <div className="mt-2 flex flex-col gap-2">
+          {questions.map((item) => (
+            <button
+              key={item}
+              type="button"
+              onClick={() => setQuestion(item)}
+              className="rounded-md border border-slate-600 bg-white px-2 py-1 text-left text-xs text-slate-800 hover:bg-slate-100"
+            >
+              {item}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <PagePanel title="챗봇 테스트" description="위젯 없이 기관관리자 권한으로 챗봇 응답을 테스트합니다.">
@@ -184,6 +206,7 @@ export default function AdminTestChatbotPage() {
                       {message.role === "user" ? "사용자" : "챗봇"}
                     </p>
                     <p className="whitespace-pre-wrap">{message.text}</p>
+                    {message.response ? renderFollowUpQuestions(message.response.followUpQuestions) : null}
                     {debugEnabled && message.response ? <ChatDebugTrace trace={message.response.trace} /> : null}
                   </div>
                 </div>

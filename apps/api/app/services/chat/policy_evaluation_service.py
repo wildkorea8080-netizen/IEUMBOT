@@ -42,6 +42,48 @@ GRATITUDE_KEYWORDS = [
     "thanks",
     "thx",
 ]
+GOODBYE_KEYWORDS = [
+    "안녕히",
+    "잘가",
+    "잘 가",
+    "수고",
+    "그만",
+    "bye",
+    "goodbye",
+]
+COMPLIMENT_KEYWORDS = [
+    "좋네요",
+    "좋아요",
+    "좋습니다",
+    "멋지",
+    "훌륭",
+    "최고",
+    "친절",
+    "잘하",
+]
+WEATHER_KEYWORDS = [
+    "날씨",
+    "맑",
+    "비 오",
+    "눈 오",
+    "덥",
+    "추워",
+    "춥",
+]
+FUN_KEYWORDS = [
+    "재미",
+    "웃기",
+    "농담",
+]
+EMOTION_KEYWORDS = [
+    "기분",
+    "힘들",
+    "피곤",
+    "슬퍼",
+    "우울",
+    "괜찮아",
+    "괜찮으세요",
+]
 SMALL_TALK_KEYWORDS = [
     "잘 지내",
     "잘지내",
@@ -219,13 +261,40 @@ def _is_gratitude(question: str) -> bool:
     return any(keyword in normalized for keyword in GRATITUDE_KEYWORDS)
 
 
+def _simple_conversation_intent(question: str) -> str | None:
+    normalized = _normalize_question(question)
+    if not normalized:
+        return None
+    if _has_substantive_question_signal(normalized):
+        return None
+    normalized_for_intent = normalized.strip(" .!?。！？")
+    compact = normalized_for_intent.replace(" ", "")
+    if compact in {"안녕", "안녕하세요", "반갑습니다", "반가워"} or normalized in {"hi", "hello", "hey"}:
+        return "greeting"
+    if any(keyword in normalized for keyword in GRATITUDE_KEYWORDS):
+        return "thanks"
+    if any(keyword in normalized for keyword in GOODBYE_KEYWORDS):
+        return "goodbye"
+    if any(keyword in normalized for keyword in WEATHER_KEYWORDS):
+        return "weather"
+    if any(keyword in normalized for keyword in FUN_KEYWORDS):
+        return "fun"
+    if any(keyword in normalized for keyword in COMPLIMENT_KEYWORDS):
+        return "compliment"
+    if any(keyword in normalized for keyword in EMOTION_KEYWORDS):
+        return "emotion"
+    if len(normalized) <= 40 and any(keyword in normalized for keyword in SMALL_TALK_KEYWORDS):
+        return "smalltalk"
+    return None
+
+
 def _is_small_talk(question: str) -> bool:
     normalized = _normalize_question(question)
     if not normalized or len(normalized) > 40:
         return False
     if _is_greeting(normalized) or _is_gratitude(normalized):
         return False
-    return any(keyword in normalized for keyword in SMALL_TALK_KEYWORDS)
+    return _simple_conversation_intent(normalized) == "smalltalk"
 
 
 def _abuse_severity_from_question(question: str) -> str | None:
@@ -256,9 +325,10 @@ def evaluate_answer_policy(context: dict[str, Any]) -> dict[str, Any]:
     top_combined_score = 0.0
     semantic_evidence_count = 0
     domain_keyword_matched = _contains_any(question, DOMAIN_KEYWORDS)
-    greeting_detected = _is_greeting(question)
-    gratitude_detected = _is_gratitude(question)
-    small_talk_detected = _is_small_talk(question)
+    detected_intent = _simple_conversation_intent(question)
+    greeting_detected = detected_intent == "greeting"
+    gratitude_detected = detected_intent == "thanks"
+    small_talk_detected = detected_intent in {"goodbye", "compliment", "weather", "fun", "emotion", "smalltalk"}
     structured_question = _is_structured_question(question)
     overview_question = _is_overview_question(question)
     contact_question = _is_contact_question(question)
@@ -346,6 +416,7 @@ def evaluate_answer_policy(context: dict[str, Any]) -> dict[str, Any]:
         "greetingDetected": bool(greeting_detected),
         "gratitudeDetected": bool(gratitude_detected),
         "smallTalkDetected": bool(small_talk_detected),
+        "detectedIntent": detected_intent,
         "abusiveDetected": bool(abusive_detected),
         "abusiveSeverity": abusive_severity or None,
         "repeatedUserDissatisfaction": bool(repeated_user_dissatisfaction),

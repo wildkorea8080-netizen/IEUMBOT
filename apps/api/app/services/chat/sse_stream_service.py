@@ -94,4 +94,7 @@ def generate_chat_sse_stream(
     if response.citations:
         yield _to_sse_event("citations", {"items": [item.model_dump(by_alias=True) for item in response.citations]})
 
+    if response.follow_up_questions:
+        yield _to_sse_event("follow_up_questions", {"items": response.follow_up_questions})
+
     yield _to_sse_event("done", _build_done_payload(response))

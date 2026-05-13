@@ -143,6 +143,28 @@ export default function TestChatPage() {
     event.currentTarget.form?.requestSubmit();
   }
 
+  function renderFollowUpQuestions(items: string[] | undefined) {
+    const questions = (items ?? []).slice(0, 3);
+    if (questions.length === 0) return null;
+    return (
+      <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-3">
+        <p className="text-xs font-semibold text-slate-600">이런 질문들은 어떠신가요? </p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {questions.map((item) => (
+            <button
+              key={item}
+              type="button"
+              onClick={() => setQuestion(item)}
+              className="rounded-md border border-slate-300 bg-white px-2 py-1 text-left text-xs text-slate-700 hover:bg-slate-100"
+            >
+              {item}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <PagePanel
@@ -259,6 +281,7 @@ export default function TestChatPage() {
                       </span>
                     </div>
                     <p className="mt-1 whitespace-pre-wrap text-slate-900">{turn.response.answer.text}</p>
+                    {renderFollowUpQuestions(turn.response.followUpQuestions)}
                   </article>
                 ),
               )
@@ -285,6 +308,7 @@ export default function TestChatPage() {
                 </div>
                 <div className="rounded-md border border-slate-200 bg-white p-3">
                   <p className="whitespace-pre-wrap text-slate-900">{selectedAssistant.response.answer.text}</p>
+                  {renderFollowUpQuestions(selectedAssistant.response.followUpQuestions)}
                   {debugEnabled ? <ChatDebugTrace trace={selectedAssistant.response.trace} /> : null}
                 </div>
                 {(selectedAssistant.response.answer.warnings ?? []).length > 0 ? (

@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 
 from app.schemas import ApiSchema
 
@@ -21,7 +21,7 @@ class ChatCitation(ApiSchema):
 
 class ChatAnswerBlock(ApiSchema):
     text: str
-    warnings: list[str] = []
+    warnings: list[str] = Field(default_factory=list)
 
 
 class ChatRuntimeResponse(ApiSchema):
@@ -30,6 +30,7 @@ class ChatRuntimeResponse(ApiSchema):
     outcome: ChatOutcome
     answer: ChatAnswerBlock
     citations: list[ChatCitation]
+    follow_up_questions: list[str] = Field(default_factory=list)
     policy_decision: dict
     trace: dict
 

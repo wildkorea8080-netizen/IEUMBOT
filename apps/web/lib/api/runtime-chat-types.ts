@@ -96,6 +96,8 @@ export type ChatRuntimeTrace = {
     latencyMs?: number | null;
   };
   policyDecision?: Record<string, unknown>;
+  followUpQuestions?: string[];
+  followUpSource?: string;
   exceptionType?: string | null;
   exceptionMessage?: string | null;
   messages?: {
@@ -112,6 +114,7 @@ export type ChatRuntimeResponse = {
   outcome: ChatOutcome;
   answer: ChatAnswerBlock;
   citations: ChatCitation[];
+  followUpQuestions: string[];
   policyDecision: Record<string, unknown>;
   trace: ChatRuntimeTrace;
 };

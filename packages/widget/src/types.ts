@@ -76,6 +76,7 @@ export type ChatRequest = {
 export type ChatCitation = {
   documentId?: string | null;
   documentName?: string | null;
+  sourceTitle?: string | null;
   documentVersionId?: string | null;
   pageNumber?: number | null;
   sectionTitle?: string | null;
@@ -94,6 +95,7 @@ export type ChatResponse = {
     warnings?: string[];
   };
   citations: ChatCitation[];
+  followUpQuestions?: string[];
   trace?: {
     messages?: {
       sessionId?: string;
@@ -111,6 +113,7 @@ export type ChatStreamEventName =
   | "fallback"
   | "escalation"
   | "citations"
+  | "follow_up_questions"
   | "error"
   | "done";
 

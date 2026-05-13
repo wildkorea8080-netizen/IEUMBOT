@@ -14,6 +14,7 @@ type Message = {
   text: string;
   outcome?: string;
   citations?: ChatCitation[];
+  followUpQuestions?: string[];
   timestamp: number;
 };
 
@@ -22,6 +23,16 @@ type LauncherIconName = "chat" | "heart" | "love-chat" | "custom" | "shield" | "
 const LOVE_CHAT_ICON_SRC = "/widget-icons/love-chat-icons.png";
 const CHAT_RECOVERY_MESSAGE =
   "요청 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.";
+const PRIVACY_INPUT_BLOCK_MESSAGE = "개인정보가 포함된 내용은 입력할 수 없습니다. 개인정보를 제외하고 다시 입력해 주세요.";
+const DEFAULT_TRUST_NOTICE = "AI 이음봇도 가끔 실수할 수 있습니다. 중요한 정보는 꼭 다시 한번 확인하세요.";
+
+const PRIVACY_PATTERNS = [
+  /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/,
+  /\b\d{6}-[1-4]\d{6}\b/,
+  /\b\d{4}[- ]?\d{4}[- ]?\d{4}[- ]?\d{4}\b/,
+  /\b01[016789][- ]?\d{3,4}[- ]?\d{4}\b/,
+  /\b(?:19|20)\d{2}[-./](?:0[1-9]|1[0-2])[-./](?:0[1-9]|[12]\d|3[01])\b/,
+];
 
 function escapeHtmlAttribute(value: string): string {
   return value
@@ -134,8 +145,25 @@ function asCitationArray(value: unknown): ChatCitation[] {
   return Array.isArray(value) ? (value as ChatCitation[]) : [];
 }
 
+function asStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function hasPrivacyInput(value: string): boolean {
+  return PRIVACY_PATTERNS.some((pattern) => pattern.test(value));
+}
+
 function isUrlLikeCitationPart(value: string): boolean {
   return /^https?:\/\//i.test(value) || /^[\w.-]+\.[a-z]{2,}(?:\/|\?|$)/i.test(value);
+}
+
+function sourceUrlDomain(value?: string | null): string | null {
+  if (!value?.trim()) return null;
+  try {
+    return new URL(value.trim()).hostname.replace(/^www\./, "");
+  } catch {
+    return null;
+  }
 }
 
 function getFriendlyOutcomeLabel(outcome?: string): string | null {
@@ -158,6 +186,20 @@ function toCitationText(citation: ChatCitation, institutionName?: string | null)
   if (section && section !== name && !isUrlLikeCitationPart(section)) parts.push(section);
 
   return parts.join(" | ");
+}
+
+function getCitationDisplayName(citation: ChatCitation): string {
+  const section = citation.sectionTitle?.trim();
+  if (section && !isUrlLikeCitationPart(section)) return section;
+  const documentName = citation.documentName?.trim();
+  if (documentName) return documentName;
+  const sourceTitle = citation.sourceTitle?.trim();
+  if (sourceTitle) return sourceTitle;
+  return sourceUrlDomain(citation.sourceUrl) ?? "참조 자료";
+}
+
+function getCitationTitle(citations: ChatCitation[]): string {
+  return citations.some((citation) => citation.sourceUrl?.trim()) ? "참조 링크" : "참조 자료";
 }
 
 function shouldFoldCitations(config: WidgetPublicConfig | null): boolean {
@@ -437,10 +479,16 @@ function buildScopedStyles(primaryGradient: string): string {
   background:#fff; color:#0f172a; box-shadow:0 2px 6px rgba(0,0,0,.05);
 }
 .ieum-message.user .ieum-bubble { background:#2563eb; color:#fff; }
-.ieum-outcome-note, .ieum-citations { margin-top:8px; padding-top:8px; border-top:1px dashed #dbe4f0; }
+.ieum-outcome-note, .ieum-citations, .ieum-follow-ups { margin-top:8px; padding-top:8px; border-top:1px dashed #dbe4f0; }
 .ieum-outcome-note, .ieum-citations-title, .ieum-citation { font-size:11px; color:#475569; }
 .ieum-citations-title { margin-bottom:4px; font-weight:700; }
 .ieum-citation { line-height:1.45; margin-bottom:3px; }
+.ieum-citation-link { color:#1d4ed8; text-decoration:none; font-weight:600; overflow-wrap:anywhere; }
+.ieum-citation-link:hover { text-decoration:underline; }
+.ieum-follow-ups { display:flex; flex-direction:column; gap:6px; }
+.ieum-follow-ups-title { font-size:11px; font-weight:700; color:#475569; }
+.ieum-follow-up-btn { appearance:none; border:1px solid #dbe4f0; border-radius:8px; background:#fff; color:#1f2937; padding:7px 9px; font-size:12px; line-height:1.35; text-align:left; cursor:pointer; }
+.ieum-follow-up-btn:hover { background:#f8fafc; border-color:#bfdbfe; }
 .ieum-citations-folded summary { cursor:pointer; font-size:11px; font-weight:700; color:#475569; list-style:none; }
 .ieum-citations-folded summary::-webkit-details-marker { display:none; }
 .ieum-citations-folded summary::after { content:" 펼치기"; font-weight:500; color:#64748b; }
@@ -582,7 +630,7 @@ export class IeumWidgetApp {
     this.sendButton.type = "button";
     this.sendButton.setAttribute("aria-label", "메시지 전송");
     this.sendButton.innerHTML = createIconSvg("send");
-    this.footerNotice.style.display = "none";
+    this.footerNotice.textContent = DEFAULT_TRUST_NOTICE;
   }
 
   async mount() {
@@ -745,10 +793,7 @@ export class IeumWidgetApp {
       }
       this.renderBanner();
       this.renderStarterQuestions();
-      if (this.config.privacyNotice) {
-        this.footerNotice.textContent = this.config.privacyNotice;
-        this.footerNotice.style.display = "block";
-      }
+      this.footerNotice.textContent = this.config.privacyNotice?.trim() || DEFAULT_TRUST_NOTICE;
       this.renderQuickActions(this.config.quickActions);
       if (this.config.runtime?.chatEndpoint) this.chatEndpoint = this.config.runtime.chatEndpoint;
       if (this.config.runtime?.chatStreamEndpoint) this.chatStreamEndpoint = this.config.runtime.chatStreamEndpoint;
@@ -949,20 +994,49 @@ export class IeumWidgetApp {
 
         if (message.citations && message.citations.length > 0) {
           const folded = shouldFoldCitations(this.config);
+          const citationTitle = getCitationTitle(message.citations);
           const citationWrap = createElement(
             document,
             folded ? "details" : "div",
             folded ? "ieum-citations ieum-citations-folded" : "ieum-citations",
           );
           const title = createElement(document, folded ? "summary" : "div", "ieum-citations-title");
-          title.textContent = folded ? `출처 ${Math.min(message.citations.length, 5)}건` : "출처";
+          title.textContent = folded ? `${citationTitle} ${Math.min(message.citations.length, 5)}건` : citationTitle;
           citationWrap.appendChild(title);
           for (const citation of message.citations.slice(0, 5)) {
             const line = createElement(document, "div", "ieum-citation");
-            line.textContent = toCitationText(citation, this.config?.institutionName);
+            const sourceUrl = citation.sourceUrl?.trim();
+            if (sourceUrl) {
+              const link = createElement(document, "a", "ieum-citation-link") as HTMLAnchorElement;
+              link.href = sourceUrl;
+              link.target = "_blank";
+              link.rel = "noopener noreferrer";
+              link.textContent = getCitationDisplayName(citation);
+              line.appendChild(link);
+            } else {
+              line.textContent = toCitationText(citation, this.config?.institutionName);
+            }
             citationWrap.appendChild(line);
           }
           bubble.appendChild(citationWrap);
+        }
+
+        if (message.followUpQuestions && message.followUpQuestions.length > 0) {
+          const followUpWrap = createElement(document, "div", "ieum-follow-ups");
+          const title = createElement(document, "div", "ieum-follow-ups-title");
+          title.textContent = "이런 질문들은 어떠신가요? ";
+          followUpWrap.appendChild(title);
+          for (const followUpQuestion of message.followUpQuestions.slice(0, 3)) {
+            const button = createElement(document, "button", "ieum-follow-up-btn") as HTMLButtonElement;
+            button.type = "button";
+            button.textContent = followUpQuestion;
+            button.addEventListener("click", () => {
+              this.input.value = followUpQuestion;
+              void this.sendCurrentInput();
+            });
+            followUpWrap.appendChild(button);
+          }
+          bubble.appendChild(followUpWrap);
         }
       }
 
@@ -1008,6 +1082,20 @@ export class IeumWidgetApp {
     if (this.sending) return;
     const question = this.input.value.trim();
     if (!question) return;
+    if (hasPrivacyInput(question)) {
+      this.clearInitialWelcomeForDirectQuestion();
+      this.lastFailedQuestion = null;
+      this.input.value = "";
+      this.pushMessage({
+        id: `assistant_privacy_${Date.now()}`,
+        role: "assistant",
+        text: PRIVACY_INPUT_BLOCK_MESSAGE,
+        outcome: "restricted",
+        timestamp: Date.now(),
+      });
+      this.input.focus();
+      return;
+    }
     this.clearInitialWelcomeForDirectQuestion();
 
     this.lastFailedQuestion = null;
@@ -1061,6 +1149,7 @@ export class IeumWidgetApp {
     let streamErrorMessage = "스트리밍 연결 오류가 발생했습니다. 일반 모드로 전환합니다.";
     let finalOutcome = "answered";
     let finalCitations: ChatCitation[] = [];
+    let finalFollowUps: string[] = [];
     let finalText = "";
     let receivedVisiblePayload = false;
 
@@ -1098,6 +1187,11 @@ export class IeumWidgetApp {
         this.updateMessage(draftMessageId, { citations: finalCitations });
         return;
       }
+      if (event.event === "follow_up_questions") {
+        finalFollowUps = asStringArray(data.items).slice(0, 3);
+        this.updateMessage(draftMessageId, { followUpQuestions: finalFollowUps });
+        return;
+      }
       if (event.event === "error") {
         streamFailed = true;
         streamErrorMessage = asString(data.message) ?? streamErrorMessage;
@@ -1132,6 +1226,7 @@ export class IeumWidgetApp {
           text: finalText,
           outcome: finalOutcome,
           citations: finalCitations,
+          followUpQuestions: finalFollowUps,
         });
       }
       return true;
@@ -1141,6 +1236,7 @@ export class IeumWidgetApp {
           text: finalText || "응답 수신 중 연결이 종료되었습니다. 잠시 후 다시 시도해 주세요.",
           outcome: finalOutcome,
           citations: finalCitations,
+          followUpQuestions: finalFollowUps,
         });
         this.lastFailedQuestion = question;
         return true;
@@ -1166,6 +1262,7 @@ export class IeumWidgetApp {
       text: answerText,
       outcome: response.outcome,
       citations: Array.isArray(response.citations) ? response.citations : [],
+      followUpQuestions: Array.isArray(response.followUpQuestions) ? response.followUpQuestions.slice(0, 3) : [],
       timestamp: Date.now(),
     });
   }
