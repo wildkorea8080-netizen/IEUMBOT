@@ -28,6 +28,11 @@ from app.services.chat.entity_extraction_service import (
 )
 from app.services.chat.citation_service import assemble_citations
 from app.services.chat.fallback_response_service import build_fallback_response
+from app.services.chat.intent_classifier_service import (
+    IntentClassification,
+    classify_intent,
+    generate_natural_intent_response,
+)
 from app.services.chat.policy_evaluation_service import evaluate_answer_policy
 from app.services.chat.privacy_guard_service import PrivacyDetectionResult, detect_and_mask_privacy
 from app.services.chat.prompt_assembly_service import build_answer_prompt
@@ -61,6 +66,7 @@ FUN_RESPONSE = "재미있으셨다니 다행이에요! 더 궁금한 점 있으�
 EMOTION_RESPONSE = "말씀해 주셔서 감사합니다. 필요한 내용이 있으면 편하게 물어봐 주세요 "
 SMALL_TALK_FIRST_RESPONSE = "편하게 말씀해 주세요. 궁금하신 점이 있으면 바로 도와드릴게요 "
 SMALL_TALK_REDIRECT_RESPONSE = "궁금하신 내용이 있으면 언제든 말씀해 주세요 "
+OUT_OF_SCOPE_RESPONSE = "죄송하지만 기관 업무 안내 범위 밖의 내용은 답변하기 어렵습니다. 사업, 신청, 자격, 서류 등 궁금하신 내용을 말씀해 주세요 "
 SOFT_GUIDANCE_RESPONSES = [
     "어떤 사업이나 절차에 대해 궁금하신지 조금 더 알려주시면 더 정확히 안내드릴 수 있습니다.",
     (
@@ -155,36 +161,12 @@ def _detect_simple_intent(question: str) -> str | None:
 
     normalized_for_intent = normalized.strip(" .!?。！？")
     compact = normalized_for_intent.replace(" ", "")
-    if compact in {"안녕", "안녕하세요", "반갑습니다", "반가워"} or normalized in {"hi", "hello", "hey"}:
+    if compact in {"안녕", "안녕하세요"} or normalized in {"hi", "hello", "hey"}:
         return "greeting"
     if any(keyword in normalized for keyword in ["고마워", "고맙습니다", "감사", "thank you", "thanks", "thx"]):
         return "thanks"
     if any(keyword in normalized for keyword in ["안녕히", "잘가", "잘 가", "수고", "그만", "bye", "goodbye"]):
         return "goodbye"
-    if any(keyword in normalized for keyword in ["날씨", "맑", "비 오", "눈 오", "덥", "추워", "춥"]):
-        return "weather"
-    if any(keyword in normalized for keyword in ["재미", "웃기", "농담"]):
-        return "fun"
-    if any(keyword in normalized for keyword in ["좋네요", "좋아요", "좋습니다", "멋지", "훌륭", "최고", "친절", "잘하"]):
-        return "compliment"
-    if any(keyword in normalized for keyword in ["기분", "힘들", "피곤", "슬퍼", "우울", "괜찮아", "괜찮으세요"]):
-        return "emotion"
-    if len(normalized) <= 40 and any(
-        keyword in normalized
-        for keyword in [
-            "뭐해",
-            "뭐 하니",
-            "잘 지내",
-            "잘지내",
-            "심심",
-            "오늘 어때",
-            "주말 뭐해",
-            "what's up",
-            "hows it going",
-            "how are you",
-        ]
-    ):
-        return "smalltalk"
     return None
 
 
@@ -197,6 +179,14 @@ def _simple_natural_response(question: str, *, user_turn_count: int) -> tuple[st
     else:
         response = NATURAL_INTENT_RESPONSES[detected_intent]
     return ("answered", response, detected_intent)
+
+
+def _fallback_natural_response(intent: str, *, user_turn_count: int) -> str:
+    if intent == "goodbye":
+        return GOODBYE_RESPONSE
+    if intent in NATURAL_INTENT_RESPONSES:
+        return NATURAL_INTENT_RESPONSES[intent]
+    return SMALL_TALK_FIRST_RESPONSE if user_turn_count <= 0 else SMALL_TALK_REDIRECT_RESPONSE
 
 
 def _candidate_text(candidates: list[dict[str, Any]]) -> str:
@@ -296,13 +286,19 @@ def _build_public_runtime_trace(
     session_id: str,
     session_token: str,
     detected_intent: str | None = None,
+    intent_routing_method: str | None = None,
+    intent_confidence: float | None = None,
+    classifier_reason: str | None = None,
     simple_response_applied: bool = False,
     follow_up_questions: list[str] | None = None,
     follow_up_source: str | None = None,
 ) -> dict[str, Any]:
     return {
         "normalizedQuery": normalized_query,
+        "intentRoutingMethod": intent_routing_method,
         "detectedIntent": detected_intent,
+        "intentConfidence": intent_confidence,
+        "classifierReason": classifier_reason,
         "simpleResponseApplied": simple_response_applied,
         "followUpQuestions": follow_up_questions or [],
         "followUpSource": follow_up_source,
@@ -783,6 +779,10 @@ def _persist_immediate_response(
     answer_text: str,
     reason: str,
     detected_intent: str,
+    intent_routing_method: str = "rule",
+    intent_confidence: float | None = 1.0,
+    classifier_reason: str | None = None,
+    model_name: str | None = None,
 ) -> ChatRuntimeResponse:
     request_id = f"chat_run_{uuid.uuid4().hex[:16]}"
     if session is None:
@@ -823,7 +823,7 @@ def _persist_immediate_response(
         role="assistant",
         content=answer_text,
         status="completed",
-        model_name=None,
+        model_name=model_name,
         result_type=outcome,
         normalized_query=normalized_query,
         retrieved_documents=[],
@@ -831,9 +831,21 @@ def _persist_immediate_response(
         final_decision={
             "decision": "allow",
             "reason": reason,
-            "flags": {"immediateResponse": True, "detectedIntent": detected_intent},
+            "flags": {
+                "immediateResponse": True,
+                "detectedIntent": detected_intent,
+                "intentRoutingMethod": intent_routing_method,
+                "intentConfidence": intent_confidence,
+                "classifierReason": classifier_reason,
+            },
         },
-        validation_signals={"immediateResponse": True, "detectedIntent": detected_intent},
+        validation_signals={
+            "immediateResponse": True,
+            "detectedIntent": detected_intent,
+            "intentRoutingMethod": intent_routing_method,
+            "intentConfidence": intent_confidence,
+            "classifierReason": classifier_reason,
+        },
         metadata_json={"conversationTone": tone_summary},
     )
 
@@ -853,7 +865,10 @@ def _persist_immediate_response(
             "llmErrorCode": None,
             "policyDecision": "allow",
             "reason": reason,
+            "intentRoutingMethod": intent_routing_method,
             "detectedIntent": detected_intent,
+            "intentConfidence": intent_confidence,
+            "classifierReason": classifier_reason,
             "retrievalSummary": [],
             "citationSummary": [],
         },
@@ -880,6 +895,9 @@ def _persist_immediate_response(
             session_id=str(session.id),
             session_token=session_token,
             detected_intent=detected_intent,
+            intent_routing_method=intent_routing_method,
+            intent_confidence=intent_confidence,
+            classifier_reason=classifier_reason,
             simple_response_applied=True,
             follow_up_questions=[],
             follow_up_source=None,
@@ -1074,7 +1092,12 @@ def run_final_chat_pipeline(
             response.policy_decision = {
                 "decision": "allow",
                 "reason": "simple_natural_conversation",
-                "flags": {"detectedIntent": detected_intent, "simpleResponseApplied": True},
+                "flags": {
+                    "detectedIntent": detected_intent,
+                    "intentRoutingMethod": "rule",
+                    "intentConfidence": 1.0,
+                    "simpleResponseApplied": True,
+                },
             }
             response.trace = _build_admin_debug_trace(
                 outcome=outcome,
@@ -1096,6 +1119,9 @@ def run_final_chat_pipeline(
                 natural_conversation=True,
             )
             response.trace["detectedIntent"] = detected_intent
+            response.trace["intentRoutingMethod"] = "rule"
+            response.trace["intentConfidence"] = 1.0
+            response.trace["classifierReason"] = None
             response.trace["simpleResponseApplied"] = True
         return response
 
@@ -1120,6 +1146,94 @@ def run_final_chat_pipeline(
         organization_id=str(chatbot.organization_id),
         chatbot_id=str(chatbot.id),
     )
+    intent_routing_method = "rag_default"
+    detected_intent: str | None = None
+    intent_confidence: float | None = None
+    classifier_reason: str | None = None
+    classifier_usage: dict[str, Any] = {}
+    classifier_model_provider: str | None = None
+    classifier_model_name: str | None = None
+
+    business_signal_detected = _has_business_signal(_normalize_text(body.question))
+    if not business_signal_detected:
+        classification: IntentClassification = classify_intent(
+            db,
+            organization_id=str(chatbot.organization_id),
+            chatbot_id=str(chatbot.id),
+            question=body.question,
+            answer_settings=answer_settings,
+        )
+        classifier_usage = dict(classification.usage or {})
+        classifier_model_provider = classification.provider
+        classifier_model_name = classification.model
+        if classification.executed:
+            intent_routing_method = "llm_classifier"
+            detected_intent = classification.intent
+            intent_confidence = classification.confidence
+            classifier_reason = classification.reason or classification.error_code
+
+        if classification.intent and classification.confidence >= 0.7:
+            if classification.intent == "business_question":
+                intent_routing_method = "rag_default"
+            elif classification.intent == "out_of_scope":
+                return _persist_immediate_response(
+                    db,
+                    body=body,
+                    chatbot=chatbot,
+                    session=session,
+                    session_token=session_token,
+                    normalized_query=normalized_query,
+                    stream_mode=stream_mode,
+                    tone_summary=tone_summary,
+                    outcome="insufficient_evidence",
+                    answer_text=OUT_OF_SCOPE_RESPONSE,
+                    reason="intent_classifier_out_of_scope",
+                    detected_intent="out_of_scope",
+                    intent_routing_method="llm_classifier",
+                    intent_confidence=classification.confidence,
+                    classifier_reason=classification.reason,
+                    model_name=classification.model,
+                )
+            elif classification.intent in {
+                "greeting",
+                "thanks",
+                "goodbye",
+                "compliment",
+                "weather",
+                "emotion",
+                "smalltalk",
+            }:
+                natural_generation = generate_natural_intent_response(
+                    db,
+                    organization_id=str(chatbot.organization_id),
+                    chatbot_id=str(chatbot.id),
+                    question=body.question,
+                    intent=classification.intent,
+                    answer_settings=answer_settings,
+                )
+                natural_text = natural_generation.text or _fallback_natural_response(
+                    classification.intent,
+                    user_turn_count=user_turn_count,
+                )
+                return _persist_immediate_response(
+                    db,
+                    body=body,
+                    chatbot=chatbot,
+                    session=session,
+                    session_token=session_token,
+                    normalized_query=normalized_query,
+                    stream_mode=stream_mode,
+                    tone_summary=tone_summary,
+                    outcome="answered",
+                    answer_text=natural_text,
+                    reason="intent_classifier_natural_conversation",
+                    detected_intent=classification.intent,
+                    intent_routing_method="llm_classifier",
+                    intent_confidence=classification.confidence,
+                    classifier_reason=classification.reason,
+                    model_name=natural_generation.model or classification.model,
+                )
+
     retrieval_start = time.perf_counter()
     retrieval_output = retrieve_for_precheck(
         db,
@@ -1198,7 +1312,11 @@ def run_final_chat_pipeline(
     model_provider: str | None = None
     model_name: str | None = answer_settings.model_runtime.model_name
 
-    detected_intent = policy_flags.get("detectedIntent") if isinstance(policy_flags.get("detectedIntent"), str) else None
+    policy_detected_intent = (
+        policy_flags.get("detectedIntent") if isinstance(policy_flags.get("detectedIntent"), str) else None
+    )
+    if detected_intent is None:
+        detected_intent = policy_detected_intent
     greeting_detected = bool(policy_flags.get("greetingDetected"))
     gratitude_detected = bool(policy_flags.get("gratitudeDetected"))
     small_talk_detected = bool(policy_flags.get("smallTalkDetected"))
@@ -1497,6 +1615,9 @@ def run_final_chat_pipeline(
         session_id=str(session.id),
         session_token=session_token,
         detected_intent=detected_intent,
+        intent_routing_method=intent_routing_method,
+        intent_confidence=intent_confidence,
+        classifier_reason=classifier_reason,
         simple_response_applied=natural_conversation,
         follow_up_questions=follow_up_questions,
         follow_up_source=follow_up_source,
@@ -1522,6 +1643,10 @@ def run_final_chat_pipeline(
             natural_conversation=natural_conversation,
         )
         public_trace["detectedIntent"] = detected_intent
+        public_trace["intentRoutingMethod"] = intent_routing_method
+        public_trace["intentConfidence"] = intent_confidence
+        public_trace["classifierReason"] = classifier_reason
+        public_trace["classifierUsage"] = classifier_usage
         public_trace["simpleResponseApplied"] = natural_conversation
         public_trace["followUpQuestions"] = follow_up_questions
         public_trace["followUpSource"] = follow_up_source

@@ -26,6 +26,7 @@ GREETING_KEYWORDS = [
     "안녕",
     "안녕하세요",
     "반가워",
+    "반가워요",
     "반갑습니다",
     "hi",
     "hello",
@@ -269,22 +270,12 @@ def _simple_conversation_intent(question: str) -> str | None:
         return None
     normalized_for_intent = normalized.strip(" .!?。！？")
     compact = normalized_for_intent.replace(" ", "")
-    if compact in {"안녕", "안녕하세요", "반갑습니다", "반가워"} or normalized in {"hi", "hello", "hey"}:
+    if compact in {"안녕", "안녕하세요"} or normalized in {"hi", "hello", "hey"}:
         return "greeting"
     if any(keyword in normalized for keyword in GRATITUDE_KEYWORDS):
         return "thanks"
     if any(keyword in normalized for keyword in GOODBYE_KEYWORDS):
         return "goodbye"
-    if any(keyword in normalized for keyword in WEATHER_KEYWORDS):
-        return "weather"
-    if any(keyword in normalized for keyword in FUN_KEYWORDS):
-        return "fun"
-    if any(keyword in normalized for keyword in COMPLIMENT_KEYWORDS):
-        return "compliment"
-    if any(keyword in normalized for keyword in EMOTION_KEYWORDS):
-        return "emotion"
-    if len(normalized) <= 40 and any(keyword in normalized for keyword in SMALL_TALK_KEYWORDS):
-        return "smalltalk"
     return None
 
 
