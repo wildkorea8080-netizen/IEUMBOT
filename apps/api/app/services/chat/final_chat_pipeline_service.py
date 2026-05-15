@@ -189,6 +189,87 @@ def _fallback_natural_response(intent: str, *, user_turn_count: int) -> str:
     return SMALL_TALK_FIRST_RESPONSE if user_turn_count <= 0 else SMALL_TALK_REDIRECT_RESPONSE
 
 
+OVERVIEW_QUESTION_TERMS = (
+    "주요사업",
+    "주요 사업",
+    "지원사업",
+    "사업 소개",
+    "기관 소개",
+    "무슨 일",
+    "하는 일",
+    "무엇을 하나",
+    "뭐 하는",
+    "소개",
+    "개요",
+)
+
+
+def _is_overview_followup_question(question: str) -> bool:
+    normalized = _normalize_text(question)
+    return any(term in normalized for term in OVERVIEW_QUESTION_TERMS)
+
+
+def _clean_candidate_snippet(value: str, *, limit: int = 140) -> str:
+    normalized = re.sub(r"\s+", " ", value).strip(" -\n\t")
+    if len(normalized) <= limit:
+        return normalized
+    return normalized[:limit].rsplit(" ", 1)[0].strip() + "..."
+
+
+def _build_extractive_overview_answer(
+    *,
+    question: str,
+    candidates: list[dict[str, Any]],
+    chatbot_name: str,
+    institution_name: str,
+) -> str | None:
+    if not _is_overview_followup_question(question) or not candidates:
+        return None
+
+    items: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for candidate in candidates[:5]:
+        title = str(
+            candidate.get("sectionTitle")
+            or candidate.get("documentName")
+            or candidate.get("sourceTitle")
+            or candidate.get("title")
+            or ""
+        ).strip()
+        signals = candidate.get("contentSignals") if isinstance(candidate.get("contentSignals"), dict) else {}
+        preview = str(signals.get("textPreview") or "").strip()
+        if not title and not preview:
+            continue
+        title = title or "관련 자료"
+        key = re.sub(r"\s+", "", f"{title}:{preview[:80]}").lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        items.append((title, _clean_candidate_snippet(preview or title)))
+        if len(items) == 4:
+            break
+
+    if not items:
+        return None
+
+    subject = institution_name.strip() or chatbot_name.strip() or "해당 기관"
+    lines = [
+        f"{subject}의 주요 사업은 현재 검색된 공식 자료 기준으로 아래 항목을 중심으로 확인됩니다.",
+        "",
+    ]
+    for index, (title, preview) in enumerate(items, start=1):
+        lines.append(f"{index}. {title}")
+        if preview and preview != title:
+            lines.append(f"- {preview}")
+    lines.extend(
+        [
+            "",
+            "세부 신청 자격, 기간, 제출서류는 사업별 공고나 안내 페이지 기준으로 다시 확인하는 것이 좋습니다.",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def _candidate_text(candidates: list[dict[str, Any]]) -> str:
     parts: list[str] = []
     for item in candidates[:5]:
@@ -237,6 +318,49 @@ def _build_follow_up_questions(
     answer_context = _normalize_text(answer_text)
     source_context = _candidate_text(candidates)
     context_text = f"{normalized} {answer_context} {source_context}"
+
+    if any(
+        term in context_text
+        for term in ["해외농업", "해외농업길잡이", "해외농업자원", "해외농업자원개발", "해외진출", "해외인턴", "국내반입"]
+    ):
+        if "사업신고" in normalized or "변경신고" in normalized:
+            return _dedupe_three(
+                [
+                    "해외농업자원개발 사업신고 절차는 어떻게 되나요?",
+                    "사업신고 시 필요한 서류는 무엇인가요?",
+                    "변경신고는 언제 해야 하나요?",
+                    "사업계획 신고 대상은 누구인가요?",
+                ],
+                exclude=question,
+            )
+        if "인턴" in normalized:
+            return _dedupe_three(
+                [
+                    "해외인턴 지원 자격은 어떻게 되나요?",
+                    "해외인턴 모집 기간은 언제인가요?",
+                    "해외인턴 신청 시 제출 서류는 무엇인가요?",
+                    "해외인턴 선발 절차를 알려주세요.",
+                ],
+                exclude=question,
+            )
+        if "국내반입" in normalized or "반입" in normalized:
+            return _dedupe_three(
+                [
+                    "해외농산물 국내반입 절차는 어떻게 되나요?",
+                    "국내반입 신고 시 필요한 서류는 무엇인가요?",
+                    "국내반입 관련 문의처는 어디인가요?",
+                ],
+                exclude=question,
+            )
+        return _dedupe_three(
+            [
+                "해외농업자원개발 사업신고 절차는 어떻게 되나요?",
+                "해외농업 투자지원 사업은 무엇이 있나요?",
+                "해외인턴 지원 자격은 어떻게 되나요?",
+                "해외농산물 국내반입 절차는 어떻게 되나요?",
+            ],
+            exclude=question,
+        )
 
     if any(term in context_text for term in ["서울노동권익센터", "노동권익", "노동법률", "권리구제", "세무상담", "심리상담", "노동교육"]):
         labor_questions: list[str] = []
@@ -1476,6 +1600,12 @@ def run_final_chat_pipeline(
         outcome = "answered"
         answer_text = direct_contact_answer
     elif (decision == "allow" and has_candidates) or can_try_grounded_answer:
+        chatbot_name = str(chatbot.name or "")
+        institution_name = str(
+            getattr(organization, "name", None)
+            or getattr(organization, "contact_name", None)
+            or ""
+        )
         generation = _run_grounded_generation(
             db,
             body=body,
@@ -1484,12 +1614,8 @@ def run_final_chat_pipeline(
             retrieval_output=retrieval_output,
             answer_settings=answer_settings,
             guardrail_eval=guardrail_eval,
-            chatbot_name=str(chatbot.name or ""),
-            institution_name=str(
-                getattr(organization, "name", None)
-                or getattr(organization, "contact_name", None)
-                or ""
-            ),
+            chatbot_name=chatbot_name,
+            institution_name=institution_name,
             recent_messages=recent_messages,
             question_type_flags=question_type_flags,
             uncovered_slots=uncovered_slots,
@@ -1514,17 +1640,39 @@ def run_final_chat_pipeline(
             outcome = "answered"
         elif llm_error_code:
             # LLM 오류 시 폴백
-            fallback = build_fallback_response(policy_decision=policy_decision, answer_settings=answer_settings)
-            outcome = fallback["outcome"] if fallback["outcome"] != "answered" else "escalate"
-            answer_text = fallback["text"]
-            warnings = fallback.get("warnings", [])
-            warnings.append("자동 응답 처리 중 오류가 있어 안내 문구로 전환했습니다.")
+            extractive_answer = _build_extractive_overview_answer(
+                question=body.question,
+                candidates=prompt_candidates,
+                chatbot_name=chatbot_name,
+                institution_name=institution_name,
+            )
+            if extractive_answer:
+                outcome = "answered"
+                answer_text = extractive_answer
+                warnings.append("LLM_GENERATION_FAILED_EXTRACTIVE_OVERVIEW_USED")
+            else:
+                fallback = build_fallback_response(policy_decision=policy_decision, answer_settings=answer_settings)
+                outcome = fallback["outcome"] if fallback["outcome"] != "answered" else "escalate"
+                answer_text = fallback["text"]
+                warnings = fallback.get("warnings", [])
+                warnings.append("자동 응답 처리 중 오류가 있어 안내 문구로 전환했습니다.")
         else:
             # LLM이 응답 없이 종료 (빈 텍스트)
-            fallback = build_fallback_response(policy_decision=policy_decision, answer_settings=answer_settings)
-            outcome = fallback["outcome"] if fallback["outcome"] != "answered" else "escalate"
-            answer_text = fallback["text"]
-            warnings = fallback.get("warnings", [])
+            extractive_answer = _build_extractive_overview_answer(
+                question=body.question,
+                candidates=prompt_candidates,
+                chatbot_name=chatbot_name,
+                institution_name=institution_name,
+            )
+            if extractive_answer:
+                outcome = "answered"
+                answer_text = extractive_answer
+                warnings.append("EMPTY_MODEL_OUTPUT_EXTRACTIVE_OVERVIEW_USED")
+            else:
+                fallback = build_fallback_response(policy_decision=policy_decision, answer_settings=answer_settings)
+                outcome = fallback["outcome"] if fallback["outcome"] != "answered" else "escalate"
+                answer_text = fallback["text"]
+                warnings = fallback.get("warnings", [])
     elif not has_candidates and not policy_flags.get("unrelatedQuestion") and user_turn_count < 2:
         # 첫 2턴 내 근거 없음 → 질문 구체화 유도
         outcome = "answered"
