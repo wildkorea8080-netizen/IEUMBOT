@@ -1,17 +1,20 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
-from app.api.dependencies.auth import AdminPrincipal, require_admin_auth
+from app.api.dependencies.auth import AdminPrincipal, require_admin_auth, require_institution_admin_auth
 from app.core.security import create_access_token, verify_password
 from app.db import get_db_session
 from app.repositories.auth.admin_auth_repository import get_active_admin_by_email, get_active_admin_by_id
 from app.scripts.seed_local_admins import can_auto_seed_admins, is_reserved_seed_email, seed_admin_accounts
 from app.schemas.auth import (
+    AdminChangePasswordRequest,
+    AdminChangePasswordResponse,
     AdminAuthLoginRequest,
     AdminAuthLoginResponse,
     AdminAuthMeResponse,
     AdminSummary,
 )
+from app.services.auth.admin_password_service import change_admin_password_service
 
 router = APIRouter(tags=["auth"])
 
@@ -99,3 +102,12 @@ def admin_me(
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 def admin_logout(_: Response) -> Response:
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/change-password", response_model=AdminChangePasswordResponse)
+def admin_change_password(
+    body: AdminChangePasswordRequest,
+    principal: AdminPrincipal = Depends(require_institution_admin_auth),
+    db: Session = Depends(get_db_session),
+) -> AdminChangePasswordResponse:
+    return change_admin_password_service(db, principal=principal, body=body)

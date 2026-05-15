@@ -48,6 +48,13 @@ function resolveRedirectPath(nextPath: string | null, role: AdminRole): string {
   return getDefaultPathByRole(role);
 }
 
+function resolvePostLoginPath(nextPath: string | null, admin: AdminSummary): string {
+  if (admin.role === "institution_admin" && admin.mustChangePassword === true) {
+    return "/admin/change-password";
+  }
+  return resolveRedirectPath(nextPath, admin.role);
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -73,7 +80,7 @@ export default function LoginPage() {
         if (!isMounted) {
           return;
         }
-        router.replace(resolveRedirectPath(nextPath, me.admin.role));
+        router.replace(resolvePostLoginPath(nextPath, me.admin));
       } catch {
         clearAdminAccessToken();
       }
@@ -97,7 +104,7 @@ export default function LoginPage() {
       });
       clearAdminAccessToken();
       setAdminAccessToken(response.accessToken);
-      router.replace(resolveRedirectPath(nextPath, response.admin.role));
+      router.replace(resolvePostLoginPath(nextPath, response.admin));
     } catch (error) {
       if (error instanceof ApiClientError && error.status === 401) {
         setErrorMessage("이메일 또는 비밀번호가 올바르지 않습니다.");

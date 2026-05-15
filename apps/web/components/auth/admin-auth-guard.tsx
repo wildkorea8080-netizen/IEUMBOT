@@ -28,6 +28,10 @@ function getDefaultPathByRole(role: AdminRole): string {
   return "/admin/dashboard";
 }
 
+function isPasswordChangePath(pathname: string): boolean {
+  return pathname === "/admin/change-password";
+}
+
 export function AdminAuthGuard({ children, allowedRoles }: AdminAuthGuardProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -48,6 +52,14 @@ export function AdminAuthGuard({ children, allowedRoles }: AdminAuthGuardProps) 
         const role = response.admin.role;
         if (allowedRoles && !allowedRoles.includes(role)) {
           router.replace(getDefaultPathByRole(role));
+          return;
+        }
+        if (
+          role === "institution_admin" &&
+          response.admin.mustChangePassword === true &&
+          !isPasswordChangePath(pathname)
+        ) {
+          router.replace("/admin/change-password");
           return;
         }
         if (isMounted) {

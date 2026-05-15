@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Bell, MessageCircle } from "lucide-react";
+import { Bell, KeyRound, MessageCircle } from "lucide-react";
 
 import { apiClient } from "../../lib/api";
 import {
@@ -207,6 +207,23 @@ export function AdminHeader() {
           )}
 
           {/* 로그아웃 */}
+          <Link
+            href="/admin/change-password"
+            className="flex items-center gap-1.5 transition-colors hover:bg-neutral-50"
+            style={{
+              border: "1px solid #e2e8f0",
+              borderRadius: 8,
+              padding: "6px 12px",
+              fontSize: 13,
+              color: "#475569",
+              textDecoration: "none",
+              background: "white",
+            }}
+          >
+            <KeyRound style={{ width: 14, height: 14 }} />
+            <span>비밀번호 변경</span>
+          </Link>
+
           <button
             type="button"
             onClick={handleLogout}
