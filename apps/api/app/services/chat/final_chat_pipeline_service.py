@@ -448,11 +448,14 @@ def _build_admin_debug_trace(
                 "score": _safe_score(item.get("combinedScore")),
                 "vectorScore": _safe_score(item.get("vectorScore")),
                 "lexicalScore": _safe_score(item.get("keywordScore")),
+                "dynamicThreshold": _safe_score(item.get("dynamicThreshold")),
                 "thresholdPassed": bool(item.get("thresholdPassed")),
                 "usedInPrompt": bool(item.get("usedInPrompt")),
                 "semanticEvidenceApplied": bool(item.get("semanticEvidenceApplied")),
                 "semanticEvidenceReason": item.get("semanticEvidenceReason"),
                 "semanticRescued": bool(item.get("semanticRescued")),
+                "overviewRescued": bool(item.get("overviewRescued")),
+                "matchedKeywords": list(item.get("matchedKeywords") or []),
                 "topicBoostApplied": bool(item.get("topicBoostApplied")),
                 "topicBoostTerms": list(item.get("topicBoostTerms") or []),
                 "topicPenaltyApplied": bool(item.get("topicPenaltyApplied")),
@@ -478,6 +481,11 @@ def _build_admin_debug_trace(
             "usedInPromptCount": (retrieval_output or {}).get("usedInPromptCount", prompt_source_count),
             "topScore": top_score,
             "threshold": (retrieval_output or {}).get("retrievalThreshold"),
+            "dynamicThreshold": retrieval_trace.get("dynamicThreshold"),
+            "promptChunkCount": retrieval_trace.get("promptChunkCount", prompt_source_count),
+            "scopeDiagnostics": (retrieval_output or {}).get("scopeDiagnostics") or retrieval_trace.get("scopeDiagnostics"),
+            "searchableChunkCount": retrieval_trace.get("searchableChunkCount"),
+            "excludedChunkCountByReason": retrieval_trace.get("excludedChunkCountByReason", {}),
             "sourceDiversityApplied": bool((retrieval_output or {}).get("sourceDiversityApplied")),
             "filterScope": (retrieval_output or {}).get("filterScope"),
             "fallbackReason": (retrieval_output or {}).get("fallbackReason") or retrieval_trace.get("fallbackReason"),
@@ -592,6 +600,17 @@ def _build_soft_guidance_response(
     if user_turn_count <= 0:
         return SOFT_GUIDANCE_RESPONSES[0]
     return SOFT_GUIDANCE_RESPONSES[min(user_turn_count, len(SOFT_GUIDANCE_RESPONSES) - 1)]
+
+
+def _rag_settings_dict(answer_settings: Any) -> dict[str, Any]:
+    rag = getattr(answer_settings, "rag", None)
+    if rag is None:
+        return {}
+    if hasattr(rag, "model_dump"):
+        return rag.model_dump(by_alias=True)
+    if isinstance(rag, dict):
+        return dict(rag)
+    return {}
 
 
 def _classify_abuse(question: str) -> tuple[bool, str | None, list[str]]:
@@ -1243,6 +1262,7 @@ def run_final_chat_pipeline(
         top_k=body.top_k,
         corpus_domain_policy=chatbot.corpus_domain_policy or {},
         search_control_policy=chatbot.search_control_policy or {},
+        rag_settings=_rag_settings_dict(answer_settings),
     )
     retrieval_latency_ms = int((time.perf_counter() - retrieval_start) * 1000)
     if not retrieval_output.get("retrievalLatencyMs"):

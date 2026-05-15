@@ -30,6 +30,9 @@ export function ChatDebugTrace({ trace }: { trace?: ChatRuntimeTrace | null }) {
   const retrieval = trace.retrieval;
   const chunks = retrieval?.chunks ?? [];
   const topScore = retrieval?.topScore;
+  const scopeDiagnostics = retrieval?.scopeDiagnostics;
+  const excludedChunkCountByReason =
+    retrieval?.excludedChunkCountByReason ?? scopeDiagnostics?.excludedChunkCountByReason ?? {};
 
   return (
     <div className="mt-3 space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
@@ -55,6 +58,18 @@ export function ChatDebugTrace({ trace }: { trace?: ChatRuntimeTrace | null }) {
         </div>
         <div>
           <span className="font-semibold text-slate-900">threshold</span>: {formatScore(retrieval?.threshold)}
+        </div>
+        <div>
+          <span className="font-semibold text-slate-900">dynamicThreshold</span>:{" "}
+          {formatScore(retrieval?.dynamicThreshold)}
+        </div>
+        <div>
+          <span className="font-semibold text-slate-900">promptChunkCount</span>:{" "}
+          {retrieval?.promptChunkCount ?? retrieval?.usedInPromptCount ?? 0}
+        </div>
+        <div>
+          <span className="font-semibold text-slate-900">searchableChunkCount</span>:{" "}
+          {retrieval?.searchableChunkCount ?? scopeDiagnostics?.searchableChunkCount ?? "-"}
         </div>
         <div>
           <span className="font-semibold text-slate-900">sourceDiversityApplied</span>:{" "}
@@ -104,6 +119,32 @@ export function ChatDebugTrace({ trace }: { trace?: ChatRuntimeTrace | null }) {
         </p>
       ) : null}
 
+      {scopeDiagnostics ? (
+        <details className="rounded-md border border-slate-200 bg-white p-2">
+          <summary className="cursor-pointer font-semibold text-slate-900">scopeDiagnostics</summary>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            <div>
+              <span className="font-semibold">matchedOrganizationId</span>:{" "}
+              {scopeDiagnostics.matchedOrganizationId ?? "-"}
+            </div>
+            <div>
+              <span className="font-semibold">matchedChatbotId</span>:{" "}
+              {scopeDiagnostics.matchedChatbotId ?? "-"}
+            </div>
+            <div>
+              <span className="font-semibold">totalChunkCount</span>: {scopeDiagnostics.totalChunkCount ?? "-"}
+            </div>
+            <div>
+              <span className="font-semibold">searchableChunkCount</span>:{" "}
+              {scopeDiagnostics.searchableChunkCount ?? "-"}
+            </div>
+          </div>
+          <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap text-slate-600">
+            excludedChunkCountByReason: {renderJson(excludedChunkCountByReason)}
+          </pre>
+        </details>
+      ) : null}
+
       <div>
         <p className="mb-2 font-semibold text-slate-900">검색된 chunk</p>
         {chunks.length === 0 ? (
@@ -129,8 +170,17 @@ export function ChatDebugTrace({ trace }: { trace?: ChatRuntimeTrace | null }) {
                 <p className="mt-1 break-all text-slate-500">{chunk.sourceUrl ?? chunk.fileName ?? "-"}</p>
                 <p className="mt-1">
                   score {formatScore(chunk.score)} | vector {formatScore(chunk.vectorScore)} | lexical{" "}
-                  {formatScore(chunk.lexicalScore)}
+                  {formatScore(chunk.lexicalScore)} | dynamicThreshold {formatScore(chunk.dynamicThreshold)}
                 </p>
+                {(chunk.matchedKeywords ?? []).length > 0 ? (
+                  <p className="mt-1 text-slate-500">matchedKeywords: {(chunk.matchedKeywords ?? []).join(", ")}</p>
+                ) : null}
+                {chunk.semanticRescued || chunk.overviewRescued ? (
+                  <p className="mt-1 text-emerald-700">
+                    rescued: {chunk.semanticRescued ? "semantic " : ""}
+                    {chunk.overviewRescued ? "overview" : ""}
+                  </p>
+                ) : null}
                 <p className="mt-2 whitespace-pre-wrap text-slate-700">{chunk.preview ?? "-"}</p>
               </li>
             ))}

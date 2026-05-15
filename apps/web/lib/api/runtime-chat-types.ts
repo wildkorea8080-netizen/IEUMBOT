@@ -46,8 +46,14 @@ export type ChatDebugChunk = {
   score?: number | null;
   vectorScore?: number | null;
   lexicalScore?: number | null;
+  dynamicThreshold?: number | null;
   thresholdPassed?: boolean;
   usedInPrompt?: boolean;
+  semanticEvidenceApplied?: boolean;
+  semanticEvidenceReason?: string | null;
+  semanticRescued?: boolean;
+  overviewRescued?: boolean;
+  matchedKeywords?: string[];
   preview?: string | null;
 };
 
@@ -63,6 +69,19 @@ export type ChatRuntimeTrace = {
     usedInPromptCount?: number;
     topScore?: number | null;
     threshold?: number | null;
+    dynamicThreshold?: number | null;
+    promptChunkCount?: number | null;
+    searchableChunkCount?: number | null;
+    excludedChunkCountByReason?: Record<string, number>;
+    scopeDiagnostics?: {
+      matchedOrganizationId?: string | null;
+      matchedChatbotId?: string | null;
+      totalChunkCount?: number | null;
+      searchableChunkCount?: number | null;
+      excludedChunkCountByReason?: Record<string, number>;
+      includeInactive?: boolean;
+      [key: string]: unknown;
+    } | null;
     sourceDiversityApplied?: boolean;
     filterScope?: {
       organizationId?: string | null;

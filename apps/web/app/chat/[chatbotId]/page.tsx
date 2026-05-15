@@ -4,15 +4,24 @@ import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 
 interface ConfigResponse {
-  chatbot_id: string;
-  chatbot_name: string;
+  chatbotId?: string;
+  chatbot_id?: string;
+  chatbotName?: string;
+  chatbot_name?: string;
+  institutionName?: string | null;
   institution_name?: string | null;
+  logoUrl?: string | null;
   logo_url?: string | null;
-  welcome_message: string;
+  welcomeMessage?: string;
+  welcome_message?: string;
+  quickReplyHints?: string[];
   quick_reply_hints?: string[];
   theme?: {
+    primaryColor?: string;
     primary_color?: string;
+    backgroundColor?: string;
     background_color?: string;
+    textColor?: string;
     text_color?: string;
   };
 }
@@ -22,6 +31,8 @@ interface Message {
   content: string;
   id: string;
 }
+
+const API_BASE_URL = "/backend-api";
 
 export default function StandaloneChatPage() {
   const params = useParams();
@@ -48,18 +59,18 @@ export default function StandaloneChatPage() {
 
   useEffect(() => {
     if (!chatbotId) return;
-    fetch(`/api/widget/config/${chatbotId}`)
-      .then((r) => r.json())
+    fetch(`${API_BASE_URL}/widget/config/${encodeURIComponent(chatbotId)}`)
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`WIDGET_CONFIG_FAILED:${response.status}`);
+        }
+        return response.json();
+      })
       .then((data: ConfigResponse) => {
+        const welcomeMessage = data.welcomeMessage ?? data.welcome_message;
         setConfig(data);
-        if (data.welcome_message) {
-          setMessages([
-            {
-              role: "assistant",
-              content: data.welcome_message,
-              id: "welcome",
-            },
-          ]);
+        if (welcomeMessage) {
+          setMessages([{ role: "assistant", content: welcomeMessage, id: "welcome" }]);
         }
       })
       .catch(() => setConfigError("챗봇 정보를 불러올 수 없습니다."));
@@ -69,47 +80,43 @@ export default function StandaloneChatPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const primaryColor = config?.theme?.primary_color || "#2563eb";
+  const primaryColor = config?.theme?.primaryColor || config?.theme?.primary_color || "#2563eb";
+  const chatbotName = config?.chatbotName ?? config?.chatbot_name ?? "AI 챗봇";
+  const institutionName = config?.institutionName ?? config?.institution_name;
+  const logoUrl = config?.logoUrl ?? config?.logo_url;
+  const quickReplyHints = config?.quickReplyHints ?? config?.quick_reply_hints ?? [];
 
   const sendMessage = async (text: string) => {
     if (!text.trim() || isLoading || !chatbotId) return;
     const question = text.trim();
     setInput("");
 
-    const userMsg: Message = {
-      role: "user",
-      content: question,
-      id: `user_${Date.now()}`,
-    };
-    setMessages((prev) => [...prev, userMsg]);
+    setMessages((prev) => [...prev, { role: "user", content: question, id: `user_${Date.now()}` }]);
     setIsLoading(true);
 
     try {
-      const res = await fetch("/api/chat/messages", {
+      const response = await fetch(`${API_BASE_URL}/chat/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          chatbot_id: chatbotId,
+          chatbotId,
           question,
-          session_token: sessionToken.current,
-          source_url: window.location.href,
+          sessionToken: sessionToken.current,
+          sourceUrl: window.location.href,
         }),
       });
-      const data = await res.json();
-      const answer =
-        data?.answer?.text ||
-        data?.answer ||
-        "죄송합니다. 답변을 가져오지 못했습니다.";
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: answer, id: `bot_${Date.now()}` },
-      ]);
+      if (!response.ok) {
+        throw new Error(`CHAT_MESSAGE_FAILED:${response.status}`);
+      }
+      const data = await response.json();
+      const answer = data?.answer?.text || data?.answer || "죄송합니다. 답변을 가져오지 못했습니다.";
+      setMessages((prev) => [...prev, { role: "assistant", content: answer, id: `bot_${Date.now()}` }]);
     } catch {
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
-          content: "오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
+          content: "오류가 발생했습니다. 잠시 후 다시 시도해 주세요.",
           id: `err_${Date.now()}`,
         },
       ]);
@@ -137,26 +144,16 @@ export default function StandaloneChatPage() {
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh", maxWidth: 720, margin: "0 auto", background: "#fff" }}>
       <div style={{ padding: "16px 20px", borderBottom: "1px solid #e2e8f0", display: "flex", alignItems: "center", gap: 12, background: primaryColor }}>
-        {config.logo_url && (
-          <img src={config.logo_url} alt="logo" style={{ width: 32, height: 32, borderRadius: "50%", objectFit: "cover" }} />
-        )}
+        {logoUrl && <img src={logoUrl} alt="logo" style={{ width: 32, height: 32, borderRadius: "50%", objectFit: "cover" }} />}
         <div>
-          <p style={{ fontWeight: 700, color: "#fff", margin: 0, fontSize: 15 }}>{config.chatbot_name}</p>
-          {config.institution_name && (
-            <p style={{ color: "rgba(255,255,255,0.8)", margin: 0, fontSize: 12 }}>{config.institution_name}</p>
-          )}
+          <p style={{ fontWeight: 700, color: "#fff", margin: 0, fontSize: 15 }}>{chatbotName}</p>
+          {institutionName && <p style={{ color: "rgba(255,255,255,0.8)", margin: 0, fontSize: 12 }}>{institutionName}</p>}
         </div>
       </div>
 
       <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 12 }}>
         {messages.map((msg) => (
-          <div
-            key={msg.id}
-            style={{
-              display: "flex",
-              justifyContent: msg.role === "user" ? "flex-end" : "flex-start",
-            }}
-          >
+          <div key={msg.id} style={{ display: "flex", justifyContent: msg.role === "user" ? "flex-end" : "flex-start" }}>
             <div
               style={{
                 maxWidth: "75%",
@@ -183,12 +180,12 @@ export default function StandaloneChatPage() {
           </div>
         )}
 
-        {messages.length === 1 && config.quick_reply_hints && config.quick_reply_hints.length > 0 && (
+        {messages.length === 1 && quickReplyHints.length > 0 && (
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 4 }}>
-            {config.quick_reply_hints.map((hint, i) => (
+            {quickReplyHints.map((hint, index) => (
               <button
-                key={i}
-                onClick={() => sendMessage(hint)}
+                key={`${hint}-${index}`}
+                onClick={() => void sendMessage(hint)}
                 style={{
                   background: "#f0f4ff",
                   border: `1px solid ${primaryColor}40`,
@@ -212,10 +209,10 @@ export default function StandaloneChatPage() {
         <input
           type="text"
           value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
+          onChange={(event) => setInput(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
               void sendMessage(input);
             }
           }}
@@ -246,7 +243,7 @@ export default function StandaloneChatPage() {
             flexShrink: 0,
           }}
         >
-          ↑
+          →
         </button>
       </div>
     </div>

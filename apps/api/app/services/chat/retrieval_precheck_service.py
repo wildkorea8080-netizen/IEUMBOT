@@ -7,6 +7,7 @@ from datetime import date
 from typing import Any
 from urllib.parse import urlparse
 
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -34,6 +35,53 @@ POLICY_KEYWORD_BOOST = 0.10
 SEMANTIC_RESCUE_VECTOR_SCORE = 0.32
 SEMANTIC_STRONG_VECTOR_SCORE = 0.38
 SEMANTIC_SCORE_FLOOR = 0.28
+KOREAN_POLICY_KEYWORD_BOOST_TERMS = (
+    "주요사업",
+    "주요",
+    "사업",
+    "사업안내",
+    "지원사업",
+    "상담",
+    "서비스",
+    "기관소개",
+    "센터소개",
+)
+OVERVIEW_QUERY_TERMS = (
+    "주요사업",
+    "주요 사업",
+    "사업",
+    "사업안내",
+    "지원사업",
+    "기관소개",
+    "서비스소개",
+    "무슨 일",
+    "하는 일",
+    "무엇을",
+    "뭐 하는",
+    "소개",
+    "개요",
+)
+OVERVIEW_EVIDENCE_TERMS = (
+    "사업",
+    "사업안내",
+    "지원사업",
+    "상담",
+    "교육",
+    "권리구제",
+    "노동법률",
+    "노무",
+    "센터소개",
+)
+COMPOUND_TOKEN_EXPANSIONS = {
+    "주요사업": ["주요", "사업", "사업안내", "지원사업"],
+    "주요사업을": ["주요", "사업", "사업안내", "지원사업"],
+    "지원사업": ["지원", "사업", "사업안내"],
+    "지원사업은": ["지원", "사업", "사업안내"],
+    "서울노동권익센터": ["서울", "노동", "노동권익", "센터"],
+    "서울노동권익센터는": ["서울", "노동", "노동권익", "센터"],
+}
+OVERVIEW_RESCUE_MARGIN = 0.04
+OVERVIEW_RESCUE_VECTOR_SCORE = 0.32
 POLICY_KEYWORD_BOOST_TERMS = ("융자", "지원", "조건", "신청", "대상", "자부담", "금리", "사업비")
 NOISE_SECTION_PENALTY = 0.15
 # 실제 내비게이션/UI 노이즈만 패널티 적용 — 공지사항·FAQ·서류 등 유용한 콘텐츠는 제외
@@ -139,6 +187,11 @@ def normalize_query(question: str) -> str:
     return " ".join(question.strip().split()).lower()
 
 
+def _is_overview_query(question: str) -> bool:
+    normalized = normalize_query(question)
+    return any(term in normalized for term in OVERVIEW_QUERY_TERMS)
+
+
 def _tokenize(query: str) -> list[str]:
     return [token for token in TOKEN_SPLIT_REGEX.split(query) if token]
 
@@ -158,6 +211,8 @@ def _normalize_token_variants(tokens: list[str]) -> list[str]:
 
 def _expand_tokens(tokens: list[str], synonyms: list[SynonymDictionary]) -> list[str]:
     expanded: set[str] = set(tokens)
+    for token in tokens:
+        expanded.update(COMPOUND_TOKEN_EXPANSIONS.get(token, []))
     for token in tokens:
         for row in synonyms:
             canonical = row.canonical_term.strip().lower()
@@ -346,6 +401,9 @@ def _dynamic_threshold_for_candidate(
     if any(s in q for s in contact_signals):
         return max(base - 0.05, 0.15)   # 하한선 0.15
 
+    if "상담" in q and any(s in q for s in ("신청", "방법", "어떻게", "문의")):
+        return max(base - 0.03, 0.15)
+
     # 구조적 질문 감지 (자격/절차/일정)
     structured_signals = ["자격", "요건", "조건", "신청", "절차", "방법", "기간", "일정", "마감"]
     if any(s in q for s in structured_signals):
@@ -356,11 +414,17 @@ def _dynamic_threshold_for_candidate(
     if any(s in q for s in overview_signals):
         return max(base - 0.03, 0.15)   # 하한선 0.15
 
+    if _is_overview_query(q):
+        return max(base - 0.03, 0.15)
+
     return base
 
 
 def _policy_keyword_boost(question_text: str, chunk_text: str) -> tuple[float, list[str]]:
-    query_terms = [term for term in POLICY_KEYWORD_BOOST_TERMS if term in question_text]
+    boost_terms = (*POLICY_KEYWORD_BOOST_TERMS, *KOREAN_POLICY_KEYWORD_BOOST_TERMS)
+    query_terms = [term for term in boost_terms if term in question_text]
+    if _is_overview_query(question_text):
+        query_terms = sorted(set([*query_terms, *OVERVIEW_EVIDENCE_TERMS]))
     if not query_terms:
         return 0.0, []
     matched = [term for term in query_terms if term in chunk_text]
@@ -417,6 +481,7 @@ def _empty_retrieval_output(
     exception: Exception | None = None,
     exception_type: str | None = None,
     exception_message: str | None = None,
+    scope_diagnostics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     effective_exception_type = exception_type or (type(exception).__name__ if exception is not None else None)
     effective_exception_message = exception_message or (str(exception)[:1000] if exception is not None else None)
@@ -448,6 +513,9 @@ def _empty_retrieval_output(
         "queryEmbeddingGenerated": query_embedding_generated,
         "queryEmbeddingLength": query_embedding_length,
         "queryEmbeddingType": query_embedding_type,
+        "scopeDiagnostics": scope_diagnostics or {},
+        "searchableChunkCount": (scope_diagnostics or {}).get("searchableChunkCount"),
+        "excludedChunkCountByReason": (scope_diagnostics or {}).get("excludedChunkCountByReason", {}),
     }
     if effective_exception_type is not None or effective_exception_message is not None:
         trace["exceptionType"] = effective_exception_type
@@ -474,6 +542,7 @@ def _empty_retrieval_output(
         "queryEmbeddingGenerated": query_embedding_generated,
         "queryEmbeddingLength": query_embedding_length,
         "queryEmbeddingType": query_embedding_type,
+        "scopeDiagnostics": scope_diagnostics or {},
         "exceptionType": trace.get("exceptionType"),
         "exceptionMessage": trace.get("exceptionMessage"),
         "trace": trace,
@@ -487,8 +556,9 @@ def _apply_prompt_selection(
     threshold_doc: float = 0.28,
     threshold_web: float = 0.25,
     threshold_faq: float = 0.22,
+    question: str = "",
     prompt_limit: int,
-) -> tuple[list[dict[str, Any]], bool, bool, bool]:
+) -> tuple[list[dict[str, Any]], bool, bool, bool, bool]:
     prompt_candidates: list[dict[str, Any]] = []
     per_knowledge_item: dict[str, int] = {}
     per_source_url: dict[str, int] = {}
@@ -497,6 +567,8 @@ def _apply_prompt_selection(
     section_diversity_applied = False
     rescued_by_top1_rule = False
     semantic_rescued = False
+
+    overview_query = _is_overview_query(question)
 
     for index, item in enumerate(candidates):
         item["sectionDuplicateSkipped"] = False
@@ -508,9 +580,16 @@ def _apply_prompt_selection(
             SEMANTIC_SCORE_FLOOR,
             dynamic_threshold - 0.08,
         )
+        overview_rescue_candidate = (
+            overview_query
+            and index == 0
+            and str(item.get("sourceType") or "").lower() == "website"
+            and score >= max(0.0, dynamic_threshold - OVERVIEW_RESCUE_MARGIN)
+            and float(item.get("vectorScore") or 0.0) >= OVERVIEW_RESCUE_VECTOR_SCORE
+        )
         rescued = (
             index == 0
-            and (score >= TOP1_RESCUE_SCORE or semantic_rescue_candidate)
+            and (score >= TOP1_RESCUE_SCORE or semantic_rescue_candidate or overview_rescue_candidate)
             and not threshold_passed
         )
         if rescued:
@@ -521,6 +600,7 @@ def _apply_prompt_selection(
         item["dynamicThreshold"] = dynamic_threshold
         item["rescuedByTop1Rule"] = rescued
         item["semanticRescued"] = bool(semantic_rescue_candidate and rescued)
+        item["overviewRescued"] = bool(overview_rescue_candidate and rescued)
         item["usedInPrompt"] = False
         if not threshold_passed and not rescued:
             continue
@@ -561,6 +641,67 @@ def _apply_prompt_selection(
     )
 
 
+def _count_chunks(db: Session, *conditions: Any) -> int:
+    stmt = (
+        select(func.count(DocumentChunk.id))
+        .join(Document, DocumentChunk.document_id == Document.id)
+        .join(DocumentVersion, DocumentChunk.document_version_id == DocumentVersion.id)
+        .where(*conditions)
+    )
+    return int(db.execute(stmt).scalar() or 0)
+
+
+def _retrieval_scope_diagnostics(
+    db: Session,
+    *,
+    organization_id: str,
+    chatbot_id: str,
+    include_inactive: bool,
+) -> dict[str, Any]:
+    today = date.today()
+    base_conditions = [
+        DocumentChunk.organization_id == organization_id,
+        DocumentChunk.chatbot_id == chatbot_id,
+        Document.organization_id == organization_id,
+        Document.chatbot_id == chatbot_id,
+        DocumentVersion.organization_id == organization_id,
+        DocumentVersion.chatbot_id == chatbot_id,
+    ]
+    searchable_conditions = [
+        *base_conditions,
+        Document.status == "active",
+        DocumentVersion.status == "completed",
+        DocumentVersion.is_active.is_(True),
+        DocumentVersion.is_search_suppressed.is_(False),
+        or_(DocumentVersion.effective_date.is_(None), DocumentVersion.effective_date <= today),
+        or_(DocumentVersion.expiration_date.is_(None), DocumentVersion.expiration_date >= today),
+    ]
+    excluded_by_reason = {
+        "documentInactive": _count_chunks(db, *base_conditions, Document.status != "active"),
+        "versionNotCompleted": _count_chunks(db, *base_conditions, DocumentVersion.status != "completed"),
+        "versionInactive": _count_chunks(db, *base_conditions, DocumentVersion.is_active.is_not(True)),
+        "searchSuppressed": _count_chunks(db, *base_conditions, DocumentVersion.is_search_suppressed.is_(True)),
+        "dateWindow": _count_chunks(
+            db,
+            *base_conditions,
+            or_(
+                DocumentVersion.effective_date > today,
+                DocumentVersion.expiration_date < today,
+            ),
+        ),
+    }
+    total = _count_chunks(db, *base_conditions)
+    searchable = total if include_inactive else _count_chunks(db, *searchable_conditions)
+    return {
+        "matchedOrganizationId": organization_id,
+        "matchedChatbotId": chatbot_id,
+        "totalChunkCount": total,
+        "searchableChunkCount": searchable,
+        "excludedChunkCountByReason": excluded_by_reason,
+        "includeInactive": include_inactive,
+    }
+
+
 def search_relevant_chunks(
     db: Session,
     *,
@@ -597,6 +738,12 @@ def search_relevant_chunks(
 
     synonyms = list_active_synonyms(db, organization_id, chatbot_id)
     expanded_tokens = _normalize_token_variants(_expand_tokens(tokens, synonyms))
+    scope_diagnostics = _retrieval_scope_diagnostics(
+        db,
+        organization_id=organization_id,
+        chatbot_id=chatbot_id,
+        include_inactive=include_inactive,
+    )
     query_embedding_raw: Any = None
     query_embedding_exception: Exception | None = None
     try:
@@ -634,6 +781,7 @@ def search_relevant_chunks(
             query_embedding_type=query_embedding_type,
             exception_type=type(query_embedding_exception).__name__ if query_embedding_exception is not None else "EmbeddingGenerationFailed",
             exception_message=message,
+            scope_diagnostics=scope_diagnostics,
         )
 
     rules = list_active_rules(db, organization_id, chatbot_id)
@@ -673,6 +821,7 @@ def search_relevant_chunks(
             query_embedding_length=query_embedding_length,
             query_embedding_type=query_embedding_type,
             exception=exc,
+            scope_diagnostics=scope_diagnostics,
         )
 
     today = date.today()
@@ -859,11 +1008,13 @@ def search_relevant_chunks(
         threshold_doc=_threshold_doc,
         threshold_web=_threshold_web,
         threshold_faq=_threshold_faq,
+        question=question,
         prompt_limit=MAX_PROMPT_CHUNKS,
     )
     keyword_boost_applied = any(bool(item.get("keywordBoostApplied")) for item in ranked)
     noise_penalty_applied = any(bool(item.get("noisePenaltyApplied")) for item in ranked)
     semantic_evidence_applied = any(bool(item.get("semanticEvidenceApplied")) for item in ranked)
+    overview_rescued = any(bool(item.get("overviewRescued")) for item in ranked)
     noise_penalty_terms = sorted(
         {term for item in ranked for term in list(item.get("noisePenaltyTerms") or [])}
     )
@@ -889,6 +1040,7 @@ def search_relevant_chunks(
         "queryEmbeddingGenerated": True,
         "queryEmbeddingLength": query_embedding_length,
         "queryEmbeddingType": query_embedding_type,
+        "scopeDiagnostics": scope_diagnostics,
         "filterScope": {
             "organizationId": organization_id,
             "chatbotId": chatbot_id,
@@ -915,7 +1067,13 @@ def search_relevant_chunks(
             "noisePenaltyTerms": noise_penalty_terms,
             "semanticEvidenceApplied": semantic_evidence_applied,
             "semanticRescued": semantic_rescued,
+            "overviewQueryDetected": _is_overview_query(question),
+            "overviewRescued": overview_rescued,
             "finalPromptChunkCount": len(prompt_candidates),
+            "promptChunkCount": len(prompt_candidates),
+            "scopeDiagnostics": scope_diagnostics,
+            "searchableChunkCount": scope_diagnostics.get("searchableChunkCount"),
+            "excludedChunkCountByReason": scope_diagnostics.get("excludedChunkCountByReason", {}),
             "queryEmbeddingGenerated": True,
             "queryEmbeddingLength": query_embedding_length,
             "queryEmbeddingType": query_embedding_type,
