@@ -230,13 +230,32 @@ def _build_follow_up_questions(
     normalized = _normalize_text(question)
     context_text = f"{normalized} {_candidate_text(candidates)}"
 
+    if any(term in context_text for term in ["서울노동권익센터", "노동권익", "노동법률", "권리구제", "세무상담", "심리상담", "노동교육"]):
+        labor_questions: list[str] = []
+        if any(term in context_text for term in ["노동법률", "법률지원", "권리구제"]):
+            labor_questions.append("노동법률 상담은 어떻게 신청하나요?")
+        if "세무상담" in context_text or "종합소득세" in context_text:
+            labor_questions.append("세무상담은 어디로 문의하면 되나요?")
+        if any(term in context_text for term in ["심리상담", "집단치유", "마음돌봄", "상담·치유"]):
+            labor_questions.append("심리상담이나 치유 프로그램은 어떻게 신청하나요?")
+        if any(term in context_text for term in ["노동교육", "찾아가는 노동교육", "교육"]):
+            labor_questions.append("찾아가는 노동교육은 누가 신청할 수 있나요?")
+        return _dedupe_three(
+            labor_questions
+            + [
+                "서울노동권익센터 상담은 어떻게 신청하나요?",
+                "지원사업별 신청 방법을 알려주세요.",
+                "문의처는 어디인가요?",
+            ]
+        )
+
     if "융자" in context_text:
         return [
             "융자 신청 자격은 어떻게 되나요?",
             "융자 신청 시 제출 서류는 무엇인가요?",
             "융자 금리와 상환 조건은 어떻게 되나요?",
         ]
-    if "사업신고" in context_text or ("사업" in context_text and "신고" in context_text):
+    if "사업신고" in context_text or "변경신고" in context_text:
         return [
             "사업신고 절차는 어떻게 되나요?",
             "사업신고 시 필요한 서류는 무엇인가요?",
