@@ -8,6 +8,7 @@ import time
 import uuid
 import zlib
 import logging
+from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 from hashlib import sha256
 from html.parser import HTMLParser
@@ -89,8 +90,8 @@ PDF_TEXT_MIN_LETTER_RATIO = 0.55
 PDF_TEXT_MIN_WORDS = 12
 PDF_TEXT_ALLOWED_CHAR_REGEX = re.compile(r"[0-9A-Za-z가-힣\s\.,:/()%\-·&]")
 MOJIBAKE_MARKER_REGEX = re.compile(r"(?:�|ì|ë|í|ê|ä|å|æ|媛|蹂|諛|쒖|섏|덈|듬)")
-STALE_QUEUED_AFTER = timedelta(minutes=10)
-STALE_PROCESSING_AFTER = timedelta(minutes=30)
+STALE_QUEUED_AFTER = timedelta(minutes=int(os.getenv("INGEST_STALE_QUEUED_MINUTES", "20")))
+STALE_PROCESSING_AFTER = timedelta(minutes=int(os.getenv("INGEST_STALE_PROCESSING_MINUTES", "120")))
 SKIP_FILE_EXTENSIONS = {
     ".jpg",
     ".jpeg",
@@ -1497,6 +1498,7 @@ def _ingest_document_version_content(
         version.error_message = None
     version.is_active = True
     if job is not None:
+        _clear_stale_recovery_metadata(job)
         job.status = version.status
         job.current_step = "failed" if version.status == "failed" else "completed"
         job.progress_percent = 100
@@ -2296,6 +2298,7 @@ def _crawl_website(
     delay_min: float = CRAWL_DELAY_MIN,
     delay_max: float = CRAWL_DELAY_MAX,
     max_consecutive_failures: int = MAX_CONSECUTIVE_CRAWL_FAILURES,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> tuple[str, str, list[str], list[str], str | None, int | None, dict[str, int | str | bool | None]]:
     parsed_root = urlparse(base_url)
     root_hostname = parsed_root.hostname or ""
@@ -2319,6 +2322,10 @@ def _crawl_website(
 
     max_depth = FULL_SITE_CRAWL_DEPTH if crawl_all_pages else max(0, crawl_depth)
     page_limit = max(1, min(max_pages, MAX_CRAWL_PAGE_LIMIT))
+
+    def emit_progress() -> None:
+        if progress_callback is not None:
+            progress_callback(len(crawled_urls), page_limit)
 
     while queue and len(crawled_urls) < page_limit:
         current_url, depth = queue.pop(0)
@@ -2371,6 +2378,7 @@ def _crawl_website(
                     page_limit,
                 )
                 break
+            emit_progress()
             continue
         except Exception as exc:  # noqa: BLE001
             consecutive_failures += 1
@@ -2388,6 +2396,7 @@ def _crawl_website(
                     page_limit,
                 )
                 break
+            emit_progress()
             continue
         consecutive_failures = 0
         if first_final_url is None:
@@ -2415,6 +2424,7 @@ def _crawl_website(
             )
         if len(crawled_urls) % 10 == 0:
             logger.info("크롤링 진행: %s/%s 페이지", len(crawled_urls), page_limit)
+        emit_progress()
         logger.info(
             "[WEB_CRAWL] url=%s status=%s extracted_text_length=%s chunk_count_before_filter=%s "
             "chunk_count_after_filter=%s removed_navigation_lines=%s extraction_method=%s",
@@ -2550,11 +2560,14 @@ def _set_job_failed(
 
 def _collect_attachment_contents(
     attachment_urls: list[str],
+    *,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> tuple[list[dict[str, object]], list[str]]:
     attachment_items: list[dict[str, object]] = []
     attachment_text_blocks: list[str] = []
 
-    for url in attachment_urls:
+    total = len(attachment_urls)
+    for index, url in enumerate(attachment_urls, start=1):
         file_name = _guess_file_name_from_url(url)
         file_type = _guess_file_type_from_url(url)
         mime_type = ATTACHMENT_MIME_HINTS.get(file_type)
@@ -2622,6 +2635,8 @@ def _collect_attachment_contents(
                     "raw_file_size_bytes": 0,
                 }
             )
+        if progress_callback is not None:
+            progress_callback(index, total)
 
     return attachment_items, attachment_text_blocks
 
@@ -2656,6 +2671,12 @@ def _ingest_web_source_content(
                 MAX_CONSECUTIVE_CRAWL_FAILURES,
             )
         )
+
+        def crawl_progress(done: int, total: int) -> None:
+            job.current_step = "fetching"
+            job.progress_percent = min(34, 10 + int((done / max(total, 1)) * 24))
+            db.flush()
+
         (
             html,
             extracted_text,
@@ -2674,6 +2695,7 @@ def _ingest_web_source_content(
             delay_min=_delay_min,
             delay_max=_delay_max,
             max_consecutive_failures=_max_failures,
+            progress_callback=crawl_progress,
         )
     except HTTPError as exc:
         _set_job_failed(
@@ -2704,8 +2726,15 @@ def _ingest_web_source_content(
     job.progress_percent = 35
     db.flush()
 
+    def attachment_progress(done: int, total: int) -> None:
+        job.current_step = "fetching_attachments"
+        job.progress_percent = min(50, 35 + int((done / max(total, 1)) * 15))
+        db.flush()
+
     attachment_files, attachment_text_blocks = (
-        _collect_attachment_contents(attachment_urls) if include_attachments else ([], [])
+        _collect_attachment_contents(attachment_urls, progress_callback=attachment_progress)
+        if include_attachments
+        else ([], [])
     )
     extracted_attachment_files = [
         item for item in attachment_files if str(item.get("extracted_text") or "").strip()
@@ -3010,6 +3039,7 @@ def _ingest_web_source_content(
         "crawl_error_count": crawl_diagnostics.get("crawl_error_count"),
         "crawl_errors": crawl_diagnostics.get("crawl_errors"),
     }
+    _clear_stale_recovery_metadata(job)
     job.status = version.status
     job.current_step = "failed" if version.status == "failed" else "completed"
     job.progress_percent = 100
@@ -3187,14 +3217,27 @@ def _is_stale_job(job: IngestionJob | None, *, now: datetime) -> tuple[bool, str
         return False, ""
     job_status = (job.status or "").lower()
     if job_status == "queued":
-        reference = job.created_at or now
+        reference = max((value for value in [job.created_at, job.updated_at] if value), default=now)
         if now - reference >= STALE_QUEUED_AFTER:
             return True, "queued_timeout"
     if job_status == "processing":
-        reference = job.started_at or job.created_at or now
+        reference = max((value for value in [job.started_at, job.updated_at, job.created_at] if value), default=now)
         if now - reference >= STALE_PROCESSING_AFTER:
             return True, "processing_timeout"
     return False, ""
+
+
+def _is_explicit_reindex_job(job: IngestionJob | None) -> bool:
+    return bool(job and "reindex" in str(job.job_type or "").lower())
+
+
+def _clear_stale_recovery_metadata(job: IngestionJob | None) -> None:
+    if job is None:
+        return
+    metadata = dict(job.metadata_json or {})
+    metadata.pop("staleRecovery", None)
+    metadata.pop("staleRecoveryMessage", None)
+    job.metadata_json = metadata
 
 
 def _mark_job_completed_from_existing(job: IngestionJob | None, *, now: datetime, message: str) -> None:
@@ -3242,7 +3285,7 @@ def _recover_document_ingest_state(doc: Document, version: DocumentVersion | Non
     should_complete_from_existing = has_existing_index and (
         stale
         or (job is None and (version.status or "").lower() in {"queued", "processing"})
-    )
+    ) and not _is_explicit_reindex_job(job)
     if should_complete_from_existing:
         version.status = "completed"
         version.error_code = None
@@ -3265,13 +3308,20 @@ def _recover_document_ingest_state(doc: Document, version: DocumentVersion | Non
         return True
 
     # stale job with no usable index → mark failed so user can reindex
-    if stale and (chunks == 0 or embeddings == 0):
+    if stale and ((chunks == 0 or embeddings == 0) or _is_explicit_reindex_job(job)):
         message = "색인 작업이 제한 시간을 초과했습니다. 재색인이 필요합니다."
-        version.status = "failed"
-        version.error_code = "STALE_INGESTION_JOB"
-        version.error_message = message
+        if has_existing_index and _is_explicit_reindex_job(job):
+            version.status = "completed"
+            version.error_code = None
+            version.error_message = None
+            version.is_active = True
+            doc.status = "active"
+        else:
+            version.status = "failed"
+            version.error_code = "STALE_INGESTION_JOB"
+            version.error_message = message
+            doc.status = "failed"
         version.processed_at = now
-        doc.status = "failed"
         doc.processed_at = now
         _mark_job_failed_stale(job, now=now, message=message)
         _log_ingest_recovery(knowledge_id=doc.id, action="failed_stale", reason=stale_reason)
@@ -3300,7 +3350,7 @@ def _recover_web_ingest_state(web_source: WebSource, job: IngestionJob | None) -
     should_complete_from_existing = has_existing_index and (
         stale
         or (job is None and (web_source.status or "").lower() in {"queued", "processing"})
-    )
+    ) and not _is_explicit_reindex_job(job)
     if should_complete_from_existing:
         web_source.status = "active"
         web_source.last_error_code = None
@@ -3320,9 +3370,9 @@ def _recover_web_ingest_state(web_source: WebSource, job: IngestionJob | None) -
         return True
 
     # stale job with no usable index → mark failed so user can reindex
-    if stale and (chunks == 0 or embeddings == 0):
+    if stale and ((chunks == 0 or embeddings == 0) or _is_explicit_reindex_job(job)):
         message = "색인 작업이 제한 시간을 초과했습니다. 재색인이 필요합니다."
-        web_source.status = "failed"
+        web_source.status = "active" if has_existing_index and _is_explicit_reindex_job(job) else "failed"
         web_source.last_error_code = "STALE_INGESTION_JOB"
         web_source.last_error_message = message
         web_source.last_synced_at = now
