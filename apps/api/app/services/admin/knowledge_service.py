@@ -79,6 +79,7 @@ MAX_CONSECUTIVE_CRAWL_FAILURES = int(os.getenv("CRAWL_MAX_CONSECUTIVE_FAILURES",
 DEFAULT_CRAWL_PAGE_LIMIT = 12
 DEFAULT_FULL_SITE_CRAWL_PAGE_LIMIT = 300
 MAX_CRAWL_PAGE_LIMIT = 1000
+MAX_ATTACHMENT_URLS_PER_CRAWL = int(os.getenv("MAX_ATTACHMENT_URLS_PER_CRAWL", "80"))
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "900"))
 CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "120"))
 FULL_SITE_CRAWL_DEPTH = 50
@@ -1547,7 +1548,7 @@ def _sync_web_source_attachment_documents(
     current_urls = {
         str(item.get("url"))
         for item in attachment_items
-        if item.get("url")
+        if item.get("url") and str(item.get("extracted_text") or "").strip()
     }
 
     for doc in existing_docs:
@@ -1560,8 +1561,10 @@ def _sync_web_source_attachment_documents(
         attachment_url = str(item.get("url") or "").strip()
         if not attachment_url:
             continue
-        file_name = str(item.get("file_name") or _guess_file_name_from_url(attachment_url))
         extracted_text = str(item.get("extracted_text") or "").strip()
+        if not extracted_text:
+            continue
+        file_name = str(item.get("file_name") or _guess_file_name_from_url(attachment_url))
         file_type = str(item.get("file_type") or _guess_file_type_from_url(attachment_url))
         mime_type = str(item.get("mime_type") or ATTACHMENT_MIME_HINTS.get(file_type) or "application/octet-stream")
         existing = existing_by_url.get(attachment_url)
@@ -1682,6 +1685,23 @@ def _is_attachment_url(url: str) -> bool:
 
 def _is_crawl_excluded_file_url(url: str) -> bool:
     return _guess_file_type_from_url(url) in CRAWL_EXCLUDED_FILE_EXTENSIONS
+
+
+def _add_attachment_url(
+    url: str,
+    *,
+    include_attachments: bool,
+    attachment_urls: list[str],
+    attachment_seen: set[str],
+) -> bool:
+    if not include_attachments or not _is_attachment_url(url):
+        return False
+    if url in attachment_seen or len(attachment_urls) >= MAX_ATTACHMENT_URLS_PER_CRAWL:
+        return True
+    attachment_seen.add(url)
+    attachment_urls.append(url)
+    logger.info("[CRAWL_ATTACHMENT] url=%s count=%s", url, len(attachment_urls))
+    return True
 
 
 def _strip_binary_noise(value: str) -> str:
@@ -2307,6 +2327,12 @@ def _crawl_website(
             continue
         visited.add(current_url)
         if _is_crawl_excluded_file_url(current_url):
+            _add_attachment_url(
+                current_url,
+                include_attachments=include_attachments,
+                attachment_urls=attachment_urls,
+                attachment_seen=attachment_seen,
+            )
             logger.info("[CRAWL_SKIP] url=%s reason=attachment_or_invalid_url", current_url)
             continue
         if not _same_domain(current_url, root_hostname):
@@ -2422,9 +2448,13 @@ def _crawl_website(
             if any(normalized_path.startswith(path) for path in normalized_excluded):
                 continue
             if _is_crawl_excluded_file_url(normalized):
-                if normalized not in attachment_seen:
-                    attachment_seen.add(normalized)
-                    logger.info("[CRAWL_SKIP] url=%s reason=attachment_or_invalid_url", normalized)
+                _add_attachment_url(
+                    normalized,
+                    include_attachments=include_attachments,
+                    attachment_urls=attachment_urls,
+                    attachment_seen=attachment_seen,
+                )
+                logger.info("[CRAWL_SKIP] url=%s reason=attachment_or_invalid_url", normalized)
                 continue
             queue.append((normalized, depth + 1))
             queued.add(normalized)
@@ -2677,16 +2707,32 @@ def _ingest_web_source_content(
     attachment_files, attachment_text_blocks = (
         _collect_attachment_contents(attachment_urls) if include_attachments else ([], [])
     )
-    if attachment_files:
-        _sync_web_source_attachment_documents(
-            db,
-            organization_id=organization_id,
-            chatbot_id=chatbot_id,
-            web_source=web_source,
-            web_metadata=dict(web_source.metadata_json or {}),
-            attachment_items=attachment_files,
-            rag_settings=rag_settings,
-        )
+    extracted_attachment_files = [
+        item for item in attachment_files if str(item.get("extracted_text") or "").strip()
+    ]
+    if extracted_attachment_files:
+        try:
+            with db.begin_nested():
+                _sync_web_source_attachment_documents(
+                    db,
+                    organization_id=organization_id,
+                    chatbot_id=chatbot_id,
+                    web_source=web_source,
+                    web_metadata=dict(web_source.metadata_json or {}),
+                    attachment_items=extracted_attachment_files,
+                    rag_settings=rag_settings,
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception(
+                "[WEB_ATTACHMENT_SYNC_FAILED] web_source_id=%s attachment_count=%s error=%s",
+                web_source.id,
+                len(extracted_attachment_files),
+                exc,
+            )
+            for item in attachment_files:
+                if not str(item.get("error_message") or "").strip():
+                    item["extraction_status"] = "sync_failed"
+                    item["error_message"] = f"ATTACHMENT_SYNC_FAILED: {exc}"
     attachment_files = _serialize_attachment_items(attachment_files)
     combined_text = extracted_text.strip()
     if attachment_text_blocks:
