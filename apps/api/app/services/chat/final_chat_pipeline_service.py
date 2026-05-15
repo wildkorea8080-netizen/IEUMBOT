@@ -202,11 +202,16 @@ def _candidate_text(candidates: list[dict[str, Any]]) -> str:
     return _normalize_text(" ".join(parts))
 
 
-def _dedupe_three(items: list[str]) -> list[str]:
+def _follow_up_key(value: str) -> str:
+    return re.sub(r"[\s?？!.。]+", "", value.strip())
+
+
+def _dedupe_three(items: list[str], *, exclude: str | None = None) -> list[str]:
     result: list[str] = []
+    exclude_key = _follow_up_key(exclude) if exclude else None
     for item in items:
         normalized = " ".join(item.split())
-        if normalized and normalized not in result:
+        if normalized and normalized not in result and _follow_up_key(normalized) != exclude_key:
             result.append(normalized)
         if len(result) == 3:
             break
@@ -216,6 +221,7 @@ def _dedupe_three(items: list[str]) -> list[str]:
 def _build_follow_up_questions(
     *,
     question: str,
+    answer_text: str,
     outcome: str,
     candidates: list[dict[str, Any]],
     natural_conversation: bool,
@@ -228,51 +234,124 @@ def _build_follow_up_questions(
         return FALLBACK_FOLLOW_UP_QUESTIONS.copy()
 
     normalized = _normalize_text(question)
-    context_text = f"{normalized} {_candidate_text(candidates)}"
+    answer_context = _normalize_text(answer_text)
+    source_context = _candidate_text(candidates)
+    context_text = f"{normalized} {answer_context} {source_context}"
 
     if any(term in context_text for term in ["서울노동권익센터", "노동권익", "노동법률", "권리구제", "세무상담", "심리상담", "노동교육"]):
         labor_questions: list[str] = []
-        if any(term in context_text for term in ["노동법률", "법률지원", "권리구제"]):
-            labor_questions.append("노동법률 상담은 어떻게 신청하나요?")
+        asks_overview = any(
+            term in normalized
+            for term in ["주요사업", "주요 사업", "지원사업", "무슨 일", "하는 일", "기관 소개", "사업 소개"]
+        )
+        asks_consulting = "상담" in normalized
+        asks_apply = any(term in normalized for term in ["신청", "예약", "접수", "방법", "절차"])
+        if "세무" in normalized or "종합소득세" in normalized:
+            return _dedupe_three(
+                [
+                    "세무상담 전화 문의처는 어디인가요?",
+                    "세무상담은 어떤 내용을 상담받을 수 있나요?",
+                    "세무상담 운영 기간은 언제인가요?",
+                    "각 사업별 문의처를 알려주세요.",
+                ],
+                exclude=question,
+            )
+        if any(term in normalized for term in ["노동교육", "찾아가는 노동교육", "교육", "노동인문학"]):
+            return _dedupe_three(
+                [
+                    "찾아가는 노동교육은 누가 신청할 수 있나요?",
+                    "노동교육 프로그램 일정은 어디서 확인하나요?",
+                    "교육 신청 방법을 알려주세요.",
+                    "각 사업별 문의처를 알려주세요.",
+                ],
+                exclude=question,
+            )
+        if any(term in normalized for term in ["노동법률", "법률지원", "권리구제", "임금", "근로시간", "연차"]):
+            return _dedupe_three(
+                [
+                    "노동법률 상담 신청 대상은 어떻게 되나요?",
+                    "노동법률 상담은 어떻게 신청하나요?",
+                    "중소 사업장 법률지원은 어떤 내용을 지원하나요?",
+                    "각 사업별 문의처를 알려주세요.",
+                ],
+                exclude=question,
+            )
+        if any(term in normalized for term in ["심리", "치유", "마음돌봄", "감정노동", "괴롭힘"]):
+            return _dedupe_three(
+                [
+                    "심리상담이나 치유 프로그램은 어떻게 신청하나요?",
+                    "상담·치유 프로그램 대상은 누구인가요?",
+                    "직장 내 괴롭힘 상담은 어떻게 받을 수 있나요?",
+                    "각 사업별 문의처를 알려주세요.",
+                ],
+                exclude=question,
+            )
+
+        if any(term in context_text for term in ["노동법률", "법률지원", "권리구제", "임금", "근로시간", "연차휴가"]):
+            if asks_apply:
+                labor_questions.append("노동법률 상담 신청 대상은 어떻게 되나요?")
+            else:
+                labor_questions.append("노동법률 상담은 어떻게 신청하나요?")
         if "세무상담" in context_text or "종합소득세" in context_text:
-            labor_questions.append("세무상담은 어디로 문의하면 되나요?")
-        if any(term in context_text for term in ["심리상담", "집단치유", "마음돌봄", "상담·치유"]):
+            if asks_apply or asks_consulting:
+                labor_questions.append("세무상담 전화 문의처는 어디인가요?")
+            else:
+                labor_questions.append("세무상담은 어떤 내용을 상담받을 수 있나요?")
+        if any(term in context_text for term in ["심리상담", "집단치유", "마음돌봄", "상담·치유", "직장 내 괴롭힘", "감정노동"]):
             labor_questions.append("심리상담이나 치유 프로그램은 어떻게 신청하나요?")
-        if any(term in context_text for term in ["노동교육", "찾아가는 노동교육", "교육"]):
-            labor_questions.append("찾아가는 노동교육은 누가 신청할 수 있나요?")
+        if any(term in context_text for term in ["노동교육", "찾아가는 노동교육", "노동인문학", "교육"]):
+            if asks_overview:
+                labor_questions.append("찾아가는 노동교육은 누가 신청할 수 있나요?")
+            else:
+                labor_questions.append("노동교육 프로그램 일정은 어디서 확인하나요?")
+        if any(term in context_text for term in ["중소 사업장", "취업규칙", "인사노무"]):
+            labor_questions.append("중소 사업장 법률지원은 어떤 내용을 지원하나요?")
         return _dedupe_three(
             labor_questions
             + [
+                "방금 안내한 사업 중 신청 가능한 사업은 무엇인가요?",
+                "각 사업별 문의처를 알려주세요.",
                 "서울노동권익센터 상담은 어떻게 신청하나요?",
-                "지원사업별 신청 방법을 알려주세요.",
-                "문의처는 어디인가요?",
-            ]
+            ],
+            exclude=question,
         )
 
     if "융자" in context_text:
-        return [
-            "융자 신청 자격은 어떻게 되나요?",
-            "융자 신청 시 제출 서류는 무엇인가요?",
-            "융자 금리와 상환 조건은 어떻게 되나요?",
-        ]
+        return _dedupe_three(
+            [
+                "융자 신청 자격은 어떻게 되나요?",
+                "융자 신청 시 제출 서류는 무엇인가요?",
+                "융자 금리와 상환 조건은 어떻게 되나요?",
+            ],
+            exclude=question,
+        )
     if "사업신고" in context_text or "변경신고" in context_text:
-        return [
-            "사업신고 절차는 어떻게 되나요?",
-            "사업신고 시 필요한 서류는 무엇인가요?",
-            "변경신고는 언제 해야 하나요?",
-        ]
+        return _dedupe_three(
+            [
+                "사업신고 절차는 어떻게 되나요?",
+                "사업신고 시 필요한 서류는 무엇인가요?",
+                "변경신고는 언제 해야 하나요?",
+            ],
+            exclude=question,
+        )
     if "교육" in context_text or "해외인턴" in context_text or "인턴" in context_text:
-        return [
-            "교육 신청 자격은 어떻게 되나요?",
-            "모집 기간은 언제인가요?",
-            "제출 서류는 무엇인가요?",
-        ]
+        return _dedupe_three(
+            [
+                "교육 신청 자격은 어떻게 되나요?",
+                "모집 기간은 언제인가요?",
+                "제출 서류는 무엇인가요?",
+            ],
+            exclude=question,
+        )
     if any(keyword in context_text for keyword in ["기관 소개", "사업 소개", "주요 사업", "주요사업", "소개"]):
-        return [
-            "주요 지원사업은 무엇인가요?",
-            "신청 가능한 사업은 어떤 것이 있나요?",
-            "문의처는 어디인가요?",
-        ]
+        return _dedupe_three(
+            [
+                "주요 지원사업은 무엇인가요?",
+                "신청 가능한 사업은 어떤 것이 있나요?",
+                "문의처는 어디인가요?",
+            ],
+            exclude=question,
+        )
 
     source_driven: list[str] = []
     if "자격" in context_text or "조건" in context_text:
@@ -290,7 +369,8 @@ def _build_follow_up_questions(
             "관련 사업명을 알려주실 수 있나요?",
             "신청 단계나 대상 기관을 알려주실 수 있나요?",
             "찾고 싶은 자료명을 알려주실 수 있나요?",
-        ]
+        ],
+        exclude=question,
     )
 
 
@@ -1638,6 +1718,7 @@ def run_final_chat_pipeline(
 
     follow_up_questions = _build_follow_up_questions(
         question=body.question,
+        answer_text=answer_text,
         outcome=outcome,
         candidates=prompt_candidates,
         natural_conversation=natural_conversation,
