@@ -28,6 +28,10 @@ from app.services.embedding_service import coerce_embedding_vector, generate_emb
 
 TOKEN_SPLIT_REGEX = re.compile(r"[^0-9A-Za-z가-힣]+")
 DEFAULT_RETRIEVAL_THRESHOLD = 0.55
+
+# fetch_retrieval_candidates() 에서 부착된 _bm25_rank / _vector_rank 를 활용해
+# RRF 보조 신호를 계산한다. USE_HYBRID_SEARCH=true 일 때만 활성화.
+_USE_HYBRID_SEARCH: bool = settings.use_hybrid_search
 TOP1_RESCUE_SCORE = 0.26
 MAX_CHUNKS_PER_KNOWLEDGE_ITEM = 2
 MAX_CHUNKS_PER_SOURCE_URL = 2
@@ -880,7 +884,15 @@ def search_relevant_chunks(
             or token in (chunk.section_title or "").lower()
             or token in (document.title or "").lower()
         ]
-        keyword_score = round(len(matched_keywords) / max(len(expanded_tokens), 1), 4)
+        # USE_HYBRID_SEARCH=true 이고 BM25 순위(_bm25_rank)가 부착된 경우:
+        #   BM25 순위를 정규화 점수로 변환해 keyword_score 대체
+        #   기존 상수 0.25(keyword 가중치) 는 변경하지 않음
+        # 부착값이 없거나 hybrid=false 이면 기존 토큰 매칭 비율 사용
+        _bm25_rank = getattr(chunk, "_bm25_rank", None)
+        if _USE_HYBRID_SEARCH and _bm25_rank is not None:
+            keyword_score = round(max(0.0, 1.0 - _bm25_rank * 0.05), 4)
+        else:
+            keyword_score = round(len(matched_keywords) / max(len(expanded_tokens), 1), 4)
         chunk_embedding = coerce_embedding_vector(chunk.embedding)
         vector_score = round(_cosine_similarity(query_embedding, chunk_embedding), 4) if chunk_embedding is not None else None
 
@@ -967,6 +979,24 @@ def search_relevant_chunks(
             source_type=version.source_type,
         )
         combined_score = round(combined_score, 4)
+
+        # ── RRF 보조 신호 (USE_HYBRID_SEARCH=true 일 때만 활성화) ───────────
+        # Reciprocal Rank Fusion: rrf = 1/(60+rank)
+        # bm25_rank, vector_rank 는 fetch_retrieval_candidates() 에서 부착
+        # 최종 score = 기존 가중치 점수 × 0.7 + RRF 정규화값 × 0.3
+        # 기존 가중치 상수(0.25, 0.55 등)는 변경하지 않음
+        if _USE_HYBRID_SEARCH:
+            _bm25_rank_val = getattr(chunk, "_bm25_rank", None)
+            _vec_rank_val = getattr(chunk, "_vector_rank", None)
+            rrf_bm25 = 1.0 / (60.0 + _bm25_rank_val) if _bm25_rank_val is not None else 0.0
+            rrf_vec = 1.0 / (60.0 + _vec_rank_val) if _vec_rank_val is not None else 0.0
+            rrf_score = rrf_bm25 + rrf_vec
+            # 최대 rrf_score ≈ 2/60 ≒ 0.0333 → 0.3 구간으로 정규화
+            rrf_normalized = rrf_score / (2.0 / 60.0 + 0.001)
+            combined_score = round(
+                min(combined_score * 0.7 + rrf_normalized * 0.3, 1.0), 4
+            )
+
         citation_eligible = not (bool(noise_penalty) and combined_score < 0.50)
 
         collected.append(

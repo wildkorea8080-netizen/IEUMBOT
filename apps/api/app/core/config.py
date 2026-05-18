@@ -52,6 +52,10 @@ class Settings(BaseSettings):
         "gpt-4o-mini",
     ]
     api_retrieval_threshold: float = 0.55
+    use_dynamic_followup: bool = False
+    use_hybrid_search: bool = False
+    use_reranking: bool = False
+    rerank_top_n: int = 5
 
     model_config = SettingsConfigDict(
         env_file=".env",

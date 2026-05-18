@@ -2,7 +2,7 @@ import uuid
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import ForeignKey, Index, Integer, String, Text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -43,6 +43,7 @@ class DocumentChunk(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     embedding: Mapped[list[float] | None] = mapped_column(Vector(1536), nullable=True)
     token_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    text_search_vector: Mapped[object | None] = mapped_column(TSVECTOR, nullable=True)
 
     organization = relationship("Organization", back_populates="document_chunks")
     document = relationship("Document", back_populates="chunks")

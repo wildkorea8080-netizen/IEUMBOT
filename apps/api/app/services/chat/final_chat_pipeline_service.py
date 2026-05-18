@@ -8,6 +8,8 @@ from typing import Any
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
+
 from app.repositories.chat.policy_repository import get_chatbot_by_id
 from app.repositories.chat.runtime_repository import (
     count_user_messages_in_session,
@@ -47,6 +49,10 @@ from app.services.limits_service import check_conversation_limit
 from app.services.settings.answer_settings_service import get_effective_answer_settings_for_runtime
 
 logger = logging.getLogger(__name__)
+
+# USE_DYNAMIC_FOLLOWUP=true 이면 LLM으로 follow-up 질문 동적 생성
+# false(기본) 이면 기존 키워드 규칙 기반 유지
+_USE_DYNAMIC_FOLLOWUP: bool = settings.use_dynamic_followup
 
 SAFE_CHAT_ERROR_MESSAGE = (
     "현재 자동 답변 처리에 일시적인 문제가 있습니다. 잠시 후 다시 시도해 주시거나, "
@@ -299,21 +305,195 @@ def _dedupe_three(items: list[str], *, exclude: str | None = None) -> list[str]:
     return result
 
 
-def _build_follow_up_questions(
-    *,
+def _generate_followup_with_llm(
     question: str,
     answer_text: str,
-    outcome: str,
-    candidates: list[dict[str, Any]],
-    natural_conversation: bool,
-    privacy_blocked: bool = False,
+    db: Any,
 ) -> list[str]:
-    if natural_conversation or privacy_blocked:
+    """LLM follow-up 질문 동적 생성 (sync, urllib). 실패 시 [] 반환."""
+    import sys
+    import json as _json
+    import re as _re
+    import urllib.error as _urlerr
+    import urllib.request as _urlreq
+
+    from app.services.llm_api_config_runtime_service import (  # noqa: PLC0415
+        resolve_runtime_api_config as _resolve,
+    )
+
+    sys.stderr.write(f"[FOLLOWUP] 진입: {question[:20]}\n")
+    sys.stderr.flush()
+
+    try:
+        runtime_api = _resolve(db)
+    except Exception as e:
+        sys.stderr.write(f"[FOLLOWUP] resolve_runtime_api 예외: {e}\n")
+        sys.stderr.flush()
         return []
 
-    if outcome != "answered":
-        return FALLBACK_FOLLOW_UP_QUESTIONS.copy()
+    sys.stderr.write(f"[FOLLOWUP] runtime_api={runtime_api}\n")
+    sys.stderr.flush()
 
+    if runtime_api is None:
+        return []
+
+    model = runtime_api.default_model or "gpt-4.1-mini"
+    system_prompt = "follow-up 질문 생성 전문가입니다. JSON 배열만 출력하세요. 설명 없이."
+    user_prompt = (
+        "다음 대화를 보고 사용자가 이어서 물어볼 법한 질문 3개를 만들어주세요.\n\n"
+        f"질문: {question}\n"
+        f"답변: {answer_text[:600]}\n\n"
+        "규칙:\n"
+        "- 답변에서 언급된 구체적인 내용과 직접 관련된 질문\n"
+        "- 사용자가 실제로 다음에 궁금해할 만한 것\n"
+        "- 각 질문은 30자 이내의 간결한 한국어\n"
+        "- 원래 질문과 중복 금지\n"
+        '- 질문 형식으로 끝낼 것 ("~인가요?", "~어떻게 되나요?" 등)\n\n'
+        'JSON 배열로만 응답 예시: ["신청 마감일은 언제인가요?", "제출 서류는 어디서 받나요?", "합격 후 절차는 어떻게 되나요?"]'
+    )
+
+    # ── Anthropic ────────────────────────────────────────────────────────────
+    if runtime_api.provider == "anthropic":
+        url = (
+            f"{runtime_api.base_url.rstrip('/')}/v1/messages"
+            if runtime_api.base_url
+            else "https://api.anthropic.com/v1/messages"
+        )
+        payload: dict[str, Any] = {
+            "model": model,
+            "temperature": 0.3,
+            "max_tokens": 200,
+            "system": system_prompt,
+            "messages": [{"role": "user", "content": user_prompt}],
+        }
+        headers = {
+            "x-api-key": runtime_api.api_key,
+            "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json",
+        }
+        sys.stderr.write(f"[FOLLOWUP] API 호출: {url}\n")
+        sys.stderr.flush()
+        try:
+            req = _urlreq.Request(
+                url=url,
+                data=_json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+                headers=headers,
+                method="POST",
+            )
+            with _urlreq.urlopen(req, timeout=10) as resp:
+                sys.stderr.write(f"[FOLLOWUP] 응답 status={resp.status}\n")
+                sys.stderr.flush()
+                result = _json.loads(resp.read().decode("utf-8"))
+        except _urlerr.HTTPError as e:
+            sys.stderr.write(f"[FOLLOWUP] HTTP오류: {e.code} {e.read()[:200]}\n")
+            sys.stderr.flush()
+            return []
+        except Exception as e:
+            sys.stderr.write(f"[FOLLOWUP] 예외: {e}\n")
+            sys.stderr.flush()
+            return []
+        raw_text = ""
+        for block in result.get("content") or []:
+            if isinstance(block, dict) and block.get("type") == "text":
+                raw_text = str(block.get("text") or "")
+                break
+
+    # ── OpenAI / Azure OpenAI ────────────────────────────────────────────────
+    else:
+        if runtime_api.provider == "azure_openai":
+            base = (runtime_api.base_url or "").rstrip("/")
+            if base and "api-version" in base:
+                url = base
+            elif base:
+                url = f"{base}/openai/responses?api-version=2025-03-01-preview"
+            else:
+                url = "https://example.invalid/openai/responses?api-version=2025-03-01-preview"
+            headers = {
+                "api-key": runtime_api.api_key,
+                "Content-Type": "application/json",
+            }
+        else:
+            url = (
+                f"{runtime_api.base_url.rstrip('/')}/responses"
+                if runtime_api.base_url
+                else "https://api.openai.com/v1/responses"
+            )
+            headers = {
+                "Authorization": f"Bearer {runtime_api.api_key}",
+                "Content-Type": "application/json",
+            }
+        payload = {
+            "model": model,
+            "temperature": 0.3,
+            "max_output_tokens": 200,
+            "input": [
+                {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]},
+                {"role": "user",   "content": [{"type": "input_text", "text": user_prompt}]},
+            ],
+        }
+        sys.stderr.write(f"[FOLLOWUP] API 호출: {url}\n")
+        sys.stderr.flush()
+        try:
+            req = _urlreq.Request(
+                url=url,
+                data=_json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+                headers=headers,
+                method="POST",
+            )
+            with _urlreq.urlopen(req, timeout=10) as resp:
+                sys.stderr.write(f"[FOLLOWUP] 응답 status={resp.status}\n")
+                sys.stderr.flush()
+                result = _json.loads(resp.read().decode("utf-8"))
+        except _urlerr.HTTPError as e:
+            sys.stderr.write(f"[FOLLOWUP] HTTP오류: {e.code} {e.read()[:200]}\n")
+            sys.stderr.flush()
+            return []
+        except Exception as e:
+            sys.stderr.write(f"[FOLLOWUP] 예외: {e}\n")
+            sys.stderr.flush()
+            return []
+        raw_text = result.get("output_text") or ""
+        if not raw_text:
+            for item in result.get("output") or []:
+                if not isinstance(item, dict):
+                    continue
+                for content in item.get("content") or []:
+                    if isinstance(content, dict) and content.get("type") == "output_text":
+                        raw_text = str(content.get("text") or "")
+                        break
+                if raw_text:
+                    break
+
+    # ── JSON 파싱 ─────────────────────────────────────────────────────────────
+    raw_text = (raw_text or "").strip()
+    match = _re.search(r"\[.*?\]", raw_text, _re.DOTALL)
+    if not match:
+        sys.stderr.write(f"[FOLLOWUP] JSON배열 없음. raw={raw_text[:100]}\n")
+        sys.stderr.flush()
+        return []
+
+    try:
+        parsed = _json.loads(match.group(0))
+    except Exception as e:
+        sys.stderr.write(f"[FOLLOWUP] JSON파싱 실패: {e}\n")
+        sys.stderr.flush()
+        return []
+
+    if not isinstance(parsed, list):
+        return []
+
+    result_list = [str(q).strip() for q in parsed if isinstance(q, str) and q.strip()]
+    sys.stderr.write(f"[FOLLOWUP] 파싱결과={result_list}\n")
+    sys.stderr.flush()
+    return result_list
+
+
+def _rule_based_follow_up(
+    question: str,
+    answer_text: str,
+    candidates: list[dict[str, Any]],
+) -> list[str]:
+    """기존 키워드 규칙 기반 follow-up 생성. LLM fallback 시 사용."""
     normalized = _normalize_text(question)
     answer_context = _normalize_text(answer_text)
     source_context = _candidate_text(candidates)
@@ -352,15 +532,6 @@ def _build_follow_up_questions(
                 ],
                 exclude=question,
             )
-        return _dedupe_three(
-            [
-                "해외농업자원개발 사업신고 절차는 어떻게 되나요?",
-                "해외농업 투자지원 사업은 무엇이 있나요?",
-                "해외인턴 지원 자격은 어떻게 되나요?",
-                "해외농산물 국내반입 절차는 어떻게 되나요?",
-            ],
-            exclude=question,
-        )
 
     if any(term in context_text for term in ["서울노동권익센터", "노동권익", "노동법률", "권리구제", "세무상담", "심리상담", "노동교육"]):
         labor_questions: list[str] = []
@@ -372,108 +543,62 @@ def _build_follow_up_questions(
         asks_apply = any(term in normalized for term in ["신청", "예약", "접수", "방법", "절차"])
         if "세무" in normalized or "종합소득세" in normalized:
             return _dedupe_three(
-                [
-                    "세무상담 전화 문의처는 어디인가요?",
-                    "세무상담은 어떤 내용을 상담받을 수 있나요?",
-                    "세무상담 운영 기간은 언제인가요?",
-                    "각 사업별 문의처를 알려주세요.",
-                ],
+                ["세무상담 전화 문의처는 어디인가요?", "세무상담은 어떤 내용을 상담받을 수 있나요?",
+                 "세무상담 운영 기간은 언제인가요?", "각 사업별 문의처를 알려주세요."],
                 exclude=question,
             )
         if any(term in normalized for term in ["노동교육", "찾아가는 노동교육", "교육", "노동인문학"]):
             return _dedupe_three(
-                [
-                    "찾아가는 노동교육은 누가 신청할 수 있나요?",
-                    "노동교육 프로그램 일정은 어디서 확인하나요?",
-                    "교육 신청 방법을 알려주세요.",
-                    "각 사업별 문의처를 알려주세요.",
-                ],
+                ["찾아가는 노동교육은 누가 신청할 수 있나요?", "노동교육 프로그램 일정은 어디서 확인하나요?",
+                 "교육 신청 방법을 알려주세요.", "각 사업별 문의처를 알려주세요."],
                 exclude=question,
             )
         if any(term in normalized for term in ["노동법률", "법률지원", "권리구제", "임금", "근로시간", "연차"]):
             return _dedupe_three(
-                [
-                    "노동법률 상담 신청 대상은 어떻게 되나요?",
-                    "노동법률 상담은 어떻게 신청하나요?",
-                    "중소 사업장 법률지원은 어떤 내용을 지원하나요?",
-                    "각 사업별 문의처를 알려주세요.",
-                ],
+                ["노동법률 상담 신청 대상은 어떻게 되나요?", "노동법률 상담은 어떻게 신청하나요?",
+                 "중소 사업장 법률지원은 어떤 내용을 지원하나요?", "각 사업별 문의처를 알려주세요."],
                 exclude=question,
             )
         if any(term in normalized for term in ["심리", "치유", "마음돌봄", "감정노동", "괴롭힘"]):
             return _dedupe_three(
-                [
-                    "심리상담이나 치유 프로그램은 어떻게 신청하나요?",
-                    "상담·치유 프로그램 대상은 누구인가요?",
-                    "직장 내 괴롭힘 상담은 어떻게 받을 수 있나요?",
-                    "각 사업별 문의처를 알려주세요.",
-                ],
+                ["심리상담이나 치유 프로그램은 어떻게 신청하나요?", "상담·치유 프로그램 대상은 누구인가요?",
+                 "직장 내 괴롭힘 상담은 어떻게 받을 수 있나요?", "각 사업별 문의처를 알려주세요."],
                 exclude=question,
             )
-
         if any(term in context_text for term in ["노동법률", "법률지원", "권리구제", "임금", "근로시간", "연차휴가"]):
-            if asks_apply:
-                labor_questions.append("노동법률 상담 신청 대상은 어떻게 되나요?")
-            else:
-                labor_questions.append("노동법률 상담은 어떻게 신청하나요?")
+            labor_questions.append("노동법률 상담 신청 대상은 어떻게 되나요?" if asks_apply else "노동법률 상담은 어떻게 신청하나요?")
         if "세무상담" in context_text or "종합소득세" in context_text:
-            if asks_apply or asks_consulting:
-                labor_questions.append("세무상담 전화 문의처는 어디인가요?")
-            else:
-                labor_questions.append("세무상담은 어떤 내용을 상담받을 수 있나요?")
+            labor_questions.append("세무상담 전화 문의처는 어디인가요?" if (asks_apply or asks_consulting) else "세무상담은 어떤 내용을 상담받을 수 있나요?")
         if any(term in context_text for term in ["심리상담", "집단치유", "마음돌봄", "상담·치유", "직장 내 괴롭힘", "감정노동"]):
             labor_questions.append("심리상담이나 치유 프로그램은 어떻게 신청하나요?")
         if any(term in context_text for term in ["노동교육", "찾아가는 노동교육", "노동인문학", "교육"]):
-            if asks_overview:
-                labor_questions.append("찾아가는 노동교육은 누가 신청할 수 있나요?")
-            else:
-                labor_questions.append("노동교육 프로그램 일정은 어디서 확인하나요?")
+            labor_questions.append("찾아가는 노동교육은 누가 신청할 수 있나요?" if asks_overview else "노동교육 프로그램 일정은 어디서 확인하나요?")
         if any(term in context_text for term in ["중소 사업장", "취업규칙", "인사노무"]):
             labor_questions.append("중소 사업장 법률지원은 어떤 내용을 지원하나요?")
         return _dedupe_three(
-            labor_questions
-            + [
-                "방금 안내한 사업 중 신청 가능한 사업은 무엇인가요?",
-                "각 사업별 문의처를 알려주세요.",
-                "서울노동권익센터 상담은 어떻게 신청하나요?",
-            ],
+            labor_questions + ["방금 안내한 사업 중 신청 가능한 사업은 무엇인가요?",
+                               "각 사업별 문의처를 알려주세요.", "서울노동권익센터 상담은 어떻게 신청하나요?"],
             exclude=question,
         )
 
     if "융자" in context_text:
         return _dedupe_three(
-            [
-                "융자 신청 자격은 어떻게 되나요?",
-                "융자 신청 시 제출 서류는 무엇인가요?",
-                "융자 금리와 상환 조건은 어떻게 되나요?",
-            ],
+            ["융자 신청 자격은 어떻게 되나요?", "융자 신청 시 제출 서류는 무엇인가요?", "융자 금리와 상환 조건은 어떻게 되나요?"],
             exclude=question,
         )
     if "사업신고" in context_text or "변경신고" in context_text:
         return _dedupe_three(
-            [
-                "사업신고 절차는 어떻게 되나요?",
-                "사업신고 시 필요한 서류는 무엇인가요?",
-                "변경신고는 언제 해야 하나요?",
-            ],
+            ["사업신고 절차는 어떻게 되나요?", "사업신고 시 필요한 서류는 무엇인가요?", "변경신고는 언제 해야 하나요?"],
             exclude=question,
         )
     if "교육" in context_text or "해외인턴" in context_text or "인턴" in context_text:
         return _dedupe_three(
-            [
-                "교육 신청 자격은 어떻게 되나요?",
-                "모집 기간은 언제인가요?",
-                "제출 서류는 무엇인가요?",
-            ],
+            ["교육 신청 자격은 어떻게 되나요?", "모집 기간은 언제인가요?", "제출 서류는 무엇인가요?"],
             exclude=question,
         )
     if any(keyword in context_text for keyword in ["기관 소개", "사업 소개", "주요 사업", "주요사업", "소개"]):
         return _dedupe_three(
-            [
-                "주요 지원사업은 무엇인가요?",
-                "신청 가능한 사업은 어떤 것이 있나요?",
-                "문의처는 어디인가요?",
-            ],
+            ["주요 지원사업은 무엇인가요?", "신청 가능한 사업은 어떤 것이 있나요?", "문의처는 어디인가요?"],
             exclude=question,
         )
 
@@ -488,14 +613,32 @@ def _build_follow_up_questions(
         source_driven.append("문의처는 어디인가요?")
 
     return _dedupe_three(
-        source_driven
-        + [
-            "관련 사업명을 알려주실 수 있나요?",
-            "신청 단계나 대상 기관을 알려주실 수 있나요?",
-            "찾고 싶은 자료명을 알려주실 수 있나요?",
-        ],
+        source_driven + ["관련 사업명을 알려주실 수 있나요?", "신청 단계나 대상 기관을 알려주실 수 있나요?",
+                         "찾고 싶은 자료명을 알려주실 수 있나요?"],
         exclude=question,
     )
+
+
+def _build_follow_up_questions(
+    question: str,
+    answer_text: str,
+    outcome: str,
+    candidates: list[dict[str, Any]],
+    db: Any,
+    natural_conversation: bool = False,
+    privacy_blocked: bool = False,
+) -> list[str]:
+    if natural_conversation or privacy_blocked:
+        return []
+    if outcome != "answered":
+        return FALLBACK_FOLLOW_UP_QUESTIONS.copy()
+
+    if _USE_DYNAMIC_FOLLOWUP and db is not None:
+        result = _generate_followup_with_llm(question, answer_text, db)
+        if result:
+            return result[:3]
+
+    return _rule_based_follow_up(question, answer_text, candidates)
 
 
 def _build_public_runtime_trace(
@@ -1492,6 +1635,20 @@ def run_final_chat_pipeline(
         retrieval_output["retrievalLatencyMs"] = retrieval_latency_ms
     prompt_candidates = list(retrieval_output.get("promptCandidates") or [])
 
+    # ── Re-ranking (USE_RERANKING=true 일 때만 실행) ──────────────────────────
+    # 전체 candidates(top-20 이내) 를 LLM 관련성 점수로 재정렬 → top_n 선별
+    # 결과로 promptCandidates 만 교체; retrieval_output 나머지 구조는 유지
+    # USE_RERANKING=false(기본) 이면 early-return으로 기존 동작과 100% 동일
+    try:
+        from app.services.chat.reranker_service import rerank_chunks  # noqa: PLC0415
+        all_candidates = list(retrieval_output.get("candidates") or prompt_candidates)
+        reranked = rerank_chunks(db, query=body.question, chunks=all_candidates)
+        if reranked is not prompt_candidates:  # 실제로 재정렬된 경우만 교체
+            retrieval_output["promptCandidates"] = reranked
+            prompt_candidates = reranked
+    except Exception as _rerank_exc:
+        logger.warning("[PIPELINE] reranker skipped: %s", _rerank_exc)
+
     runtime_guardrails = get_effective_guardrails_for_runtime(
         db,
         organization_id=str(chatbot.organization_id),
@@ -1865,13 +2022,17 @@ def run_final_chat_pipeline(
             db.rollback()
 
     follow_up_questions = _build_follow_up_questions(
-        question=body.question,
-        answer_text=answer_text,
-        outcome=outcome,
-        candidates=prompt_candidates,
+        body.question,
+        answer_text,
+        outcome,
+        prompt_candidates,
+        db,
         natural_conversation=natural_conversation,
     )
-    follow_up_source = "rule_based" if follow_up_questions else None
+    follow_up_source = (
+        "llm_dynamic" if (follow_up_questions and _USE_DYNAMIC_FOLLOWUP)
+        else ("rule_based" if follow_up_questions else None)
+    )
 
     public_trace = _build_public_runtime_trace(
         normalized_query=normalized_query,

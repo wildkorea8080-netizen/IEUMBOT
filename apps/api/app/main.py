@@ -34,6 +34,9 @@ async def lifespan(_: FastAPI):
     logger = logging.getLogger(__name__)
     _run_migrations()
     logger.info("Starting IEUMBOT API (env=%s)", settings.api_env)
+    print(f"[CONFIG] use_dynamic_followup={settings.use_dynamic_followup}", flush=True)
+    print(f"[CONFIG] use_hybrid_search={settings.use_hybrid_search}", flush=True)
+    print(f"[CONFIG] use_reranking={settings.use_reranking}", flush=True)
     yield
     logger.info("Shutting down IEUMBOT API")
 

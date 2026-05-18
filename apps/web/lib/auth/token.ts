@@ -33,13 +33,6 @@ export function getAdminAccessToken(): string | null {
   return legacyToken;
 }
 
-export function setAdminAccessToken(token: string): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-  sessionStorage.setItem(ADMIN_ACCESS_TOKEN_KEY, token);
-}
-
 export function beginAdminImpersonation(params: {
   impersonationToken: string;
   organizationId: string;
@@ -101,12 +94,27 @@ export function endAdminImpersonation(): boolean {
   return true;
 }
 
+// 기관 전환 시 챗봇 캐시를 초기화하는 키 목록
+const CHATBOT_CACHE_KEYS = [
+  "ieumbot_admin_ai_chatbot_id",
+  "ieumbot_admin_selected_chatbot",
+] as const;
+
+function clearChatbotCache(): void {
+  for (const key of CHATBOT_CACHE_KEYS) {
+    localStorage.removeItem(key);
+  }
+}
+
 export function clearCurrentAdminAccessToken(): void {
   if (typeof window === "undefined") {
     return;
   }
   sessionStorage.removeItem(ADMIN_ACCESS_TOKEN_KEY);
   localStorage.removeItem(ADMIN_ACCESS_TOKEN_KEY);
+  // 로그아웃 시 이전 기관의 챗봇 캐시를 초기화한다.
+  // 이렇게 하지 않으면 다음 로그인한 기관 관리자가 이전 기관 챗봇 이름을 보게 된다.
+  clearChatbotCache();
   dispatchImpersonationEvent();
 }
 
@@ -118,5 +126,15 @@ export function clearAdminAccessToken(): void {
   sessionStorage.removeItem(ADMIN_BASE_ACCESS_TOKEN_KEY);
   sessionStorage.removeItem(ADMIN_IMPERSONATION_STATE_KEY);
   localStorage.removeItem(ADMIN_ACCESS_TOKEN_KEY);
+  clearChatbotCache();
   dispatchImpersonationEvent();
+}
+
+export function setAdminAccessToken(token: string): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  // 새 토큰 설정 = 새 로그인 = 이전 기관의 챗봇 캐시 초기화
+  clearChatbotCache();
+  sessionStorage.setItem(ADMIN_ACCESS_TOKEN_KEY, token);
 }

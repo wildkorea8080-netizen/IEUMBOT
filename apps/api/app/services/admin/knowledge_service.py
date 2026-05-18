@@ -21,7 +21,7 @@ from xml.etree import ElementTree as ET
 from zipfile import BadZipFile, ZipFile
 
 from fastapi import HTTPException, UploadFile, status
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -920,6 +920,155 @@ def _split_section_into_chunks(
     return chunks
 
 
+def _split_text_chunks_semantic(
+    text: str,
+    max_chunk_size: int = CHUNK_SIZE,
+    overlap_size: int = CHUNK_OVERLAP,
+    section_title: str = "",
+) -> list[dict]:
+    """
+    표 보호 + 의미 단위 청킹 (Sprint 1-A).
+
+    처리 순서:
+    1. 표 블록(파이프 2줄 이상) 추출 → placeholder(__TABLE_N__) 치환
+    2. \\n\\n 기준 단락 분할
+    3. 단락이 max_chunk_size 초과 시 한국어 문장 경계 분할
+    4. 100자 미만 소형 조각은 앞 조각에 병합 (표 블록 제외)
+    5. 인접 청크 앞에 overlap_size 글자 접두 추가
+    6. placeholder → 원래 표 복원
+
+    반환: [{"text": str, "section_title": str | None}, ...]
+    """
+    import re as _re
+
+    if not text or not text.strip():
+        return []
+
+    # ── 1. 표 감지 및 보호 ────────────────────────────────────────────────
+    table_blocks: list[str] = []
+    _TABLE_LINE = _re.compile(r"^\s*\|.+\|")  # | 로 시작하고 | 로 끝나는 줄
+
+    def _extract_tables(src: str) -> str:
+        lines = src.split("\n")
+        out: list[str] = []
+        i = 0
+        while i < len(lines):
+            if _TABLE_LINE.match(lines[i]):
+                j = i
+                while j < len(lines) and (
+                    _TABLE_LINE.match(lines[j]) or lines[j].strip().startswith("|") or lines[j].strip() == ""
+                ):
+                    # 빈 줄은 표 연속으로 허용하되 2줄 연속 빈 줄은 종료
+                    if lines[j].strip() == "":
+                        if j + 1 < len(lines) and lines[j + 1].strip() == "":
+                            break
+                    j += 1
+                candidate = lines[i:j]
+                table_lines = [ln for ln in candidate if ln.strip()]
+                if len(table_lines) >= 2 and all(_TABLE_LINE.match(ln) or ln.strip().startswith("|") for ln in table_lines):
+                    idx = len(table_blocks)
+                    table_blocks.append("\n".join(candidate))
+                    out.append(f"__TABLE_{idx}__")
+                    i = j
+                    continue
+            out.append(lines[i])
+            i += 1
+        return "\n".join(out)
+
+    working = _extract_tables(text)
+
+    # ── 2. 단락 분할 (\n\n 기준) ───────────────────────────────────────────
+    paragraphs = _re.split(r"\n{2,}", working)
+
+    # ── 3. 초과 단락 → 문장 분할 ──────────────────────────────────────────
+    # 한국어 문장 끝 패턴 우선, 이후 일반 마침표 패턴
+    _KO_SENT_END = _re.compile(
+        r"(?<=[다요까])(?:\. |! |\? )"   # 다. 요. 까. 다! 요! 다? 요?
+        r"|(?<=[.!?]) "                   # 일반 마침표 뒤 공백
+    )
+
+    def _sentence_split(para: str) -> list[str]:
+        parts = _KO_SENT_END.split(para)
+        return [p.strip() for p in parts if p.strip()]
+
+    raw_chunks: list[str] = []
+
+    for para in paragraphs:
+        para = para.strip()
+        if not para:
+            continue
+
+        if para.startswith("__TABLE_"):
+            raw_chunks.append(para)
+            continue
+
+        if len(para) <= max_chunk_size:
+            raw_chunks.append(para)
+            continue
+
+        # 단락 초과 → 문장 분할
+        sentences = _sentence_split(para)
+        if len(sentences) <= 1:
+            # 문장 분할 불가 → 강제 슬라이딩
+            step = max(1, max_chunk_size - overlap_size)
+            for i in range(0, len(para), step):
+                raw_chunks.append(para[i : i + max_chunk_size])
+        else:
+            buf = ""
+            for sent in sentences:
+                if len(buf) + len(sent) + 1 <= max_chunk_size:
+                    buf = (buf + " " + sent).strip() if buf else sent
+                else:
+                    if buf:
+                        raw_chunks.append(buf)
+                    buf = sent
+            if buf:
+                raw_chunks.append(buf)
+
+    # ── 4. 소형 조각 병합 (100자 미만, 표 블록 제외) ──────────────────────
+    merged: list[str] = []
+    for chunk in raw_chunks:
+        is_table = chunk.startswith("__TABLE_")
+        if (
+            not is_table
+            and len(chunk) < 100
+            and merged
+            and not merged[-1].startswith("__TABLE_")
+        ):
+            merged[-1] = merged[-1] + "\n\n" + chunk
+        else:
+            merged.append(chunk)
+
+    # ── 5. 오버랩 적용 ────────────────────────────────────────────────────
+    with_overlap: list[str] = []
+    for i, chunk in enumerate(merged):
+        if (
+            i == 0
+            or chunk.startswith("__TABLE_")
+            or merged[i - 1].startswith("__TABLE_")
+        ):
+            with_overlap.append(chunk)
+        else:
+            prev = merged[i - 1]
+            prefix = prev[-overlap_size:] if len(prev) > overlap_size else prev
+            with_overlap.append(prefix + "\n" + chunk)
+
+    # ── 6. 표 placeholder 복원 ────────────────────────────────────────────
+    def _restore(chunk: str) -> str:
+        for idx, table_text in enumerate(table_blocks):
+            chunk = chunk.replace(f"__TABLE_{idx}__", table_text)
+        return chunk
+
+    resolved_title: str | None = section_title.strip() or None
+    result: list[dict] = []
+    for chunk in with_overlap:
+        restored = _restore(chunk).strip()
+        if restored and len(restored) >= 20:
+            result.append({"text": restored, "section_title": resolved_title})
+
+    return result
+
+
 def _strip_website_block_markers(block: str) -> tuple[dict[str, str], str]:
     metadata: dict[str, str] = {}
     content_lines: list[str] = []
@@ -1367,11 +1516,19 @@ def _ingest_document_version_content(
 
     _chunk_size = int((rag_settings or {}).get("chunkSize", CHUNK_SIZE))
     _chunk_overlap = int((rag_settings or {}).get("chunkOverlap", CHUNK_OVERLAP))
-    chunks = _split_text_chunks(
-        extracted_text,
-        chunk_size=_chunk_size,
-        overlap=_chunk_overlap,
-    )
+    _use_semantic_v2 = bool((rag_settings or {}).get("semanticChunking", False))
+    if _use_semantic_v2:
+        chunks = _split_text_chunks_semantic(
+            extracted_text,
+            max_chunk_size=_chunk_size,
+            overlap_size=_chunk_overlap,
+        )
+    else:
+        chunks = _split_text_chunks(
+            extracted_text,
+            chunk_size=_chunk_size,
+            overlap=_chunk_overlap,
+        )
     version.extracted_text_length = len(extracted_text)
     version.chunk_count = len(chunks)
     if not chunks:
@@ -1445,6 +1602,13 @@ def _ingest_document_version_content(
             embedding_error_counts["EMBEDDING_BATCH_FAILED"] = (
                 embedding_error_counts.get("EMBEDDING_BATCH_FAILED", 0) + 1
             )
+        # text_search_vector: section_title + text_content 를 'simple' 사전으로 색인
+        # to_tsvector는 서버사이드 함수이므로 insert 시 func.to_tsvector() 로 전달
+        # 마이그레이션 미실행 환경에서는 컬럼 자체가 없으므로 try/except 로 보호
+        _tsv_value = func.to_tsvector(
+            "simple",
+            (section_title + " " + chunk_text) if section_title else chunk_text,
+        )
         db.add(
             DocumentChunk(
                 organization_id=uuid.UUID(organization_id),
@@ -1464,13 +1628,46 @@ def _ingest_document_version_content(
                 embedding=embedding,
                 token_count=len(chunk_text.split()),
                 content_hash=sha256(chunk_text.encode("utf-8")).hexdigest(),
+                text_search_vector=_tsv_value,
             )
         )
         try:
             db.flush()
         except SQLAlchemyError as exc:
-            logger.exception("[EMBEDDING_ERROR] chunk_id=%s error_code=VECTOR_SAVE_ERROR error=%s", f"{document.id}:{index}", exc)
-            raise
+            err_msg = str(exc).lower()
+            # text_search_vector 컬럼이 아직 없는 경우(마이그레이션 미실행) —
+            # tsv 없이 재시도. 운영 DB 에서는 마이그레이션 후 이 경로를 타지 않음.
+            if "text_search_vector" in err_msg or "undefined column" in err_msg:
+                db.rollback()
+                db.add(
+                    DocumentChunk(
+                        organization_id=uuid.UUID(organization_id),
+                        document_id=document.id,
+                        chatbot_id=uuid.UUID(chatbot_id),
+                        document_version_id=version.id,
+                        chunk_order=index,
+                        page_number=None,
+                        section_title=section_title,
+                        corpus_domain=version.corpus_domain,
+                        text_content=chunk_text,
+                        metadata_json={
+                            **merged_metadata,
+                            "sourceType": merged_metadata.get("sourceType") or version.source_type,
+                            "section_title": section_title,
+                        },
+                        embedding=embedding,
+                        token_count=len(chunk_text.split()),
+                        content_hash=sha256(chunk_text.encode("utf-8")).hexdigest(),
+                    )
+                )
+                db.flush()
+            else:
+                logger.exception(
+                    "[EMBEDDING_ERROR] chunk_id=%s error_code=VECTOR_SAVE_ERROR error=%s",
+                    f"{document.id}:{index}",
+                    exc,
+                )
+                raise
 
     version.file_name = file_name
     version.processed_at = now
