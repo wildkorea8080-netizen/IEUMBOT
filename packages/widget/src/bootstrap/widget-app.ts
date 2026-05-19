@@ -276,11 +276,13 @@ function getLauncherHoverMessage(config: WidgetPublicConfig | null, options: Wid
 }
 
 function buildScopedStyles(primaryGradient: string): string {
+  // primaryGradient는 런처 버튼에만 사용, 위젯 헤더는 Planee 스타일 파란색 고정
+  void primaryGradient;
   return `
 :host { all: initial; }
 .ieum-root, .ieum-root * {
   box-sizing: border-box;
-  font-family: "Pretendard", "Noto Sans KR", "Apple SD Gothic Neo", Arial, sans-serif;
+  font-family: "Pretendard", "Noto Sans KR", "Apple SD Gothic Neo", -apple-system, Arial, sans-serif;
   letter-spacing: -0.01em;
 }
 .ieum-root {
@@ -288,274 +290,285 @@ function buildScopedStyles(primaryGradient: string): string {
   right: 24px;
   bottom: 24px;
   z-index: 2147480000;
-  color: #0f172a;
+  color: #111827;
 }
+/* ── 런처 래퍼 ── */
 .ieum-launcher-wrap {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 12px;
+  position:absolute; right:0; bottom:0;
+  display:flex; flex-direction:column; align-items:flex-end; gap:12px;
 }
+/* ── 툴팁 말풍선 ── */
 .ieum-launcher-tip {
-  width: min(340px, calc(100vw - 48px));
-  border: 1px solid #dbe4f0;
-  border-radius: 18px;
-  background: #ffffff;
-  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.14);
-  padding: 12px 14px 12px 16px;
-  display: none;
-  align-items: flex-start;
-  gap: 10px;
+  width:min(300px, calc(100vw - 48px));
+  border:1px solid #e8edf5; border-radius:16px;
+  background:#fff; box-shadow:0 8px 32px rgba(37,99,235,.12);
+  padding:12px 14px 12px 16px; display:none; align-items:flex-start; gap:10px;
 }
-.ieum-launcher-tip.visible {
-  display: flex;
-  animation: ieum-tooltip-in .18s ease;
-}
-.ieum-launcher-tip-text {
-  flex: 1;
-  font-size: 13px;
-  line-height: 1.6;
-  color: #0f172a;
-  white-space: pre-wrap;
-  word-break: keep-all;
-}
+.ieum-launcher-tip.visible { display:flex; animation:ieum-tooltip-in .18s ease; }
+.ieum-launcher-tip-text { flex:1; font-size:13px; line-height:1.6; color:#111827; white-space:pre-wrap; word-break:keep-all; }
 .ieum-launcher-tip-close {
-  width: 22px;
-  height: 22px;
-  border: none;
-  border-radius: 9999px;
-  background: #f1f5f9;
-  color: #64748b;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  flex: 0 0 auto;
+  width:22px; height:22px; border:none; border-radius:9999px;
+  background:#f3f4f6; color:#6b7280;
+  display:inline-flex; align-items:center; justify-content:center; cursor:pointer; flex:0 0 auto;
 }
-.ieum-launcher-tip-close svg {
-  width: 14px;
-  height: 14px;
-}
+.ieum-launcher-tip-close svg { width:13px; height:13px; }
+/* ── 플로팅 버튼 ── */
 .ieum-floating {
-  width: 64px;
-  height: 64px;
-  border: none;
-  border-radius: 9999px;
-  background: ${primaryGradient};
-  color: #ffffff;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  box-shadow: 0 14px 30px rgba(37, 99, 235, 0.28);
-  transition: transform .18s ease, box-shadow .18s ease, opacity .18s ease;
+  width:60px; height:60px; border:none; border-radius:9999px;
+  background:#2563eb; color:#fff;
+  display:inline-flex; align-items:center; justify-content:center; cursor:pointer;
+  box-shadow:0 6px 24px rgba(37,99,235,.35);
+  transition:transform .18s ease, box-shadow .18s ease, opacity .18s ease;
 }
-.ieum-floating.ieum-floating-loading {
-  opacity: 0;
-  pointer-events: none;
-  transform: scale(.96);
-}
-.ieum-floating:hover {
-  transform: scale(1.05);
-  box-shadow: 0 20px 36px rgba(15, 23, 42, 0.28);
-}
-.ieum-floating.ieum-floating-image {
-  background: transparent;
-  box-shadow: none;
-  padding: 0;
-}
-.ieum-floating.ieum-floating-image:hover {
-  box-shadow: none;
-}
+.ieum-floating.ieum-floating-loading { opacity:0; pointer-events:none; transform:scale(.9); }
+.ieum-floating:hover { transform:scale(1.06); box-shadow:0 10px 32px rgba(37,99,235,.4); }
+.ieum-floating.ieum-floating-image { background:transparent; box-shadow:none; padding:0; }
+.ieum-floating.ieum-floating-image:hover { box-shadow:none; }
 .ieum-floating .ieum-launcher-image {
-  width: 64px;
-  height: 64px;
-  border-radius: 9999px;
-  object-fit: contain;
-  display: block;
-  background: transparent;
+  width:60px; height:60px; border-radius:9999px;
+  object-fit:contain; display:block; background:transparent;
 }
 .ieum-floating.ieum-floating-image .ieum-launcher-image {
-  filter: drop-shadow(0 14px 24px rgba(15, 23, 42, 0.18));
+  filter:drop-shadow(0 6px 20px rgba(37,99,235,.28));
 }
-.ieum-floating svg,
-.ieum-header-icon svg,
-.ieum-header-icon img,
-.ieum-header-button svg,
-.ieum-send svg {
-  width: 26px;
-  height: 26px;
-}
-.ieum-header-icon img {
-  width: 20px;
-  height: 20px;
-  object-fit: contain;
-  border-radius: 9999px;
-}
+.ieum-floating svg { width:28px; height:28px; }
+.ieum-header-icon svg, .ieum-header-icon img, .ieum-header-button svg { width:20px; height:20px; }
+.ieum-send svg { width:20px; height:20px; }
+.ieum-header-icon img { object-fit:contain; border-radius:9999px; }
+/* ── 패널 ── */
 .ieum-panel {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  width: min(340px, calc(100vw - 24px));
-  height: min(520px, calc(100vh - 24px));
-  border-radius: 16px;
-  background: #ffffff;
-  overflow: hidden;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
-  display: flex;
-  flex-direction: column;
-  opacity: 0;
-  transform: translateY(20px);
-  pointer-events: none;
-  transition: opacity .22s ease, transform .22s ease;
+  position:absolute; right:0; bottom:0;
+  width:min(380px, calc(100vw - 16px));
+  height:min(600px, calc(100vh - 16px));
+  border-radius:20px;
+  border:2px solid #2563eb;
+  background:#fff;
+  overflow:hidden;
+  box-shadow:0 16px 48px rgba(37,99,235,.18), 0 4px 16px rgba(0,0,0,.06);
+  display:flex; flex-direction:column;
+  opacity:0; transform:translateY(24px) scale(.97);
+  pointer-events:none;
+  transition:opacity .24s ease, transform .24s ease;
 }
-.ieum-panel.open {
-  opacity: 1;
-  transform: translateY(0);
-  pointer-events: auto;
-}
+.ieum-panel.open { opacity:1; transform:translateY(0) scale(1); pointer-events:auto; }
+/* ── 헤더 ── */
 .ieum-header {
-  min-height: 60px;
-  padding: 12px 16px;
-  background: ${primaryGradient};
-  color: #ffffff;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  min-height:58px; padding:12px 14px;
+  background:#2563eb;
+  color:#fff;
+  display:flex; align-items:center; justify-content:space-between;
+  flex-shrink:0;
 }
 .ieum-header-main { display:flex; align-items:center; gap:10px; min-width:0; }
 .ieum-header-icon {
-  width: 34px; height: 34px; border-radius: 9999px; background: rgba(255,255,255,.16);
+  width:36px; height:36px; border-radius:9999px;
+  background:rgba(255,255,255,.2);
   display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto;
 }
-.ieum-title {
-  font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.ieum-header-actions { display:flex; align-items:center; gap:6px; }
+.ieum-title { font-size:15px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ieum-header-actions { display:flex; align-items:center; gap:4px; }
 .ieum-header-button {
-  width:30px; height:30px; border:none; border-radius:9999px; background:rgba(255,255,255,.15); color:#fff;
+  width:32px; height:32px; border:none; border-radius:9999px;
+  background:rgba(255,255,255,.15); color:#fff;
   display:inline-flex; align-items:center; justify-content:center; cursor:pointer;
+  transition:background .15s;
 }
-.ieum-header-button:hover { background: rgba(255,255,255,.24); }
+.ieum-header-button:hover { background:rgba(255,255,255,.28); }
+/* ── 메시지 영역 ── */
 .ieum-messages {
-  flex:1; padding:16px; background:#f8fafc; overflow-y:auto; display:flex; flex-direction:column; gap:10px;
+  flex:1; padding:16px 14px; background:#fff;
+  overflow-y:auto; display:flex; flex-direction:column; gap:12px;
+  scroll-behavior:smooth;
 }
+.ieum-messages::-webkit-scrollbar { width:4px; }
+.ieum-messages::-webkit-scrollbar-thumb { background:#e2e8f0; border-radius:4px; }
+/* ── 배너 ── */
 .ieum-banner {
-  margin: 16px 16px 0; border:1px solid rgba(37,99,235,.12); border-radius:14px; padding:12px 14px;
-  background: linear-gradient(180deg, rgba(255,255,255,.96), rgba(239,246,255,.9));
-  box-shadow: 0 4px 16px rgba(15,23,42,.05);
+  margin:0 0 4px; border:1px solid #dbeafe; border-radius:12px; padding:10px 12px;
+  background:linear-gradient(135deg, #eff6ff, #fff);
 }
-.ieum-banner-title { font-size:12px; font-weight:700; color:#1e3a8a; }
-.ieum-banner-description { margin-top:4px; font-size:12px; line-height:1.5; color:#475569; white-space:pre-wrap; }
-.ieum-starter-questions, .ieum-quick-actions {
-  display:flex; flex-wrap:wrap; gap:8px; padding:0 16px 12px; background:#f8fafc;
+.ieum-banner-title { font-size:11px; font-weight:700; color:#1e40af; }
+.ieum-banner-description { margin-top:3px; font-size:11px; line-height:1.5; color:#475569; white-space:pre-wrap; }
+/* ── 스타터 질문 ── */
+.ieum-starter-questions {
+  display:flex; flex-direction:column; gap:8px; padding:0 0 12px; background:#fff;
 }
-.ieum-starter-question, .ieum-quick-action {
-  border:1px solid #dbe4f0; background:#fff; color:#0f172a; padding:10px 12px; cursor:pointer;
-  box-shadow:0 2px 8px rgba(15,23,42,.04);
-}
+.ieum-quick-actions { display:flex; flex-wrap:wrap; gap:6px; padding:0 0 8px; background:#fff; }
 .ieum-starter-question {
-  width:100%; border-radius:14px; text-align:left; font-size:12px; line-height:1.45;
+  width:100%; border:1px solid #e5e7eb; border-radius:12px;
+  background:#fff; color:#111827; padding:11px 14px;
+  cursor:pointer; font-size:13px; line-height:1.45;
+  text-align:left; transition:border-color .15s, background .15s;
+  display:block;
 }
+.ieum-starter-question:hover { border-color:#93c5fd; background:#f0f7ff; }
 .ieum-quick-action {
-  border-radius:9999px; color:#1e3a8a; padding:8px 12px; font-size:12px; font-weight:600; box-shadow:0 1px 3px rgba(15,23,42,.04);
+  border:1px solid #dbeafe; border-radius:9999px;
+  background:#eff6ff; color:#1d4ed8; padding:7px 14px;
+  font-size:12px; font-weight:600; cursor:pointer;
+  transition:background .15s;
 }
-.ieum-starter-question:hover, .ieum-quick-action:hover { border-color:#93c5fd; background:#eff6ff; }
-.ieum-hints-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 8px 12px 4px;
-}
+.ieum-quick-action:hover { background:#dbeafe; }
+/* ── 힌트 버튼 ── */
+.ieum-hints-row { display:flex; flex-wrap:wrap; gap:6px; padding:4px 0 8px; }
 .ieum-hint-btn {
-  background: #f0f4ff;
-  border: 1px solid #c7d7ff;
-  border-radius: 16px;
-  padding: 6px 14px;
-  font-size: 13px;
-  cursor: pointer;
-  color: #2d5be3;
-  transition: background 0.15s;
-  white-space: nowrap;
+  background:#eff6ff; border:1px solid #bfdbfe; border-radius:20px;
+  padding:6px 14px; font-size:12px; cursor:pointer; color:#1d4ed8;
+  transition:background .15s; white-space:nowrap;
 }
-.ieum-hint-btn:hover { background: #dce8ff; }
-.ieum-message { display:flex; width:100%; animation: ieum-message-in .2s ease; }
+.ieum-hint-btn:hover { background:#dbeafe; }
+/* ── 메시지 버블 ── */
+.ieum-message { display:flex; width:100%; animation:ieum-message-in .2s ease; }
 .ieum-message.user { justify-content:flex-end; }
 .ieum-message.assistant, .ieum-message.system { justify-content:flex-start; }
 .ieum-bubble {
-  max-width:75%; border-radius:16px; padding:12px 14px; font-size:13px; line-height:1.6; white-space:pre-wrap; word-break:break-word;
+  max-width:82%; border-radius:18px; padding:11px 14px;
+  font-size:13.5px; line-height:1.65; white-space:pre-wrap; word-break:break-word;
 }
 .ieum-message.assistant .ieum-bubble, .ieum-message.system .ieum-bubble {
-  background:#fff; color:#0f172a; box-shadow:0 2px 6px rgba(0,0,0,.05);
+  background:#f8fafc; color:#111827;
+  border:1px solid #f1f5f9;
+  border-radius:4px 18px 18px 18px;
 }
-.ieum-message.user .ieum-bubble { background:#2563eb; color:#fff; }
-.ieum-outcome-note, .ieum-citations, .ieum-follow-ups { margin-top:8px; padding-top:8px; border-top:1px dashed #dbe4f0; }
-.ieum-outcome-note, .ieum-citations-title, .ieum-citation { font-size:11px; color:#475569; }
-.ieum-citations-title { margin-bottom:4px; font-weight:700; }
-.ieum-citation { line-height:1.45; margin-bottom:3px; }
-.ieum-citation-link { color:#1d4ed8; text-decoration:none; font-weight:600; overflow-wrap:anywhere; }
+.ieum-message.user .ieum-bubble {
+  background:#2563eb; color:#fff;
+  border-radius:18px 18px 4px 18px;
+  box-shadow:0 2px 8px rgba(37,99,235,.25);
+}
+/* ── outcome 노트 ── */
+.ieum-outcome-note { margin-top:6px; font-size:11.5px; color:#6b7280; }
+/* ── citations ── */
+.ieum-citations { margin-top:8px; padding-top:8px; border-top:1px solid #f1f5f9; }
+.ieum-citations-title { font-size:11px; font-weight:700; color:#6b7280; margin-bottom:5px; }
+.ieum-citation { font-size:11px; color:#6b7280; line-height:1.45; margin-bottom:3px; }
+.ieum-citation-link { color:#2563eb; text-decoration:none; font-weight:600; overflow-wrap:anywhere; }
 .ieum-citation-link:hover { text-decoration:underline; }
-.ieum-follow-ups { display:flex; flex-direction:column; gap:6px; }
-.ieum-follow-ups-title { font-size:11px; font-weight:700; color:#475569; }
-.ieum-follow-up-btn { appearance:none; border:1px solid #dbe4f0; border-radius:8px; background:#fff; color:#1f2937; padding:7px 9px; font-size:12px; line-height:1.35; text-align:left; cursor:pointer; }
-.ieum-follow-up-btn:hover { background:#f8fafc; border-color:#bfdbfe; }
-.ieum-citations-folded summary { cursor:pointer; font-size:11px; font-weight:700; color:#475569; list-style:none; }
-.ieum-cta-wrap { display:flex; flex-direction:column; gap:6px; margin-top:8px; padding-top:8px; border-top:1px dashed #dbe4f0; }
-.ieum-cta-title { font-size:11px; font-weight:700; color:#475569; margin-bottom:2px; }
-.ieum-cta-btn { display:inline-flex; align-items:center; gap:6px; padding:7px 10px; border-radius:8px; border:1px solid #dbe4f0; background:#f8fafc; color:#1d4ed8; font-size:12px; font-weight:500; text-decoration:none; cursor:pointer; line-height:1.3; }
-.ieum-cta-btn:hover { background:#eff6ff; border-color:#bfdbfe; }
+.ieum-citations-folded summary { cursor:pointer; font-size:11px; font-weight:700; color:#6b7280; list-style:none; }
 .ieum-citations-folded summary::-webkit-details-marker { display:none; }
-.ieum-view-card { margin-top:4px; }
-.ieum-view-title { font-size:13px; font-weight:700; color:#0f172a; margin-bottom:6px; }
-.ieum-view-content { font-size:12px; color:#334155; line-height:1.6; margin-bottom:3px; }
-.ieum-more-link { display:inline-flex; align-items:center; gap:4px; margin-top:8px; font-size:11px; font-weight:600; color:#2563eb; text-decoration:none; }
-.ieum-more-link:hover { text-decoration:underline; }
-.ieum-list { list-style:none; margin:4px 0 0; padding:0; display:flex; flex-direction:column; gap:8px; }
-.ieum-list-item { border:1px solid #e2e8f0; border-radius:10px; padding:10px 12px; background:#f8fafc; }
-.ieum-list-item-title { font-size:13px; font-weight:600; color:#1e293b; margin-bottom:4px; }
-.ieum-list-item-content { font-size:12px; color:#475569; line-height:1.5; }
-.ieum-list-item-link { display:inline-block; margin-top:6px; font-size:11px; color:#2563eb; text-decoration:none; }
-.ieum-list-item-link:hover { text-decoration:underline; }
-.ieum-citations-folded summary::after { content:" 펼치기"; font-weight:500; color:#64748b; }
+.ieum-citations-folded summary::after { content:" 펼치기"; font-weight:400; color:#94a3b8; }
 .ieum-citations-folded[open] summary { margin-bottom:4px; }
 .ieum-citations-folded[open] summary::after { content:" 접기"; }
-.ieum-loading {
-  display:none; align-self:flex-start; max-width:75%; margin:0 16px 12px; border-radius:16px; padding:12px 14px;
-  background:#fff; color:#64748b; box-shadow:0 2px 6px rgba(0,0,0,.05); font-size:18px; line-height:1;
+/* ── 이어볼 질문 (Planee 스타일: 카드 + 아이콘 + 화살표) ── */
+.ieum-follow-ups { display:flex; flex-direction:column; gap:6px; margin-top:10px; }
+.ieum-follow-ups-title { font-size:11px; font-weight:700; color:#6b7280; margin-bottom:4px; }
+.ieum-follow-up-btn {
+  appearance:none; display:flex; align-items:center; gap:8px;
+  border:1px solid #e5e7eb; border-radius:10px;
+  background:#fff; color:#111827;
+  padding:9px 12px; font-size:12.5px; line-height:1.4;
+  text-align:left; cursor:pointer; width:100%;
+  transition:border-color .15s, background .15s;
 }
-.ieum-loading.active { display:inline-flex; gap:4px; }
-.ieum-loading-dot { width:5px; height:5px; border-radius:9999px; background:#94a3b8; animation: ieum-dot 1s infinite ease-in-out; }
-.ieum-loading-dot:nth-child(2) { animation-delay:.15s; }
-.ieum-loading-dot:nth-child(3) { animation-delay:.3s; }
+.ieum-follow-up-btn:hover { border-color:#93c5fd; background:#f0f7ff; color:#1d4ed8; }
+.ieum-follow-up-icon { font-size:13px; flex-shrink:0; opacity:.6; }
+.ieum-follow-up-text { flex:1; }
+.ieum-follow-up-arrow { font-size:12px; color:#9ca3af; flex-shrink:0; }
+/* ── CTA 버튼 ── */
+.ieum-cta-wrap { display:flex; flex-direction:column; gap:6px; margin-top:10px; }
+.ieum-cta-title { font-size:11px; font-weight:700; color:#6b7280; margin-bottom:4px; }
+.ieum-cta-btn {
+  display:inline-flex; align-items:center; gap:7px;
+  padding:8px 13px; border-radius:10px;
+  border:1px solid #dbeafe; background:#eff6ff;
+  color:#1d4ed8; font-size:12.5px; font-weight:500;
+  text-decoration:none; cursor:pointer;
+  transition:background .15s;
+}
+.ieum-cta-btn:hover { background:#dbeafe; }
+/* ── Tools API 구조화 응답 ── */
+.ieum-view-card { margin-top:6px; }
+.ieum-view-title { font-size:14px; font-weight:700; color:#111827; margin-bottom:8px; }
+.ieum-view-content { font-size:12.5px; color:#374151; line-height:1.65; margin-bottom:4px; }
+.ieum-more-link {
+  display:inline-flex; align-items:center; gap:4px;
+  margin-top:10px; font-size:12px; font-weight:600;
+  color:#2563eb; text-decoration:none;
+}
+.ieum-more-link:hover { text-decoration:underline; }
+.ieum-list { list-style:none; margin:6px 0 0; padding:0; display:flex; flex-direction:column; gap:8px; }
+.ieum-list-item { border:1px solid #e5e7eb; border-radius:12px; padding:11px 13px; background:#fff; }
+.ieum-list-item-title { font-size:13px; font-weight:600; color:#111827; margin-bottom:5px; }
+.ieum-list-item-content { font-size:12px; color:#6b7280; line-height:1.55; }
+.ieum-list-item-link { display:inline-block; margin-top:6px; font-size:11.5px; color:#2563eb; text-decoration:none; }
+.ieum-list-item-link:hover { text-decoration:underline; }
+/* ── 피드백 ── */
+.ieum-feedback-row { display:flex; gap:4px; margin-top:8px; opacity:.55; transition:opacity .2s; }
+.ieum-feedback-row:hover { opacity:1; }
+.ieum-feedback-btn {
+  background:none; border:none; cursor:pointer;
+  font-size:14px; padding:3px 5px; border-radius:6px; line-height:1;
+  transition:background .15s;
+}
+.ieum-feedback-btn:hover { background:rgba(0,0,0,.06); }
+.ieum-feedback-active { opacity:1 !important; }
+.ieum-feedback-thanks { font-size:11px; color:#9ca3af; padding:3px 4px; }
+/* ── 타이핑 인디케이터 ── */
+.ieum-loading {
+  display:none; align-self:flex-start;
+  border-radius:4px 18px 18px 18px; padding:12px 16px;
+  background:#f8fafc; border:1px solid #f1f5f9;
+}
+.ieum-loading.active { display:inline-flex; gap:5px; align-items:center; }
+.ieum-loading-dot {
+  width:6px; height:6px; border-radius:9999px;
+  background:#2563eb; opacity:.4;
+  animation:ieum-dot 1.2s infinite ease-in-out;
+}
+.ieum-loading-dot:nth-child(2) { animation-delay:.2s; }
+.ieum-loading-dot:nth-child(3) { animation-delay:.4s; }
+/* ── 입력 영역 ── */
 .ieum-input-wrap {
-  min-height:64px; border-top:1px solid #e5e7eb; padding:8px 12px; display:flex; align-items:center; gap:10px; background:#fff;
+  padding:10px 12px 10px;
+  display:flex; align-items:center; gap:8px;
+  background:#fff;
+  border-top:1px solid #f3f4f6;
+  flex-shrink:0;
 }
 .ieum-input {
-  flex:1; min-width:0; height:44px; border-radius:9999px; border:1px solid #e5e7eb; padding:10px 14px; font-size:13px; color:#0f172a; outline:none;
+  flex:1; min-width:0; height:46px;
+  border-radius:24px; border:1.5px solid #e5e7eb;
+  padding:10px 16px; font-size:13.5px; color:#111827; outline:none;
+  background:#f9fafb;
+  transition:border-color .15s, background .15s;
 }
-.ieum-input::placeholder { color:#94a3b8; }
-.ieum-input:focus { border-color:#93c5fd; box-shadow:0 0 0 4px rgba(37,99,235,.08); }
+.ieum-input::placeholder { color:#9ca3af; }
+.ieum-input:focus { border-color:#2563eb; background:#fff; box-shadow:0 0 0 3px rgba(37,99,235,.08); }
 .ieum-send {
-  width:42px; height:42px; border:none; border-radius:9999px; background:#2563eb; color:#fff; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; transition:filter .16s ease;
+  width:44px; height:44px; flex-shrink:0;
+  border:none; border-radius:9999px;
+  background:#2563eb; color:#fff;
+  display:inline-flex; align-items:center; justify-content:center;
+  cursor:pointer; transition:background .15s, transform .12s;
 }
-.ieum-send:hover { filter: brightness(1.1); }
-.ieum-send:disabled, .ieum-floating:disabled { opacity:.65; cursor:default; }
-.ieum-footer { border-top:1px solid #eef2f7; padding:8px 12px; background:#f8fafc; font-size:11px; color:#64748b; line-height:1.45; }
-@keyframes ieum-dot { 0%,80%,100%{transform:translateY(0);opacity:.45} 40%{transform:translateY(-3px);opacity:1} }
-@keyframes ieum-message-in { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
-@keyframes ieum-tooltip-in { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+.ieum-send:hover { background:#1d4ed8; transform:scale(1.06); }
+.ieum-send:disabled { opacity:.5; cursor:default; transform:none; }
+.ieum-floating:disabled { opacity:.5; cursor:default; }
+/* ── 면책 푸터 ── */
+.ieum-footer {
+  padding:7px 14px 9px;
+  background:#fff; font-size:11px; color:#9ca3af; line-height:1.5;
+  border-top:1px solid #f3f4f6; text-align:center; flex-shrink:0;
+}
+.ieum-footer a { color:#6b7280; }
+/* ── 애니메이션 ── */
+@keyframes ieum-dot {
+  0%,80%,100% { transform:translateY(0); opacity:.35; }
+  40% { transform:translateY(-4px); opacity:1; }
+}
+@keyframes ieum-message-in {
+  from { opacity:0; transform:translateY(10px); }
+  to   { opacity:1; transform:translateY(0); }
+}
+@keyframes ieum-tooltip-in {
+  from { opacity:0; transform:translateY(8px); }
+  to   { opacity:1; transform:translateY(0); }
+}
 @media (max-width: 640px) {
   .ieum-root { right:8px; left:8px; bottom:8px; }
-  .ieum-panel { width:100%; height:min(520px, calc(100vh - 16px)); }
-  .ieum-bubble { max-width:84%; }
-  .ieum-launcher-tip { width: calc(100vw - 32px); }
+  .ieum-panel { width:100%; height:min(92vh, calc(100vh - 16px)); border-radius:20px; }
+  .ieum-bubble { max-width:88%; }
+  .ieum-launcher-tip { width:calc(100vw - 32px); }
 }
-.ieum-feedback-row { display:flex; gap:4px; margin-top:6px; opacity:0.5; transition:opacity 0.2s; }
-.ieum-feedback-row:hover { opacity:1; }
-.ieum-feedback-btn { background:none; border:none; cursor:pointer; font-size:14px; padding:2px 4px; border-radius:4px; line-height:1; transition:background 0.15s; }
 .ieum-feedback-btn:hover { background:rgba(0,0,0,0.06); }
 .ieum-feedback-active { opacity:1 !important; }
 .ieum-feedback-thanks { font-size:11px; color:#888; }
@@ -1123,12 +1136,21 @@ export class IeumWidgetApp {
         if (message.followUpQuestions && message.followUpQuestions.length > 0) {
           const followUpWrap = createElement(document, "div", "ieum-follow-ups");
           const title = createElement(document, "div", "ieum-follow-ups-title");
-          title.textContent = "이런 질문들은 어떠신가요? ";
+          title.textContent = "✦ 이런 질문들은 어떠신가요?";
           followUpWrap.appendChild(title);
           for (const followUpQuestion of message.followUpQuestions.slice(0, 3)) {
             const button = createElement(document, "button", "ieum-follow-up-btn") as HTMLButtonElement;
             button.type = "button";
-            button.textContent = followUpQuestion;
+            // 플래니 스타일: 아이콘 + 텍스트 + 화살표
+            const icon = createElement(document, "span", "ieum-follow-up-icon");
+            icon.textContent = "💬";
+            const text = createElement(document, "span", "ieum-follow-up-text");
+            text.textContent = followUpQuestion;
+            const arrow = createElement(document, "span", "ieum-follow-up-arrow");
+            arrow.textContent = "→";
+            button.appendChild(icon);
+            button.appendChild(text);
+            button.appendChild(arrow);
             button.addEventListener("click", () => {
               this.input.value = followUpQuestion;
               void this.sendCurrentInput();

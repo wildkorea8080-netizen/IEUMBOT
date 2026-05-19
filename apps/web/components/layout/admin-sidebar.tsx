@@ -71,58 +71,68 @@ export function AdminSidebar() {
 
   return (
     <aside
-      className="hidden lg:flex flex-col shrink-0 sticky top-0 h-screen overflow-y-auto bg-white"
-      style={{ width: 240, borderRight: "1px solid #e2e8f0" }}
+      className="hidden lg:flex flex-col shrink-0 sticky top-0 h-screen overflow-y-auto"
+      style={{ width: 232, background: "#fff", borderRight: "1px solid #f0f0f0" }}
     >
-      {/* 로고 */}
+      {/* 로고 — 플래니 스타일: 파란 배경 + 흰 텍스트 */}
       <div
         className="flex items-center shrink-0"
-        style={{ height: 64, paddingLeft: 20, borderBottom: "1px solid #f1f5f9" }}
+        style={{
+          height: 60, padding: "0 20px",
+          background: "#2563eb",
+        }}
       >
-        <span style={{ fontSize: 18, fontWeight: 700, color: "#1d4ed8", letterSpacing: "-0.02em" }}>
-          IEUMBOT
-        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{
+            width: 28, height: 28, borderRadius: 8,
+            background: "rgba(255,255,255,0.2)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: 14, fontWeight: 900, color: "#fff",
+          }}>
+            이
+          </div>
+          <span style={{ fontSize: 16, fontWeight: 800, color: "#fff", letterSpacing: "-0.02em" }}>
+            이음봇
+          </span>
+        </div>
       </div>
 
-      {/* 챗봇 선택기 */}
-      <div style={{ padding: "8px 12px" }}>
+      {/* 챗봇 선택기 — 플래니 스타일 */}
+      <div style={{ padding: "10px 12px", borderBottom: "1px solid #f3f4f6" }}>
         <div
-          className="flex items-center justify-between cursor-pointer hover:bg-neutral-100 transition-colors"
           style={{
-            padding: "10px 12px",
-            background: "#f8fafc",
-            borderRadius: 8,
-            fontSize: 13,
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            padding: "8px 10px", background: "#f5f7fa", borderRadius: 8, cursor: "default",
           }}
         >
-          <div className="flex flex-col min-w-0">
-            <span style={{ fontSize: 10, color: "#94a3b8", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+          <div style={{ display: "flex", flexDirection: "column", minWidth: 0, flex: 1 }}>
+            <span style={{ fontSize: 10, color: "#9ca3af", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>
               현재 챗봇
             </span>
             <span
               className="truncate"
-              style={{ color: "#334155", fontWeight: 500, marginTop: 1 }}
+              style={{ fontSize: 13, color: "#111827", fontWeight: 600, marginTop: 1 }}
             >
               {selectedChatbot?.name ?? "챗봇을 선택하세요"}
             </span>
           </div>
-          <ChevronDown className="shrink-0 ml-1" style={{ width: 14, height: 14, color: "#94a3b8" }} />
+          <ChevronDown className="shrink-0 ml-1" style={{ width: 13, height: 13, color: "#9ca3af" }} />
         </div>
       </div>
 
-      {/* 네비게이션 */}
-      <nav className="flex-1" style={{ padding: "8px 0" }}>
+      {/* 네비게이션 — 플래니 스타일 */}
+      <nav className="flex-1" style={{ padding: "6px 0", overflowY: "auto" }}>
         {adminNav.map((group, gi) => (
-          <div key={gi}>
+          <div key={gi} style={{ marginBottom: 4 }}>
             {group.title ? (
               <p
                 style={{
-                  fontSize: 11,
-                  fontWeight: 600,
-                  color: "#94a3b8",
+                  fontSize: 10.5,
+                  fontWeight: 700,
+                  color: "#9ca3af",
                   textTransform: "uppercase",
-                  letterSpacing: "0.08em",
-                  padding: "16px 20px 4px",
+                  letterSpacing: "0.07em",
+                  padding: "12px 16px 4px",
                 }}
               >
                 {group.title}
@@ -138,50 +148,59 @@ export function AdminSidebar() {
                 <Link
                   key={item.href}
                   href={item.href}
-                  className="flex items-center gap-3 transition-colors"
+                  className="flex items-center gap-2.5 transition-all"
                   style={{
-                    padding: "8px 16px",
+                    padding: "7px 10px",
                     margin: "1px 8px",
                     borderRadius: 8,
-                    fontSize: 14,
+                    fontSize: 13,
                     fontWeight: isActive ? 600 : 400,
-                    color: isActive ? "#1d4ed8" : "#475569",
+                    color: isActive ? "#2563eb" : "#6b7280",
                     background: isActive ? "#eff6ff" : "transparent",
                     textDecoration: "none",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
                   }}
                   onMouseEnter={(e) => {
                     if (!isActive) {
-                      e.currentTarget.style.background = "#f1f5f9";
-                      e.currentTarget.style.color = "#1e293b";
+                      e.currentTarget.style.background = "#f5f7fa";
+                      e.currentTarget.style.color = "#111827";
                     }
                   }}
                   onMouseLeave={(e) => {
                     if (!isActive) {
                       e.currentTarget.style.background = "transparent";
-                      e.currentTarget.style.color = "#475569";
+                      e.currentTarget.style.color = "#6b7280";
                     }
                   }}
                 >
+                  {/* 활성 항목은 파란 세로 막대 */}
+                  {isActive && (
+                    <span style={{
+                      position: "absolute", left: 8, width: 3, height: 20,
+                      background: "#2563eb", borderRadius: 2,
+                    }} />
+                  )}
                   <NavIcon
                     name={item.icon}
                     style={{
-                      width: 16,
-                      height: 16,
-                      color: isActive ? "#2563eb" : "#94a3b8",
+                      width: 15,
+                      height: 15,
+                      color: isActive ? "#2563eb" : "#9ca3af",
                       flexShrink: 0,
                     }}
                   />
-                  <span>{item.label}</span>
+                  <span style={{ flex: 1 }}>{item.label}</span>
                   {item.badge ? (
                     <span
-                      className="ml-auto"
                       style={{
                         fontSize: 10,
                         fontWeight: 600,
                         background: "#dbeafe",
                         color: "#1d4ed8",
                         borderRadius: 10,
-                        padding: "1px 6px",
+                        padding: "1px 7px",
                       }}
                     >
                       {item.badge}
