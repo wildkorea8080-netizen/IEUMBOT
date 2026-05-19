@@ -56,6 +56,7 @@ class Settings(BaseSettings):
     use_hybrid_search: bool = False
     use_reranking: bool = False
     rerank_top_n: int = 5
+    use_query_rewriting: bool = False
 
     model_config = SettingsConfigDict(
         env_file=".env",

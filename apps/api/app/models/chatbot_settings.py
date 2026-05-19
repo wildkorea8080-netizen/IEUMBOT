@@ -63,7 +63,15 @@ class ChatbotSetting(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     guardrail_policy: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     escalation_policy: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     answer_settings_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    response_format_rules: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, server_default="[]",
+        comment="응답 형식 규칙 목록 [{keywords, format, more_link}]",
+    )
     settings_version: Mapped[int] = mapped_column(nullable=False, default=1)
+    custom_instructions: Mapped[str] = mapped_column(
+        Text, nullable=False, default="", server_default="",
+        comment="기관별 자유 형식 추가 지시문 (system prompt 마지막에 삽입)",
+    )
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     organization = relationship("Organization", back_populates="chatbot_settings")

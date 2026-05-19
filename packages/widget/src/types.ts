@@ -86,6 +86,46 @@ export type ChatCitation = {
   score?: number | null;
 };
 
+export type ConditionalAction = {
+  type: "link" | "video" | "file" | "contact";
+  label: string;
+  value: string;
+  description?: string;
+};
+
+export type MoreLink = { title: string; url: string };
+
+export type TextResponse = {
+  type: "text";
+  content: string;
+  moreLink?: MoreLink | null;
+};
+
+export type ViewResponse = {
+  type: "view";
+  title: string;
+  content: string[];
+  moreLink?: MoreLink | null;
+};
+
+export type ListItem = {
+  title: string;
+  contents: string[];
+  sourceLinkPath?: string | null;
+  sourceLinkLabel?: string | null;
+  targetLink?: string | null;
+  targetLinkLabel?: string | null;
+};
+
+export type ListResponse = {
+  type: "list";
+  schemaType: string;
+  items: ListItem[];
+  moreLink?: MoreLink | null;
+};
+
+export type StructuredResponse = TextResponse | ViewResponse | ListResponse;
+
 export type ChatResponse = {
   requestId: string;
   chatbotId: string;
@@ -96,6 +136,8 @@ export type ChatResponse = {
   };
   citations: ChatCitation[];
   followUpQuestions?: string[];
+  conditionalActions?: ConditionalAction[];
+  structuredResponse?: StructuredResponse | null;
   trace?: {
     messages?: {
       sessionId?: string;

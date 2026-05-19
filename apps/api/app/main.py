@@ -37,7 +37,35 @@ async def lifespan(_: FastAPI):
     print(f"[CONFIG] use_dynamic_followup={settings.use_dynamic_followup}", flush=True)
     print(f"[CONFIG] use_hybrid_search={settings.use_hybrid_search}", flush=True)
     print(f"[CONFIG] use_reranking={settings.use_reranking}", flush=True)
+
+    # ── 지식 자동 동기화 스케줄러 (Sprint 3-C) ────────────────────────────────
+    scheduler = None
+    try:
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler  # noqa: PLC0415
+        from app.services.admin.knowledge_sync_service import sync_all_due_web_sources  # noqa: PLC0415
+
+        scheduler = AsyncIOScheduler(timezone="UTC")
+        scheduler.add_job(
+            sync_all_due_web_sources,
+            trigger="interval",
+            hours=1,
+            id="knowledge_sync",
+            replace_existing=True,
+        )
+        scheduler.start()
+        print("[SCHEDULER] 지식 자동 동기화 스케줄러 시작", flush=True)
+    except ImportError:
+        print("[SCHEDULER] apscheduler 미설치 — 자동 동기화 비활성", flush=True)
+    except Exception as exc:
+        print(f"[SCHEDULER] 스케줄러 시작 실패: {exc}", flush=True)
+
     yield
+
+    if scheduler is not None:
+        try:
+            scheduler.shutdown(wait=False)
+        except Exception:
+            pass
     logger.info("Shutting down IEUMBOT API")
 
 

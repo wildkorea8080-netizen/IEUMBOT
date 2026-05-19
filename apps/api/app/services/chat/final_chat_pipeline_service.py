@@ -21,7 +21,14 @@ from app.repositories.chat.runtime_repository import (
 )
 from app.repositories.logs.audit_log_repository import create_audit_log
 from app.schemas.chat_policy import PreAnswerRequest
-from app.schemas.chat_runtime import ChatRuntimeResponse
+from app.schemas.chat_runtime import (
+    ChunkDetail,
+    ChatRuntimeResponse,
+    ListResponse,
+    PerformanceMetrics,
+    TextResponse,
+    ViewResponse,
+)
 from app.services.chat.answer_generation_service import generate_grounded_answer
 from app.services.chat.entity_extraction_service import (
     extract_entities_from_turn,
@@ -641,6 +648,47 @@ def _build_follow_up_questions(
     return _rule_based_follow_up(question, answer_text, candidates)
 
 
+def _log_unanswered(
+    *,
+    chatbot_id: str,
+    organization_id: str,
+    question: str,
+    search_score: float | None,
+    outcome: str,
+    session_id: str,
+) -> None:
+    """
+    미답변 질문을 unanswered_logs 테이블에 기록.
+
+    - 새 DB 세션을 열어 메인 세션과 격리
+    - 실패해도 예외를 re-raise 하지 않아 메인 응답에 영향 없음
+    - 개인정보가 포함된 질문은 마스킹 후 저장
+    """
+    try:
+        from app.db import SessionLocal  # noqa: PLC0415
+        from app.models.unanswered_log import UnansweredLog  # noqa: PLC0415
+        from app.services.chat.privacy_guard_service import detect_and_mask_privacy  # noqa: PLC0415
+
+        masked = detect_and_mask_privacy(question)
+        safe_question = masked.masked_text if masked.detected else question
+
+        with SessionLocal() as log_db:
+            log_db.add(
+                UnansweredLog(
+                    organization_id=uuid.UUID(organization_id),
+                    chatbot_id=uuid.UUID(chatbot_id),
+                    question=safe_question[:1000],
+                    search_score=search_score,
+                    outcome=outcome,
+                    session_id=session_id[:100] if session_id else None,
+                    status="pending",
+                )
+            )
+            log_db.commit()
+    except Exception as exc:
+        logger.warning("[UNANSWERED_LOG] 기록 실패: %s", exc)
+
+
 def _build_public_runtime_trace(
     *,
     normalized_query: str,
@@ -1124,7 +1172,15 @@ def _run_grounded_generation(
     question_type_flags: dict | None = None,
     uncovered_slots: list[str] | None = None,
     session_entities: dict | None = None,
+    api_context: str | None = None,
 ) -> dict[str, Any]:
+    # 기관별 custom_instructions: 마이그레이션 미실행 환경에서는 graceful fallback
+    _custom_instr = ""
+    try:
+        _custom_instr = str(getattr(chatbot, "custom_instructions", "") or "")
+    except Exception:
+        pass
+
     prompt_bundle = build_answer_prompt(
         question=body.question,
         normalized_query=normalized_query,
@@ -1138,6 +1194,8 @@ def _run_grounded_generation(
         question_type_flags=question_type_flags,
         uncovered_slots=uncovered_slots,
         session_entities=session_entities,
+        custom_instructions=_custom_instr,
+        api_context=api_context,
     )
     generation = generate_grounded_answer(
         db,
@@ -1421,6 +1479,13 @@ def run_final_chat_pipeline(
     include_debug_trace: bool = False,
 ) -> ChatRuntimeResponse:
     total_start = time.perf_counter()
+    # 단계별 성능 측정 (Sprint 3-E) — debug_mode=True 일 때 ChatRuntimeResponse 에 포함
+    _perf_intent_ms: int | None = None
+    _perf_rewrite_ms: int | None = None
+    _perf_retrieval_ms: int | None = None
+    _perf_rerank_ms: int | None = None
+    _perf_api_ms: int | None = None
+    _perf_llm_ms: int | None = None
     logger.info("[PIPELINE] start chatbot_id=%s question_len=%s", body.chatbot_id, len(body.question or ""))
     try:
         chatbot = get_chatbot_by_id(db, body.chatbot_id)
@@ -1455,6 +1520,46 @@ def run_final_chat_pipeline(
             stream_mode=stream_mode,
             privacy_result=privacy_result,
         )
+
+    # ── 보안 분석 (Sprint 3-B) ────────────────────────────────────────────────
+    # privacy 체크 통과 후 → 비정상 접근/부적절 발언/부정 감정 탐지
+    # should_block=True → 즉시 차단 / False → 기록만
+    try:
+        from app.services.security_guard_service import (  # noqa: PLC0415
+            analyze_security,
+            log_security_event,
+        )
+        _sec = analyze_security(
+            question=body.question,
+            chatbot_id=str(chatbot.id),
+            session_id=session_token,
+            db=db,
+        )
+        if _sec.has_event:
+            log_security_event(
+                chatbot_id=str(chatbot.id),
+                organization_id=str(chatbot.organization_id),
+                session_id=session_token,
+                event_type=_sec.event_type or "unknown",
+                severity=_sec.severity or "low",
+                question_masked=body.question,
+                detected_patterns=_sec.detected_patterns,
+                ai_response="blocked" if _sec.should_block else "answered",
+            )
+            if _sec.should_block:
+                return ChatRuntimeResponse(
+                    request_id=request_id,
+                    chatbot_id=str(chatbot.id),
+                    outcome="restricted",
+                    answer={"text": "보안 정책에 따라 답변이 제한됩니다.", "warnings": ["SECURITY_BLOCKED"]},
+                    citations=[],
+                    follow_up_questions=[],
+                    conditional_actions=[],
+                    policy_decision={},
+                    trace={},
+                )
+    except Exception as _sec_exc:
+        logger.warning("[SECURITY] 보안 분석 skipped: %s", _sec_exc)
 
     immediate_response = _simple_natural_response(body.question, user_turn_count=0)
     if immediate_response is not None:
@@ -1540,6 +1645,7 @@ def run_final_chat_pipeline(
     classifier_model_name: str | None = None
 
     business_signal_detected = _has_business_signal(_normalize_text(body.question))
+    _t0 = time.perf_counter()
     if not business_signal_detected:
         classification: IntentClassification = classify_intent(
             db,
@@ -1549,6 +1655,7 @@ def run_final_chat_pipeline(
             answer_settings=answer_settings,
         )
         classifier_usage = dict(classification.usage or {})
+        _perf_intent_ms = int((time.perf_counter() - _t0) * 1000)
         classifier_model_provider = classification.provider
         classifier_model_name = classification.model
         if classification.executed:
@@ -1619,18 +1726,53 @@ def run_final_chat_pipeline(
                     model_name=natural_generation.model or classification.model,
                 )
 
+    # ── 쿼리 리라이팅 (멀티턴 맥락 기반, Sprint 2-A) ─────────────────────────
+    search_query = body.question
+    _t0 = time.perf_counter()
+    if recent_messages:
+        try:
+            from app.services.chat.query_rewriter_service import rewrite_query  # noqa: PLC0415
+            search_query, _was_rewritten = rewrite_query(
+                current_query=body.question,
+                recent_messages=recent_messages,
+                db=db,
+            )
+            if _was_rewritten:
+                print(f"[QUERY_REWRITE] '{body.question[:30]}' → '{search_query[:30]}'", flush=True)
+        except Exception as _rw_exc:
+            logger.warning("[QUERY_REWRITE] 리라이팅 skipped: %s", _rw_exc)
+            search_query = body.question
+    _perf_rewrite_ms = int((time.perf_counter() - _t0) * 1000)
+
+    # ── 외부 API 컨텍스트 조회 (Sprint 3-D) ─────────────────────────────────
+    api_context: str | None = None
+    _t0 = time.perf_counter()
+    try:
+        from app.services.chat.api_connector_service import get_api_context  # noqa: PLC0415
+        api_context = get_api_context(
+            question=body.question,
+            chatbot_id=str(chatbot.id),
+            db=db,
+        )
+        if api_context:
+            logger.info("[API_CONNECTOR] 컨텍스트 주입 len=%d", len(api_context))
+    except Exception as _api_exc:
+        logger.warning("[API_CONNECTOR] skipped: %s", _api_exc)
+    _perf_api_ms = int((time.perf_counter() - _t0) * 1000)
+
     retrieval_start = time.perf_counter()
     retrieval_output = retrieve_for_precheck(
         db,
         organization_id=str(chatbot.organization_id),
         chatbot_id=str(chatbot.id),
-        question=body.question,
+        question=search_query,
         top_k=body.top_k,
         corpus_domain_policy=chatbot.corpus_domain_policy or {},
         search_control_policy=chatbot.search_control_policy or {},
         rag_settings=_rag_settings_dict(answer_settings),
     )
     retrieval_latency_ms = int((time.perf_counter() - retrieval_start) * 1000)
+    _perf_retrieval_ms = retrieval_latency_ms
     if not retrieval_output.get("retrievalLatencyMs"):
         retrieval_output["retrievalLatencyMs"] = retrieval_latency_ms
     prompt_candidates = list(retrieval_output.get("promptCandidates") or [])
@@ -1763,6 +1905,7 @@ def run_final_chat_pipeline(
             or getattr(organization, "contact_name", None)
             or ""
         )
+        _t0 = time.perf_counter()
         generation = _run_grounded_generation(
             db,
             body=body,
@@ -1777,7 +1920,9 @@ def run_final_chat_pipeline(
             question_type_flags=question_type_flags,
             uncovered_slots=uncovered_slots,
             session_entities=session_entities,
+            api_context=api_context,
         )
+        _perf_llm_ms = int((time.perf_counter() - _t0) * 1000)
         llm_executed = bool(generation.get("executed"))
         llm_error_code = generation.get("errorCode")
         exception_type = generation.get("exceptionType") if isinstance(generation.get("exceptionType"), str) else None
@@ -2034,6 +2179,36 @@ def run_final_chat_pipeline(
         else ("rule_based" if follow_up_questions else None)
     )
 
+    # ── 조건별 CTA 액션 매칭 (Sprint 3-A) ────────────────────────────────────
+    conditional_actions: list[dict[str, Any]] = []
+    if outcome == "answered" and answer_text:
+        try:
+            from app.services.chat.conditional_response_service import match_conditional_responses  # noqa: PLC0415
+            conditional_actions = match_conditional_responses(
+                question=body.question,
+                answer_text=answer_text,
+                chatbot_id=str(chatbot.id),
+                db=db,
+            )
+        except Exception as _cta_exc:
+            logger.warning("[CONDITIONAL] 매칭 실패: %s", _cta_exc)
+
+    # ── Tools API 구조화 응답 (Sprint 3-F) ───────────────────────────────────
+    # structured_response=None 이면 기존 answer.text 동작 100% 유지
+    structured_response: TextResponse | ViewResponse | ListResponse | None = None
+    if outcome == "answered" and answer_text:
+        try:
+            from app.services.chat.response_formatter_service import build_structured_response  # noqa: PLC0415
+            structured_response = build_structured_response(
+                question=body.question,
+                answer_text=answer_text,
+                candidates=prompt_candidates,
+                chatbot_id=str(chatbot.id),
+                db=db,
+            )
+        except Exception as _fmt_exc:
+            logger.warning("[RESPONSE_FORMAT] 변환 skipped: %s", _fmt_exc)
+
     public_trace = _build_public_runtime_trace(
         normalized_query=normalized_query,
         llm_executed=llm_executed,
@@ -2080,6 +2255,65 @@ def run_final_chat_pipeline(
         public_trace["followUpQuestions"] = follow_up_questions
         public_trace["followUpSource"] = follow_up_source
 
+    # ── 미답변 질문 트래킹 (Sprint 2-C) ─────────────────────────────────────
+    # 조건 1: outcome == "escalate"
+    # 조건 2: outcome == "answered" 이지만 RAG 최고 점수 < 0.3 (낮은 신뢰도)
+    # 조건 3: prompt_candidates 가 비어있음 (근거 없음)
+    _top_score: float | None = max(
+        (_safe_score(item.get("combinedScore")) or 0.0
+         for item in retrieval_output.get("candidates") or []),
+        default=None,
+    )
+    _is_low_confidence = (
+        outcome == "answered"
+        and _top_score is not None
+        and _top_score < 0.3
+        and not natural_conversation
+    )
+    _needs_unanswered_log = (
+        outcome == "escalate"                      # 조건 1
+        or _is_low_confidence                      # 조건 2
+        or (not prompt_candidates and not natural_conversation)  # 조건 3
+    )
+    if _needs_unanswered_log:
+        _log_unanswered(
+            chatbot_id=str(chatbot.id),
+            organization_id=str(chatbot.organization_id),
+            question=body.question,
+            search_score=_top_score,
+            outcome=outcome,
+            session_id=str(session.id) if session is not None else session_token,
+        )
+
+    # ── 성능 지표 + 상세 청크 (debug_mode=True 시만 포함, Sprint 3-E) ──────────
+    _total_ms = int((time.perf_counter() - total_start) * 1000)
+    _performance = PerformanceMetrics(
+        intent_classify_ms=_perf_intent_ms,
+        query_rewrite_ms=_perf_rewrite_ms,
+        retrieval_ms=_perf_retrieval_ms,
+        rerank_ms=_perf_rerank_ms,
+        api_fetch_ms=_perf_api_ms,
+        llm_ms=_perf_llm_ms,
+        total_ms=_total_ms,
+    ) if include_debug_trace else PerformanceMetrics()
+
+    _detailed_chunks: list[ChunkDetail] = []
+    if include_debug_trace and prompt_candidates:
+        for _c in prompt_candidates[:10]:
+            _signals = _c.get("contentSignals") or {}
+            _preview = str(_signals.get("textPreview") or "")[:150]
+            _detailed_chunks.append(ChunkDetail(
+                chunk_id=str(_c.get("chunkId") or _c.get("documentId") or ""),
+                document_name=str(_c.get("documentName") or ""),
+                section_title=_c.get("sectionTitle"),
+                score=float(_c.get("combinedScore") or 0.0),
+                text_preview=_preview,
+                chunk_type=None,
+                source_url=_c.get("sourceUrl"),
+                reranked=bool(_c.get("_reranked", False)),
+                used_in_prompt=bool(_c.get("usedInPrompt", True)),
+            ))
+
     return ChatRuntimeResponse(
         request_id=request_id,
         chatbot_id=str(chatbot.id),
@@ -2089,4 +2323,8 @@ def run_final_chat_pipeline(
         follow_up_questions=follow_up_questions,
         policy_decision=policy_decision if include_debug_trace else {},
         trace=public_trace,
+        conditional_actions=conditional_actions,
+        performance=_performance,
+        detailed_chunks=_detailed_chunks,
+        structured_response=structured_response,
     )

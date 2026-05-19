@@ -3,10 +3,21 @@ import type {
   ChatCitation,
   ChatResponse,
   ChatStreamEvent,
+  ListResponse,
+  StructuredResponse,
+  TextResponse,
+  ViewResponse,
   WidgetInitOptions,
   WidgetPublicConfig,
   WidgetQuickAction,
 } from "../types";
+
+type ConditionalAction = {
+  type: "link" | "video" | "file" | "contact";
+  label: string;
+  value: string;
+  description?: string;
+};
 
 type Message = {
   id: string;
@@ -15,6 +26,8 @@ type Message = {
   outcome?: string;
   citations?: ChatCitation[];
   followUpQuestions?: string[];
+  conditionalActions?: ConditionalAction[];
+  structuredResponse?: StructuredResponse | null;
   timestamp: number;
 };
 
@@ -490,7 +503,22 @@ function buildScopedStyles(primaryGradient: string): string {
 .ieum-follow-up-btn { appearance:none; border:1px solid #dbe4f0; border-radius:8px; background:#fff; color:#1f2937; padding:7px 9px; font-size:12px; line-height:1.35; text-align:left; cursor:pointer; }
 .ieum-follow-up-btn:hover { background:#f8fafc; border-color:#bfdbfe; }
 .ieum-citations-folded summary { cursor:pointer; font-size:11px; font-weight:700; color:#475569; list-style:none; }
+.ieum-cta-wrap { display:flex; flex-direction:column; gap:6px; margin-top:8px; padding-top:8px; border-top:1px dashed #dbe4f0; }
+.ieum-cta-title { font-size:11px; font-weight:700; color:#475569; margin-bottom:2px; }
+.ieum-cta-btn { display:inline-flex; align-items:center; gap:6px; padding:7px 10px; border-radius:8px; border:1px solid #dbe4f0; background:#f8fafc; color:#1d4ed8; font-size:12px; font-weight:500; text-decoration:none; cursor:pointer; line-height:1.3; }
+.ieum-cta-btn:hover { background:#eff6ff; border-color:#bfdbfe; }
 .ieum-citations-folded summary::-webkit-details-marker { display:none; }
+.ieum-view-card { margin-top:4px; }
+.ieum-view-title { font-size:13px; font-weight:700; color:#0f172a; margin-bottom:6px; }
+.ieum-view-content { font-size:12px; color:#334155; line-height:1.6; margin-bottom:3px; }
+.ieum-more-link { display:inline-flex; align-items:center; gap:4px; margin-top:8px; font-size:11px; font-weight:600; color:#2563eb; text-decoration:none; }
+.ieum-more-link:hover { text-decoration:underline; }
+.ieum-list { list-style:none; margin:4px 0 0; padding:0; display:flex; flex-direction:column; gap:8px; }
+.ieum-list-item { border:1px solid #e2e8f0; border-radius:10px; padding:10px 12px; background:#f8fafc; }
+.ieum-list-item-title { font-size:13px; font-weight:600; color:#1e293b; margin-bottom:4px; }
+.ieum-list-item-content { font-size:12px; color:#475569; line-height:1.5; }
+.ieum-list-item-link { display:inline-block; margin-top:6px; font-size:11px; color:#2563eb; text-decoration:none; }
+.ieum-list-item-link:hover { text-decoration:underline; }
 .ieum-citations-folded summary::after { content:" 펼치기"; font-weight:500; color:#64748b; }
 .ieum-citations-folded[open] summary { margin-bottom:4px; }
 .ieum-citations-folded[open] summary::after { content:" 접기"; }
@@ -947,7 +975,78 @@ export class IeumWidgetApp {
     for (const message of this.messages) {
       const row = createElement(document, "div", `ieum-message ${message.role}`);
       const bubble = createElement(document, "div", "ieum-bubble");
-      bubble.textContent = message.text;
+
+      // ── 구조화 응답 렌더링 (Sprint 3-F) ──────────────────────────────────
+      const sr = message.structuredResponse;
+      if (sr && message.role === "assistant") {
+        if (sr.type === "text") {
+          bubble.textContent = (sr as TextResponse).content;
+          if ((sr as TextResponse).moreLink) {
+            const a = createElement(document, "a", "ieum-more-link") as HTMLAnchorElement;
+            a.href = (sr as TextResponse).moreLink!.url;
+            a.target = "_blank"; a.rel = "noopener noreferrer";
+            a.textContent = `→ ${(sr as TextResponse).moreLink!.title}`;
+            bubble.appendChild(a);
+          }
+        } else if (sr.type === "view") {
+          const vr = sr as ViewResponse;
+          bubble.textContent = "";
+          const wrap = createElement(document, "div", "ieum-view-card");
+          const h = createElement(document, "div", "ieum-view-title");
+          h.textContent = vr.title;
+          wrap.appendChild(h);
+          for (const line of vr.content) {
+            const p = createElement(document, "p", "ieum-view-content");
+            p.textContent = line;
+            wrap.appendChild(p);
+          }
+          if (vr.moreLink) {
+            const a = createElement(document, "a", "ieum-more-link") as HTMLAnchorElement;
+            a.href = vr.moreLink.url; a.target = "_blank"; a.rel = "noopener noreferrer";
+            a.textContent = `→ ${vr.moreLink.title}`;
+            wrap.appendChild(a);
+          }
+          bubble.appendChild(wrap);
+        } else if (sr.type === "list") {
+          const lr = sr as ListResponse;
+          bubble.textContent = "";
+          const ul = createElement(document, "ul", "ieum-list");
+          for (const item of lr.items.slice(0, 8)) {
+            const li = createElement(document, "li", "ieum-list-item");
+            const title = createElement(document, "div", "ieum-list-item-title");
+            title.textContent = item.title;
+            li.appendChild(title);
+            for (const c of item.contents.slice(0, 3)) {
+              const p = createElement(document, "p", "ieum-list-item-content");
+              p.textContent = c;
+              li.appendChild(p);
+            }
+            if (item.targetLink) {
+              const a = createElement(document, "a", "ieum-list-item-link") as HTMLAnchorElement;
+              a.href = item.targetLink; a.target = "_blank"; a.rel = "noopener noreferrer";
+              a.textContent = item.targetLinkLabel || "자세히 보기";
+              li.appendChild(a);
+            } else if (item.sourceLinkPath) {
+              const a = createElement(document, "a", "ieum-list-item-link") as HTMLAnchorElement;
+              a.href = item.sourceLinkPath; a.target = "_blank"; a.rel = "noopener noreferrer";
+              a.textContent = item.sourceLinkLabel || "출처 보기";
+              li.appendChild(a);
+            }
+            ul.appendChild(li);
+          }
+          bubble.appendChild(ul);
+          if (lr.moreLink) {
+            const a = createElement(document, "a", "ieum-more-link") as HTMLAnchorElement;
+            a.href = lr.moreLink.url; a.target = "_blank"; a.rel = "noopener noreferrer";
+            a.textContent = `→ ${lr.moreLink.title}`;
+            bubble.appendChild(a);
+          }
+        } else {
+          bubble.textContent = message.text;
+        }
+      } else {
+        bubble.textContent = message.text;
+      }
 
       if (message.role === "assistant") {
         const outcomeText = getFriendlyOutcomeLabel(message.outcome);
@@ -1037,6 +1136,32 @@ export class IeumWidgetApp {
             followUpWrap.appendChild(button);
           }
           bubble.appendChild(followUpWrap);
+        }
+
+        // ── CTA 액션 버튼 (conditional_actions) ──────────────────────────
+        if (message.conditionalActions && message.conditionalActions.length > 0) {
+          const ctaWrap = createElement(document, "div", "ieum-cta-wrap");
+          const ctaTitle = createElement(document, "div", "ieum-cta-title");
+          ctaTitle.textContent = "관련 정보";
+          ctaWrap.appendChild(ctaTitle);
+          for (const action of message.conditionalActions) {
+            const icon =
+              action.type === "link"    ? "🔗" :
+              action.type === "video"   ? "🎬" :
+              action.type === "file"    ? "📎" : "📞";
+            const href =
+              action.type === "contact" && !action.value.startsWith("tel:") && !action.value.startsWith("mailto:")
+                ? `tel:${action.value}`
+                : action.value;
+            const link = createElement(document, "a", "ieum-cta-btn") as HTMLAnchorElement;
+            link.href = href;
+            link.target = action.type === "contact" ? "_self" : "_blank";
+            link.rel = "noopener noreferrer";
+            link.textContent = `${icon} ${action.label}`;
+            if (action.description) link.title = action.description;
+            ctaWrap.appendChild(link);
+          }
+          bubble.appendChild(ctaWrap);
         }
       }
 
@@ -1263,6 +1388,8 @@ export class IeumWidgetApp {
       outcome: response.outcome,
       citations: Array.isArray(response.citations) ? response.citations : [],
       followUpQuestions: Array.isArray(response.followUpQuestions) ? response.followUpQuestions.slice(0, 3) : [],
+      conditionalActions: Array.isArray(response.conditionalActions) ? response.conditionalActions : [],
+      structuredResponse: response.structuredResponse ?? null,
       timestamp: Date.now(),
     });
   }

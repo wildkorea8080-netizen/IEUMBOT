@@ -490,3 +490,53 @@ export async function getFeedbackByDocument(
     `/admin/feedback/by-document${q}`,
   );
 }
+
+// ── 미답변 질문 ──────────────────────────────────────────────────────────────
+
+export type UnansweredLogItem = {
+  id: string;
+  chatbotId: string;
+  question: string;
+  searchScore: number | null;
+  outcome: string;
+  sessionId: string | null;
+  status: "pending" | "resolved" | "ignored";
+  resolvedAt: string | null;
+  createdAt: string;
+};
+
+export type UnansweredLogListResponse = {
+  items: UnansweredLogItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
+
+export async function getUnansweredLogs(params?: {
+  chatbotId?: string;
+  status?: string;
+  from?: string;
+  to?: string;
+  page?: number;
+  pageSize?: number;
+}): Promise<UnansweredLogListResponse> {
+  const q = new URLSearchParams();
+  if (params?.chatbotId) q.set("chatbotId", params.chatbotId);
+  if (params?.status) q.set("status", params.status);
+  if (params?.from) q.set("from", params.from);
+  if (params?.to) q.set("to", params.to);
+  if (params?.page) q.set("page", String(params.page));
+  if (params?.pageSize) q.set("pageSize", String(params.pageSize));
+  const qs = q.toString() ? `?${q.toString()}` : "";
+  return apiClient.request<UnansweredLogListResponse>(`/admin/unanswered${qs}`);
+}
+
+export async function patchUnansweredLog(
+  id: string,
+  status: "pending" | "resolved" | "ignored",
+): Promise<UnansweredLogItem> {
+  return apiClient.request<UnansweredLogItem>(`/admin/unanswered/${id}`, {
+    method: "PATCH",
+    body: { status },
+  });
+}

@@ -172,6 +172,8 @@ class AdminChatbotUpdateRequest(ApiSchema):
     theme: dict | None = None
     business_hours: dict | None = None
     escalation_policy: dict | None = None
+    custom_instructions: str | None = None
+    response_format_rules: list | None = None
 
 
 class AdminChatbotResponse(ApiSchema):
@@ -191,6 +193,8 @@ class AdminChatbotResponse(ApiSchema):
     theme: dict
     business_hours: dict
     escalation_policy: dict
+    custom_instructions: str = ""
+    response_format_rules: list = []
     document_count: int
     website_count: int
     created_at: str

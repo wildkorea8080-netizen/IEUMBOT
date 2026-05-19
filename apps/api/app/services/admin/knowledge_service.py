@@ -55,6 +55,126 @@ from app.services.embedding_service import EmbeddingFailure, generate_embedding_
 logger = logging.getLogger(__name__)
 
 KNOWLEDGE_STORAGE_DIR = Path(__file__).resolve().parents[3] / "storage" / "knowledge"
+
+
+def classify_knowledge_topic(
+    text: str,
+    existing_topics: list[str],
+    db: Any,
+) -> dict[str, Any]:
+    """
+    LLM으로 지식 주제 자동 분류 (Sprint 3-C).
+
+    반환:
+    {
+        "topic": str,
+        "is_new_topic": bool,
+        "similar_topic": str | None,
+        "tags": list[str],
+        "has_conflict": bool,
+    }
+
+    실패 시 기본값 반환 — 메인 색인 흐름에 영향 없음.
+    """
+    import json as _json  # noqa: PLC0415
+    import urllib.request as _urlreq  # noqa: PLC0415
+
+    _FALLBACK = {
+        "topic": "미분류",
+        "is_new_topic": False,
+        "similar_topic": None,
+        "tags": [],
+        "has_conflict": False,
+    }
+
+    try:
+        from app.services.llm_api_config_runtime_service import (  # noqa: PLC0415
+            resolve_runtime_api_config as _resolve,
+        )
+        runtime_api = _resolve(db)
+        if runtime_api is None:
+            return _FALLBACK
+
+        topics_str = ", ".join(existing_topics[:20]) if existing_topics else "없음"
+        system_prompt = "지식 분류 전문가. JSON만 출력."
+        user_prompt = (
+            f"다음 문서를 분류하세요.\n\n"
+            f"기존 주제 목록: {topics_str}\n"
+            f"문서 내용 (앞 500자): {text[:500]}\n\n"
+            "JSON으로만 응답:\n"
+            '{"topic": "분류된 주제명", "is_new_topic": true, '
+            '"similar_topic": null, "tags": ["태그1", "태그2", "태그3"], "has_conflict": false}'
+        )
+
+        model = runtime_api.default_model or "gpt-4.1-mini"
+        if runtime_api.provider == "anthropic":
+            url = (
+                f"{runtime_api.base_url.rstrip('/')}/v1/messages"
+                if runtime_api.base_url else "https://api.anthropic.com/v1/messages"
+            )
+            payload: dict[str, Any] = {
+                "model": model, "temperature": 0, "max_tokens": 200,
+                "system": system_prompt,
+                "messages": [{"role": "user", "content": user_prompt}],
+            }
+            headers = {
+                "x-api-key": runtime_api.api_key,
+                "anthropic-version": "2023-06-01",
+                "Content-Type": "application/json",
+            }
+        else:
+            url = (
+                f"{runtime_api.base_url.rstrip('/')}/responses"
+                if runtime_api.base_url else "https://api.openai.com/v1/responses"
+            )
+            payload = {
+                "model": model, "temperature": 0, "max_output_tokens": 200,
+                "input": [
+                    {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]},
+                    {"role": "user", "content": [{"type": "input_text", "text": user_prompt}]},
+                ],
+            }
+            headers = {"Authorization": f"Bearer {runtime_api.api_key}", "Content-Type": "application/json"}
+
+        req = _urlreq.Request(
+            url=url,
+            data=_json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            headers=headers, method="POST",
+        )
+        with _urlreq.urlopen(req, timeout=8) as resp:
+            result = _json.loads(resp.read().decode("utf-8"))
+
+        if runtime_api.provider == "anthropic":
+            raw = ""
+            for block in result.get("content") or []:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    raw = str(block.get("text") or "")
+                    break
+        else:
+            raw = result.get("output_text") or ""
+            if not raw:
+                for item in result.get("output") or []:
+                    for c in (item.get("content") or []):
+                        if isinstance(c, dict) and c.get("type") == "output_text":
+                            raw = str(c.get("text") or "")
+                            break
+
+        # JSON 추출
+        import re as _re  # noqa: PLC0415
+        m = _re.search(r"\{.*\}", raw, _re.DOTALL)
+        if not m:
+            return _FALLBACK
+        parsed = _json.loads(m.group(0))
+        return {
+            "topic": str(parsed.get("topic", "미분류")),
+            "is_new_topic": bool(parsed.get("is_new_topic", False)),
+            "similar_topic": parsed.get("similar_topic"),
+            "tags": list(parsed.get("tags") or []),
+            "has_conflict": bool(parsed.get("has_conflict", False)),
+        }
+    except Exception as exc:
+        logger.warning("[CLASSIFY_TOPIC] 실패: %s", exc)
+        return _FALLBACK
 SENSITIVE_PATTERNS = [
     re.compile(r"\b\d{6}-\d{7}\b"),
     re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),

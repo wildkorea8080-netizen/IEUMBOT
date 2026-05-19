@@ -887,6 +887,8 @@ def get_chatbot_service(
         theme=row.theme or {},
         business_hours=row.business_hours or {},
         escalation_policy=row.escalation_policy or {},
+        custom_instructions=str(getattr(row, "custom_instructions", "") or ""),
+        response_format_rules=list(getattr(row, "response_format_rules", None) or []),
         document_count=count_documents_by_chatbot(
             db,
             organization_id=organization_id,
@@ -1010,6 +1012,10 @@ def patch_chatbot_service(
         row.business_hours = body.business_hours
     if body.escalation_policy is not None:
         row.escalation_policy = body.escalation_policy
+    if body.custom_instructions is not None:
+        row.custom_instructions = body.custom_instructions[:500]  # 최대 500자
+    if body.response_format_rules is not None:
+        row.response_format_rules = list(body.response_format_rules)[:20]  # 최대 20개
 
     db.commit()
     db.refresh(row)
@@ -1030,6 +1036,8 @@ def patch_chatbot_service(
         theme=row.theme or {},
         business_hours=row.business_hours or {},
         escalation_policy=row.escalation_policy or {},
+        custom_instructions=str(getattr(row, "custom_instructions", "") or ""),
+        response_format_rules=list(getattr(row, "response_format_rules", None) or []),
         document_count=count_documents_by_chatbot(
             db,
             organization_id=organization_id,

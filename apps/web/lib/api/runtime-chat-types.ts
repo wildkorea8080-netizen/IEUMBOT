@@ -127,6 +127,35 @@ export type ChatRuntimeTrace = {
   [key: string]: unknown;
 };
 
+export type PerformanceMetrics = {
+  intentClassifyMs?: number | null;
+  queryRewriteMs?: number | null;
+  retrievalMs?: number | null;
+  rerankMs?: number | null;
+  apiFetchMs?: number | null;
+  llmMs?: number | null;
+  totalMs?: number | null;
+};
+
+export type ChunkDetail = {
+  chunkId: string;
+  documentName: string;
+  sectionTitle?: string | null;
+  score: number;
+  textPreview: string;
+  chunkType?: string | null;
+  sourceUrl?: string | null;
+  reranked: boolean;
+  usedInPrompt: boolean;
+};
+
+export type ConditionalAction = {
+  type: "link" | "video" | "file" | "contact" | string;
+  label: string;
+  value: string;
+  description?: string;
+};
+
 export type ChatRuntimeResponse = {
   requestId: string;
   chatbotId: string;
@@ -136,4 +165,7 @@ export type ChatRuntimeResponse = {
   followUpQuestions: string[];
   policyDecision: Record<string, unknown>;
   trace: ChatRuntimeTrace;
+  conditionalActions?: ConditionalAction[];
+  performance?: PerformanceMetrics;
+  detailedChunks?: ChunkDetail[];
 };

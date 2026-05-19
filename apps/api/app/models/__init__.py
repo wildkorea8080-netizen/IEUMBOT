@@ -27,6 +27,10 @@ from app.models.synonym_dictionary import SynonymDictionary
 from app.models.users import User
 from app.models.billing_alerts import BillingAlert
 from app.models.widget_deployments import WidgetDeployment
+from app.models.api_endpoint import ApiEndpoint
+from app.models.conditional_response import ConditionalResponse
+from app.models.security_event import SecurityEvent
+from app.models.unanswered_log import UnansweredLog
 from app.models.web_sources import WebSource
 
 __all__ = [
@@ -59,5 +63,9 @@ __all__ = [
     "Notification",
     "BillingAlert",
     "SystemIntegration",
+    "ApiEndpoint",
+    "ConditionalResponse",
+    "SecurityEvent",
+    "UnansweredLog",
     "User",
 ]

@@ -3,6 +3,7 @@
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
+import { ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
 
 import { PagePanel } from "../../../components/ui/page-panel";
 import { ChatDebugTrace } from "../../../components/admin/chat-debug-trace";
@@ -10,7 +11,7 @@ import { ApiClientError } from "../../../lib/api";
 import { getAdminChatbots } from "../../../lib/api/admin-operations";
 import type { AdminChatbotItem } from "../../../lib/api/admin-operations-types";
 import { sendAdminTestChatMessage } from "../../../lib/api/runtime-chat";
-import type { ChatRuntimeResponse } from "../../../lib/api/runtime-chat-types";
+import type { ChunkDetail, ChatRuntimeResponse, PerformanceMetrics } from "../../../lib/api/runtime-chat-types";
 
 type ChatMessage = {
   id: string;
@@ -27,6 +28,37 @@ function getErrorMessage(error: unknown): string {
     return error.message || "응답을 불러오지 못했습니다.";
   }
   return "응답을 불러오지 못했습니다.";
+}
+
+function ChunkCard({ chunk }: { chunk: ChunkDetail }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ background: "#1e293b", borderRadius: 8, padding: "8px 10px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }} onClick={() => setOpen(o => !o)}>
+        <span style={{ flex: 1, color: "#e2e8f0", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {chunk.documentName}{chunk.sectionTitle ? ` / ${chunk.sectionTitle}` : ""}
+        </span>
+        <span style={{ color: chunk.score >= 0.7 ? "#4ade80" : chunk.score >= 0.45 ? "#fbbf24" : "#f87171", fontVariantNumeric: "tabular-nums", fontSize: 11 }}>
+          {chunk.score.toFixed(3)}
+        </span>
+        {chunk.reranked && <span style={{ fontSize: 9, background: "#7c3aed", color: "#fff", borderRadius: 4, padding: "1px 5px" }}>RE</span>}
+        {open ? <ChevronUp style={{ width: 12, height: 12, color: "#64748b" }} /> : <ChevronDown style={{ width: 12, height: 12, color: "#64748b" }} />}
+      </div>
+      {open && (
+        <div style={{ marginTop: 6 }}>
+          <div style={{ background: "#0f172a", borderRadius: 6, padding: "6px 8px", color: "#94a3b8", fontSize: 11, whiteSpace: "pre-wrap", maxHeight: 120, overflowY: "auto" }}>
+            {chunk.textPreview || "(미리보기 없음)"}
+          </div>
+          {chunk.sourceUrl && (
+            <a href={chunk.sourceUrl} target="_blank" rel="noopener noreferrer"
+              style={{ display: "inline-flex", alignItems: "center", gap: 3, marginTop: 4, fontSize: 10, color: "#38bdf8", textDecoration: "none" }}>
+              <ExternalLink style={{ width: 10, height: 10 }} />출처 보기
+            </a>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function AdminTestChatbotPage() {
@@ -115,6 +147,46 @@ export default function AdminTestChatbotPage() {
     if (event.key !== "Enter" || event.shiftKey) return;
     event.preventDefault();
     event.currentTarget.form?.requestSubmit();
+  }
+
+  function renderPerformance(perf: PerformanceMetrics | undefined) {
+    if (!perf || perf.totalMs == null) return null;
+    const rows: { label: string; ms: number | null | undefined; highlight?: boolean }[] = [
+      { label: "인텐트 분류", ms: perf.intentClassifyMs },
+      { label: "쿼리 리라이팅", ms: perf.queryRewriteMs },
+      { label: "RAG 검색", ms: perf.retrievalMs, highlight: true },
+      { label: "Re-ranking", ms: perf.rerankMs },
+      { label: "외부 API", ms: perf.apiFetchMs },
+      { label: "LLM 생성", ms: perf.llmMs, highlight: true },
+      { label: "전체 처리", ms: perf.totalMs, highlight: true },
+    ];
+    return (
+      <div style={{ marginTop: 10, padding: "10px 14px", background: "#0f172a", borderRadius: 10, fontSize: 12, color: "#94a3b8" }}>
+        <p style={{ color: "#7dd3fc", fontWeight: 700, marginBottom: 6 }}>⚡ 성능 지표</p>
+        {rows.map(r => r.ms != null && (
+          <div key={r.label} style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+            <span style={{ color: r.highlight ? "#e2e8f0" : "#94a3b8" }}>{r.label}</span>
+            <span style={{ fontVariantNumeric: "tabular-nums", color: r.highlight ? "#7dd3fc" : "#64748b" }}>
+              {r.ms.toLocaleString("ko-KR")}ms
+            </span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  function renderChunks(chunks: ChunkDetail[] | undefined) {
+    if (!chunks || chunks.length === 0) return null;
+    return (
+      <div style={{ marginTop: 10, padding: "10px 14px", background: "#0f172a", borderRadius: 10, fontSize: 12 }}>
+        <p style={{ color: "#7dd3fc", fontWeight: 700, marginBottom: 8 }}>📚 참조 청크 ({chunks.length}개)</p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {chunks.map((c, i) => (
+            <ChunkCard key={c.chunkId || i} chunk={c} />
+          ))}
+        </div>
+      </div>
+    );
   }
 
   function renderFollowUpQuestions(items: string[] | undefined) {
@@ -207,7 +279,13 @@ export default function AdminTestChatbotPage() {
                     </p>
                     <p className="whitespace-pre-wrap">{message.text}</p>
                     {message.response ? renderFollowUpQuestions(message.response.followUpQuestions) : null}
-                    {debugEnabled && message.response ? <ChatDebugTrace trace={message.response.trace} /> : null}
+                    {debugEnabled && message.response ? (
+                      <>
+                        {renderPerformance(message.response.performance)}
+                        {renderChunks(message.response.detailedChunks)}
+                        <ChatDebugTrace trace={message.response.trace} />
+                      </>
+                    ) : null}
                   </div>
                 </div>
               ))

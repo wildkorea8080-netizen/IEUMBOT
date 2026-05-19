@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Building2, Smile, Zap } from "lucide-react";
+import { Building2, Plus, Smile, X, Zap } from "lucide-react";
 
 import {
   AI_CHATBOT_STORAGE_KEY,
@@ -20,12 +20,20 @@ import type { AdminChatbotItem, AdminChatbotResponse } from "../../../../lib/api
 
 // ── 타입 / 유틸 ──────────────────────────────────────────
 
+type FormatRule = {
+  keywords: string[];
+  format: "text" | "view" | "list";
+  moreLink?: { title: string; url: string } | null;
+};
+
 type StyleForm = {
   tonePreset: "public" | "friendly" | "concise";
   responseLength: "short" | "medium" | "long";
   citationDisplay: "always" | "bottom" | "folded";
   limitDefinitiveExpression: boolean;
   showFreshnessNotice: boolean;
+  customInstructions: string;
+  responseFormatRules: FormatRule[];
 };
 
 function getErrorMessage(error: unknown): string {
@@ -55,13 +63,98 @@ function deriveCitationDisplay(chatbot: AdminChatbotResponse, settings: AnswerSe
 
 // ── 메인 컴포넌트 ─────────────────────────────────────────
 
+const FORMAT_LABELS: Record<string, string> = { text: "텍스트", view: "카드형", list: "리스트" };
+
+function FormatRulesEditor({ rules, onChange }: { rules: FormatRule[]; onChange: (r: FormatRule[]) => void }) {
+  const [kwInput, setKwInput] = useState("");
+  const [fmt, setFmt] = useState<FormatRule["format"]>("text");
+  const [mlTitle, setMlTitle] = useState("");
+  const [mlUrl, setMlUrl] = useState("");
+  const [editKws, setEditKws] = useState<string[]>([]);
+  const [adding, setAdding] = useState(false);
+
+  function addRule() {
+    if (editKws.length === 0) return;
+    const newRule: FormatRule = {
+      keywords: editKws,
+      format: fmt,
+      moreLink: mlTitle && mlUrl ? { title: mlTitle, url: mlUrl } : null,
+    };
+    onChange([...rules, newRule]);
+    setEditKws([]); setFmt("text"); setMlTitle(""); setMlUrl(""); setAdding(false);
+  }
+
+  function addKw() {
+    const kw = kwInput.trim();
+    if (!kw || editKws.includes(kw)) return;
+    setEditKws(p => [...p, kw]); setKwInput("");
+  }
+
+  return (
+    <div>
+      {rules.length === 0 && !adding ? (
+        <div style={{ fontSize: 13, color: "#94a3b8", marginBottom: 10 }}>등록된 규칙이 없습니다.</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
+          {rules.map((rule, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8 }}>
+              <div style={{ flex: 1, fontSize: 13 }}>
+                <span className="badge-neutral" style={{ marginRight: 6 }}>{FORMAT_LABELS[rule.format]}</span>
+                {rule.keywords.map(k => <span key={k} style={{ fontSize: 11, background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 4, padding: "1px 6px", marginRight: 4, color: "#1d4ed8" }}>{k}</span>)}
+                {rule.moreLink && <span style={{ fontSize: 11, color: "#64748b", marginLeft: 4 }}>→ {rule.moreLink.title}</span>}
+              </div>
+              <button type="button" onClick={() => onChange(rules.filter((_, j) => j !== i))}
+                style={{ background: "none", border: "none", cursor: "pointer", color: "#94a3b8" }}>
+                <X style={{ width: 14, height: 14 }} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {adding ? (
+        <div style={{ border: "1px solid #e2e8f0", borderRadius: 10, padding: 14, background: "#f8fafc" }}>
+          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+            <input value={kwInput} onChange={e => setKwInput(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addKw(); } }}
+              placeholder="키워드 입력 후 Enter" className="input-field" style={{ flex: 1 }} />
+            <select value={fmt} onChange={e => setFmt(e.target.value as FormatRule["format"])} className="input-field" style={{ width: 100 }}>
+              <option value="text">텍스트</option>
+              <option value="view">카드형</option>
+              <option value="list">리스트</option>
+            </select>
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+            {editKws.map(k => <span key={k} style={{ fontSize: 12, background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 6, padding: "3px 10px", color: "#1d4ed8", display: "inline-flex", alignItems: "center", gap: 4 }}>
+              {k}<button type="button" onClick={() => setEditKws(p => p.filter(x => x !== k))} style={{ background: "none", border: "none", cursor: "pointer", color: "#94a3b8", fontSize: 11 }}>✕</button>
+            </span>)}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+            <input value={mlTitle} onChange={e => setMlTitle(e.target.value)} placeholder="더보기 텍스트 (선택)" className="input-field" />
+            <input value={mlUrl} onChange={e => setMlUrl(e.target.value)} placeholder="더보기 URL (선택)" className="input-field" />
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button type="button" onClick={addRule} disabled={editKws.length === 0} className="btn-primary" style={{ padding: "7px 16px", fontSize: 13, opacity: editKws.length === 0 ? 0.5 : 1 }}>규칙 추가</button>
+            <button type="button" onClick={() => { setAdding(false); setEditKws([]); }} className="btn-secondary" style={{ padding: "7px 12px", fontSize: 13 }}>취소</button>
+          </div>
+        </div>
+      ) : (
+        <button type="button" onClick={() => setAdding(true)} className="btn-secondary"
+          style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 14px", fontSize: 13 }}>
+          <Plus style={{ width: 13, height: 13 }} />규칙 추가
+        </button>
+      )}
+    </div>
+  );
+}
+
 export default function AdminAiStylePage() {
   const [chatbots, setChatbots] = useState<AdminChatbotItem[]>([]);
   const [selectedChatbotId, setSelectedChatbotId] = useState("");
   const [selectedChatbot, setSelectedChatbot] = useState<AdminChatbotResponse | null>(null);
   const [serverSettings, setServerSettings] = useState<AnswerSettings | null>(null);
-  const [form, setForm] = useState<StyleForm>({ tonePreset: "public", responseLength: "medium", citationDisplay: "always", limitDefinitiveExpression: true, showFreshnessNotice: true });
-  const [snapshot, setSnapshot] = useState<StyleForm>({ tonePreset: "public", responseLength: "medium", citationDisplay: "always", limitDefinitiveExpression: true, showFreshnessNotice: true });
+  const [form, setForm] = useState<StyleForm>({ tonePreset: "public", responseLength: "medium", citationDisplay: "always", limitDefinitiveExpression: true, showFreshnessNotice: true, customInstructions: "", responseFormatRules: [] });
+  const [snapshot, setSnapshot] = useState<StyleForm>({ tonePreset: "public", responseLength: "medium", citationDisplay: "always", limitDefinitiveExpression: true, showFreshnessNotice: true, customInstructions: "", responseFormatRules: [] });
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -85,6 +178,8 @@ export default function AdminAiStylePage() {
         citationDisplay: deriveCitationDisplay(chatbot, settings.settings),
         limitDefinitiveExpression: settings.settings.answerPolicy.disallowDefinitiveClaims,
         showFreshnessNotice: settings.settings.answerPolicy.requireLatestSourceCheckWarningWhenRelevant,
+        customInstructions: chatbot.customInstructions ?? "",
+        responseFormatRules: (chatbot.responseFormatRules ?? []) as FormatRule[],
       };
       setSelectedChatbot(chatbot);
       setServerSettings(settings.settings);
@@ -114,6 +209,8 @@ export default function AdminAiStylePage() {
         answerLength: form.responseLength,
         citationMode: citationDisplayMode,
         theme: { ...(selectedChatbot.theme ?? {}), aiTonePreset: form.tonePreset, aiCitationPresentation: form.citationDisplay },
+        customInstructions: form.customInstructions,
+        responseFormatRules: form.responseFormatRules,
       });
       const next = cloneSettings(serverSettings);
       next.promptInstruction.toneMode = toneMode;
@@ -204,6 +301,28 @@ export default function AdminAiStylePage() {
                 onChange={v => setForm(p => ({ ...p, showFreshnessNotice: v }))}
               />
             </div>
+          </SectionCard>
+
+          {/* 섹션 5: 추가 지시문 */}
+          <SectionCard title="추가 지시문" description="이 챗봇에만 적용할 자유 형식 지시사항을 입력합니다. System Prompt 마지막에 삽입됩니다. (최대 500자)">
+            <textarea
+              value={form.customInstructions}
+              onChange={e => setForm(p => ({ ...p, customInstructions: e.target.value.slice(0, 500) }))}
+              rows={4}
+              className="input-field"
+              placeholder="예: 답변 마지막에 반드시 담당자 연락처를 안내하세요. / 영어 질문에는 한국어로 답변하세요."
+            />
+            <p style={{ fontSize: 12, color: "#94a3b8", marginTop: 4, textAlign: "right" }}>
+              {form.customInstructions.length} / 500
+            </p>
+          </SectionCard>
+
+          {/* 섹션 6: 응답 형식 규칙 (Sprint 3-F) */}
+          <SectionCard title="응답 형식 규칙" description="특정 키워드가 포함된 질문에 텍스트/카드/리스트 형식으로 응답을 구조화합니다.">
+            <FormatRulesEditor
+              rules={form.responseFormatRules}
+              onChange={rules => setForm(p => ({ ...p, responseFormatRules: rules }))}
+            />
           </SectionCard>
 
           <SaveButton onClick={() => void save()} disabled={!isDirty || isSaving || isLoading || !selectedChatbotId} isSaving={isSaving} />

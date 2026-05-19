@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, Upload, BookOpen, AlertCircle,
   Bot, BotMessageSquare, Palette, Settings2, MonitorSmartphone, Code2,
-  MessageSquare, ScrollText, BarChart2, ThumbsUp,
+  MessageSquare, ScrollText, BarChart2, ThumbsUp, HelpCircle, Zap, Plug2,
   Users, CreditCard, Shield, ChevronDown, LogOut,
 } from "lucide-react";
 
@@ -23,7 +23,7 @@ import { useRouter } from "next/navigation";
 const ICON_MAP: Record<string, React.ComponentType<React.SVGProps<SVGSVGElement>>> = {
   LayoutDashboard, Upload, BookOpen, AlertCircle,
   Bot, BotMessageSquare, Palette, Settings2, MonitorSmartphone, Code2,
-  MessageSquare, ScrollText, BarChart2, ThumbsUp,
+  MessageSquare, ScrollText, BarChart2, ThumbsUp, HelpCircle, Zap, Plug2,
   Users, CreditCard, Shield,
 };
 

@@ -32,6 +32,8 @@ export const adminNav: NavGroup[] = [
       { label: "기본 설정",   href: "/admin/ai/basic",         icon: "Bot" },
       { label: "응답 스타일", href: "/admin/ai/style",         icon: "Palette" },
       { label: "AI 고급설정", href: "/admin/answer-settings",  icon: "Settings2" },
+      { label: "조건별 답변",   href: "/admin/conditional",       icon: "Zap" },
+      { label: "API 연동",      href: "/admin/api-connect",       icon: "Plug2" },
       { label: "위젯 설정",   href: "/admin/widget",           icon: "MonitorSmartphone" },
       { label: "설치 가이드", href: "/admin/install-guide",    icon: "Code2" },
     ],
@@ -43,14 +45,15 @@ export const adminNav: NavGroup[] = [
       { label: "채팅 로그",   href: "/admin/logs",           icon: "ScrollText" },
       { label: "품질 리포트", href: "/admin/quality-report", icon: "BarChart2" },
       { label: "피드백 현황", href: "/admin/feedback",       icon: "ThumbsUp" },
+      { label: "미답변 관리", href: "/admin/unanswered",     icon: "HelpCircle" },
     ],
   },
   {
     title: "시스템",
     items: [
+      { label: "보안센터",    href: "/admin/security", icon: "Shield" },
       { label: "사용자 관리", href: "/admin/users",    icon: "Users" },
       { label: "결제 관리",   href: "/admin/billing",  icon: "CreditCard" },
-      { label: "보안",        href: "/admin/security", icon: "Shield" },
     ],
   },
 ];

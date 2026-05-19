@@ -26,6 +26,7 @@ export async function sendAdminTestChatMessage(
       body: {
         chatbotId: trimmedChatbotId,
         question: message,
+        includeDebugTrace: true,   // 테스트 페이지는 항상 debug 모드
         ...(options.normalizedQuery !== undefined ? { normalizedQuery: options.normalizedQuery } : {}),
         ...(options.topK !== undefined ? { topK: options.topK } : {}),
       },

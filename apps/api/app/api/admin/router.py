@@ -8,6 +8,11 @@ from app.api.admin.conversations_router import router as conversations_router
 from app.api.admin.escalations_router import router as escalations_router
 from app.api.admin.guardrails_router import router as guardrails_router
 from app.api.admin.impersonation_router import router as impersonation_router
+from app.api.admin.conditional_router import router as conditional_router
+from app.api.admin.api_endpoints_router import router as api_endpoints_router
+from app.api.admin.knowledge_sync_router import router as knowledge_sync_router
+from app.api.admin.security_events_router import router as security_events_router
+from app.api.admin.unanswered_router import router as unanswered_router
 from app.api.admin.install_guide_router import router as install_guide_router
 from app.api.admin.knowledge_router import router as knowledge_router
 from app.api.admin.logs_router import router as admin_logs_router
@@ -36,6 +41,11 @@ router.include_router(guardrails_router)
 router.include_router(escalations_router)
 router.include_router(admin_logs_router)
 router.include_router(impersonation_router)
+router.include_router(conditional_router)
+router.include_router(api_endpoints_router)
+router.include_router(knowledge_sync_router)
+router.include_router(security_events_router)
+router.include_router(unanswered_router)
 
 
 @router.get("/ping")

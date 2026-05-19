@@ -247,6 +247,12 @@ export type AdminChatbotResponse = {
   theme: Record<string, unknown>;
   businessHours: Record<string, unknown>;
   escalationPolicy: Record<string, unknown>;
+  customInstructions?: string;
+  responseFormatRules?: Array<{
+    keywords: string[];
+    format: "text" | "view" | "list";
+    moreLink?: { title: string; url: string } | null;
+  }>;
   documentCount: number;
   websiteCount: number;
   createdAt: string;

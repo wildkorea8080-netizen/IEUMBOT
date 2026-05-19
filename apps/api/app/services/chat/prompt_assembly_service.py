@@ -61,7 +61,7 @@ def _build_policy_instruction(settings: AnswerSettings) -> list[str]:
 
 
 def _build_style_instruction(settings: AnswerSettings) -> list[str]:
-    return [
+    lines = [
         f"역할 모드: {settings.prompt_instruction.assistant_role_mode}",
         f"톤 모드: {settings.prompt_instruction.tone_mode}",
         f"답변 스타일: {settings.prompt_instruction.answer_style_mode}",
@@ -69,6 +69,25 @@ def _build_style_instruction(settings: AnswerSettings) -> list[str]:
         "문장은 부드럽고 존중하는 한국어로 작성하되, 과장된 위로나 확정적 약속은 피하세요.",
         "목록은 3~6개 정도로 정리하고, 각 항목은 한두 문장으로 구체화하세요.",
     ]
+
+    # tone_mode 기반 말투 지시문 (실질적 행동 지시)
+    tone = settings.prompt_instruction.tone_mode
+    if tone == "formal":
+        lines.append("격식체를 사용하고 전문적으로 답변하세요.")
+    elif tone == "plain":
+        lines.append("친근하고 이해하기 쉬운 말투로 답변하세요.")
+    else:  # polite (기본)
+        lines.append("존댓말을 사용하고 공손하게 답변하세요.")
+
+    # max_answer_length_mode 기반 길이 지시문
+    length = settings.answer_format.max_answer_length_mode
+    if length == "short":
+        lines.append("핵심만 2-3문장으로 간결하게 답변하세요.")
+    elif length == "long":
+        lines.append("근거와 부연설명을 포함해 상세하게 답변하세요.")
+    # medium: 별도 지시 없음 (기존 기본 동작 유지)
+
+    return lines
 
 
 def _build_history_block(recent_messages: list[Any] | None) -> str:
@@ -124,6 +143,8 @@ def build_answer_prompt(
     question_type_flags: dict | None = None,
     uncovered_slots: list[str] | None = None,
     session_entities: dict | None = None,
+    custom_instructions: str = "",
+    api_context: str | None = None,
 ) -> dict[str, str]:
     source_lines: list[str] = []
     for index, item in enumerate(candidates[:5], start=1):
@@ -219,6 +240,16 @@ def build_answer_prompt(
             .replace("{institution_name}", institution_name)
         )
 
+    # 기관별 추가 지시문: custom_instructions 가 있으면 마지막에 삽입
+    custom_instr_part = f"추가 지시사항: {custom_instructions.strip()}" if custom_instructions and custom_instructions.strip() else ""
+
+    # 외부 API 실시간 데이터: RAG 컨텍스트보다 앞에 삽입 (Sprint 3-D)
+    api_context_part = (
+        f"[실시간 데이터]\n{api_context.strip()}\n"
+        "위 실시간 데이터는 현재 시스템에서 직접 조회한 최신 정보입니다. "
+        "관련 질문에는 이 정보를 우선 참고하세요."
+    ) if api_context and api_context.strip() else ""
+
     system_parts = [
         _resolve_prompt_vars(
             settings.prompt_instruction.system_prompt.strip() or "너는 기관의 AI 상담 챗봇이다."
@@ -230,6 +261,8 @@ def build_answer_prompt(
         type_instruction.strip(),
         slot_notice.strip(),
         caution_instruction.strip(),
+        custom_instr_part,
+        api_context_part,  # 실시간 API 데이터 — system_parts 마지막에 위치
     ]
     system_prompt = "\n".join([part for part in system_parts if part])
 
