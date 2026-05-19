@@ -275,9 +275,35 @@ function getLauncherHoverMessage(config: WidgetPublicConfig | null, options: Wid
   return `${institution} AI 상담봇입니다. 무엇을 도와드릴까요?`;
 }
 
+function extractPrimaryColor(gradient: string): string {
+  // gradient 문자열에서 첫 번째 hex 색상 추출
+  // e.g. "linear-gradient(135deg, #2563EB, #22C55E)" → "#2563EB"
+  const match = gradient.match(/#[0-9a-fA-F]{6,8}|#[0-9a-fA-F]{3}/);
+  return match ? match[0] : "#2563eb";
+}
+
+function hexToRgba(hex: string, alpha: number): string {
+  // hex → "rgba(r,g,b,alpha)" 변환
+  const h = hex.replace("#", "");
+  const full = h.length === 3
+    ? h.split("").map((c) => c + c).join("")
+    : h;
+  const r = parseInt(full.slice(0, 2), 16);
+  const g = parseInt(full.slice(2, 4), 16);
+  const b = parseInt(full.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
 function buildScopedStyles(primaryGradient: string): string {
   // primaryGradient: 관리자 위젯 설정의 colorPreset 또는 themeColor 기반 동적 색상
-  // 런처 버튼 + 패널 헤더 배경으로 사용 → 관리자 설정이 실제 위젯에 반영됨
+  // 패널 테두리·그림자·강조 색상도 동적으로 적용해 설정 색과 일치시킴
+  const pc = extractPrimaryColor(primaryGradient);   // 주 색상 (hex)
+  const pcA18 = hexToRgba(pc, 0.18);  // 패널 그림자 (연하게)
+  const pcA35 = hexToRgba(pc, 0.35);  // 런처 그림자 (중간)
+  const pcA40 = hexToRgba(pc, 0.40);  // 런처 hover 그림자
+  const pcA28 = hexToRgba(pc, 0.28);  // 사용자 버블 그림자
+  const pcA12 = hexToRgba(pc, 0.12);  // 툴팁 그림자
+  const pcA08 = hexToRgba(pc, 0.08);  // 입력창 포커스 ring
   return `
 :host { all: initial; }
 .ieum-root, .ieum-root * {
@@ -301,7 +327,7 @@ function buildScopedStyles(primaryGradient: string): string {
 .ieum-launcher-tip {
   width:min(300px, calc(100vw - 48px));
   border:1px solid #e8edf5; border-radius:16px;
-  background:#fff; box-shadow:0 8px 32px rgba(37,99,235,.12);
+  background:#fff; box-shadow:0 8px 32px ${pcA12};
   padding:12px 14px 12px 16px; display:none; align-items:flex-start; gap:10px;
 }
 .ieum-launcher-tip.visible { display:flex; animation:ieum-tooltip-in .18s ease; }
@@ -317,11 +343,11 @@ function buildScopedStyles(primaryGradient: string): string {
   width:60px; height:60px; border:none; border-radius:9999px;
   background:${primaryGradient}; color:#fff;
   display:inline-flex; align-items:center; justify-content:center; cursor:pointer;
-  box-shadow:0 6px 24px rgba(37,99,235,.35);
+  box-shadow:0 6px 24px ${pcA35};
   transition:transform .18s ease, box-shadow .18s ease, opacity .18s ease;
 }
 .ieum-floating.ieum-floating-loading { opacity:0; pointer-events:none; transform:scale(.9); }
-.ieum-floating:hover { transform:scale(1.06); box-shadow:0 10px 32px rgba(37,99,235,.4); }
+.ieum-floating:hover { transform:scale(1.06); box-shadow:0 10px 32px ${pcA40}; }
 .ieum-floating.ieum-floating-image { background:transparent; box-shadow:none; padding:0; }
 .ieum-floating.ieum-floating-image:hover { box-shadow:none; }
 .ieum-floating .ieum-launcher-image {
@@ -329,7 +355,7 @@ function buildScopedStyles(primaryGradient: string): string {
   object-fit:contain; display:block; background:transparent;
 }
 .ieum-floating.ieum-floating-image .ieum-launcher-image {
-  filter:drop-shadow(0 6px 20px rgba(37,99,235,.28));
+  filter:drop-shadow(0 6px 20px ${pcA28});
 }
 .ieum-floating svg { width:28px; height:28px; }
 .ieum-header-icon svg, .ieum-header-icon img, .ieum-header-button svg { width:20px; height:20px; }
@@ -341,10 +367,10 @@ function buildScopedStyles(primaryGradient: string): string {
   width:min(380px, calc(100vw - 16px));
   height:min(600px, calc(100vh - 16px));
   border-radius:20px;
-  border:2px solid #2563eb;
+  border:2px solid ${pc};
   background:#fff;
   overflow:hidden;
-  box-shadow:0 16px 48px rgba(37,99,235,.18), 0 4px 16px rgba(0,0,0,.06);
+  box-shadow:0 16px 48px ${pcA18}, 0 4px 16px rgba(0,0,0,.06);
   display:flex; flex-direction:column;
   opacity:0; transform:translateY(24px) scale(.97);
   pointer-events:none;
@@ -433,7 +459,7 @@ function buildScopedStyles(primaryGradient: string): string {
 .ieum-message.user .ieum-bubble {
   background:#2563eb; color:#fff;
   border-radius:18px 18px 4px 18px;
-  box-shadow:0 2px 8px rgba(37,99,235,.25);
+  box-shadow:0 2px 8px ${pcA28};
 }
 /* ── outcome 노트 ── */
 .ieum-outcome-note { margin-top:6px; font-size:11.5px; color:#6b7280; }
@@ -532,7 +558,7 @@ function buildScopedStyles(primaryGradient: string): string {
   transition:border-color .15s, background .15s;
 }
 .ieum-input::placeholder { color:#9ca3af; }
-.ieum-input:focus { border-color:#2563eb; background:#fff; box-shadow:0 0 0 3px rgba(37,99,235,.08); }
+.ieum-input:focus { border-color:${pc}; background:#fff; box-shadow:0 0 0 3px ${pcA08}; }
 .ieum-send {
   width:44px; height:44px; flex-shrink:0;
   border:none; border-radius:9999px;
