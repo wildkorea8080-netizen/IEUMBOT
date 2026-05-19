@@ -276,8 +276,8 @@ function getLauncherHoverMessage(config: WidgetPublicConfig | null, options: Wid
 }
 
 function buildScopedStyles(primaryGradient: string): string {
-  // primaryGradient는 런처 버튼에만 사용, 위젯 헤더는 Planee 스타일 파란색 고정
-  void primaryGradient;
+  // primaryGradient: 관리자 위젯 설정의 colorPreset 또는 themeColor 기반 동적 색상
+  // 런처 버튼 + 패널 헤더 배경으로 사용 → 관리자 설정이 실제 위젯에 반영됨
   return `
 :host { all: initial; }
 .ieum-root, .ieum-root * {
@@ -315,7 +315,7 @@ function buildScopedStyles(primaryGradient: string): string {
 /* ── 플로팅 버튼 ── */
 .ieum-floating {
   width:60px; height:60px; border:none; border-radius:9999px;
-  background:#2563eb; color:#fff;
+  background:${primaryGradient}; color:#fff;
   display:inline-flex; align-items:center; justify-content:center; cursor:pointer;
   box-shadow:0 6px 24px rgba(37,99,235,.35);
   transition:transform .18s ease, box-shadow .18s ease, opacity .18s ease;
@@ -354,7 +354,7 @@ function buildScopedStyles(primaryGradient: string): string {
 /* ── 헤더 ── */
 .ieum-header {
   min-height:58px; padding:12px 14px;
-  background:#2563eb;
+  background:${primaryGradient};
   color:#fff;
   display:flex; align-items:center; justify-content:space-between;
   flex-shrink:0;
