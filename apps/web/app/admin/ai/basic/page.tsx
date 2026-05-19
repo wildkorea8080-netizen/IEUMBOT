@@ -2,8 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  Bot, MessageCircle, Share2,
+  Bot, MessageCircle, Share2, Wand2, Loader2,
 } from "lucide-react";
+
+import { apiClient } from "../../../../lib/api/client";
 
 import {
   AI_CHATBOT_STORAGE_KEY,
@@ -65,6 +67,39 @@ export default function AdminAiBasicPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ tone: "success" | "error"; message: string } | null>(null);
+
+  // ── URL 자동 설정 상태 ──────────────────────────────────────────────────
+  const [urlInput, setUrlInput] = useState("");
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [urlSuggestion, setUrlSuggestion] = useState<{
+    suggestedName: string; suggestedRole: string;
+    suggestedDescription: string; suggestedFallback: string; suggestedWelcome: string;
+  } | null>(null);
+
+  async function analyzeUrl() {
+    if (!selectedChatbotId || !urlInput.trim()) return;
+    setIsAnalyzing(true); setUrlSuggestion(null);
+    try {
+      const result = await apiClient.request<{
+        suggestedName: string; suggestedRole: string;
+        suggestedDescription: string; suggestedFallback: string; suggestedWelcome: string;
+      }>(`/admin/chatbots/${selectedChatbotId}/analyze-url`, { method: "POST", body: { url: urlInput.trim() } });
+      setUrlSuggestion(result);
+    } catch { setToast({ tone: "error", message: "URL 분석에 실패했습니다. URL을 확인해주세요." }); }
+    finally { setIsAnalyzing(false); }
+  }
+
+  function applyUrlSuggestion() {
+    if (!urlSuggestion) return;
+    setForm(prev => ({
+      ...prev,
+      chatbotName:         urlSuggestion.suggestedName        || prev.chatbotName,
+      defaultGuideMessage: urlSuggestion.suggestedDescription  || prev.defaultGuideMessage,
+      fallbackMessage:     urlSuggestion.suggestedFallback     || prev.fallbackMessage,
+    }));
+    setUrlSuggestion(null);
+    setToast({ tone: "success", message: "분석 결과가 설정에 적용되었습니다." });
+  }
   const [copied, setCopied] = useState(false);
 
   const isDirty = useMemo(() => JSON.stringify(form) !== JSON.stringify(snapshot), [form, snapshot]);
@@ -152,6 +187,45 @@ export default function AdminAiBasicPage() {
         <div style={{ padding: "40px 0", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>이 기관에 연결된 챗봇이 없습니다.</div>
       ) : (
         <>
+          {/* URL 자동 설정 섹션 */}
+          <SectionCard title="URL로 자동 설정" description="웹사이트 URL을 입력하면 AI가 내용을 분석해 챗봇 기본 설정값을 자동으로 제안합니다.">
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                value={urlInput}
+                onChange={e => setUrlInput(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") void analyzeUrl(); }}
+                placeholder="https://example.go.kr"
+                className="input-field"
+                style={{ flex: 1 }}
+              />
+              <button
+                type="button"
+                onClick={() => void analyzeUrl()}
+                disabled={isAnalyzing || !urlInput.trim() || !selectedChatbotId}
+                className="btn-primary"
+                style={{ padding: "8px 16px", display: "inline-flex", alignItems: "center", gap: 6, opacity: isAnalyzing || !urlInput.trim() ? 0.6 : 1 }}
+              >
+                {isAnalyzing
+                  ? <><Loader2 style={{ width: 14, height: 14, animation: "spin 1s linear infinite" }} />분석 중...</>
+                  : <><Wand2 style={{ width: 14, height: 14 }} />분석하기</>
+                }
+              </button>
+            </div>
+            {urlSuggestion && (
+              <div style={{ marginTop: 14, padding: 14, background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 10 }}>
+                <p style={{ fontSize: 12, fontWeight: 700, color: "#16a34a", marginBottom: 10 }}>✨ 분석 결과</p>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 13 }}>
+                  {urlSuggestion.suggestedName && <div><span style={{ color: "#6b7280" }}>챗봇 이름: </span><strong>{urlSuggestion.suggestedName}</strong></div>}
+                  {urlSuggestion.suggestedDescription && <div><span style={{ color: "#6b7280" }}>설명: </span>{urlSuggestion.suggestedDescription}</div>}
+                  {urlSuggestion.suggestedFallback && <div><span style={{ color: "#6b7280" }}>폴백: </span>{urlSuggestion.suggestedFallback}</div>}
+                </div>
+                <button type="button" onClick={applyUrlSuggestion} className="btn-primary" style={{ marginTop: 12, padding: "7px 16px", fontSize: 13 }}>
+                  설정에 적용하기
+                </button>
+              </div>
+            )}
+          </SectionCard>
+
           {/* 섹션 1: 챗봇 기본 정보 */}
           <SectionCard title="챗봇 기본 정보" icon={<Bot style={{ width: 18, height: 18 }} />}>
             <div className="grid grid-cols-1 gap-4">

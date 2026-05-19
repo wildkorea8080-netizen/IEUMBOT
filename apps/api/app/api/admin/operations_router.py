@@ -273,6 +273,24 @@ def admin_patch_chatbot(
     )
 
 
+@router.post("/chatbots/{chatbot_id}/analyze-url")
+def admin_analyze_url_for_chatbot(
+    chatbot_id: str,
+    body: dict,
+    principal: AdminPrincipal = Depends(require_institution_admin_auth),
+    db: Session = Depends(get_db_session),
+) -> dict:
+    """URL을 분석해 AI 기본 설정값을 자동 제안한다."""
+    from app.services.admin.url_analyzer_service import analyze_url_for_chatbot_settings  # noqa: PLC0415
+    url = str(body.get("url", "")).strip()
+    if not url:
+        from fastapi import HTTPException  # noqa: PLC0415
+        raise HTTPException(status_code=422, detail="URL_REQUIRED")
+    from app.services.admin.scope_service import ensure_chatbot_in_scope  # noqa: PLC0415
+    ensure_chatbot_in_scope(db, principal=principal, chatbot_id=chatbot_id)
+    return analyze_url_for_chatbot_settings(db, url=url)
+
+
 @router.post("/chatbots/{chatbot_id}/widget", response_model=AdminWidgetResponse, status_code=status.HTTP_201_CREATED)
 def admin_create_widget(
     chatbot_id: str,

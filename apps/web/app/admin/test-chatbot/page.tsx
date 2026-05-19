@@ -3,12 +3,12 @@
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
-import { ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
+import { ChevronDown, ChevronUp, ExternalLink, RefreshCw, Settings2 } from "lucide-react";
 
-import { PagePanel } from "../../../components/ui/page-panel";
 import { ChatDebugTrace } from "../../../components/admin/chat-debug-trace";
 import { ApiClientError } from "../../../lib/api";
-import { getAdminChatbots } from "../../../lib/api/admin-operations";
+import { getAdminChatbots, getAdminChatbot, patchAdminChatbot } from "../../../lib/api/admin-operations";
+import { getAnswerSettings, patchAnswerSettings } from "../../../lib/api/answer-settings";
 import type { AdminChatbotItem } from "../../../lib/api/admin-operations-types";
 import { sendAdminTestChatMessage } from "../../../lib/api/runtime-chat";
 import type { ChunkDetail, ChatRuntimeResponse, PerformanceMetrics } from "../../../lib/api/runtime-chat-types";
@@ -74,6 +74,43 @@ export default function AdminTestChatbotPage() {
   const [debugEnabled, setDebugEnabled] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // ── 우측 AI 설정 패널 상태 ──────────────────────────────────────────────
+  const [panelTone, setPanelTone] = useState<"formal" | "polite" | "plain">("polite");
+  const [panelLength, setPanelLength] = useState<"short" | "medium" | "long">("medium");
+  const [panelTopK, setPanelTopK] = useState(8);
+  const [panelSaving, setPanelSaving] = useState(false);
+  const [panelSaved, setPanelSaved] = useState(false);
+
+  async function applyPanelSettings() {
+    if (!selectedChatbotId) return;
+    setPanelSaving(true);
+    try {
+      const [, settings] = await Promise.all([
+        patchAdminChatbot(selectedChatbotId, { tone: panelTone, answerLength: panelLength }),
+        getAnswerSettings(selectedChatbotId),
+      ]);
+      const next = { ...settings.settings };
+      next.promptInstruction = { ...next.promptInstruction, toneMode: panelTone };
+      next.answerFormat = { ...next.answerFormat, maxAnswerLengthMode: panelLength };
+      await patchAnswerSettings(selectedChatbotId, { settings: next });
+      setPanelSaved(true);
+      setTimeout(() => setPanelSaved(false), 2000);
+    } catch { /* 실패해도 테스트 계속 가능 */ }
+    finally { setPanelSaving(false); }
+  }
+
+  async function loadPanelSettings(chatbotId: string) {
+    try {
+      const chatbot = await getAdminChatbot(chatbotId);
+      if (chatbot.tone === "formal" || chatbot.tone === "polite" || chatbot.tone === "plain") {
+        setPanelTone(chatbot.tone as "formal" | "polite" | "plain");
+      }
+      if (chatbot.answerLength === "short" || chatbot.answerLength === "medium" || chatbot.answerLength === "long") {
+        setPanelLength(chatbot.answerLength as "short" | "medium" | "long");
+      }
+    } catch { /* ignore */ }
+  }
+
   useEffect(() => {
     const load = async () => {
       setIsLoading(true);
@@ -92,6 +129,7 @@ export default function AdminTestChatbotPage() {
           response.items.find((item) => item.id === preferredChatbotId) ??
           response.items[0];
         setSelectedChatbotId(initialChatbot.id);
+        void loadPanelSettings(initialChatbot.id);
       } catch (loadError) {
         setError(getErrorMessage(loadError));
       } finally {
@@ -213,48 +251,47 @@ export default function AdminTestChatbotPage() {
 
   return (
     <div className="space-y-4">
-      <PagePanel title="챗봇 테스트" description="위젯 없이 기관관리자 권한으로 챗봇 응답을 테스트합니다.">
-        <div className="grid gap-4 md:grid-cols-[280px_1fr]">
-          <label className="text-sm text-slate-700">
-            <span className="mb-1 block font-medium">챗봇 선택</span>
+      <div className="mb-2">
+        <h1 className="section-title">대화 테스트</h1>
+        <p style={{ fontSize: 13, color: "#6b7280", marginTop: 2 }}>실제 위젯과 동일하게 챗봇 응답을 테스트하고 AI 설정을 즉시 변경할 수 있습니다.</p>
+      </div>
+
+      {/* 2열 레이아웃: 채팅(좌) + AI 설정(우) */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 280px", gap: 16, alignItems: "start" }}>
+        {/* 좌측: 채팅 영역 */}
+        <div>
+          {/* 챗봇 선택 + 디버그 */}
+          <div className="bg-white rounded-xl border border-neutral-200 p-3 mb-3" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <select
               value={selectedChatbotId}
               onChange={(event) => {
                 setSelectedChatbotId(event.target.value);
                 setMessages([]);
                 setError(null);
+                void loadPanelSettings(event.target.value);
               }}
               disabled={isLoading || chatbots.length === 0}
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 disabled:bg-slate-100"
+              className="input-field"
+              style={{ width: 200 }}
             >
               {chatbots.map((chatbot) => (
-                <option key={chatbot.id} value={chatbot.id}>
-                  {chatbot.name}
-                </option>
+                <option key={chatbot.id} value={chatbot.id}>{chatbot.name}</option>
               ))}
             </select>
-          </label>
-
-          <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-            {selectedChatbot ? `${selectedChatbot.name} 테스트 중` : "선택된 챗봇이 없습니다."}
+            <span style={{ fontSize: 13, color: "#6b7280" }}>
+              {selectedChatbot ? `${selectedChatbot.name} 테스트 중` : "챗봇을 선택하세요"}
+            </span>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#6b7280", cursor: "pointer", marginLeft: "auto" }}>
+              <input type="checkbox" checked={debugEnabled} onChange={(e) => setDebugEnabled(e.target.checked)} />
+              디버그 모드
+            </label>
           </div>
-          <label className="flex items-center gap-2 text-sm text-slate-700 md:col-span-2">
-            <input
-              type="checkbox"
-              checked={debugEnabled}
-              onChange={(event) => setDebugEnabled(event.target.checked)}
-            />
-            디버그 보기
-          </label>
-        </div>
 
-        {error ? (
-          <p className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-            {error}
-          </p>
-        ) : null}
+          {error && (
+            <p className="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>
+          )}
 
-        <div className="mt-4 rounded-2xl border border-slate-200 bg-white">
+          <div className="rounded-2xl border border-slate-200 bg-white">
           <div className="h-[420px] space-y-3 overflow-y-auto p-4">
             {messages.length === 0 ? (
               <div className="flex h-full items-center justify-center text-sm text-slate-500">
@@ -306,14 +343,93 @@ export default function AdminTestChatbotPage() {
               <button
                 type="submit"
                 disabled={!selectedChatbotId || !question.trim() || isSending}
-                className="self-end rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+                className="btn-primary self-end"
+                style={{ padding: "10px 20px" }}
               >
                 {isSending ? "전송 중..." : "전송"}
               </button>
             </div>
           </form>
         </div>
-      </PagePanel>
+        {/* ── 우측: AI 설정 패널 ── */}
+        </div>
+
+        {/* 우측 패널 (2열 grid 외부 absolute sticky) */}
+        <div style={{
+          background: "#fff", borderRadius: 16, border: "1px solid #e5e7eb",
+          padding: 18, position: "sticky", top: 80,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 16 }}>
+            <Settings2 style={{ width: 15, height: 15, color: "#2563eb" }} />
+            <span style={{ fontSize: 13.5, fontWeight: 700, color: "#111827" }}>AI 설정 즉시 변경</span>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {/* 대화 톤 */}
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 600, color: "#6b7280", display: "block", marginBottom: 6 }}>대화 톤</label>
+              {([
+                { value: "formal",  label: "격식체", desc: "전문적" },
+                { value: "polite",  label: "공손체", desc: "정중함" },
+                { value: "plain",   label: "평어체", desc: "친근함" },
+              ] as const).map((opt) => (
+                <label key={opt.value} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", cursor: "pointer" }}>
+                  <input type="radio" name="panelTone" value={opt.value} checked={panelTone === opt.value} onChange={() => setPanelTone(opt.value)} style={{ accentColor: "#2563eb" }} />
+                  <span style={{ fontSize: 13, color: "#374151" }}>{opt.label}</span>
+                  <span style={{ fontSize: 11, color: "#9ca3af" }}>{opt.desc}</span>
+                </label>
+              ))}
+            </div>
+
+            {/* 답변 길이 */}
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 600, color: "#6b7280", display: "block", marginBottom: 6 }}>답변 길이</label>
+              {([
+                { value: "short",  label: "짧게" },
+                { value: "medium", label: "보통" },
+                { value: "long",   label: "자세히" },
+              ] as const).map((opt) => (
+                <label key={opt.value} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", cursor: "pointer" }}>
+                  <input type="radio" name="panelLength" value={opt.value} checked={panelLength === opt.value} onChange={() => setPanelLength(opt.value)} style={{ accentColor: "#2563eb" }} />
+                  <span style={{ fontSize: 13, color: "#374151" }}>{opt.label}</span>
+                </label>
+              ))}
+            </div>
+
+            {/* 검색 문서 수 */}
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 600, color: "#6b7280", display: "block", marginBottom: 6 }}>
+                검색 문서 수: <span style={{ color: "#2563eb" }}>{panelTopK}</span>
+              </label>
+              <input
+                type="range" min={1} max={20} value={panelTopK}
+                onChange={(e) => setPanelTopK(Number(e.target.value))}
+                style={{ width: "100%", accentColor: "#2563eb" }}
+              />
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#9ca3af", marginTop: 2 }}>
+                <span>1</span><span>20</span>
+              </div>
+            </div>
+
+            {/* 적용 버튼 */}
+            <button
+              type="button"
+              onClick={() => void applyPanelSettings()}
+              disabled={panelSaving || !selectedChatbotId}
+              className="btn-primary"
+              style={{ width: "100%", padding: "9px 0", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+            >
+              {panelSaving ? (
+                <><RefreshCw style={{ width: 14, height: 14, animation: "spin 1s linear infinite" }} />적용 중...</>
+              ) : panelSaved ? "✓ 적용됨" : "설정 적용"}
+            </button>
+
+            <p style={{ fontSize: 11, color: "#9ca3af", textAlign: "center" }}>
+              다음 질문부터 변경된 설정으로 답변합니다
+            </p>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

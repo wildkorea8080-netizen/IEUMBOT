@@ -9,10 +9,9 @@ import { writeSelectedAdminChatbot } from "../../lib/admin-ui/selected-chatbot";
 export const AI_CHATBOT_STORAGE_KEY = "ieumbot_admin_ai_chatbot_id";
 
 const AI_TABS = [
-  { href: "/admin/ai/basic",       label: "기본 설정" },
-  { href: "/admin/ai/style",       label: "응답 스타일" },
-  { href: "/admin/answer-settings",label: "AI 고급설정" },
-  { href: "/admin/widget",         label: "위젯 설정" },
+  { href: "/admin/ai/basic",        label: "AI 기본 설정" },
+  { href: "/admin/ai/style",        label: "대화 스타일" },
+  { href: "/admin/answer-settings", label: "고급 설정" },
 ] as const;
 
 type ChatbotOption = { id: string; name: string; status: string };

@@ -33,6 +33,10 @@ type StyleForm = {
   limitDefinitiveExpression: boolean;
   showFreshnessNotice: boolean;
   customInstructions: string;
+  // 고급 설정
+  multilingualEnabled: boolean;
+  autoLinkify: boolean;
+  autoBold: boolean;
   responseFormatRules: FormatRule[];
 };
 
@@ -153,8 +157,8 @@ export default function AdminAiStylePage() {
   const [selectedChatbotId, setSelectedChatbotId] = useState("");
   const [selectedChatbot, setSelectedChatbot] = useState<AdminChatbotResponse | null>(null);
   const [serverSettings, setServerSettings] = useState<AnswerSettings | null>(null);
-  const [form, setForm] = useState<StyleForm>({ tonePreset: "public", responseLength: "medium", citationDisplay: "always", limitDefinitiveExpression: true, showFreshnessNotice: true, customInstructions: "", responseFormatRules: [] });
-  const [snapshot, setSnapshot] = useState<StyleForm>({ tonePreset: "public", responseLength: "medium", citationDisplay: "always", limitDefinitiveExpression: true, showFreshnessNotice: true, customInstructions: "", responseFormatRules: [] });
+  const [form, setForm] = useState<StyleForm>({ tonePreset: "public", responseLength: "medium", citationDisplay: "always", limitDefinitiveExpression: true, showFreshnessNotice: true, customInstructions: "", responseFormatRules: [], multilingualEnabled: false, autoLinkify: false, autoBold: false });
+  const [snapshot, setSnapshot] = useState<StyleForm>({ tonePreset: "public", responseLength: "medium", citationDisplay: "always", limitDefinitiveExpression: true, showFreshnessNotice: true, customInstructions: "", responseFormatRules: [], multilingualEnabled: false, autoLinkify: false, autoBold: false });
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -180,6 +184,9 @@ export default function AdminAiStylePage() {
         showFreshnessNotice: settings.settings.answerPolicy.requireLatestSourceCheckWarningWhenRelevant,
         customInstructions: chatbot.customInstructions ?? "",
         responseFormatRules: (chatbot.responseFormatRules ?? []) as FormatRule[],
+        multilingualEnabled: !!(chatbot.theme as Record<string, unknown>)?.multilingualEnabled,
+        autoLinkify:         !!(chatbot.theme as Record<string, unknown>)?.autoLinkify,
+        autoBold:            !!(chatbot.theme as Record<string, unknown>)?.autoBold,
       };
       setSelectedChatbot(chatbot);
       setServerSettings(settings.settings);
@@ -208,7 +215,14 @@ export default function AdminAiStylePage() {
         tone: toneMode,
         answerLength: form.responseLength,
         citationMode: citationDisplayMode,
-        theme: { ...(selectedChatbot.theme ?? {}), aiTonePreset: form.tonePreset, aiCitationPresentation: form.citationDisplay },
+        theme: {
+          ...(selectedChatbot.theme ?? {}),
+          aiTonePreset: form.tonePreset,
+          aiCitationPresentation: form.citationDisplay,
+          multilingualEnabled: form.multilingualEnabled,
+          autoLinkify: form.autoLinkify,
+          autoBold: form.autoBold,
+        },
         customInstructions: form.customInstructions,
         responseFormatRules: form.responseFormatRules,
       });
@@ -323,6 +337,30 @@ export default function AdminAiStylePage() {
               rules={form.responseFormatRules}
               onChange={rules => setForm(p => ({ ...p, responseFormatRules: rules }))}
             />
+          </SectionCard>
+
+          {/* 섹션 7: 고급 설정 */}
+          <SectionCard title="고급 설정" description="다국어 지원, 링크 자동 처리 등 AI 응답 세부 동작을 조정합니다.">
+            <div>
+              <ToggleField
+                label="다국어 자동 지원"
+                description="사용자 입력 언어를 감지해 동일 언어로 답변합니다. (한국어 외 영어 등 자동 대응)"
+                checked={form.multilingualEnabled}
+                onChange={v => setForm(p => ({ ...p, multilingualEnabled: v }))}
+              />
+              <ToggleField
+                label="링크 자동 처리"
+                description="답변 본문의 URL을 자동으로 클릭 가능한 링크로 변환합니다."
+                checked={form.autoLinkify}
+                onChange={v => setForm(p => ({ ...p, autoLinkify: v }))}
+              />
+              <ToggleField
+                label="주요 단어 볼드 처리"
+                description="답변의 핵심 용어와 제목을 자동으로 굵게 표시합니다."
+                checked={form.autoBold}
+                onChange={v => setForm(p => ({ ...p, autoBold: v }))}
+              />
+            </div>
           </SectionCard>
 
           <SaveButton onClick={() => void save()} disabled={!isDirty || isSaving || isLoading || !selectedChatbotId} isSaving={isSaving} />
