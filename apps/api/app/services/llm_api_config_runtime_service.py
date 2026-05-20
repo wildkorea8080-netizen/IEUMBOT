@@ -123,13 +123,17 @@ def resolve_runtime_api_config(db) -> ResolvedLLMApiConfig | None:
                 logger.warning("Failed to decrypt active LLM API config", extra={"api_config_id": config_id})
                 config = None
             else:
+                try:
+                    fast_model_val = config.fast_model  # noqa: SIM910
+                except Exception:
+                    fast_model_val = None
                 return ResolvedLLMApiConfig(
                     source="system_api_config",
                     provider=config.provider,
                     api_key=api_key,
                     base_url=config.base_url,
                     default_model=config.default_model,
-                    fast_model=getattr(config, "fast_model", None),
+                    fast_model=fast_model_val,
                     embedding_model=config.embedding_model,
                     api_config_id=config_id,
                 )

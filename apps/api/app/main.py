@@ -11,6 +11,34 @@ from app.core.logging import setup_logging
 from app.core.middleware import MaintenanceModeMiddleware, RequestLoggingMiddleware
 
 
+def _ensure_critical_columns() -> None:
+    """Alembic 마이그레이션 실패 보완: 핵심 컬럼 누락 시 직접 추가."""
+    try:
+        from app.db import engine  # noqa: PLC0415
+        with engine.connect() as conn:
+            critical = [
+                ("system_api_configs", "fast_model", "VARCHAR(120)"),
+                ("knowledge_staging_sessions", "total_chunks", "INTEGER DEFAULT 0"),
+            ]
+            for table, col, col_type in critical:
+                result = conn.execute(__import__("sqlalchemy").text(
+                    f"SELECT column_name FROM information_schema.columns "
+                    f"WHERE table_name='{table}' AND column_name='{col}'"
+                ))
+                if result.fetchone() is None:
+                    try:
+                        conn.execute(__import__("sqlalchemy").text(
+                            f"ALTER TABLE {table} ADD COLUMN {col} {col_type}"
+                        ))
+                        conn.commit()
+                        logging.getLogger(__name__).info("[STARTUP] Added missing column %s.%s", table, col)
+                    except Exception as col_exc:
+                        logging.getLogger(__name__).warning("[STARTUP] Could not add %s.%s: %s", table, col, col_exc)
+                        conn.rollback()
+    except Exception as exc:
+        logging.getLogger(__name__).warning("[STARTUP] Column check skipped: %s", exc)
+
+
 def _run_migrations() -> None:
     """시작 시 Alembic 마이그레이션 자동 적용 (이미 적용된 것은 건너뜀)."""
     try:
@@ -27,6 +55,9 @@ def _run_migrations() -> None:
         logging.getLogger(__name__).info("[MIGRATION] alembic upgrade head completed")
     except Exception as exc:
         logging.getLogger(__name__).warning("[MIGRATION] auto-migration failed (non-fatal): %s", exc)
+    finally:
+        # Alembic 실패해도 핵심 컬럼은 직접 보장
+        _ensure_critical_columns()
 
 
 @asynccontextmanager
