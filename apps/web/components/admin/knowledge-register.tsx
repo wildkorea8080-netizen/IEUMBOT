@@ -11,12 +11,12 @@ import {
 import { ApiClientError } from "../../lib/api";
 import { writeSelectedAdminChatbot } from "../../lib/admin-ui/selected-chatbot";
 import {
-  createKnowledgeText,
   createKnowledgeWebsite,
+  createKnowledgeTextToStaging,
   getAdminChatbots,
   getKnowledgeDetail,
   getKnowledgeRuntimeStatus,
-  uploadKnowledgeFile,
+  uploadKnowledgeFileToStaging,
 } from "../../lib/api/admin-operations";
 import type {
   AdminChatbotItem,
@@ -319,15 +319,7 @@ export function KnowledgeRegister() {
     setIsSubmitting(true); setError(null);
     setSubmitStatus("AI가 파일을 분석해 주제를 분류하는 중입니다. 잠시 기다려 주세요...");
     try {
-      const formData = new FormData();
-      formData.append("chatbot_id", fileForm.chatbotId);
-      formData.append("file", selectedFile);
-      const NEXT_PUBLIC_API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
-      const resp = await fetch(`${NEXT_PUBLIC_API_BASE_URL}/admin/knowledge/staging/file`, {
-        method: "POST", body: formData, credentials: "include",
-      });
-      if (!resp.ok) throw new Error(`STAGING_FAILED:${resp.status}`);
-      const session = await resp.json() as { sessionId: string };
+      const session = await uploadKnowledgeFileToStaging({ chatbotId: fileForm.chatbotId, file: selectedFile });
       router.push(`/admin/knowledge/review?session=${session.sessionId}`);
     } catch (e) { setError(getErrorMessage(e)); setSubmitStatus(null); }
     finally { setIsSubmitting(false); }
@@ -338,10 +330,10 @@ export function KnowledgeRegister() {
     setIsSubmitting(true); setError(null);
     setSubmitStatus("AI가 내용을 분석해 주제를 분류하는 중입니다. 잠시 기다려 주세요...");
     try {
-      const { apiClient: _client } = await import("../../lib/api/client");
-      const session = await _client.request<{ sessionId: string }>("/admin/knowledge/staging/text", {
-        method: "POST",
-        body: { chatbotId: textForm.chatbotId, title: textForm.title || "텍스트 입력", content: textForm.content },
+      const session = await createKnowledgeTextToStaging({
+        chatbotId: textForm.chatbotId,
+        title: textForm.title || "텍스트 입력",
+        content: textForm.content,
       });
       router.push(`/admin/knowledge/review?session=${session.sessionId}`);
     } catch (e) { setError(getErrorMessage(e)); setSubmitStatus(null); }

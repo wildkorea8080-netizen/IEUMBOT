@@ -269,6 +269,71 @@ export async function uploadKnowledgeFile(body: {
   return (await response.json()) as KnowledgeDetail;
 }
 
+export type StagingSessionResponse = {
+  sessionId: string;
+  chatbotId: string;
+  sourceType: string;
+  sourceName: string | null;
+  status: string;
+  totalChunks: number;
+  chunks: Array<{
+    id: string;
+    topicTitle: string;
+    content: string;
+    tags: string[];
+    piiDetected: boolean;
+    piiRegions: Array<{ start: number; end: number; type: string; preview: string }>;
+    mergeCandidateTitle: string | null;
+    mergeCandidateId: string | null;
+    mergeScore: number | null;
+    registrationType: "new" | "merge";
+    status: "pending" | "registered" | "skipped";
+    sortOrder: number;
+  }>;
+};
+
+export async function uploadKnowledgeFileToStaging(body: {
+  chatbotId: string;
+  file: File;
+}): Promise<StagingSessionResponse> {
+  const token = getAdminAccessToken();
+  const formData = new FormData();
+  formData.set("chatbot_id", body.chatbotId);
+  formData.set("file", body.file);
+
+  const baseUrl = getApiBaseUrl();
+  const response = await fetch(`${baseUrl}/admin/knowledge/staging/file`, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: formData,
+    credentials: "include",
+  });
+
+  if (!response.ok) {
+    if (response.status === 401) clearAdminAccessToken();
+    let detail = `STAGING_FAILED:${response.status}`;
+    try {
+      const payload = (await response.json()) as { detail?: unknown };
+      const parsed = formatUnknownApiDetail(payload.detail);
+      if (parsed) detail = parsed;
+    } catch { /* ignore */ }
+    throw new Error(detail);
+  }
+
+  return (await response.json()) as StagingSessionResponse;
+}
+
+export async function createKnowledgeTextToStaging(body: {
+  chatbotId: string;
+  title: string;
+  content: string;
+}): Promise<StagingSessionResponse> {
+  return apiClient.request<StagingSessionResponse>("/admin/knowledge/staging/text", {
+    method: "POST",
+    body: { chatbotId: body.chatbotId, title: body.title, content: body.content },
+  });
+}
+
 export async function generateFaqFromKnowledge(
   knowledgeId: string,
   chatbotId: string,
