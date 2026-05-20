@@ -626,6 +626,139 @@ def _rule_based_follow_up(
     )
 
 
+_KO_STOPWORDS = {
+    "은", "는", "이", "가", "을", "를", "의", "에", "에서", "으로", "로",
+    "와", "과", "도", "만", "이다", "입니다", "했", "하는", "있는", "없는",
+    "하면", "있으면", "어떻게", "무엇", "언제", "어디", "왜", "누구",
+}
+
+
+def _keyword_select_from_pool(
+    question: str,
+    answer_text: str,
+    pool: list[str],
+) -> list[str]:
+    """
+    사전 등록 질문 풀에서 현재 Q&A와 키워드 오버랩이 높은 상위 3개 선택.
+    오버랩이 없는 항목은 제외하되, 부족하면 풀에서 순서대로 보완.
+    """
+    if not pool:
+        return []
+
+    context_words = set((question + " " + answer_text).lower().split()) - _KO_STOPWORDS
+
+    scored: list[tuple[int, str]] = []
+    for q in pool:
+        q_words = set(q.lower().split()) - _KO_STOPWORDS
+        overlap = len(context_words & q_words)
+        scored.append((overlap, q))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    # 오버랩 있는 것 우선, 없으면 순서대로
+    result = [q for score, q in scored if score > 0][:3]
+    if len(result) < 3:
+        extra = [q for score, q in scored if score == 0][: 3 - len(result)]
+        result += extra
+
+    return result[:3]
+
+
+def _llm_select_from_pool(
+    question: str,
+    answer_text: str,
+    pool: list[str],
+    db: Any,
+) -> list[str]:
+    """
+    LLM에게 풀 목록 + 현재 Q&A를 주고 가장 관련성 높은 3개 번호 선택 요청.
+    실패 시 [] 반환 → 호출자가 키워드 방식으로 폴백.
+    """
+    import json as _json
+    import re as _re
+    import urllib.error as _urlerr
+    import urllib.request as _urlreq
+
+    from app.services.llm_api_config_runtime_service import resolve_runtime_api_config as _resolve  # noqa: PLC0415
+
+    try:
+        runtime_api = _resolve(db)
+    except Exception:
+        return []
+    if runtime_api is None:
+        return []
+
+    pool_text = "\n".join(f"{i + 1}. {q}" for i, q in enumerate(pool[:30]))
+    user_prompt = (
+        "현재 대화:\n"
+        f"질문: {question}\n"
+        f"답변: {answer_text[:400]}\n\n"
+        "아래 질문 목록에서 사용자가 다음으로 물어볼 가능성이 가장 높은 질문 3개의 번호를\n"
+        "JSON 배열로 응답하세요. 예: [1, 5, 12]\n\n"
+        f"질문 목록:\n{pool_text}"
+    )
+
+    model = runtime_api.default_model or "gpt-4.1-mini"
+    headers: dict[str, str] = {"Content-Type": "application/json"}
+
+    if runtime_api.provider == "anthropic":
+        url = (
+            f"{runtime_api.base_url.rstrip('/')}/v1/messages"
+            if runtime_api.base_url else "https://api.anthropic.com/v1/messages"
+        )
+        payload: dict[str, Any] = {
+            "model": model, "temperature": 0, "max_tokens": 60,
+            "system": "JSON 배열만 출력하세요. 설명 없이.",
+            "messages": [{"role": "user", "content": user_prompt}],
+        }
+        headers.update({"x-api-key": runtime_api.api_key, "anthropic-version": "2023-06-01"})
+    else:
+        url = (
+            f"{runtime_api.base_url.rstrip('/')}/responses"
+            if runtime_api.base_url else "https://api.openai.com/v1/responses"
+        )
+        payload = {
+            "model": model, "temperature": 0, "max_output_tokens": 60,
+            "input": [
+                {"role": "system", "content": [{"type": "input_text", "text": "JSON 배열만 출력하세요. 설명 없이."}]},
+                {"role": "user", "content": [{"type": "input_text", "text": user_prompt}]},
+            ],
+        }
+        headers["Authorization"] = f"Bearer {runtime_api.api_key}"
+
+    try:
+        req = _urlreq.Request(
+            url=url,
+            data=_json.dumps(payload, ensure_ascii=False).encode(),
+            headers=headers,
+            method="POST",
+        )
+        with _urlreq.urlopen(req, timeout=5) as resp:
+            result = _json.loads(resp.read().decode())
+
+        if runtime_api.provider == "anthropic":
+            raw = ""
+            for block in result.get("content") or []:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    raw = str(block.get("text") or "")
+                    break
+        else:
+            raw = result.get("output_text") or ""
+            if not raw:
+                for item in result.get("output") or []:
+                    for c in (item.get("content") or []):
+                        if isinstance(c, dict) and c.get("type") == "output_text":
+                            raw = str(c.get("text") or "")
+                            break
+
+        m = _re.search(r"\[[\d,\s]+\]", raw)
+        if not m:
+            return []
+        indices = _json.loads(m.group(0))
+        return [pool[i - 1] for i in indices if isinstance(i, int) and 1 <= i <= len(pool)][:3]
+    except (_urlerr.HTTPError, Exception):
+        return []
+
+
 def _build_follow_up_questions(
     question: str,
     answer_text: str,
@@ -634,12 +767,27 @@ def _build_follow_up_questions(
     db: Any,
     natural_conversation: bool = False,
     privacy_blocked: bool = False,
+    question_pool: list[str] | None = None,
+    follow_up_enabled: bool = True,
 ) -> list[str]:
-    if natural_conversation or privacy_blocked:
+    if natural_conversation or privacy_blocked or not follow_up_enabled:
         return []
     if outcome != "answered":
         return FALLBACK_FOLLOW_UP_QUESTIONS.copy()
 
+    # ── 풀 기반 선택 (관리자가 사전 등록한 질문 풀) ───────────────────────────
+    if question_pool:
+        if _USE_DYNAMIC_FOLLOWUP and db is not None:
+            # LLM이 풀에서 관련성 높은 3개 선택 (더 정확)
+            selected = _llm_select_from_pool(question, answer_text, question_pool, db)
+            if selected:
+                return selected
+        # LLM 미사용 또는 실패 시 키워드 오버랩으로 선택
+        keyword_selected = _keyword_select_from_pool(question, answer_text, question_pool)
+        if keyword_selected:
+            return keyword_selected
+
+    # ── 풀 없음: 기존 동적/규칙 생성 ─────────────────────────────────────────
     if _USE_DYNAMIC_FOLLOWUP and db is not None:
         result = _generate_followup_with_llm(question, answer_text, db)
         if result:
@@ -2167,6 +2315,14 @@ def run_final_chat_pipeline(
         except Exception:
             db.rollback()
 
+    # 챗봇 theme에서 추천 질문 풀 + followUpEnabled 추출
+    _chatbot_theme = dict(chatbot.theme or {}) if chatbot.theme else {}
+    _question_pool: list[str] = [
+        q for q in (_chatbot_theme.get("recommendedQuestionsPool") or [])
+        if isinstance(q, str) and q.strip()
+    ]
+    _follow_up_enabled: bool = _chatbot_theme.get("followUpEnabled", True) is not False
+
     follow_up_questions = _build_follow_up_questions(
         body.question,
         answer_text,
@@ -2174,6 +2330,8 @@ def run_final_chat_pipeline(
         prompt_candidates,
         db,
         natural_conversation=natural_conversation,
+        question_pool=_question_pool or None,
+        follow_up_enabled=_follow_up_enabled,
     )
     follow_up_source = (
         "llm_dynamic" if (follow_up_questions and _USE_DYNAMIC_FOLLOWUP)

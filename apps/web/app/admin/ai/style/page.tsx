@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Building2, Plus, Smile, X, Zap } from "lucide-react";
+import { Building2, Info, Plus, Smile, Volume2, X, Zap } from "lucide-react";
 
 import {
   AI_CHATBOT_STORAGE_KEY,
@@ -18,7 +18,7 @@ import { getAnswerSettings, patchAnswerSettings } from "../../../../lib/api/answ
 import type { AnswerSettings } from "../../../../lib/api/answer-settings-types";
 import type { AdminChatbotItem, AdminChatbotResponse } from "../../../../lib/api/admin-operations-types";
 
-// ── 타입 / 유틸 ──────────────────────────────────────────
+// ── 타입 ──────────────────────────────────────────────────
 
 type FormatRule = {
   keywords: string[];
@@ -33,11 +33,25 @@ type StyleForm = {
   limitDefinitiveExpression: boolean;
   showFreshnessNotice: boolean;
   customInstructions: string;
+  // 추천 질문 풀
+  recommendedQuestionsPool: string[];
   // 고급 설정
+  followUpEnabled: boolean;
+  sentimentAnalysis: boolean;
   multilingualEnabled: boolean;
   autoLinkify: boolean;
   autoBold: boolean;
+  // 응답 형식 규칙
   responseFormatRules: FormatRule[];
+};
+
+const DEFAULT_FORM: StyleForm = {
+  tonePreset: "public", responseLength: "medium", citationDisplay: "always",
+  limitDefinitiveExpression: true, showFreshnessNotice: true, customInstructions: "",
+  recommendedQuestionsPool: [],
+  followUpEnabled: true, sentimentAnalysis: false, multilingualEnabled: false,
+  autoLinkify: false, autoBold: false,
+  responseFormatRules: [],
 };
 
 function getErrorMessage(error: unknown): string {
@@ -65,7 +79,67 @@ function deriveCitationDisplay(chatbot: AdminChatbotResponse, settings: AnswerSe
   return "always";
 }
 
-// ── 메인 컴포넌트 ─────────────────────────────────────────
+// ── 추천 질문 풀 에디터 ────────────────────────────────────
+
+function RecommendedQuestionsEditor({
+  questions, onChange,
+}: { questions: string[]; onChange: (qs: string[]) => void }) {
+  const [input, setInput] = useState("");
+
+  function add() {
+    const q = input.trim();
+    if (!q || questions.includes(q)) return;
+    onChange([...questions, q]);
+    setInput("");
+  }
+
+  return (
+    <div>
+      <p style={{ fontSize: 12, color: "#6b7280", marginBottom: 12, lineHeight: 1.6 }}>
+        자주 묻는 질문을 미리 등록하면 AI가 현재 대화 맥락과 가장 관련성 높은 질문을 자동으로 골라 추천합니다.
+        등록하지 않으면 AI가 자체 생성합니다.
+      </p>
+
+      {questions.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
+          {questions.map((q, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8 }}>
+              <span style={{ flex: 1, fontSize: 13, color: "#374151" }}>{q}</span>
+              <button type="button" onClick={() => onChange(questions.filter((_, j) => j !== i))}
+                style={{ background: "none", border: "none", cursor: "pointer", color: "#94a3b8", padding: 0 }}>
+                <X style={{ width: 14, height: 14 }} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 8 }}>
+        <input
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
+          placeholder="예: 신청 방법이 어떻게 되나요?"
+          className="input-field"
+          style={{ flex: 1 }}
+          maxLength={60}
+        />
+        <button type="button" onClick={add} disabled={!input.trim()} className="btn-secondary"
+          style={{ padding: "8px 14px", display: "inline-flex", alignItems: "center", gap: 5, opacity: !input.trim() ? 0.5 : 1 }}>
+          <Plus style={{ width: 13, height: 13 }} />추가
+        </button>
+      </div>
+
+      {questions.length > 0 && (
+        <p style={{ fontSize: 11, color: "#94a3b8", marginTop: 8 }}>
+          {questions.length}개 등록됨 · 대화 맥락에 따라 상위 3개가 자동 선택됩니다
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ── 응답 형식 규칙 에디터 ──────────────────────────────────
 
 const FORMAT_LABELS: Record<string, string> = { text: "텍스트", view: "카드형", list: "리스트" };
 
@@ -79,12 +153,7 @@ function FormatRulesEditor({ rules, onChange }: { rules: FormatRule[]; onChange:
 
   function addRule() {
     if (editKws.length === 0) return;
-    const newRule: FormatRule = {
-      keywords: editKws,
-      format: fmt,
-      moreLink: mlTitle && mlUrl ? { title: mlTitle, url: mlUrl } : null,
-    };
-    onChange([...rules, newRule]);
+    onChange([...rules, { keywords: editKws, format: fmt, moreLink: mlTitle && mlUrl ? { title: mlTitle, url: mlUrl } : null }]);
     setEditKws([]); setFmt("text"); setMlTitle(""); setMlUrl(""); setAdding(false);
   }
 
@@ -115,7 +184,6 @@ function FormatRulesEditor({ rules, onChange }: { rules: FormatRule[]; onChange:
           ))}
         </div>
       )}
-
       {adding ? (
         <div style={{ border: "1px solid #e2e8f0", borderRadius: 10, padding: 14, background: "#f8fafc" }}>
           <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
@@ -129,9 +197,11 @@ function FormatRulesEditor({ rules, onChange }: { rules: FormatRule[]; onChange:
             </select>
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
-            {editKws.map(k => <span key={k} style={{ fontSize: 12, background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 6, padding: "3px 10px", color: "#1d4ed8", display: "inline-flex", alignItems: "center", gap: 4 }}>
-              {k}<button type="button" onClick={() => setEditKws(p => p.filter(x => x !== k))} style={{ background: "none", border: "none", cursor: "pointer", color: "#94a3b8", fontSize: 11 }}>✕</button>
-            </span>)}
+            {editKws.map(k => (
+              <span key={k} style={{ fontSize: 12, background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 6, padding: "3px 10px", color: "#1d4ed8", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                {k}<button type="button" onClick={() => setEditKws(p => p.filter(x => x !== k))} style={{ background: "none", border: "none", cursor: "pointer", color: "#94a3b8", fontSize: 11 }}>✕</button>
+              </span>
+            ))}
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
             <input value={mlTitle} onChange={e => setMlTitle(e.target.value)} placeholder="더보기 텍스트 (선택)" className="input-field" />
@@ -152,13 +222,15 @@ function FormatRulesEditor({ rules, onChange }: { rules: FormatRule[]; onChange:
   );
 }
 
+// ── 메인 컴포넌트 ──────────────────────────────────────────
+
 export default function AdminAiStylePage() {
   const [chatbots, setChatbots] = useState<AdminChatbotItem[]>([]);
   const [selectedChatbotId, setSelectedChatbotId] = useState("");
   const [selectedChatbot, setSelectedChatbot] = useState<AdminChatbotResponse | null>(null);
   const [serverSettings, setServerSettings] = useState<AnswerSettings | null>(null);
-  const [form, setForm] = useState<StyleForm>({ tonePreset: "public", responseLength: "medium", citationDisplay: "always", limitDefinitiveExpression: true, showFreshnessNotice: true, customInstructions: "", responseFormatRules: [], multilingualEnabled: false, autoLinkify: false, autoBold: false });
-  const [snapshot, setSnapshot] = useState<StyleForm>({ tonePreset: "public", responseLength: "medium", citationDisplay: "always", limitDefinitiveExpression: true, showFreshnessNotice: true, customInstructions: "", responseFormatRules: [], multilingualEnabled: false, autoLinkify: false, autoBold: false });
+  const [form, setForm] = useState<StyleForm>(DEFAULT_FORM);
+  const [snapshot, setSnapshot] = useState<StyleForm>(DEFAULT_FORM);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -176,6 +248,8 @@ export default function AdminAiStylePage() {
     setIsLoading(true); setError(null);
     try {
       const [chatbot, settings] = await Promise.all([getAdminChatbot(preferred.id), getAnswerSettings(preferred.id)]);
+      const theme = (chatbot.theme ?? {}) as Record<string, unknown>;
+      const pool = Array.isArray(theme.recommendedQuestionsPool) ? theme.recommendedQuestionsPool as string[] : [];
       const nextForm: StyleForm = {
         tonePreset: deriveTonePreset(chatbot, settings.settings),
         responseLength: chatbot.answerLength as StyleForm["responseLength"],
@@ -183,10 +257,13 @@ export default function AdminAiStylePage() {
         limitDefinitiveExpression: settings.settings.answerPolicy.disallowDefinitiveClaims,
         showFreshnessNotice: settings.settings.answerPolicy.requireLatestSourceCheckWarningWhenRelevant,
         customInstructions: chatbot.customInstructions ?? "",
+        recommendedQuestionsPool: pool,
+        followUpEnabled:    theme.followUpEnabled !== false,
+        sentimentAnalysis:  !!theme.sentimentAnalysis,
+        multilingualEnabled: !!theme.multilingualEnabled,
+        autoLinkify:        !!theme.autoLinkify,
+        autoBold:           !!theme.autoBold,
         responseFormatRules: (chatbot.responseFormatRules ?? []) as FormatRule[],
-        multilingualEnabled: !!(chatbot.theme as Record<string, unknown>)?.multilingualEnabled,
-        autoLinkify:         !!(chatbot.theme as Record<string, unknown>)?.autoLinkify,
-        autoBold:            !!(chatbot.theme as Record<string, unknown>)?.autoBold,
       };
       setSelectedChatbot(chatbot);
       setServerSettings(settings.settings);
@@ -219,6 +296,9 @@ export default function AdminAiStylePage() {
           ...(selectedChatbot.theme ?? {}),
           aiTonePreset: form.tonePreset,
           aiCitationPresentation: form.citationDisplay,
+          recommendedQuestionsPool: form.recommendedQuestionsPool,
+          followUpEnabled: form.followUpEnabled,
+          sentimentAnalysis: form.sentimentAnalysis,
           multilingualEnabled: form.multilingualEnabled,
           autoLinkify: form.autoLinkify,
           autoBold: form.autoBold,
@@ -302,58 +382,88 @@ export default function AdminAiStylePage() {
           {/* 섹션 4: 주의 표현 */}
           <SectionCard title="주의 표현" description="운영상 민감한 표현을 기본 응답 톤에서 제어합니다.">
             <div>
-              <ToggleField
-                label="확정 표현 제한"
-                description="지원 대상 확정, 결과 보장처럼 단정적인 표현을 기본적으로 제한합니다."
-                checked={form.limitDefinitiveExpression}
-                onChange={v => setForm(p => ({ ...p, limitDefinitiveExpression: v }))}
-              />
-              <ToggleField
-                label="최신성 주의문 표시"
-                description="최신 공고나 변경 가능성이 있는 정보에는 확인 안내 문구를 우선 표시합니다."
-                checked={form.showFreshnessNotice}
-                onChange={v => setForm(p => ({ ...p, showFreshnessNotice: v }))}
-              />
+              <ToggleField label="확정 표현 제한" description="지원 대상 확정, 결과 보장처럼 단정적인 표현을 기본적으로 제한합니다." checked={form.limitDefinitiveExpression} onChange={v => setForm(p => ({ ...p, limitDefinitiveExpression: v }))} />
+              <ToggleField label="최신성 주의문 표시" description="최신 공고나 변경 가능성이 있는 정보에는 확인 안내 문구를 우선 표시합니다." checked={form.showFreshnessNotice} onChange={v => setForm(p => ({ ...p, showFreshnessNotice: v }))} />
             </div>
           </SectionCard>
 
           {/* 섹션 5: 추가 지시문 */}
           <SectionCard title="추가 지시문" description="이 챗봇에만 적용할 자유 형식 지시사항을 입력합니다. System Prompt 마지막에 삽입됩니다. (최대 500자)">
-            <textarea
-              value={form.customInstructions}
-              onChange={e => setForm(p => ({ ...p, customInstructions: e.target.value.slice(0, 500) }))}
-              rows={4}
-              className="input-field"
-              placeholder="예: 답변 마지막에 반드시 담당자 연락처를 안내하세요. / 영어 질문에는 한국어로 답변하세요."
-            />
-            <p style={{ fontSize: 12, color: "#94a3b8", marginTop: 4, textAlign: "right" }}>
-              {form.customInstructions.length} / 500
-            </p>
+            <textarea value={form.customInstructions} onChange={e => setForm(p => ({ ...p, customInstructions: e.target.value.slice(0, 500) }))} rows={4} className="input-field" placeholder="예: 답변 마지막에 반드시 담당자 연락처를 안내하세요. / 영어 질문에는 한국어로 답변하세요." />
+            <p style={{ fontSize: 12, color: "#94a3b8", marginTop: 4, textAlign: "right" }}>{form.customInstructions.length} / 500</p>
           </SectionCard>
 
-          {/* 섹션 6: 응답 형식 규칙 (Sprint 3-F) */}
-          <SectionCard title="응답 형식 규칙" description="특정 키워드가 포함된 질문에 텍스트/카드/리스트 형식으로 응답을 구조화합니다.">
-            <FormatRulesEditor
-              rules={form.responseFormatRules}
-              onChange={rules => setForm(p => ({ ...p, responseFormatRules: rules }))}
+          {/* 섹션 6: 추천 질문 풀 관리 */}
+          <SectionCard
+            title="추천 질문 관리"
+            description="자주 묻는 질문을 미리 등록하면 AI가 현재 대화와 가장 관련성 높은 질문을 선택해 추천합니다."
+          >
+            <RecommendedQuestionsEditor
+              questions={form.recommendedQuestionsPool}
+              onChange={qs => setForm(p => ({ ...p, recommendedQuestionsPool: qs }))}
             />
+            {form.recommendedQuestionsPool.length === 0 && (
+              <div style={{ marginTop: 10, padding: "10px 14px", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, fontSize: 12, color: "#92400e" }}>
+                💡 등록된 질문이 없으면 AI가 자체적으로 추천 질문을 생성합니다. 자주 묻는 질문을 등록할수록 더 정확한 추천이 가능합니다.
+              </div>
+            )}
           </SectionCard>
 
           {/* 섹션 7: 고급 설정 */}
-          <SectionCard title="고급 설정" description="다국어 지원, 링크 자동 처리 등 AI 응답 세부 동작을 조정합니다.">
+          <SectionCard title="고급 설정" description="AI 대화 에이전트의 추가 기능을 활성화하여 더 정교한 응대를 제공합니다.">
             <div>
+              {/* 부정 질문 자동 차단 - 기본 적용, 비활성화 불가 */}
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "14px 0", borderBottom: "1px solid #f1f5f9" }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: "#1e293b" }}>부정 질문 자동 차단</span>
+                    <span style={{ fontSize: 11, fontWeight: 600, background: "#dcfce7", color: "#15803d", borderRadius: 4, padding: "1px 7px" }}>기본 적용</span>
+                  </div>
+                  <p style={{ fontSize: 12, color: "#64748b", marginTop: 3 }}>비방, 욕설, 혐오 표현 등 부적절한 질문에 AI가 자동으로 시스템 메시지를 제공합니다.</p>
+                </div>
+                <Info style={{ width: 16, height: 16, color: "#94a3b8", flexShrink: 0, marginTop: 2 }} />
+              </div>
+
+              <ToggleField
+                label="관련 질문 추천"
+                description="사용자 질문과 관련된 추가 질문을 AI가 추천해 대화를 자연스럽게 이어갈 수 있도록 지원합니다."
+                checked={form.followUpEnabled}
+                onChange={v => setForm(p => ({ ...p, followUpEnabled: v }))}
+              />
+
+              <ToggleField
+                label="감정 분석 활성화"
+                description="사용자의 감정 상태를 파악해 상황에 맞는 톤으로 응대할 수 있도록 돕습니다."
+                checked={form.sentimentAnalysis}
+                onChange={v => setForm(p => ({ ...p, sentimentAnalysis: v }))}
+              />
+
+              {/* 음성 답변 - coming soon */}
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "14px 0", borderBottom: "1px solid #f1f5f9", opacity: 0.5 }}>
+                <Volume2 style={{ width: 16, height: 16, color: "#94a3b8", flexShrink: 0, marginTop: 2 }} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: "#1e293b" }}>음성 답변 지원</span>
+                    <span style={{ fontSize: 11, fontWeight: 600, background: "#f1f5f9", color: "#64748b", borderRadius: 4, padding: "1px 7px" }}>추후 제공 예정</span>
+                  </div>
+                  <p style={{ fontSize: 12, color: "#64748b", marginTop: 3 }}>텍스트 답변을 음성으로 변환해 제공하는 기능입니다.</p>
+                </div>
+              </div>
+
               <ToggleField
                 label="다국어 자동 지원"
-                description="사용자 입력 언어를 감지해 동일 언어로 답변합니다. (한국어 외 영어 등 자동 대응)"
+                description="사용자 입력 언어를 감지해 동일 언어로 답변합니다. (영어, 중국어, 일본어 등 자동 대응)"
                 checked={form.multilingualEnabled}
                 onChange={v => setForm(p => ({ ...p, multilingualEnabled: v }))}
               />
+
               <ToggleField
                 label="링크 자동 처리"
                 description="답변 본문의 URL을 자동으로 클릭 가능한 링크로 변환합니다."
                 checked={form.autoLinkify}
                 onChange={v => setForm(p => ({ ...p, autoLinkify: v }))}
               />
+
               <ToggleField
                 label="주요 단어 볼드 처리"
                 description="답변의 핵심 용어와 제목을 자동으로 굵게 표시합니다."
@@ -361,6 +471,11 @@ export default function AdminAiStylePage() {
                 onChange={v => setForm(p => ({ ...p, autoBold: v }))}
               />
             </div>
+          </SectionCard>
+
+          {/* 섹션 8: 응답 형식 규칙 */}
+          <SectionCard title="응답 형식 규칙" description="특정 키워드가 포함된 질문에 텍스트/카드/리스트 형식으로 응답을 구조화합니다.">
+            <FormatRulesEditor rules={form.responseFormatRules} onChange={rules => setForm(p => ({ ...p, responseFormatRules: rules }))} />
           </SectionCard>
 
           <SaveButton onClick={() => void save()} disabled={!isDirty || isSaving || isLoading || !selectedChatbotId} isSaving={isSaving} />
