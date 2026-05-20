@@ -3,8 +3,163 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
-  AlertTriangle, ChevronRight, GitMerge, Loader2, Plus, Shield, Tag,
+  ChevronRight, Eye, GitMerge, Loader2, PenLine, Plus, Shield, Tag, AlertTriangle,
 } from "lucide-react";
+
+// ── Word-level diff (LCS 기반) ────────────────────────────────────────────────
+
+type DiffToken = { type: "equal" | "add" | "remove"; text: string };
+
+function computeWordDiff(original: string, modified: string): DiffToken[] {
+  // 단어/공백 단위 토큰화
+  const tokenize = (s: string) => s.match(/\S+|\s+|\n/g) ?? [];
+  const a = tokenize(original);
+  const b = tokenize(modified);
+  const m = a.length, n = b.length;
+
+  // 토큰 수가 너무 많으면 라인 단위로 폴백 (O(n²) 방지)
+  if (m > 400 || n > 400) return computeLineDiff(original, modified);
+
+  // LCS DP
+  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = 1; i <= m; i++)
+    for (let j = 1; j <= n; j++)
+      dp[i][j] = a[i - 1] === b[j - 1] ? dp[i - 1][j - 1] + 1 : Math.max(dp[i - 1][j], dp[i][j - 1]);
+
+  // 백트래킹
+  const result: DiffToken[] = [];
+  let i = m, j = n;
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && a[i - 1] === b[j - 1]) {
+      result.unshift({ type: "equal", text: a[i - 1] }); i--; j--;
+    } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+      result.unshift({ type: "add", text: b[j - 1] }); j--;
+    } else {
+      result.unshift({ type: "remove", text: a[i - 1] }); i--;
+    }
+  }
+  return result;
+}
+
+function computeLineDiff(original: string, modified: string): DiffToken[] {
+  const a = original.split("\n"), b = modified.split("\n");
+  const m = a.length, n = b.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = 1; i <= m; i++)
+    for (let j = 1; j <= n; j++)
+      dp[i][j] = a[i - 1] === b[j - 1] ? dp[i - 1][j - 1] + 1 : Math.max(dp[i - 1][j], dp[i][j - 1]);
+
+  const result: DiffToken[] = [];
+  let i = m, j = n;
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && a[i - 1] === b[j - 1]) {
+      result.unshift({ type: "equal", text: a[i - 1] + "\n" }); i--; j--;
+    } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+      result.unshift({ type: "add", text: b[j - 1] + "\n" }); j--;
+    } else {
+      result.unshift({ type: "remove", text: a[i - 1] + "\n" }); i--;
+    }
+  }
+  return result;
+}
+
+// ── Diff 뷰 컴포넌트 ─────────────────────────────────────────────────────────
+
+function DiffView({ original, current, piiRegions }: {
+  original: string;
+  current: string;
+  piiRegions: PiiRegion[];
+}) {
+  const tokens = computeWordDiff(original, current);
+
+  // PII 구간을 현재 텍스트 기준으로 표시 (add + equal 영역)
+  const piiSet = new Set<string>();
+  piiRegions.forEach(r => {
+    const word = current.slice(r.start, r.end);
+    if (word.length >= 3) piiSet.add(word);
+  });
+
+  const changed = tokens.some(t => t.type !== "equal");
+
+  if (!changed) {
+    return (
+      <div style={{ padding: "20px 16px", textAlign: "center", color: "#6b7280", fontSize: 13 }}>
+        <div style={{ fontSize: 22, marginBottom: 8 }}>✅</div>
+        변경된 내용이 없습니다. 원본과 동일합니다.
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {/* 범례 */}
+      <div style={{ display: "flex", gap: 16, padding: "8px 14px", background: "#f9fafb", borderBottom: "1px solid #f1f5f9", fontSize: 12, color: "#6b7280" }}>
+        <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <span style={{ width: 12, height: 12, background: "#dcfce7", border: "1px solid #86efac", borderRadius: 2, display: "inline-block" }} />
+          새로 추가된 내용
+        </span>
+        <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <span style={{ width: 12, height: 12, background: "#fee2e2", border: "1px solid #fca5a5", borderRadius: 2, display: "inline-block" }} />
+          삭제/수정된 내용
+        </span>
+        {piiSet.size > 0 && (
+          <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <span style={{ width: 12, height: 12, background: "#fef3c7", border: "1px solid #fcd34d", borderRadius: 2, display: "inline-block" }} />
+            민감정보
+          </span>
+        )}
+      </div>
+
+      {/* Diff 본문 */}
+      <div style={{
+        padding: "14px 16px", fontSize: 13, lineHeight: 1.9,
+        whiteSpace: "pre-wrap", wordBreak: "break-word", fontFamily: "inherit",
+      }}>
+        {tokens.map((token, idx) => {
+          const isPii = piiSet.has(token.text.trim());
+
+          if (token.type === "equal") {
+            return (
+              <span key={idx} style={isPii ? { background: "#fef3c7", borderRadius: 2, padding: "0 1px" } : undefined}>
+                {token.text}
+              </span>
+            );
+          }
+          if (token.type === "add") {
+            return (
+              <span key={idx} style={{
+                background: isPii ? "#fef3c7" : "#dcfce7",
+                color: isPii ? "#92400e" : "#15803d",
+                borderRadius: 3, padding: "0 2px",
+              }}>
+                {token.text}
+              </span>
+            );
+          }
+          // remove
+          return (
+            <span key={idx} style={{
+              background: "#fee2e2", color: "#dc2626",
+              textDecoration: "line-through", borderRadius: 3, padding: "0 2px",
+            }}>
+              {token.text}
+            </span>
+          );
+        })}
+      </div>
+
+      {/* PII 상세 */}
+      {piiRegions.length > 0 && (
+        <div style={{ margin: "0 14px 12px", padding: "8px 12px", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, fontSize: 12, color: "#92400e" }}>
+          <span style={{ fontWeight: 600 }}>민감정보 위치: </span>
+          {piiRegions.map((r, i) => (
+            <span key={i} style={{ marginRight: 8 }}>{r.type}({r.preview})</span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Underline from "@tiptap/extension-underline";
@@ -175,6 +330,8 @@ export default function KnowledgeReviewPage() {
   const [toast, setToast] = useState<{ tone: "success" | "error"; msg: string } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isDirty, setIsDirty] = useState(false);
+  const [showDiff, setShowDiff] = useState(false);
+  const [currentText, setCurrentText] = useState("");
   const originalContentRef = useRef<string>("");
 
   // TipTap 에디터
@@ -186,7 +343,7 @@ export default function KnowledgeReviewPage() {
       Placeholder.configure({ placeholder: "내용을 편집하세요..." }),
     ],
     content: "",
-    onUpdate: () => setIsDirty(true),
+    onUpdate: ({ editor: e }) => { setIsDirty(true); setCurrentText(e.getText()); },
     editorProps: {
       attributes: {
         style: "min-height: 240px; padding: 14px; outline: none; font-size: 13px; line-height: 1.8; color: #374151;",
@@ -201,6 +358,8 @@ export default function KnowledgeReviewPage() {
     setEditTags([...chunk.tags]);
     setTagInput("");
     setIsDirty(false);
+    setShowDiff(false);
+    setCurrentText(chunk.content);
     originalContentRef.current = chunk.content;
 
     // TipTap에 마크다운 → HTML 변환 없이 plain text로 설정
@@ -210,7 +369,6 @@ export default function KnowledgeReviewPage() {
         chunk.content.includes("\n") || chunk.content.includes("#")
           ? markdownToHtml(chunk.content)
           : `<p>${chunk.content.replace(/\n/g, "</p><p>")}</p>`,
-        false,
       );
     }
   }, [editor]);
@@ -498,12 +656,29 @@ export default function KnowledgeReviewPage() {
                   </span>
                 )}
                 <div style={{ flex: 1 }} />
+                {/* 변경 내용 보기 토글 */}
+                <button
+                  type="button"
+                  onClick={() => setShowDiff(d => !d)}
+                  title={showDiff ? "편집 모드로 전환" : "변경 내용 확인"}
+                  style={{
+                    display: "inline-flex", alignItems: "center", gap: 4,
+                    padding: "5px 12px", border: `1px solid ${showDiff ? "#2563eb" : "#e5e7eb"}`,
+                    borderRadius: 6, background: showDiff ? "#eff6ff" : "#f9fafb",
+                    color: showDiff ? "#2563eb" : "#6b7280", fontSize: 12, cursor: "pointer",
+                  }}
+                >
+                  {showDiff
+                    ? <><PenLine style={{ width: 12, height: 12 }} />편집</>
+                    : <><Eye style={{ width: 12, height: 12 }} />변경 확인{isDirty && <span style={{ marginLeft: 4, background: "#dc2626", color: "#fff", borderRadius: 99, width: 6, height: 6, display: "inline-block" }} />}</>
+                  }
+                </button>
                 <button type="button" onClick={() => void skipChunk(selectedChunk.id)} disabled={selectedChunk.status !== "pending"}
                   style={{ padding: "5px 12px", border: "1px solid #e5e7eb", borderRadius: 6, background: "#f9fafb", fontSize: 12, cursor: "pointer", color: "#6b7280", opacity: selectedChunk.status !== "pending" ? 0.4 : 1 }}>
                   건너뛰기
                 </button>
-                <button type="button" onClick={() => void saveChunk()} disabled={isSavingChunk || !isDirty}
-                  style={{ padding: "5px 16px", border: "none", borderRadius: 6, background: isDirty ? "#2563eb" : "#9ca3af", color: "#fff", fontSize: 12, fontWeight: 600, cursor: isDirty ? "pointer" : "default" }}>
+                <button type="button" onClick={() => void saveChunk()} disabled={isSavingChunk || !isDirty || showDiff}
+                  style={{ padding: "5px 16px", border: "none", borderRadius: 6, background: (isDirty && !showDiff) ? "#2563eb" : "#9ca3af", color: "#fff", fontSize: 12, fontWeight: 600, cursor: (isDirty && !showDiff) ? "pointer" : "default" }}>
                   {isSavingChunk ? "저장 중..." : "저장"}
                 </button>
               </div>
@@ -541,15 +716,32 @@ export default function KnowledgeReviewPage() {
               </div>
 
               {/* 내용 레이블 */}
-              <div style={{ padding: "8px 20px 4px", flexShrink: 0 }}>
-                <span style={{ fontSize: 11, fontWeight: 600, color: "#9ca3af", letterSpacing: 1, textTransform: "uppercase" }}>내용</span>
+              <div style={{ padding: "8px 20px 4px", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: "#9ca3af", letterSpacing: 1, textTransform: "uppercase" }}>
+                  {showDiff ? "변경 내용 비교" : "내용"}
+                </span>
+                {showDiff && (
+                  <span style={{ fontSize: 11, color: "#6b7280" }}>
+                    {isDirty ? "원본과 비교" : "변경 없음"}
+                  </span>
+                )}
               </div>
 
-              {/* TipTap 에디터 본문 */}
+              {/* 에디터 or Diff 뷰 */}
               <div style={{ flex: 1, overflow: "auto", padding: "0 20px 12px" }}>
-                <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, background: "#fafafa" }}>
-                  <EditorContent editor={editor} />
-                </div>
+                {showDiff ? (
+                  <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, background: "#fff", overflow: "hidden" }}>
+                    <DiffView
+                      original={originalContentRef.current}
+                      current={currentText || originalContentRef.current}
+                      piiRegions={selectedChunk.piiRegions}
+                    />
+                  </div>
+                ) : (
+                  <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, background: "#fafafa" }}>
+                    <EditorContent editor={editor} />
+                  </div>
+                )}
               </div>
 
               {/* 태그 */}
