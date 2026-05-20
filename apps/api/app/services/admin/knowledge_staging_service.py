@@ -28,52 +28,102 @@ from app.services.admin.pii_detector_service import detect_pii
 
 logger = logging.getLogger(__name__)
 
-_CHUNK_SIZE = 900
-_CHUNK_OVERLAP = 120
-_MAX_CHUNKS_PER_SESSION = 30
+_CHUNK_SIZE = 1200
+_CHUNK_OVERLAP = 150
+_MAX_CHUNKS_PER_SESSION = 20
+
+# 섹션 헤딩으로 인식할 패턴 (짧은 줄 + 특정 접두사)
+_HEADING_RE = re.compile(
+    r"^(?:"
+    r"\d{1,2}[\.\)]\s+.{2,60}"          # 1. 제목 / 1) 제목
+    r"|[①-⑳⑴-⑽]\s*.{2,40}"              # ① 제목
+    r"|제\s*\d+\s*[장절조항].*"           # 제1장 / 제2절
+    r"|[□■▶▷◆◇●○★☆]\s*.{2,50}"         # 기호 + 제목
+    r"|[A-Z][A-Z ]{3,30}$"              # ALL CAPS 영문
+    r"|[가-힣]{2,15}(?:\s+[가-힣]{2,10}){0,3}$"  # 짧은 한글 (제목형)
+    r")$",
+    re.MULTILINE,
+)
 
 
-# ── 청킹 ──────────────────────────────────────────────────────────────────────
+def _is_heading(line: str) -> bool:
+    line = line.strip()
+    if not line or len(line) > 80:
+        return False
+    return bool(_HEADING_RE.match(line))
+
 
 def _split_semantic_chunks(text: str) -> list[str]:
-    """단락 기반 분할. 단락이 너무 크면 슬라이딩 윈도우로 분할."""
-    paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
+    """
+    섹션 헤딩을 감지해 의미 단위로 분할.
+    헤딩이 없으면 단락 기반 분할로 폴백.
+    """
+    # 1. 헤딩 기반 분할 시도
+    lines = text.splitlines()
+    sections: list[list[str]] = []
+    current: list[str] = []
 
-    chunks: list[str] = []
-    current = ""
-
-    for para in paragraphs:
-        if len(current) + len(para) + 2 <= _CHUNK_SIZE:
-            current = (current + "\n\n" + para).strip() if current else para
+    for line in lines:
+        if _is_heading(line) and len("\n".join(current)) > 150:
+            sections.append(current)
+            current = [line]
         else:
-            if current:
-                chunks.append(current)
-                overlap_text = current[-_CHUNK_OVERLAP:] if len(current) > _CHUNK_OVERLAP else current
-                current = (overlap_text + "\n\n" + para).strip()
-            else:
-                # single para > chunk_size
-                for start in range(0, len(para), _CHUNK_SIZE - _CHUNK_OVERLAP):
-                    chunks.append(para[start : start + _CHUNK_SIZE])
-                current = ""
+            current.append(line)
+    if current:
+        sections.append(current)
 
-    if current.strip():
-        chunks.append(current.strip())
+    # 섹션이 충분히 나뉘었으면 사용
+    if len(sections) >= 3:
+        raw: list[str] = ["\n".join(s).strip() for s in sections if "\n".join(s).strip()]
+    else:
+        # 폴백: 단락 기반
+        raw = [p.strip() for p in re.split(r"\n{2,}", text) if p.strip()]
 
-    return [c for c in chunks if len(c.strip()) >= 30][:_MAX_CHUNKS_PER_SESSION]
+    # 2. 너무 큰 섹션은 슬라이딩 윈도우로 재분할
+    chunks: list[str] = []
+    for block in raw:
+        if len(block) <= _CHUNK_SIZE:
+            chunks.append(block)
+        else:
+            for start in range(0, len(block), _CHUNK_SIZE - _CHUNK_OVERLAP):
+                sub = block[start : start + _CHUNK_SIZE].strip()
+                if len(sub) >= 60:
+                    chunks.append(sub)
+
+    # 3. 너무 짧은 청크는 앞 청크에 병합
+    merged: list[str] = []
+    for c in chunks:
+        if merged and len(c) < 120 and len(merged[-1]) + len(c) < _CHUNK_SIZE:
+            merged[-1] = merged[-1] + "\n\n" + c
+        else:
+            merged.append(c)
+
+    return [c for c in merged if len(c.strip()) >= 60][:_MAX_CHUNKS_PER_SESSION]
 
 
 # ── 주제명 생성 ───────────────────────────────────────────────────────────────
 
 def _rule_based_title(text: str) -> str:
-    """첫 줄 또는 첫 문장을 주제명으로 사용."""
+    """헤딩처럼 보이는 줄을 찾거나, 없으면 명사구 중심으로 첫 줄 요약."""
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
     if not lines:
         return "주제 없음"
-    first = re.sub(r"^#+\s*|^[-•*]\s*", "", lines[0])
-    if len(first) <= 40:
+
+    # 1. 헤딩 패턴 줄 우선
+    for line in lines[:6]:
+        cleaned = re.sub(r"^(?:[①-⑳⑴-⑽\d]+[\.\)]\s*|[□■▶◆●★]\s*)", "", line).strip()
+        if 4 <= len(cleaned) <= 30:
+            return cleaned
+
+    # 2. 첫 줄에서 불필요한 접두사 제거 후 사용
+    first = re.sub(r"^(?:#+\s*|[-•*]\s*|\d+\.\s*)", "", lines[0]).strip()
+    if len(first) <= 30:
         return first
-    m = re.search(r"[.!?。]\s", first[:60])
-    return first[: m.start()] if m else first[:40]
+    # 문장 첫 절 추출
+    m = re.search(r"[,\.\s·]{1}", first[10:40])
+    if m:
+        return first[: m.start() + 10].strip()
+    return first[:25]
 
 
 def _llm_generate_title_tags(
@@ -88,8 +138,18 @@ def _llm_generate_title_tags(
             return "", []
 
         model = runtime_api.default_model or "gpt-4.1-mini"
-        system_prompt = '다음 텍스트의 핵심 주제명(15자 이내 한국어)과 태그 3개를 JSON으로만 출력하세요.\n형식: {"title":"주제명","tags":["태그1","태그2","태그3"]}'
-        user_prompt = f"텍스트:\n{text[:600]}"
+        system_prompt = (
+            '당신은 지식 분류 전문가입니다. 주어진 텍스트를 분석해 JSON으로만 응답하세요.\n'
+            '규칙:\n'
+            '- title: 이 텍스트 고유의 핵심 내용을 요약한 제목(20자 이내). "지원", "안내"처럼 모호한 단어만 쓰지 말 것\n'
+            '- tags: 이 내용에만 해당하는 구체적 키워드 3개\n'
+            '형식: {"title":"구체적 제목","tags":["키워드1","키워드2","키워드3"]}'
+        )
+        user_prompt = (
+            f"다음 텍스트의 핵심 주제명과 태그를 생성하세요.\n"
+            f"(다른 섹션과 구별되는 이 섹션만의 고유한 내용에 집중하세요)\n\n"
+            f"텍스트:\n{text[:800]}"
+        )
 
         headers: dict[str, str] = {"Content-Type": "application/json"}
 
