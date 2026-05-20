@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
-  Upload, FileText, Globe, CheckCircle, Save,
+  Upload, Globe, CheckCircle, Save,
   Loader2,
 } from "lucide-react";
 
@@ -91,27 +91,50 @@ function statusLabel(status?: string | null): string {
 
 type RegisterType = "file" | "text" | "website";
 
-const TYPE_META: Record<RegisterType, { icon: React.ReactNode; title: string; desc: string; support: string; supportVariant: "success" | "neutral" }> = {
+function UploadSvg() {
+  return (
+    <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
+      <path d="M20 26V14M20 14L15 19M20 14L25 19" stroke="#9ca3af" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M10 28C7.79 28 6 26.21 6 24c0-1.93 1.4-3.54 3.24-3.9A8 8 0 0 1 20 10a8 8 0 0 1 7.9 6.7A4.5 4.5 0 0 1 34 21c0 3.87-2.13 7-8 7H10Z" stroke="#9ca3af" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  );
+}
+function WebsiteSvg() {
+  return (
+    <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
+      <rect x="8" y="10" width="24" height="20" rx="3" stroke="#9ca3af" strokeWidth="2"/>
+      <path d="M8 16h24M16 10v4M24 10v4" stroke="#9ca3af" strokeWidth="2" strokeLinecap="round"/>
+      <circle cx="27" cy="27" r="6" fill="#fff" stroke="#9ca3af" strokeWidth="1.5"/>
+      <path d="M27 24v3l2 1.5" stroke="#9ca3af" strokeWidth="1.5" strokeLinecap="round"/>
+    </svg>
+  );
+}
+function PasteSvg() {
+  return (
+    <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
+      <rect x="14" y="8" width="16" height="22" rx="2" stroke="#9ca3af" strokeWidth="2"/>
+      <rect x="10" y="12" width="16" height="22" rx="2" fill="#fff" stroke="#9ca3af" strokeWidth="2"/>
+      <path d="M14 18h8M14 22h6M14 26h5" stroke="#9ca3af" strokeWidth="1.5" strokeLinecap="round"/>
+    </svg>
+  );
+}
+
+const TYPE_META: Record<RegisterType, { icon: React.ReactNode; title: string; desc: string; isNew?: boolean }> = {
   file: {
-    icon: <Upload style={{ width: 32, height: 32 }} />,
+    icon: <UploadSvg />,
     title: "파일 업로드",
-    desc: "PDF, DOCX, HWP, XLSX 등\n문서 파일을 업로드합니다",
-    support: "Vision 학습 지원",
-    supportVariant: "success",
-  },
-  text: {
-    icon: <FileText style={{ width: 32, height: 32 }} />,
-    title: "텍스트 입력",
-    desc: "자주 묻는 질문이나 안내문을\n직접 입력해 등록합니다",
-    support: "FAQ 작성에 최적",
-    supportVariant: "neutral",
+    desc: "문서 파일을 업로드하면\nAI 답변 생성에 활용합니다.",
   },
   website: {
-    icon: <Globe style={{ width: 32, height: 32 }} />,
-    title: "웹사이트",
-    desc: "웹페이지 URL을 등록하면\nAI가 자동으로 학습합니다",
-    support: "자동 크롤링 지원",
-    supportVariant: "success",
+    icon: <WebsiteSvg />,
+    title: "웹사이트 연결",
+    desc: "웹사이트 URL을 연결해\nAI 답변에 활용할 정보를 가져옵니다.",
+    isNew: true,
+  },
+  text: {
+    icon: <PasteSvg />,
+    title: "텍스트 붙여넣기",
+    desc: "텍스트를 직접 입력해\nAI 답변에 사용할 지식을 등록하세요.",
   },
 };
 
@@ -121,34 +144,33 @@ function TypeCard({ type, selected, onClick }: { type: RegisterType; selected: b
     <button
       type="button"
       onClick={onClick}
-      className="relative text-left transition-all duration-150"
       style={{
-        background: selected ? "#eff6ff" : "white",
-        border: `2px solid ${selected ? "#2563eb" : "#e2e8f0"}`,
+        position: "relative",
+        background: "#fff",
+        border: `1.5px solid ${selected ? "#2563eb" : "#e5e7eb"}`,
         borderRadius: 16,
-        padding: 24,
+        padding: "28px 20px",
         cursor: "pointer",
-        boxShadow: selected ? "0 0 0 4px rgba(37,99,235,0.08)" : undefined,
+        textAlign: "center",
+        transition: "border-color 0.15s, box-shadow 0.15s",
+        boxShadow: selected ? "0 0 0 3px rgba(37,99,235,0.1)" : "0 1px 3px rgba(0,0,0,0.04)",
       }}
     >
-      {selected && (
-        <CheckCircle style={{ position: "absolute", top: 16, right: 16, width: 20, height: 20, color: "#2563eb" }} />
+      {meta.isNew && (
+        <span style={{
+          position: "absolute", top: 14, right: 14,
+          fontSize: 10, fontWeight: 700, background: "#2563eb", color: "#fff",
+          borderRadius: 20, padding: "2px 8px",
+        }}>NEW</span>
       )}
-      <div style={{
-        width: 56, height: 56, borderRadius: 12,
-        background: selected ? "#dbeafe" : "#eff6ff",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        color: "#2563eb", marginBottom: 16,
-      }}>
+      {selected && (
+        <CheckCircle style={{ position: "absolute", top: 14, left: 14, width: 18, height: 18, color: "#2563eb" }} />
+      )}
+      <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
         {meta.icon}
       </div>
-      <div style={{ fontSize: 16, fontWeight: 600, color: "#1e293b", marginBottom: 4 }}>{meta.title}</div>
-      <div style={{ fontSize: 14, color: "#64748b", lineHeight: 1.6, whiteSpace: "pre-line" }}>{meta.desc}</div>
-      <div style={{ marginTop: 12 }}>
-        <span className={meta.supportVariant === "success" ? "badge-success" : "badge-neutral"} style={{ fontSize: 11 }}>
-          {meta.support}
-        </span>
-      </div>
+      <div style={{ fontSize: 15, fontWeight: 700, color: "#111827", marginBottom: 8 }}>{meta.title}</div>
+      <div style={{ fontSize: 13, color: "#6b7280", lineHeight: 1.65, whiteSpace: "pre-line" }}>{meta.desc}</div>
     </button>
   );
 }
@@ -337,21 +359,25 @@ export function KnowledgeRegister() {
       )}
 
       {/* 타입 선택 카드 */}
-      <div>
-        <h2 style={{ fontSize: 15, fontWeight: 600, color: "#1e293b", marginBottom: 16 }}>등록 방식 선택</h2>
-        <div className="grid grid-cols-3 gap-4">
-          {(["file", "text", "website"] as RegisterType[]).map(t => (
-            <TypeCard key={t} type={t} selected={selectedType === t} onClick={() => setSelectedType(t)} />
-          ))}
-        </div>
+      <div className="grid grid-cols-3 gap-4">
+        {(["file", "website", "text"] as RegisterType[]).map(t => (
+          <TypeCard key={t} type={t} selected={selectedType === t} onClick={() => setSelectedType(t)} />
+        ))}
       </div>
 
       {/* 폼 영역 */}
       {!isLoading && (
         <div className="bg-white rounded-2xl border border-neutral-200 p-6 space-y-6">
-          <h2 style={{ fontSize: 15, fontWeight: 600, color: "#1e293b" }}>
-            {selectedType === "file" ? "파일 업로드" : selectedType === "text" ? "텍스트 입력" : "웹사이트 등록"}
-          </h2>
+          <div>
+            <h2 style={{ fontSize: 15, fontWeight: 700, color: "#111827", marginBottom: 4 }}>
+              {selectedType === "file" ? "파일 업로드" : selectedType === "website" ? "웹사이트 연결" : "텍스트 붙여넣기"}
+            </h2>
+            <p style={{ fontSize: 13, color: "#6b7280" }}>
+              {selectedType === "file" && "문서 파일(PDF, Word 등)을 업로드하면 AI가 내용을 분석해 지식으로 등록합니다."}
+              {selectedType === "website" && "웹사이트에 최신화된 정보를 그대로 가져와 AI가 답변에 활용할 수 있도록 등록합니다."}
+              {selectedType === "text" && "직접 텍스트를 입력하거나 복사해 붙여넣어 지식을 등록할 수 있습니다."}
+            </p>
+          </div>
 
           {error && (
             <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8, padding: "10px 14px", fontSize: 13, color: "#dc2626" }}>
@@ -430,7 +456,7 @@ export function KnowledgeRegister() {
               <CommonFields form={textForm} chatbots={chatbots} onChange={(k, v) => setTextForm(c => ({ ...c, [k]: v }))} />
               <label>
                 <Label required>본문</Label>
-                <textarea value={textForm.content} onChange={e => setTextForm(c => ({ ...c, content: e.target.value }))} rows={10} className="input-field" style={{ minHeight: 200 }} placeholder={"Q: 질문을 입력하세요\nA: 답변을 입력하세요"} />
+                <textarea value={textForm.content} onChange={e => setTextForm(c => ({ ...c, content: e.target.value }))} rows={10} className="input-field" style={{ minHeight: 200 }} placeholder={"텍스트를 직접 입력하거나 복사해 붙여넣으세요.\n\nQ: 자주 묻는 질문\nA: 답변 내용"} />
               </label>
               <button type="button" onClick={() => void submitText()} disabled={isSubmitting} className="btn-primary w-full flex items-center justify-center gap-2" style={{ padding: "12px 24px", fontSize: 15 }}>
                 {isSubmitting ? <><Loader2 style={{ width: 16, height: 16, animation: "spin 1s linear infinite" }} />등록 중...</> : <><Save style={{ width: 16, height: 16 }} />등록하기</>}
