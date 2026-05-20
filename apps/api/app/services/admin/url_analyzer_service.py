@@ -60,6 +60,21 @@ class _TextExtractor(HTMLParser):
                 self.body_texts.append(text)
 
 
+def _detect_charset(content_type_header: str, raw_bytes: bytes) -> str:
+    """HTTP 헤더 또는 HTML meta 태그에서 인코딩 감지."""
+    # 1) Content-Type 헤더에서
+    if "charset=" in content_type_header.lower():
+        cs = content_type_header.lower().split("charset=")[-1].split(";")[0].strip()
+        if cs:
+            return cs
+    # 2) HTML <meta charset> 또는 <meta http-equiv="Content-Type"> 에서
+    head = raw_bytes[:4096]
+    m = re.search(rb'charset=["\']?\s*([A-Za-z0-9_\-]+)', head, re.IGNORECASE)
+    if m:
+        return m.group(1).decode("ascii", errors="ignore")
+    return "utf-8"
+
+
 def _fetch_text(url: str) -> str:
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
@@ -69,17 +84,39 @@ def _fetch_text(url: str) -> str:
         headers={
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         },
     )
     with urllib.request.urlopen(req, timeout=_TIMEOUT, context=ctx) as resp:
-        raw = resp.read(150_000).decode("utf-8", errors="replace")
+        content_type = resp.headers.get("Content-Type", "")
+        raw_bytes = resp.read(150_000)
+
+    # 인코딩 감지 (EUC-KR 등 한국 사이트 대응)
+    charset = _detect_charset(content_type, raw_bytes)
+    try:
+        raw = raw_bytes.decode(charset, errors="replace")
+    except (LookupError, ValueError):
+        raw = raw_bytes.decode("utf-8", errors="replace")
+
     parser = _TextExtractor()
     parser.feed(raw)
 
     # meta 텍스트를 앞에, 본문을 뒤에 붙여 JS 렌더링 사이트도 최소한의 정보 확보
     combined = parser.meta_texts + parser.body_texts
     text = " ".join(combined)
-    return re.sub(r"\s+", " ", text).strip()[:_MAX_TEXT]
+    cleaned = re.sub(r"\s+", " ", text).strip()
+
+    # 본문이 너무 짧으면 원본 HTML에서 직접 제목·설명 재시도
+    if len(cleaned) < 80:
+        fallback: list[str] = []
+        for m in re.finditer(r'<title[^>]*>([^<]+)</title>', raw, re.IGNORECASE):
+            fallback.append(m.group(1).strip())
+        for m in re.finditer(r'<meta[^>]+content=["\']([^"\']{10,})["\']', raw, re.IGNORECASE):
+            fallback.append(m.group(1).strip())
+        if fallback:
+            cleaned = " ".join(fallback)
+
+    return cleaned[:_MAX_TEXT]
 
 
 # ── LLM 호출 ─────────────────────────────────────────────────────────────────
