@@ -3809,7 +3809,7 @@ def _document_detail(doc: Document, version: DocumentVersion | None, job: Ingest
     item = _document_item(doc, version, job)
     metadata = dict(doc.metadata_json or {})
     return KnowledgeDetailResponse(
-        **item.model_dump(exclude={"effective_date", "expiration_date", "department"}),
+        **item.model_dump(exclude={"effective_date", "expiration_date", "department", "file_name"}),
         file_name=(version.file_name if version else None),
         source_path=(version.storage_key if version else None),
         last_indexed_at=item.indexed_at,
