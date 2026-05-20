@@ -131,30 +131,38 @@ def _call_llm(db: Session, system: str, user: str) -> str:
 
 # ── 메인 분석 함수 ────────────────────────────────────────────────────────────
 
-def analyze_url_for_chatbot_settings(db: Session, *, url: str) -> dict[str, str]:
+def analyze_url_for_chatbot_settings(db: Session, *, url: str) -> dict[str, Any]:
     """
     URL 내용 분석 → AI가 챗봇 기본 설정값 제안.
-    반환: {suggestedName, suggestedRole, suggestedDescription, suggestedFallback, suggestedWelcome}
+    반환: {success, error?, suggestedName, suggestedRole, suggestedDescription, suggestedFallback, suggestedWelcome}
     """
-    _FALLBACK = {
-        "suggestedName": "",
-        "suggestedRole": "",
-        "suggestedDescription": "",
-        "suggestedFallback": "죄송합니다. 해당 내용을 찾지 못했습니다. 담당자에게 문의해 주세요.",
-        "suggestedWelcome": "안녕하세요! 무엇을 도와드릴까요?",
-    }
 
     # 1. URL 크롤링
     try:
         page_text = _fetch_text(url)
     except Exception as exc:
         logger.warning("[URL_ANALYZER] 크롤링 실패 url=%s: %s", url, exc)
-        return _FALLBACK
+        return {
+            "success": False,
+            "error": f"URL 접근 실패: {str(exc)[:200]}",
+        }
 
     if not page_text.strip():
-        return _FALLBACK
+        return {
+            "success": False,
+            "error": "해당 URL에서 텍스트를 추출하지 못했습니다. 다른 URL을 시도해 보세요.",
+        }
 
-    # 2. LLM 분석
+    # 2. LLM 설정 확인
+    from app.services.llm_api_config_runtime_service import resolve_runtime_api_config  # noqa: PLC0415
+    runtime_api = resolve_runtime_api_config(db)
+    if runtime_api is None:
+        return {
+            "success": False,
+            "error": "AI 분석을 위한 LLM API 설정이 필요합니다. 슈퍼관리자에게 API 설정을 요청해 주세요.",
+        }
+
+    # 3. LLM 분석
     system_prompt = (
         "당신은 한국 공공기관 챗봇 설정 전문가입니다. "
         "웹사이트 내용을 분석해서 챗봇 기본 설정값을 JSON으로만 제안합니다. 설명 없이 JSON만 출력하세요."
@@ -165,7 +173,7 @@ def analyze_url_for_chatbot_settings(db: Session, *, url: str) -> dict[str, str]
         "아래 JSON 형식으로만 응답하세요:\n"
         "{\n"
         '  "suggestedName": "챗봇 이름 (예: 서울노동권익센터 AI 상담봇)",\n'
-        '  "suggestedRole": "AI 역할 한 줄 요약 (예: 서울노동권익센터의 노동 법률 상담 AI입니다.)",\n'
+        '  "suggestedRole": "AI 역할 한 줄 요약",\n'
         '  "suggestedDescription": "기본 안내 설명문 (2~3문장)",\n'
         '  "suggestedFallback": "답변 불가 시 메시지",\n'
         '  "suggestedWelcome": "첫 인사말"\n'
@@ -174,21 +182,31 @@ def analyze_url_for_chatbot_settings(db: Session, *, url: str) -> dict[str, str]
 
     raw = _call_llm(db, system=system_prompt, user=user_prompt)
     if not raw:
-        return _FALLBACK
+        return {
+            "success": False,
+            "error": "LLM 응답을 받지 못했습니다. 잠시 후 다시 시도해 주세요.",
+        }
 
-    # 3. JSON 파싱
+    # 4. JSON 파싱
     try:
         match = re.search(r"\{.*\}", raw, re.DOTALL)
         if not match:
-            return _FALLBACK
+            return {
+                "success": False,
+                "error": "AI 분석 응답 형식이 올바르지 않습니다. 다시 시도해 주세요.",
+            }
         parsed = json.loads(match.group(0))
         return {
+            "success": True,
             "suggestedName":        str(parsed.get("suggestedName") or ""),
             "suggestedRole":        str(parsed.get("suggestedRole") or ""),
             "suggestedDescription": str(parsed.get("suggestedDescription") or ""),
-            "suggestedFallback":    str(parsed.get("suggestedFallback") or _FALLBACK["suggestedFallback"]),
-            "suggestedWelcome":     str(parsed.get("suggestedWelcome") or _FALLBACK["suggestedWelcome"]),
+            "suggestedFallback":    str(parsed.get("suggestedFallback") or "죄송합니다. 해당 내용을 찾지 못했습니다."),
+            "suggestedWelcome":     str(parsed.get("suggestedWelcome") or "안녕하세요! 무엇을 도와드릴까요?"),
         }
     except Exception as exc:
-        logger.warning("[URL_ANALYZER] JSON 파싱 실패: %s", exc)
-        return _FALLBACK
+        logger.warning("[URL_ANALYZER] JSON 파싱 실패: %s raw=%s", exc, raw[:200])
+        return {
+            "success": False,
+            "error": "분석 결과 처리 중 오류가 발생했습니다. 다시 시도해 주세요.",
+        }

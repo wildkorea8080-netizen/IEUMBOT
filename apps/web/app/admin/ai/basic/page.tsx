@@ -81,10 +81,15 @@ export default function AdminAiBasicPage() {
     setIsAnalyzing(true); setUrlSuggestion(null);
     try {
       const result = await apiClient.request<{
+        success: boolean; error?: string;
         suggestedName: string; suggestedRole: string;
         suggestedDescription: string; suggestedFallback: string; suggestedWelcome: string;
       }>(`/admin/chatbots/${selectedChatbotId}/analyze-url`, { method: "POST", body: { url: urlInput.trim() } });
-      setUrlSuggestion(result);
+      if (!result.success) {
+        setToast({ tone: "error", message: result.error ?? "URL 분석에 실패했습니다." });
+      } else {
+        setUrlSuggestion(result);
+      }
     } catch { setToast({ tone: "error", message: "URL 분석에 실패했습니다. URL을 확인해주세요." }); }
     finally { setIsAnalyzing(false); }
   }
