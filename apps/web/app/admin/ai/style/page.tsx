@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Building2, Info, Plus, Smile, Volume2, X, Zap } from "lucide-react";
+import { Building2, Plus, Smile, X, Zap } from "lucide-react";
 
 import {
   AI_CHATBOT_STORAGE_KEY,
@@ -81,60 +81,95 @@ function deriveCitationDisplay(chatbot: AdminChatbotResponse, settings: AnswerSe
 
 // ── 추천 질문 풀 에디터 ────────────────────────────────────
 
+const MAX_QUESTIONS = 6;
+
 function RecommendedQuestionsEditor({
   questions, onChange,
 }: { questions: string[]; onChange: (qs: string[]) => void }) {
-  const [input, setInput] = useState("");
+  const [editingIdx, setEditingIdx] = useState<number | null>(null);
+  const [editValue, setEditValue] = useState("");
 
-  function add() {
-    const q = input.trim();
-    if (!q || questions.includes(q)) return;
-    onChange([...questions, q]);
-    setInput("");
+  function startEdit(i: number) {
+    setEditingIdx(i);
+    setEditValue(questions[i]);
+  }
+
+  function commitEdit(i: number) {
+    const v = editValue.trim();
+    if (!v) { remove(i); } else { onChange(questions.map((q, j) => j === i ? v : q)); }
+    setEditingIdx(null);
+  }
+
+  function addEmpty() {
+    if (questions.length >= MAX_QUESTIONS) return;
+    const next = [...questions, ""];
+    onChange(next);
+    setEditingIdx(next.length - 1);
+    setEditValue("");
+  }
+
+  function remove(i: number) {
+    setEditingIdx(null);
+    onChange(questions.filter((_, j) => j !== i));
   }
 
   return (
     <div>
-      <p style={{ fontSize: 12, color: "#6b7280", marginBottom: 12, lineHeight: 1.6 }}>
-        자주 묻는 질문을 미리 등록하면 AI가 현재 대화 맥락과 가장 관련성 높은 질문을 자동으로 골라 추천합니다.
-        등록하지 않으면 AI가 자체 생성합니다.
-      </p>
+      {/* 질문 목록 */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
+        {questions.map((q, i) => (
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, border: "1px solid #e2e8f0", borderRadius: 8, padding: "0 10px", background: "#fff" }}>
+            {editingIdx === i ? (
+              <input
+                autoFocus
+                value={editValue}
+                onChange={e => setEditValue(e.target.value)}
+                onBlur={() => commitEdit(i)}
+                onKeyDown={e => { if (e.key === "Enter") commitEdit(i); if (e.key === "Escape") setEditingIdx(null); }}
+                maxLength={60}
+                style={{ flex: 1, border: "none", outline: "none", fontSize: 13, padding: "10px 0", background: "transparent" }}
+              />
+            ) : (
+              <span
+                onClick={() => startEdit(i)}
+                style={{ flex: 1, fontSize: 13, color: q ? "#374151" : "#94a3b8", padding: "10px 0", cursor: "text", userSelect: "none" }}
+              >
+                {q || "질문을 입력하세요"}
+              </span>
+            )}
+            <button type="button" onClick={() => remove(i)}
+              style={{ background: "none", border: "none", cursor: "pointer", color: "#94a3b8", padding: "4px", flexShrink: 0 }}>
+              <X style={{ width: 15, height: 15 }} />
+            </button>
+          </div>
+        ))}
+      </div>
 
-      {questions.length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
-          {questions.map((q, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8 }}>
-              <span style={{ flex: 1, fontSize: 13, color: "#374151" }}>{q}</span>
-              <button type="button" onClick={() => onChange(questions.filter((_, j) => j !== i))}
-                style={{ background: "none", border: "none", cursor: "pointer", color: "#94a3b8", padding: 0 }}>
-                <X style={{ width: 14, height: 14 }} />
-              </button>
-            </div>
-          ))}
+      {/* 추가 버튼 */}
+      {questions.length < MAX_QUESTIONS ? (
+        <button
+          type="button"
+          onClick={addEmpty}
+          style={{
+            width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
+            padding: "10px 14px", border: "1.5px dashed #d1d5db", borderRadius: 8,
+            background: "none", cursor: "pointer", fontSize: 13, color: "#6b7280",
+          }}
+        >
+          <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <Plus style={{ width: 14, height: 14 }} />추천 질문 추가
+          </span>
+          <span style={{ fontSize: 12, color: "#9ca3af" }}>{questions.length}/{MAX_QUESTIONS}</span>
+        </button>
+      ) : (
+        <div style={{ textAlign: "right", fontSize: 12, color: "#9ca3af", marginTop: 4 }}>
+          {MAX_QUESTIONS}/{MAX_QUESTIONS} · 최대 등록 수에 도달했습니다
         </div>
       )}
 
-      <div style={{ display: "flex", gap: 8 }}>
-        <input
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
-          placeholder="예: 신청 방법이 어떻게 되나요?"
-          className="input-field"
-          style={{ flex: 1 }}
-          maxLength={60}
-        />
-        <button type="button" onClick={add} disabled={!input.trim()} className="btn-secondary"
-          style={{ padding: "8px 14px", display: "inline-flex", alignItems: "center", gap: 5, opacity: !input.trim() ? 0.5 : 1 }}>
-          <Plus style={{ width: 13, height: 13 }} />추가
-        </button>
-      </div>
-
-      {questions.length > 0 && (
-        <p style={{ fontSize: 11, color: "#94a3b8", marginTop: 8 }}>
-          {questions.length}개 등록됨 · 대화 맥락에 따라 상위 3개가 자동 선택됩니다
-        </p>
-      )}
+      <p style={{ fontSize: 12, color: "#9ca3af", marginTop: 8 }}>
+        등록된 질문은 현재 대화 맥락에 따라 가장 관련성 높은 3개가 자동으로 추천됩니다.
+      </p>
     </div>
   );
 }
@@ -410,66 +445,79 @@ export default function AdminAiStylePage() {
           </SectionCard>
 
           {/* 섹션 7: 고급 설정 */}
-          <SectionCard title="고급 설정" description="AI 대화 에이전트의 추가 기능을 활성화하여 더 정교한 응대를 제공합니다.">
-            <div>
-              {/* 부정 질문 자동 차단 - 기본 적용, 비활성화 불가 */}
-              <div style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "14px 0", borderBottom: "1px solid #f1f5f9" }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: 14, fontWeight: 600, color: "#1e293b" }}>부정 질문 자동 차단</span>
-                    <span style={{ fontSize: 11, fontWeight: 600, background: "#dcfce7", color: "#15803d", borderRadius: 4, padding: "1px 7px" }}>기본 적용</span>
-                  </div>
-                  <p style={{ fontSize: 12, color: "#64748b", marginTop: 3 }}>비방, 욕설, 혐오 표현 등 부적절한 질문에 AI가 자동으로 시스템 메시지를 제공합니다.</p>
-                </div>
-                <Info style={{ width: 16, height: 16, color: "#94a3b8", flexShrink: 0, marginTop: 2 }} />
-              </div>
-
-              <ToggleField
-                label="관련 질문 추천"
-                description="사용자 질문과 관련된 추가 질문을 AI가 추천해 대화를 자연스럽게 이어갈 수 있도록 지원합니다."
-                checked={form.followUpEnabled}
-                onChange={v => setForm(p => ({ ...p, followUpEnabled: v }))}
-              />
-
-              <ToggleField
-                label="감정 분석 활성화"
-                description="사용자의 감정 상태를 파악해 상황에 맞는 톤으로 응대할 수 있도록 돕습니다."
-                checked={form.sentimentAnalysis}
-                onChange={v => setForm(p => ({ ...p, sentimentAnalysis: v }))}
-              />
-
-              {/* 음성 답변 - coming soon */}
-              <div style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "14px 0", borderBottom: "1px solid #f1f5f9", opacity: 0.5 }}>
-                <Volume2 style={{ width: 16, height: 16, color: "#94a3b8", flexShrink: 0, marginTop: 2 }} />
-                <div style={{ flex: 1 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: 14, fontWeight: 600, color: "#1e293b" }}>음성 답변 지원</span>
-                    <span style={{ fontSize: 11, fontWeight: 600, background: "#f1f5f9", color: "#64748b", borderRadius: 4, padding: "1px 7px" }}>추후 제공 예정</span>
-                  </div>
-                  <p style={{ fontSize: 12, color: "#64748b", marginTop: 3 }}>텍스트 답변을 음성으로 변환해 제공하는 기능입니다.</p>
-                </div>
-              </div>
-
-              <ToggleField
-                label="다국어 자동 지원"
-                description="사용자 입력 언어를 감지해 동일 언어로 답변합니다. (영어, 중국어, 일본어 등 자동 대응)"
-                checked={form.multilingualEnabled}
-                onChange={v => setForm(p => ({ ...p, multilingualEnabled: v }))}
-              />
-
-              <ToggleField
-                label="링크 자동 처리"
-                description="답변 본문의 URL을 자동으로 클릭 가능한 링크로 변환합니다."
-                checked={form.autoLinkify}
-                onChange={v => setForm(p => ({ ...p, autoLinkify: v }))}
-              />
-
-              <ToggleField
-                label="주요 단어 볼드 처리"
-                description="답변의 핵심 용어와 제목을 자동으로 굵게 표시합니다."
-                checked={form.autoBold}
-                onChange={v => setForm(p => ({ ...p, autoBold: v }))}
-              />
+          <SectionCard title="고급 설정" description="AI 대화 에이전트의 추가 기능을 설정하여 더욱 정교한 고객 응대를 구현하세요.">
+            <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+              {/* 부정 질문 자동 차단 - 항상 체크, 비활성화 불가 */}
+              {[
+                {
+                  key: "negativeBlock" as const,
+                  checked: true,
+                  disabled: true,
+                  label: "부정 질문 자동 차단",
+                  desc: "비방, 욕설, 혐오 등 부적절한 질문에 대해 거부메시지를 자동으로 제공합니다.",
+                },
+                {
+                  key: "sentimentAnalysis" as const,
+                  checked: form.sentimentAnalysis,
+                  disabled: false,
+                  label: "감정 분석 활성화",
+                  desc: "고객의 감정 상태를 파악하여 적절한 톤으로 응대합니다.",
+                },
+                {
+                  key: "followUpEnabled" as const,
+                  checked: form.followUpEnabled,
+                  disabled: false,
+                  label: "관련 질문 추천",
+                  desc: "대화 중 관련된 질문을 추천합니다.",
+                },
+                {
+                  key: "voiceSupport" as const,
+                  checked: false,
+                  disabled: true,
+                  label: "음성 답변 지원",
+                  desc: "텍스트 답변을 음성으로 변환하여 제공합니다.",
+                  badge: "베타",
+                },
+                {
+                  key: "multilingualEnabled" as const,
+                  checked: form.multilingualEnabled,
+                  disabled: false,
+                  label: "다국어 지원",
+                  desc: "영어, 중국어, 일본어 등 주요 언어로 자동 응대합니다.",
+                },
+              ].map(({ key, checked, disabled, label, desc, badge }) => (
+                <label
+                  key={key}
+                  style={{
+                    display: "flex", alignItems: "flex-start", gap: 10,
+                    padding: "12px 0", borderBottom: "1px solid #f1f5f9",
+                    cursor: disabled ? "default" : "pointer",
+                    opacity: disabled && key !== "negativeBlock" ? 0.45 : 1,
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    disabled={disabled}
+                    onChange={e => {
+                      if (key === "sentimentAnalysis") setForm(p => ({ ...p, sentimentAnalysis: e.target.checked }));
+                      else if (key === "followUpEnabled") setForm(p => ({ ...p, followUpEnabled: e.target.checked }));
+                      else if (key === "multilingualEnabled") setForm(p => ({ ...p, multilingualEnabled: e.target.checked }));
+                    }}
+                    style={{ marginTop: 2, width: 15, height: 15, accentColor: "#2563eb", flexShrink: 0 }}
+                  />
+                  <span style={{ fontSize: 13, color: "#1e293b", lineHeight: 1.6 }}>
+                    <strong style={{ fontWeight: 600 }}>{label}</strong>
+                    {badge && (
+                      <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 600, background: "#f1f5f9", color: "#64748b", borderRadius: 4, padding: "1px 6px", verticalAlign: "middle" }}>
+                        {badge}
+                      </span>
+                    )}
+                    {"  "}
+                    <span style={{ color: "#6b7280", fontWeight: 400 }}>{desc}</span>
+                  </span>
+                </label>
+              ))}
             </div>
           </SectionCard>
 
