@@ -3,9 +3,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
-  AlertTriangle, Bold, ChevronRight, GitMerge, Heading1, Heading2,
-  Italic, List, Loader2, Plus, RotateCcw, Tag,
+  AlertTriangle, ChevronRight, GitMerge, Loader2, Plus, Shield, Tag,
 } from "lucide-react";
+import { useEditor, EditorContent } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
+import Underline from "@tiptap/extension-underline";
+import Link from "@tiptap/extension-link";
+import Placeholder from "@tiptap/extension-placeholder";
 import { apiClient } from "../../../../lib/api/client";
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
@@ -37,68 +41,65 @@ type StagingSession = {
   chunks: StagingChunk[];
 };
 
-// ── 간단 툴바 (contenteditable 기반) ─────────────────────────────────────────
+// ── TipTap 툴바 ───────────────────────────────────────────────────────────────
 
-function EditorToolbar({ onFormat }: { onFormat: (tag: string) => void }) {
-  const tools = [
-    { icon: <Heading1 style={{ width: 15, height: 15 }} />, tag: "h1", label: "제목1" },
-    { icon: <Heading2 style={{ width: 15, height: 15 }} />, tag: "h2", label: "제목2" },
-    { icon: <Bold style={{ width: 15, height: 15 }} />, tag: "bold", label: "굵게" },
-    { icon: <Italic style={{ width: 15, height: 15 }} />, tag: "italic", label: "기울기" },
-    { icon: <List style={{ width: 15, height: 15 }} />, tag: "ul", label: "목록" },
-  ];
-  return (
-    <div style={{ display: "flex", gap: 2, padding: "6px 14px", borderBottom: "1px solid #f1f5f9", background: "#fafafa" }}>
-      {tools.map(t => (
-        <button key={t.tag} type="button" title={t.label}
-          onMouseDown={e => { e.preventDefault(); onFormat(t.tag); }}
-          style={{ padding: "5px 8px", border: "1px solid #e5e7eb", borderRadius: 6, background: "#fff", cursor: "pointer", display: "flex", alignItems: "center", color: "#374151" }}>
-          {t.icon}
-        </button>
-      ))}
-      <div style={{ width: 1, background: "#e5e7eb", margin: "2px 6px" }} />
-      <span style={{ fontSize: 11, color: "#9ca3af", display: "flex", alignItems: "center" }}>선택 후 클릭</span>
-    </div>
+function EditorToolbar({ editor }: { editor: ReturnType<typeof useEditor> }) {
+  if (!editor) return null;
+
+  const btn = (active: boolean, onClick: () => void, label: string) => (
+    <button
+      key={label}
+      type="button"
+      title={label}
+      onMouseDown={e => { e.preventDefault(); onClick(); }}
+      style={{
+        padding: "4px 8px", fontSize: 13, fontWeight: active ? 700 : 400,
+        border: `1px solid ${active ? "#2563eb" : "#e5e7eb"}`,
+        borderRadius: 5, background: active ? "#eff6ff" : "#fff",
+        color: active ? "#2563eb" : "#374151", cursor: "pointer", minWidth: 28,
+      }}
+    >
+      {label}
+    </button>
   );
-}
 
-// ── PII 하이라이트 오버레이 ────────────────────────────────────────────────────
-
-function PiiHighlight({ text, regions }: { text: string; regions: PiiRegion[] }) {
-  if (!regions.length) return null;
-  const nodes: React.ReactNode[] = [];
-  let prev = 0;
-  for (const r of regions) {
-    if (r.start > prev) nodes.push(<span key={`t${prev}`}>{text.slice(prev, r.start)}</span>);
-    nodes.push(
-      <mark key={`p${r.start}`} title={r.type}
-        style={{ background: "#fecaca", color: "#991b1b", borderRadius: 3, padding: "0 2px" }}>
-        {text.slice(r.start, r.end)}
-      </mark>
-    );
-    prev = r.end;
-  }
-  if (prev < text.length) nodes.push(<span key="tail">{text.slice(prev)}</span>);
   return (
-    <div style={{ marginTop: 8, padding: "10px 14px", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, fontSize: 12, lineHeight: 1.8 }}>
-      <div style={{ fontSize: 11, fontWeight: 700, color: "#92400e", marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}>
-        <AlertTriangle style={{ width: 11, height: 11 }} />민감정보 위치
-      </div>
-      {nodes}
+    <div style={{
+      display: "flex", flexWrap: "wrap", gap: 3, padding: "8px 14px",
+      borderBottom: "1px solid #f1f5f9", background: "#fafafa",
+    }}>
+      {btn(editor.isActive("heading", { level: 1 }), () => editor.chain().focus().toggleHeading({ level: 1 }).run(), "H1")}
+      {btn(editor.isActive("heading", { level: 2 }), () => editor.chain().focus().toggleHeading({ level: 2 }).run(), "H2")}
+      {btn(editor.isActive("heading", { level: 3 }), () => editor.chain().focus().toggleHeading({ level: 3 }).run(), "H3")}
+      <div style={{ width: 1, background: "#e5e7eb", margin: "0 2px" }} />
+      {btn(editor.isActive("bold"), () => editor.chain().focus().toggleBold().run(), "B")}
+      {btn(editor.isActive("italic"), () => editor.chain().focus().toggleItalic().run(), "I")}
+      {btn(editor.isActive("underline"), () => editor.chain().focus().toggleUnderline().run(), "U")}
+      {btn(editor.isActive("strike"), () => editor.chain().focus().toggleStrike().run(), "S")}
+      <div style={{ width: 1, background: "#e5e7eb", margin: "0 2px" }} />
+      {btn(editor.isActive("bulletList"), () => editor.chain().focus().toggleBulletList().run(), "• 목록")}
+      {btn(editor.isActive("orderedList"), () => editor.chain().focus().toggleOrderedList().run(), "1. 목록")}
+      <div style={{ width: 1, background: "#e5e7eb", margin: "0 2px" }} />
+      {btn(editor.isActive("blockquote"), () => editor.chain().focus().toggleBlockquote().run(), "인용")}
+      {btn(editor.isActive("code"), () => editor.chain().focus().toggleCode().run(), "코드")}
+      <div style={{ width: 1, background: "#e5e7eb", margin: "0 2px" }} />
+      <button type="button" title="수평선" onMouseDown={e => { e.preventDefault(); editor.chain().focus().setHorizontalRule().run(); }}
+        style={{ padding: "4px 8px", fontSize: 12, border: "1px solid #e5e7eb", borderRadius: 5, background: "#fff", color: "#374151", cursor: "pointer" }}>
+        ─
+      </button>
+      <button type="button" title="초기화" onMouseDown={e => { e.preventDefault(); editor.chain().focus().clearNodes().unsetAllMarks().run(); }}
+        style={{ padding: "4px 8px", fontSize: 12, border: "1px solid #e5e7eb", borderRadius: 5, background: "#fff", color: "#6b7280", cursor: "pointer" }}>
+        지우기
+      </button>
     </div>
   );
 }
 
 // ── 왼쪽 주제 아이템 ──────────────────────────────────────────────────────────
 
-function ChunkListItem({
-  chunk, isSelected, isChecked, onClick, onToggle,
-}: {
-  chunk: StagingChunk;
-  isSelected: boolean;
-  isChecked: boolean;
-  onClick: () => void;
-  onToggle: () => void;
+function ChunkListItem({ chunk, isSelected, isChecked, onClick, onToggle }: {
+  chunk: StagingChunk; isSelected: boolean; isChecked: boolean;
+  onClick: () => void; onToggle: () => void;
 }) {
   return (
     <div
@@ -107,13 +108,11 @@ function ChunkListItem({
         padding: "11px 14px",
         borderLeft: `3px solid ${isSelected ? "#2563eb" : "transparent"}`,
         background: isSelected ? "#eff6ff" : chunk.status === "registered" ? "#f0fdf4" : "transparent",
-        cursor: "pointer",
-        borderBottom: "1px solid #f3f4f6",
+        cursor: "pointer", borderBottom: "1px solid #f3f4f6",
         opacity: chunk.status === "skipped" ? 0.4 : 1,
       }}
     >
       <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-        {/* 체크박스 */}
         <div onClick={e => { e.stopPropagation(); if (chunk.status === "pending") onToggle(); }}
           style={{ marginTop: 2, flexShrink: 0, cursor: chunk.status === "pending" ? "pointer" : "default" }}>
           <div style={{
@@ -125,14 +124,11 @@ function ChunkListItem({
             {isChecked && <div style={{ width: 8, height: 5, borderLeft: "2px solid #fff", borderBottom: "2px solid #fff", transform: "rotate(-45deg) translate(1px,-1px)" }} />}
           </div>
         </div>
-
         <div style={{ flex: 1, minWidth: 0 }}>
-          {/* 주제명 */}
-          <div style={{ fontSize: 13, fontWeight: 600, color: "#111827", marginBottom: 5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#111827", marginBottom: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {chunk.topicTitle}
           </div>
-          {/* 배지들 */}
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 6 }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 4 }}>
             {chunk.status === "registered" ? (
               <span style={{ fontSize: 10, background: "#dcfce7", color: "#15803d", borderRadius: 4, padding: "1px 7px", fontWeight: 700 }}>등록완료</span>
             ) : chunk.status === "skipped" ? (
@@ -146,13 +142,12 @@ function ChunkListItem({
             )}
             {chunk.piiDetected && (
               <span style={{ fontSize: 10, background: "#fef2f2", color: "#dc2626", borderRadius: 4, padding: "1px 7px", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 2 }}>
-                <AlertTriangle style={{ width: 9, height: 9 }} />민감정보
+                <Shield style={{ width: 9, height: 9 }} />민감정보
               </span>
             )}
           </div>
-          {/* 내용 미리보기 */}
           <div style={{ fontSize: 11, color: "#9ca3af", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {chunk.content.slice(0, 60)}
+            {chunk.content.replace(/[#*_`>\-]/g, "").slice(0, 50)}
           </div>
         </div>
         <ChevronRight style={{ width: 13, height: 13, color: "#d1d5db", flexShrink: 0, marginTop: 2 }} />
@@ -161,19 +156,18 @@ function ChunkListItem({
   );
 }
 
-// ── 메인 페이지 ───────────────────────────────────────────────────────────────
+// ── 메인 ──────────────────────────────────────────────────────────────────────
 
 export default function KnowledgeReviewPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const sessionId = searchParams.get("session");
-  const editorRef = useRef<HTMLDivElement>(null);
 
   const [session, setSession] = useState<StagingSession | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedChunk, setSelectedChunk] = useState<StagingChunk | null>(null);
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   const [editTitle, setEditTitle] = useState("");
-  const [editContent, setEditContent] = useState("");
   const [editTags, setEditTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState("");
   const [isSavingChunk, setIsSavingChunk] = useState(false);
@@ -181,35 +175,85 @@ export default function KnowledgeReviewPage() {
   const [toast, setToast] = useState<{ tone: "success" | "error"; msg: string } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isDirty, setIsDirty] = useState(false);
+  const originalContentRef = useRef<string>("");
+
+  // TipTap 에디터
+  const editor = useEditor({
+    extensions: [
+      StarterKit,
+      Underline,
+      Link.configure({ openOnClick: false }),
+      Placeholder.configure({ placeholder: "내용을 편집하세요..." }),
+    ],
+    content: "",
+    onUpdate: () => setIsDirty(true),
+    editorProps: {
+      attributes: {
+        style: "min-height: 240px; padding: 14px; outline: none; font-size: 13px; line-height: 1.8; color: #374151;",
+      },
+    },
+  });
+
+  const loadChunkIntoEditor = useCallback((chunk: StagingChunk) => {
+    setSelectedId(chunk.id);
+    setSelectedChunk(chunk);
+    setEditTitle(chunk.topicTitle);
+    setEditTags([...chunk.tags]);
+    setTagInput("");
+    setIsDirty(false);
+    originalContentRef.current = chunk.content;
+
+    // TipTap에 마크다운 → HTML 변환 없이 plain text로 설정
+    // (StarterKit이 일부 마크다운 파싱)
+    if (editor) {
+      editor.commands.setContent(
+        chunk.content.includes("\n") || chunk.content.includes("#")
+          ? markdownToHtml(chunk.content)
+          : `<p>${chunk.content.replace(/\n/g, "</p><p>")}</p>`,
+        false,
+      );
+    }
+  }, [editor]);
+
+  // 간단한 마크다운 → HTML 변환
+  function markdownToHtml(md: string): string {
+    return md
+      .replace(/^### (.+)$/gm, "<h3>$1</h3>")
+      .replace(/^## (.+)$/gm, "<h2>$1</h2>")
+      .replace(/^# (.+)$/gm, "<h1>$1</h1>")
+      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      .replace(/\*(.+?)\*/g, "<em>$1</em>")
+      .replace(/^- (.+)$/gm, "<li>$1</li>")
+      .replace(/(<li>.*<\/li>\n?)+/g, m => `<ul>${m}</ul>`)
+      .replace(/\n{2,}/g, "</p><p>")
+      .replace(/\n/g, "<br>")
+      .replace(/^(?!<[h|u|l|p])(.+)$/gm, "<p>$1</p>");
+  }
 
   const load = useCallback(async (polling = false) => {
     if (!sessionId) return;
     if (!polling) setIsLoading(true);
     try {
       const data = await apiClient.request<StagingSession>(`/admin/knowledge/staging/${sessionId}`);
-
       if (data.status === "analyzing") {
-        // 아직 분석 중 — 로딩 유지하면서 3초 후 재폴링
         setTimeout(() => void load(true), 3000);
-        return;  // isLoading은 true 유지 (finally 없음)
+        return;
       }
-
       if (data.status === "failed") {
-        showToast("error", "AI 분석에 실패했습니다. 다시 시도해주세요.");
+        showToast("error", "AI 분석에 실패했습니다.");
         setIsLoading(false);
         return;
       }
-
       setSession(data);
       const pending = new Set(data.chunks.filter(c => c.status === "pending").map(c => c.id));
       setCheckedIds(pending);
-      if (data.chunks[0]) selectChunk(data.chunks[0]);
+      if (data.chunks[0]) loadChunkIntoEditor(data.chunks[0]);
       setIsLoading(false);
     } catch {
       showToast("error", "세션을 불러오지 못했습니다.");
       setIsLoading(false);
     }
-  }, [sessionId]); // eslint-disable-line
+  }, [sessionId, loadChunkIntoEditor]); // eslint-disable-line
 
   useEffect(() => { void load(); }, [load]);
 
@@ -221,53 +265,6 @@ export default function KnowledgeReviewPage() {
 
   function showToast(tone: "success" | "error", msg: string) {
     setToast({ tone, msg });
-  }
-
-  function selectChunk(chunk: StagingChunk) {
-    setSelectedId(chunk.id);
-    setEditTitle(chunk.topicTitle);
-    setEditContent(chunk.content);
-    setEditTags([...chunk.tags]);
-    setTagInput("");
-    setIsDirty(false);
-    // contenteditable 업데이트
-    if (editorRef.current) {
-      editorRef.current.innerText = chunk.content;
-    }
-  }
-
-  function handleEditorInput() {
-    if (editorRef.current) {
-      setEditContent(editorRef.current.innerText);
-      setIsDirty(true);
-    }
-  }
-
-  function handleFormat(tag: string) {
-    const sel = window.getSelection();
-    if (!sel || sel.rangeCount === 0) return;
-    const range = sel.getRangeAt(0);
-    const selected = range.toString();
-    if (!selected) return;
-
-    let replacement = selected;
-    if (tag === "bold") replacement = `**${selected}**`;
-    else if (tag === "italic") replacement = `*${selected}*`;
-    else if (tag === "h1") replacement = `\n# ${selected}\n`;
-    else if (tag === "h2") replacement = `\n## ${selected}\n`;
-    else if (tag === "ul") replacement = selected.split("\n").map(l => `- ${l}`).join("\n");
-
-    range.deleteContents();
-    const node = document.createTextNode(replacement);
-    range.insertNode(node);
-    range.setStartAfter(node);
-    range.collapse(true);
-    sel.removeAllRanges();
-    sel.addRange(range);
-    if (editorRef.current) {
-      setEditContent(editorRef.current.innerText);
-      setIsDirty(true);
-    }
   }
 
   function toggleCheck(id: string) {
@@ -286,23 +283,15 @@ export default function KnowledgeReviewPage() {
 
   function addTag() {
     const t = tagInput.trim();
-    if (t && !editTags.includes(t)) {
-      setEditTags(prev => [...prev, t]);
-      setIsDirty(true);
-    }
+    if (t && !editTags.includes(t)) { setEditTags(prev => [...prev, t]); setIsDirty(true); }
     setTagInput("");
-  }
-
-  function removeTag(tag: string) {
-    setEditTags(prev => prev.filter(t => t !== tag));
-    setIsDirty(true);
   }
 
   async function saveChunk() {
     if (!selectedId || !session) return;
     setIsSavingChunk(true);
     try {
-      const content = editorRef.current?.innerText ?? editContent;
+      const content = editor?.getText() ? editor.getHTML() : originalContentRef.current;
       await apiClient.request(`/admin/knowledge/staging/${session.sessionId}/chunks/${selectedId}`, {
         method: "PATCH",
         body: { topicTitle: editTitle, content, tags: editTags },
@@ -311,21 +300,11 @@ export default function KnowledgeReviewPage() {
         ...prev,
         chunks: prev.chunks.map(c => c.id === selectedId ? { ...c, topicTitle: editTitle, content, tags: editTags } : c),
       } : prev);
+      setSelectedChunk(prev => prev ? { ...prev, topicTitle: editTitle, content, tags: editTags } : prev);
       setIsDirty(false);
       showToast("success", "저장되었습니다.");
     } catch { showToast("error", "저장 실패"); }
     finally { setIsSavingChunk(false); }
-  }
-
-  async function restoreContent() {
-    if (!selectedId || !session) return;
-    const original = session.chunks.find(c => c.id === selectedId);
-    if (!original) return;
-    setEditContent(original.content);
-    setEditTitle(original.topicTitle);
-    setEditTags([...original.tags]);
-    if (editorRef.current) editorRef.current.innerText = original.content;
-    setIsDirty(false);
   }
 
   async function skipChunk(id: string) {
@@ -339,7 +318,8 @@ export default function KnowledgeReviewPage() {
 
   async function registerSelected() {
     if (!session || checkedIds.size === 0) return;
-    if (isDirty) { showToast("error", "저장되지 않은 변경이 있습니다. 저장 후 등록하세요."); return; }
+    const hasPii = session.chunks.filter(c => checkedIds.has(c.id) && c.piiDetected);
+    if (hasPii.length > 0 && !confirm(`선택된 ${checkedIds.size}개 중 ${hasPii.length}개에 민감정보가 포함되어 있습니다. 계속 등록하시겠습니까?`)) return;
     setIsRegistering(true);
     try {
       const result = await apiClient.request<{ registered: number; total: number }>(
@@ -354,7 +334,8 @@ export default function KnowledgeReviewPage() {
 
   async function registerAll() {
     if (!session) return;
-    if (isDirty) { showToast("error", "저장되지 않은 변경이 있습니다. 저장 후 등록하세요."); return; }
+    const hasPii = session.chunks.filter(c => c.status === "pending" && c.piiDetected);
+    if (hasPii.length > 0 && !confirm(`전체 중 ${hasPii.length}개에 민감정보가 포함되어 있습니다. 등록 전 내용을 꼭 확인하세요. 계속하시겠습니까?`)) return;
     setIsRegistering(true);
     try {
       const result = await apiClient.request<{ registered: number; total: number }>(
@@ -367,20 +348,22 @@ export default function KnowledgeReviewPage() {
     finally { setIsRegistering(false); }
   }
 
-  const selectedChunk = session?.chunks.find(c => c.id === selectedId);
   const pendingCount = session?.chunks.filter(c => c.status === "pending").length ?? 0;
   const registeredCount = session?.chunks.filter(c => c.status === "registered").length ?? 0;
+  const piiCount = session?.chunks.filter(c => c.status === "pending" && c.piiDetected).length ?? 0;
+
+  // ── 로딩 화면 ─────────────────────────────────────────────────────────────
 
   if (isLoading) {
     return (
       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "60vh", flexDirection: "column", gap: 16 }}>
         <Loader2 style={{ width: 36, height: 36, animation: "spin 1s linear infinite", color: "#2563eb" }} />
         <div style={{ textAlign: "center" }}>
-          <div style={{ fontSize: 16, fontWeight: 600, color: "#111827", marginBottom: 6 }}>AI가 주제를 분석하고 있습니다</div>
-          <div style={{ fontSize: 13, color: "#6b7280" }}>파일 크기에 따라 30초~2분 소요될 수 있습니다.</div>
-          <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 4 }}>창을 닫지 마세요. 3초마다 자동으로 상태를 확인합니다.</div>
+          <div style={{ fontSize: 16, fontWeight: 600, color: "#111827", marginBottom: 6 }}>GPT-4.1이 문서를 분석하고 있습니다</div>
+          <div style={{ fontSize: 13, color: "#6b7280" }}>내용 정리 및 주제 분류 중 · 파일 크기에 따라 1~3분 소요됩니다.</div>
+          <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 4 }}>창을 닫지 마세요. 완료되면 자동으로 화면이 전환됩니다.</div>
         </div>
-        <div style={{ width: 200, height: 4, background: "#e5e7eb", borderRadius: 4, overflow: "hidden" }}>
+        <div style={{ width: 220, height: 4, background: "#e5e7eb", borderRadius: 4, overflow: "hidden" }}>
           <div style={{ height: "100%", background: "#2563eb", borderRadius: 4, animation: "progress 2s ease-in-out infinite", width: "60%" }} />
         </div>
         <style>{`@keyframes progress { 0%{width:10%} 50%{width:80%} 100%{width:10%} }`}</style>
@@ -408,16 +391,16 @@ export default function KnowledgeReviewPage() {
       )}
 
       {/* 헤더 */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14, flexShrink: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, flexShrink: 0 }}>
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
             <h1 style={{ fontSize: 18, fontWeight: 700, color: "#111827" }}>지식 등록</h1>
             <span style={{ fontSize: 11, fontWeight: 700, background: "linear-gradient(135deg,#06b6d4,#2563eb)", color: "#fff", borderRadius: 6, padding: "2px 8px" }}>도움말</span>
           </div>
           <p style={{ fontSize: 13, color: "#6b7280" }}>
-            AI가 <strong style={{ color: "#374151" }}>{session.sourceName}</strong>을
+            GPT-4.1이 <strong style={{ color: "#374151" }}>{session.sourceName}</strong>을
             <strong style={{ color: "#2563eb" }}> {session.totalChunks}개</strong> 주제로 분류했습니다.
-            각 주제를 확인하고 등록하세요.
+            {piiCount > 0 && <span style={{ marginLeft: 8, color: "#dc2626", fontWeight: 600 }}>⚠ 민감정보 {piiCount}건 포함</span>}
           </p>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
@@ -433,16 +416,17 @@ export default function KnowledgeReviewPage() {
       </div>
 
       {/* 통계 */}
-      <div style={{ display: "flex", gap: 20, marginBottom: 12, flexShrink: 0 }}>
+      <div style={{ display: "flex", gap: 20, marginBottom: 10, flexShrink: 0, flexWrap: "wrap" }}>
         {[
           { label: "전체", value: session.totalChunks, color: "#374151" },
           { label: "대기", value: pendingCount, color: "#2563eb" },
           { label: "등록완료", value: registeredCount, color: "#16a34a" },
           { label: "선택됨", value: checkedIds.size, color: "#7c3aed" },
-        ].map(({ label, value, color }) => (
-          <div key={label} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 13, color: "#6b7280" }}>
-            <span style={{ fontSize: 20, fontWeight: 800, color, lineHeight: 1 }}>{value}</span>
-            <span>{label}</span>
+          piiCount > 0 ? { label: "민감정보", value: piiCount, color: "#dc2626" } : null,
+        ].filter(Boolean).map(s => s && (
+          <div key={s.label} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 13, color: "#6b7280" }}>
+            <span style={{ fontSize: 18, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.value}</span>
+            <span>{s.label}</span>
           </div>
         ))}
       </div>
@@ -451,26 +435,17 @@ export default function KnowledgeReviewPage() {
       <div style={{ display: "flex", gap: 12, flex: 1, overflow: "hidden", minHeight: 0 }}>
 
         {/* ① 왼쪽 패널 */}
-        <div style={{
-          width: 290, flexShrink: 0,
-          background: "#fff", border: "1px solid #e5e7eb", borderRadius: 14,
-          display: "flex", flexDirection: "column", overflow: "hidden",
-        }}>
-          {/* 패널 헤더 */}
+        <div style={{ width: 290, flexShrink: 0, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 14, display: "flex", flexDirection: "column", overflow: "hidden" }}>
           <div style={{ padding: "12px 14px", borderBottom: "1px solid #f1f5f9" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <span style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}>분석된 주제</span>
-              <button type="button" onClick={toggleAll}
-                style={{ fontSize: 11, color: "#6b7280", background: "none", border: "none", cursor: "pointer" }}>
+              <button type="button" onClick={toggleAll} style={{ fontSize: 11, color: "#6b7280", background: "none", border: "none", cursor: "pointer" }}>
                 {checkedIds.size === pendingCount ? "전체 해제" : "전체 선택"}
               </button>
             </div>
-            <p style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>
-              주제를 클릭하면 오른쪽에서 내용을 확인하고 수정할 수 있습니다.
-            </p>
+            <p style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>주제를 클릭하면 오른쪽 에디터에서 내용을 확인하고 수정할 수 있습니다.</p>
           </div>
 
-          {/* 목록 */}
           <div style={{ flex: 1, overflowY: "auto" }}>
             {session.chunks.map(chunk => (
               <ChunkListItem
@@ -478,30 +453,27 @@ export default function KnowledgeReviewPage() {
                 chunk={chunk}
                 isSelected={selectedId === chunk.id}
                 isChecked={checkedIds.has(chunk.id)}
-                onClick={() => selectChunk(chunk)}
+                onClick={() => loadChunkIntoEditor(chunk)}
                 onToggle={() => toggleCheck(chunk.id)}
               />
             ))}
           </div>
 
-          {/* 하단 */}
           <div style={{ padding: "10px 12px", borderTop: "1px solid #f1f5f9" }}>
             <div style={{ display: "flex", fontSize: 11, color: "#9ca3af", gap: 10, marginBottom: 8 }}>
               <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
                 <input type="checkbox" style={{ width: 11, height: 11 }} />1차 주제분류 완료
               </label>
               <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
-                <input type="checkbox" style={{ width: 11, height: 11 }} />2차 통합 지식등록 완료
+                <input type="checkbox" style={{ width: 11, height: 11 }} />2차 통합 등록 완료
               </label>
             </div>
             <div style={{ display: "flex", gap: 8 }}>
-              <button type="button"
-                onClick={() => { if (confirm("이 세션을 삭제하시겠습니까?")) router.push("/admin/knowledge/register"); }}
+              <button type="button" onClick={() => { if (confirm("이 세션을 삭제하시겠습니까?")) router.push("/admin/knowledge/register"); }}
                 style={{ flex: 1, padding: "9px 0", border: "1px solid #e5e7eb", borderRadius: 8, background: "#fff", fontSize: 13, cursor: "pointer", color: "#374151" }}>
                 삭제
               </button>
-              <button type="button" onClick={() => void registerSelected()}
-                disabled={isRegistering || checkedIds.size === 0}
+              <button type="button" onClick={() => void registerSelected()} disabled={isRegistering || checkedIds.size === 0}
                 style={{ flex: 2, padding: "9px 0", border: "none", borderRadius: 8, background: checkedIds.size === 0 ? "#9ca3af" : "#111827", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
                 {isRegistering ? "등록 중..." : `등록 (${checkedIds.size})`}
               </button>
@@ -509,19 +481,15 @@ export default function KnowledgeReviewPage() {
           </div>
         </div>
 
-        {/* ② 오른쪽 패널 — 에디터 */}
-        <div style={{
-          flex: 1, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 14,
-          display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0,
-        }}>
+        {/* ② 오른쪽 패널 — TipTap 에디터 */}
+        <div style={{ flex: 1, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 14, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
           {selectedChunk ? (
             <>
               {/* 에디터 헤더 */}
               <div style={{ padding: "12px 18px", borderBottom: "1px solid #f1f5f9", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-                {/* 상태 배지 */}
                 {selectedChunk.piiDetected && (
                   <span style={{ fontSize: 11, background: "#fef2f2", border: "1px solid #fecaca", color: "#dc2626", borderRadius: 6, padding: "2px 8px", fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
-                    <AlertTriangle style={{ width: 11, height: 11 }} />민감정보 포함
+                    <Shield style={{ width: 11, height: 11 }} />민감정보 포함
                   </span>
                 )}
                 {selectedChunk.mergeCandidateTitle && (
@@ -530,14 +498,7 @@ export default function KnowledgeReviewPage() {
                   </span>
                 )}
                 <div style={{ flex: 1 }} />
-                {isDirty && (
-                  <button type="button" onClick={() => void restoreContent()}
-                    style={{ display: "flex", alignItems: "center", gap: 4, padding: "5px 10px", border: "1px solid #e5e7eb", borderRadius: 6, background: "#f9fafb", fontSize: 12, cursor: "pointer", color: "#6b7280" }}>
-                    <RotateCcw style={{ width: 12, height: 12 }} />되돌리기
-                  </button>
-                )}
-                <button type="button" onClick={() => void skipChunk(selectedChunk.id)}
-                  disabled={selectedChunk.status !== "pending"}
+                <button type="button" onClick={() => void skipChunk(selectedChunk.id)} disabled={selectedChunk.status !== "pending"}
                   style={{ padding: "5px 12px", border: "1px solid #e5e7eb", borderRadius: 6, background: "#f9fafb", fontSize: 12, cursor: "pointer", color: "#6b7280", opacity: selectedChunk.status !== "pending" ? 0.4 : 1 }}>
                   건너뛰기
                 </button>
@@ -547,19 +508,16 @@ export default function KnowledgeReviewPage() {
                 </button>
               </div>
 
-              {/* 제목 편집 */}
+              {/* 제목 */}
               <div style={{ padding: "14px 20px 10px", borderBottom: "1px solid #f9fafb", flexShrink: 0 }}>
-                <input
-                  value={editTitle}
-                  onChange={e => { setEditTitle(e.target.value); setIsDirty(true); }}
+                <input value={editTitle} onChange={e => { setEditTitle(e.target.value); setIsDirty(true); }}
                   placeholder="주제명을 입력하세요"
-                  style={{ width: "100%", fontSize: 20, fontWeight: 700, color: "#111827", border: "none", outline: "none", padding: 0, background: "transparent" }}
-                />
+                  style={{ width: "100%", fontSize: 20, fontWeight: 700, color: "#111827", border: "none", outline: "none", padding: 0, background: "transparent" }} />
               </div>
 
               {/* PII 경고 */}
               {selectedChunk.piiDetected && selectedChunk.piiRegions.length > 0 && (
-                <div style={{ margin: "0 18px 0", padding: "8px 12px", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8, fontSize: 12, color: "#dc2626", flexShrink: 0 }}>
+                <div style={{ margin: "8px 18px 0", padding: "8px 12px", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8, fontSize: 12, color: "#dc2626", flexShrink: 0 }}>
                   <strong>감지된 민감정보:</strong>{" "}
                   {selectedChunk.piiRegions.map((r, i) => (
                     <span key={i} style={{ marginRight: 8 }}>{r.type}({r.preview})</span>
@@ -568,37 +526,33 @@ export default function KnowledgeReviewPage() {
                 </div>
               )}
 
-              {/* 툴바 */}
+              {/* 병합 경고 */}
+              {selectedChunk.registrationType === "merge" && selectedChunk.mergeCandidateTitle && (
+                <div style={{ margin: "6px 18px 0", padding: "8px 12px", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, fontSize: 12, color: "#92400e", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+                  <span><GitMerge style={{ width: 12, height: 12, display: "inline", marginRight: 4 }} />
+                    기존 지식 "{selectedChunk.mergeCandidateTitle}"과 {Math.round((selectedChunk.mergeScore ?? 0) * 100)}% 유사합니다.</span>
+                  <span style={{ fontSize: 11, color: "#92400e" }}>신규 등록하거나 건너뛰기를 선택하세요</span>
+                </div>
+              )}
+
+              {/* TipTap 툴바 */}
               <div style={{ flexShrink: 0 }}>
-                <EditorToolbar onFormat={handleFormat} />
+                <EditorToolbar editor={editor} />
               </div>
 
-              {/* 내용 영역 레이블 */}
+              {/* 내용 레이블 */}
               <div style={{ padding: "8px 20px 4px", flexShrink: 0 }}>
                 <span style={{ fontSize: 11, fontWeight: 600, color: "#9ca3af", letterSpacing: 1, textTransform: "uppercase" }}>내용</span>
               </div>
 
-              {/* contenteditable 에디터 */}
+              {/* TipTap 에디터 본문 */}
               <div style={{ flex: 1, overflow: "auto", padding: "0 20px 12px" }}>
-                <div
-                  ref={editorRef}
-                  contentEditable
-                  suppressContentEditableWarning
-                  onInput={handleEditorInput}
-                  style={{
-                    minHeight: 220, outline: "none", fontSize: 13, lineHeight: 1.8,
-                    color: "#374151", whiteSpace: "pre-wrap", wordBreak: "break-word",
-                    padding: "12px 14px", border: "1px solid #e5e7eb", borderRadius: 8,
-                    background: "#fafafa",
-                  }}
-                />
-                {/* PII 하이라이트 */}
-                {selectedChunk.piiDetected && (
-                  <PiiHighlight text={selectedChunk.content} regions={selectedChunk.piiRegions} />
-                )}
+                <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, background: "#fafafa" }}>
+                  <EditorContent editor={editor} />
+                </div>
               </div>
 
-              {/* 태그 관리 */}
+              {/* 태그 */}
               <div style={{ padding: "10px 20px 14px", borderTop: "1px solid #f1f5f9", flexShrink: 0 }}>
                 <div style={{ fontSize: 11, fontWeight: 600, color: "#9ca3af", marginBottom: 8, display: "flex", alignItems: "center", gap: 4, textTransform: "uppercase", letterSpacing: 1 }}>
                   <Tag style={{ width: 11, height: 11 }} />태그 관리
@@ -607,21 +561,18 @@ export default function KnowledgeReviewPage() {
                   {editTags.map(tag => (
                     <span key={tag} style={{ fontSize: 12, background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 20, padding: "3px 10px", color: "#1d4ed8", display: "inline-flex", alignItems: "center", gap: 4 }}>
                       {tag}
-                      <button type="button" onClick={() => removeTag(tag)}
-                        style={{ background: "none", border: "none", cursor: "pointer", color: "#94a3b8", padding: 0, lineHeight: 1, fontSize: 12 }}>×</button>
+                      <button type="button" onClick={() => { setEditTags(prev => prev.filter(t => t !== tag)); setIsDirty(true); }}
+                        style={{ background: "none", border: "none", cursor: "pointer", color: "#94a3b8", padding: 0, fontSize: 12 }}>×</button>
                     </span>
                   ))}
                 </div>
                 <div style={{ display: "flex", gap: 6 }}>
-                  <input
-                    value={tagInput}
-                    onChange={e => setTagInput(e.target.value)}
+                  <input value={tagInput} onChange={e => setTagInput(e.target.value)}
                     onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addTag(); } }}
                     placeholder="태그 입력 후 Enter"
-                    style={{ flex: 1, border: "1px solid #e5e7eb", borderRadius: 8, padding: "7px 12px", fontSize: 12, outline: "none", background: "#fafafa" }}
-                  />
+                    style={{ flex: 1, border: "1px solid #e5e7eb", borderRadius: 8, padding: "7px 12px", fontSize: 12, outline: "none", background: "#fafafa" }} />
                   <button type="button" onClick={addTag}
-                    style={{ padding: "7px 12px", border: "1px solid #e5e7eb", borderRadius: 8, background: "#fff", fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, color: "#374151" }}>
+                    style={{ padding: "7px 12px", border: "1px solid #e5e7eb", borderRadius: 8, background: "#fff", fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
                     <Plus style={{ width: 12, height: 12 }} />추가
                   </button>
                 </div>
@@ -634,6 +585,25 @@ export default function KnowledgeReviewPage() {
           )}
         </div>
       </div>
+
+      {/* TipTap 에디터 기본 스타일 */}
+      <style>{`
+        .tiptap { min-height: 240px; }
+        .tiptap p { margin: 0.5em 0; }
+        .tiptap h1 { font-size: 1.5em; font-weight: 700; margin: 0.8em 0 0.4em; }
+        .tiptap h2 { font-size: 1.25em; font-weight: 600; margin: 0.7em 0 0.3em; }
+        .tiptap h3 { font-size: 1.1em; font-weight: 600; margin: 0.6em 0 0.3em; }
+        .tiptap ul, .tiptap ol { padding-left: 1.5em; margin: 0.5em 0; }
+        .tiptap li { margin: 0.2em 0; }
+        .tiptap blockquote { border-left: 3px solid #e5e7eb; padding-left: 1em; color: #6b7280; margin: 0.5em 0; }
+        .tiptap code { background: #f1f5f9; border-radius: 3px; padding: 1px 4px; font-family: monospace; font-size: 0.9em; }
+        .tiptap strong { font-weight: 700; }
+        .tiptap em { font-style: italic; }
+        .tiptap u { text-decoration: underline; }
+        .tiptap s { text-decoration: line-through; }
+        .tiptap hr { border: none; border-top: 1px solid #e5e7eb; margin: 1em 0; }
+        .tiptap .is-editor-empty:first-child::before { content: attr(data-placeholder); color: #9ca3af; pointer-events: none; float: left; height: 0; }
+      `}</style>
     </div>
   );
 }

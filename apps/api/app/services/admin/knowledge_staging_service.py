@@ -126,93 +126,121 @@ def _rule_based_title(text: str) -> str:
     return first[:25]
 
 
-def _llm_generate_title_tags(
+def _call_llm_raw(
+    runtime_api: Any,
+    system_prompt: str,
+    user_prompt: str,
+    max_tokens: int = 800,
+    timeout: int = 20,
+) -> str:
+    """LLM 공통 호출 헬퍼. 원시 텍스트 응답 반환."""
+    model = runtime_api.quality_model()  # 지식 분석: 품질 우선 (gpt-4.1 / claude-sonnet)
+    headers: dict[str, str] = {"Content-Type": "application/json"}
+
+    if runtime_api.provider == "anthropic":
+        url = (
+            f"{runtime_api.base_url.rstrip('/')}/v1/messages"
+            if runtime_api.base_url else "https://api.anthropic.com/v1/messages"
+        )
+        payload: dict[str, Any] = {
+            "model": model, "temperature": 0.1, "max_tokens": max_tokens,
+            "system": system_prompt,
+            "messages": [{"role": "user", "content": user_prompt}],
+        }
+        headers.update({"x-api-key": runtime_api.api_key, "anthropic-version": "2023-06-01"})
+    else:
+        url = (
+            f"{runtime_api.base_url.rstrip('/')}/responses"
+            if runtime_api.base_url else "https://api.openai.com/v1/responses"
+        )
+        payload = {
+            "model": model, "temperature": 0.1, "max_output_tokens": max_tokens,
+            "input": [
+                {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]},
+                {"role": "user",   "content": [{"type": "input_text", "text": user_prompt}]},
+            ],
+        }
+        headers["Authorization"] = f"Bearer {runtime_api.api_key}"
+
+    req = urllib.request.Request(
+        url=url,
+        data=json.dumps(payload, ensure_ascii=False).encode(),
+        headers=headers, method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        result = json.loads(resp.read().decode())
+
+    if runtime_api.provider == "anthropic":
+        return next((b["text"] for b in (result.get("content") or []) if b.get("type") == "text"), "")
+    else:
+        raw = result.get("output_text") or ""
+        if not raw:
+            for item in result.get("output") or []:
+                for c in (item.get("content") or []):
+                    if isinstance(c, dict) and c.get("type") == "output_text":
+                        return str(c.get("text") or "")
+        return raw
+
+
+def _llm_analyze_chunk(
     text: str, db: Session
-) -> tuple[str, list[str]]:
-    """LLM으로 주제명(15자 이내) + 태그 3개 생성. 실패 시 ('', []) 반환."""
+) -> tuple[str, list[str], str]:
+    """
+    GPT-4.1(quality_model)로 청크를 종합 분석:
+    - title: 고유 주제명
+    - tags: 구체적 키워드
+    - content: PDF 아티팩트 제거 + 마크다운으로 정리된 내용
+
+    실패 시 ('', [], '') 반환 → 호출자가 rule-based 폴백 처리.
+    """
     try:
         from app.services.llm_api_config_runtime_service import resolve_runtime_api_config  # noqa: PLC0415
 
         runtime_api = resolve_runtime_api_config(db)
         if runtime_api is None:
-            return "", []
+            return "", [], ""
 
-        model = runtime_api.speed_model()  # 주제명 생성: 속도 우선
         system_prompt = (
-            '당신은 지식 분류 전문가입니다. 주어진 텍스트를 분석해 JSON으로만 응답하세요.\n'
-            '규칙:\n'
-            '- title: 이 텍스트 고유의 핵심 내용을 요약한 제목(20자 이내). "지원", "안내"처럼 모호한 단어만 쓰지 말 것\n'
-            '- tags: 이 내용에만 해당하는 구체적 키워드 3개\n'
-            '형식: {"title":"구체적 제목","tags":["키워드1","키워드2","키워드3"]}'
+            "당신은 공공기관 챗봇 지식 데이터베이스 구축 전문가입니다.\n"
+            "업로드된 문서의 섹션을 분석해 챗봇이 사용자 질문에 정확히 답할 수 있도록 정리합니다.\n"
+            "반드시 순수 JSON만 출력하세요. 코드블록(```)이나 설명 텍스트는 절대 포함하지 마세요."
         )
         user_prompt = (
-            f"다음 텍스트의 핵심 주제명과 태그를 생성하세요.\n"
-            f"(다른 섹션과 구별되는 이 섹션만의 고유한 내용에 집중하세요)\n\n"
-            f"텍스트:\n{text[:800]}"
+            "다음 문서 섹션을 분석해 JSON으로 응답하세요:\n\n"
+            f"[원본 텍스트]\n{text[:1800]}\n\n"
+            "응답 JSON 형식:\n"
+            "{\n"
+            '  "title": "이 섹션의 고유 주제명 (25자 이내, 다른 섹션과 구별되는 구체적 제목)",\n'
+            '  "tags": ["핵심키워드1", "키워드2", "키워드3", "키워드4"],\n'
+            '  "content": "정리된 내용 (마크다운 형식)"\n'
+            "}\n\n"
+            "규칙:\n"
+            "- title: 이 섹션만의 핵심 내용 반영. '지원/안내/정보'같은 모호한 단어만으로 구성 금지\n"
+            "- tags: 이 섹션에 직접 등장하는 명사/고유명사 위주 3-5개\n"
+            "- content 규칙:\n"
+            "  · PDF 변환 잔여물(페이지번호, 머리글/바닥글, 줄바꿈 오류) 제거\n"
+            "  · 원본 정보를 빠짐없이 보존하면서 마크다운으로 정리\n"
+            "  · 제목은 ## , 소제목은 ### , 항목은 - , 중요단어는 **굵게** 활용\n"
+            "  · 표 형식은 마크다운 테이블로 변환\n"
+            "  · 사용자가 질문할 때 도움이 되는 구체적 내용(날짜·금액·절차·조건 등) 반드시 보존"
         )
 
-        headers: dict[str, str] = {"Content-Type": "application/json"}
-
-        if runtime_api.provider == "anthropic":
-            url = (
-                f"{runtime_api.base_url.rstrip('/')}/v1/messages"
-                if runtime_api.base_url
-                else "https://api.anthropic.com/v1/messages"
-            )
-            payload: dict[str, Any] = {
-                "model": model, "temperature": 0, "max_tokens": 120,
-                "system": system_prompt,
-                "messages": [{"role": "user", "content": user_prompt}],
-            }
-            headers.update({"x-api-key": runtime_api.api_key, "anthropic-version": "2023-06-01"})
-        else:
-            url = (
-                f"{runtime_api.base_url.rstrip('/')}/responses"
-                if runtime_api.base_url
-                else "https://api.openai.com/v1/responses"
-            )
-            payload = {
-                "model": model, "temperature": 0, "max_output_tokens": 120,
-                "input": [
-                    {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]},
-                    {"role": "user",   "content": [{"type": "input_text", "text": user_prompt}]},
-                ],
-            }
-            headers["Authorization"] = f"Bearer {runtime_api.api_key}"
-
-        req = urllib.request.Request(
-            url=url,
-            data=json.dumps(payload, ensure_ascii=False).encode(),
-            headers=headers,
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=8) as resp:
-            result = json.loads(resp.read().decode())
-
-        if runtime_api.provider == "anthropic":
-            raw = next(
-                (b["text"] for b in (result.get("content") or []) if b.get("type") == "text"), ""
-            )
-        else:
-            raw = result.get("output_text") or ""
-            if not raw:
-                for item in result.get("output") or []:
-                    for c in item.get("content") or []:
-                        if isinstance(c, dict) and c.get("type") == "output_text":
-                            raw = str(c.get("text") or "")
-                            break
+        raw = _call_llm_raw(runtime_api, system_prompt, user_prompt, max_tokens=1500, timeout=25)
 
         m = re.search(r"\{.*\}", raw, re.DOTALL)
         if not m:
-            return "", []
+            logger.warning("[STAGING] LLM JSON not found in response: %s", raw[:100])
+            return "", [], ""
+
         parsed = json.loads(m.group(0))
         title = str(parsed.get("title") or "")[:50]
         tags = [str(t) for t in (parsed.get("tags") or [])][:5]
-        return title, tags
+        content = str(parsed.get("content") or "").strip()
+        return title, tags, content
 
     except (urllib.error.HTTPError, Exception) as exc:
-        logger.debug("[STAGING] LLM title/tag gen failed: %s", exc)
-        return "", []
+        logger.warning("[STAGING] LLM chunk analysis failed: %s", exc)
+        return "", [], ""
 
 
 # ── 병합 후보 검사 ────────────────────────────────────────────────────────────
@@ -321,10 +349,12 @@ def analyze_staging_session_background(
         db.flush()
 
         for i, chunk_text in enumerate(raw_chunks):
-            llm_title, llm_tags = _llm_generate_title_tags(chunk_text, db)
+            # quality_model로 주제명 + 태그 + 내용 정리 한 번에 처리
+            llm_title, llm_tags, llm_content = _llm_analyze_chunk(chunk_text, db)
             topic_title = llm_title or _rule_based_title(chunk_text)
+            final_content = llm_content if llm_content else chunk_text
 
-            pii_found, pii_regions = detect_pii(chunk_text)
+            pii_found, pii_regions = detect_pii(final_content)
 
             merge_title, merge_id, merge_score = _check_merge_candidate(chunk_text, chatbot_id, db)
             registration_type = "merge" if merge_title else "new"
@@ -332,7 +362,7 @@ def analyze_staging_session_background(
             chunk_row = KnowledgeStagingChunk(
                 session_id=session_row.id,
                 topic_title=topic_title,
-                content=chunk_text,
+                content=final_content,   # LLM 정리 내용 우선, 실패 시 원본
                 tags=llm_tags,
                 pii_detected=pii_found,
                 pii_regions=pii_regions,
