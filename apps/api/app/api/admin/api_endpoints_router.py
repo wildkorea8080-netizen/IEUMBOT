@@ -242,13 +242,13 @@ def test_api_endpoint(
 
     from app.services.chat.api_connector_service import call_api_endpoint  # noqa: PLC0415
 
-    result = call_api_endpoint(row, question="테스트 질문")
-    if result is not None:
+    text, _structured = call_api_endpoint(row, question="테스트 질문")
+    if text is not None:
         return ApiTestResponse(
             success=True,
-            result_text=result[:500],
+            result_text=text[:500],
             error=None,
-            raw_preview=result[:200],
+            raw_preview=text[:200],
         )
     return ApiTestResponse(
         success=False,

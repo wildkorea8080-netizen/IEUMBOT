@@ -1365,6 +1365,10 @@ export class IeumWidgetApp {
         this.updateMessage(draftMessageId, { followUpQuestions: finalFollowUps });
         return;
       }
+      if (event.event === "structured_response") {
+        this.updateMessage(draftMessageId, { structuredResponse: data as unknown as StructuredResponse });
+        return;
+      }
       if (event.event === "error") {
         streamFailed = true;
         streamErrorMessage = asString(data.message) ?? streamErrorMessage;

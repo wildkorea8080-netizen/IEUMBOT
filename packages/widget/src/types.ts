@@ -156,6 +156,7 @@ export type ChatStreamEventName =
   | "escalation"
   | "citations"
   | "follow_up_questions"
+  | "structured_response"
   | "error"
   | "done";
 

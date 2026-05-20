@@ -1746,16 +1746,17 @@ def run_final_chat_pipeline(
 
     # ── 외부 API 컨텍스트 조회 (Sprint 3-D) ─────────────────────────────────
     api_context: str | None = None
+    api_structured_response: TextResponse | ViewResponse | ListResponse | None = None
     _t0 = time.perf_counter()
     try:
-        from app.services.chat.api_connector_service import get_api_context  # noqa: PLC0415
-        api_context = get_api_context(
+        from app.services.chat.api_connector_service import get_api_result  # noqa: PLC0415
+        api_context, api_structured_response = get_api_result(
             question=body.question,
             chatbot_id=str(chatbot.id),
             db=db,
         )
         if api_context:
-            logger.info("[API_CONNECTOR] 컨텍스트 주입 len=%d", len(api_context))
+            logger.info("[API_CONNECTOR] 컨텍스트 주입 len=%d structured=%s", len(api_context), api_structured_response is not None)
     except Exception as _api_exc:
         logger.warning("[API_CONNECTOR] skipped: %s", _api_exc)
     _perf_api_ms = int((time.perf_counter() - _t0) * 1000)
@@ -2193,10 +2194,12 @@ def run_final_chat_pipeline(
         except Exception as _cta_exc:
             logger.warning("[CONDITIONAL] 매칭 실패: %s", _cta_exc)
 
-    # ── Tools API 구조화 응답 (Sprint 3-F) ───────────────────────────────────
-    # structured_response=None 이면 기존 answer.text 동작 100% 유지
-    structured_response: TextResponse | ViewResponse | ListResponse | None = None
-    if outcome == "answered" and answer_text:
+    # ── Tools API 구조화 응답 (Sprint 3-F / 3-D) ─────────────────────────────
+    # API 연동(view/list)이 구조화 응답을 만들면 그것을 우선 사용.
+    # 없으면 response_format_rules 기반 LLM 출력 변환 시도.
+    # structured_response=None 이면 기존 answer.text 동작 100% 유지.
+    structured_response: TextResponse | ViewResponse | ListResponse | None = api_structured_response
+    if structured_response is None and outcome == "answered" and answer_text:
         try:
             from app.services.chat.response_formatter_service import build_structured_response  # noqa: PLC0415
             structured_response = build_structured_response(

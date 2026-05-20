@@ -91,6 +91,12 @@ def generate_chat_sse_stream(
             },
         )
 
+    if response.structured_response is not None:
+        yield _to_sse_event(
+            "structured_response",
+            response.structured_response.model_dump(by_alias=True),
+        )
+
     if response.citations:
         yield _to_sse_event("citations", {"items": [item.model_dump(by_alias=True) for item in response.citations]})
 
