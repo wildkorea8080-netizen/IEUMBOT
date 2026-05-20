@@ -266,6 +266,106 @@ def _check_merge_candidate(
 
 # ── 세션 생성 ─────────────────────────────────────────────────────────────────
 
+def create_staging_session_immediate(
+    db: Session,
+    *,
+    chatbot_id: str,
+    organization_id: str,
+    source_type: str,
+    source_name: str,
+) -> KnowledgeStagingSession:
+    """
+    세션 레코드만 즉시 생성하고 반환 (status=analyzing).
+    실제 분석은 analyze_staging_session_background()를 별도로 호출.
+    """
+    session_row = KnowledgeStagingSession(
+        chatbot_id=uuid.UUID(chatbot_id),
+        organization_id=uuid.UUID(organization_id),
+        source_type=source_type,
+        source_name=source_name,
+        status="analyzing",
+        total_chunks=0,
+    )
+    db.add(session_row)
+    db.commit()
+    db.refresh(session_row)
+    logger.info("[STAGING] session created id=%s", session_row.id)
+    return session_row
+
+
+def analyze_staging_session_background(
+    session_id: str,
+    text: str,
+    chatbot_id: str,
+    organization_id: str,
+) -> None:
+    """
+    백그라운드 태스크로 실행: 청킹 → LLM 주제명 → PII 감지 → 병합 검사.
+    독립 DB 세션 사용 (FastAPI BackgroundTasks는 요청 세션과 분리).
+    """
+    from app.db import SessionLocal  # noqa: PLC0415
+
+    db = SessionLocal()
+    try:
+        session_row = db.execute(
+            select(KnowledgeStagingSession).where(
+                KnowledgeStagingSession.id == uuid.UUID(session_id)
+            )
+        ).scalar_one_or_none()
+        if session_row is None:
+            logger.warning("[STAGING] session not found id=%s", session_id)
+            return
+
+        raw_chunks = _split_semantic_chunks(text)
+        session_row.total_chunks = len(raw_chunks)
+        db.flush()
+
+        for i, chunk_text in enumerate(raw_chunks):
+            llm_title, llm_tags = _llm_generate_title_tags(chunk_text, db)
+            topic_title = llm_title or _rule_based_title(chunk_text)
+
+            pii_found, pii_regions = detect_pii(chunk_text)
+
+            merge_title, merge_id, merge_score = _check_merge_candidate(chunk_text, chatbot_id, db)
+            registration_type = "merge" if merge_title else "new"
+
+            chunk_row = KnowledgeStagingChunk(
+                session_id=session_row.id,
+                topic_title=topic_title,
+                content=chunk_text,
+                tags=llm_tags,
+                pii_detected=pii_found,
+                pii_regions=pii_regions,
+                merge_candidate_title=merge_title,
+                merge_candidate_id=merge_id,
+                merge_score=merge_score,
+                registration_type=registration_type,
+                status="pending",
+                sort_order=i,
+            )
+            db.add(chunk_row)
+
+        session_row.status = "ready"
+        db.commit()
+        logger.info("[STAGING] analysis done id=%s chunks=%d", session_id, len(raw_chunks))
+
+    except Exception as exc:
+        logger.error("[STAGING] analysis failed id=%s: %s", session_id, exc)
+        try:
+            session_row = db.execute(
+                select(KnowledgeStagingSession).where(
+                    KnowledgeStagingSession.id == uuid.UUID(session_id)
+                )
+            ).scalar_one_or_none()
+            if session_row:
+                session_row.status = "failed"
+                db.commit()
+        except Exception:
+            db.rollback()
+    finally:
+        db.close()
+
+
 def create_staging_session(
     db: Session,
     *,
@@ -275,55 +375,21 @@ def create_staging_session(
     source_type: str,
     source_name: str,
 ) -> KnowledgeStagingSession:
-    """
-    텍스트를 청킹·분석해 스테이징 세션을 생성하고 반환.
-    LLM 주제명 생성 실패 시 규칙 기반 제목으로 폴백.
-    """
-    session_row = KnowledgeStagingSession(
-        chatbot_id=uuid.UUID(chatbot_id),
-        organization_id=uuid.UUID(organization_id),
+    """하위 호환 래퍼 — 동기로 전체 처리 (소량 텍스트용)."""
+    session_row = create_staging_session_immediate(
+        db,
+        chatbot_id=chatbot_id,
+        organization_id=organization_id,
         source_type=source_type,
         source_name=source_name,
-        status="ready",
     )
-    db.add(session_row)
-    db.flush()
-
-    raw_chunks = _split_semantic_chunks(text)
-    session_row.total_chunks = len(raw_chunks)
-
-    for i, chunk_text in enumerate(raw_chunks):
-        # 1. 주제명 + 태그 생성
-        llm_title, llm_tags = _llm_generate_title_tags(chunk_text, db)
-        topic_title = llm_title or _rule_based_title(chunk_text)
-        tags = llm_tags
-
-        # 2. 민감정보 감지
-        pii_found, pii_regions = detect_pii(chunk_text)
-
-        # 3. 병합 후보 검사
-        merge_title, merge_id, merge_score = _check_merge_candidate(chunk_text, chatbot_id, db)
-        registration_type = "merge" if merge_title else "new"
-
-        chunk_row = KnowledgeStagingChunk(
-            session_id=session_row.id,
-            topic_title=topic_title,
-            content=chunk_text,
-            tags=tags,
-            pii_detected=pii_found,
-            pii_regions=pii_regions,
-            merge_candidate_title=merge_title,
-            merge_candidate_id=merge_id,
-            merge_score=merge_score,
-            registration_type=registration_type,
-            status="pending",
-            sort_order=i,
-        )
-        db.add(chunk_row)
-
-    db.commit()
+    analyze_staging_session_background(
+        session_id=str(session_row.id),
+        text=text,
+        chatbot_id=chatbot_id,
+        organization_id=organization_id,
+    )
     db.refresh(session_row)
-    logger.info("[STAGING] session created id=%s chunks=%d", session_row.id, len(raw_chunks))
     return session_row
 
 

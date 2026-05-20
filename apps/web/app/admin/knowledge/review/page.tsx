@@ -182,10 +182,24 @@ export default function KnowledgeReviewPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isDirty, setIsDirty] = useState(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (polling = false) => {
     if (!sessionId) return;
     try {
       const data = await apiClient.request<StagingSession>(`/admin/knowledge/staging/${sessionId}`);
+
+      if (data.status === "analyzing") {
+        // 아직 분석 중 — 3초 후 다시 폴링
+        if (!polling) setIsLoading(true);
+        setTimeout(() => void load(true), 3000);
+        return;
+      }
+
+      if (data.status === "failed") {
+        showToast("error", "AI 분석에 실패했습니다. 다시 시도해주세요.");
+        setIsLoading(false);
+        return;
+      }
+
       setSession(data);
       const pending = new Set(data.chunks.filter(c => c.status === "pending").map(c => c.id));
       setCheckedIds(pending);
@@ -356,10 +370,17 @@ export default function KnowledgeReviewPage() {
 
   if (isLoading) {
     return (
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "60vh", gap: 10, color: "#6b7280", flexDirection: "column" }}>
-        <Loader2 style={{ width: 28, height: 28, animation: "spin 1s linear infinite", color: "#2563eb" }} />
-        <div style={{ fontSize: 14, fontWeight: 500 }}>AI가 주제를 분석하고 있습니다...</div>
-        <div style={{ fontSize: 12, color: "#9ca3af" }}>파일 크기에 따라 10~30초 소요됩니다</div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "60vh", flexDirection: "column", gap: 16 }}>
+        <Loader2 style={{ width: 36, height: 36, animation: "spin 1s linear infinite", color: "#2563eb" }} />
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 16, fontWeight: 600, color: "#111827", marginBottom: 6 }}>AI가 주제를 분석하고 있습니다</div>
+          <div style={{ fontSize: 13, color: "#6b7280" }}>파일 크기에 따라 30초~2분 소요될 수 있습니다.</div>
+          <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 4 }}>창을 닫지 마세요. 3초마다 자동으로 상태를 확인합니다.</div>
+        </div>
+        <div style={{ width: 200, height: 4, background: "#e5e7eb", borderRadius: 4, overflow: "hidden" }}>
+          <div style={{ height: "100%", background: "#2563eb", borderRadius: 4, animation: "progress 2s ease-in-out infinite", width: "60%" }} />
+        </div>
+        <style>{`@keyframes progress { 0%{width:10%} 50%{width:80%} 100%{width:10%} }`}</style>
       </div>
     );
   }

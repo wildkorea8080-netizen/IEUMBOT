@@ -5,7 +5,7 @@
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File, Form, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -18,7 +18,8 @@ from app.services.admin.scope_service import (
     require_institution_organization_id,
 )
 from app.services.admin.knowledge_staging_service import (
-    create_staging_session,
+    analyze_staging_session_background,
+    create_staging_session_immediate,
     register_staging_chunks,
 )
 
@@ -128,42 +129,47 @@ def _get_session_with_chunks(
 @router.post("/knowledge/staging/text", response_model=StagingSessionResponse, status_code=201)
 def create_staging_from_text(
     body: StagingTextCreateRequest,
+    background_tasks: BackgroundTasks,
     principal: AdminPrincipal = Depends(require_institution_admin_auth),
     db: Session = Depends(get_db_session),
 ) -> StagingSessionResponse:
-    """텍스트 입력 → 스테이징 세션 생성."""
+    """텍스트 입력 → 즉시 세션 생성 후 백그라운드 분석."""
     ensure_chatbot_in_scope(db, principal=principal, chatbot_id=body.chatbot_id)
     org_id = require_institution_organization_id(principal)
 
     if not body.content.strip():
         raise HTTPException(status_code=422, detail="CONTENT_REQUIRED")
 
-    session_row = create_staging_session(
+    session_row = create_staging_session_immediate(
         db,
         chatbot_id=body.chatbot_id,
         organization_id=org_id,
-        text=body.content,
         source_type="text",
         source_name=body.title or "텍스트 입력",
+    )
+    background_tasks.add_task(
+        analyze_staging_session_background,
+        str(session_row.id), body.content, body.chatbot_id, org_id,
     )
     return _get_session_with_chunks(db, str(session_row.id), org_id)
 
 
 @router.post("/knowledge/staging/file", response_model=StagingSessionResponse, status_code=201)
 async def create_staging_from_file(
+    background_tasks: BackgroundTasks,
     chatbot_id: str = Form(...),
     file: UploadFile = File(...),
     principal: AdminPrincipal = Depends(require_institution_admin_auth),
     db: Session = Depends(get_db_session),
 ) -> StagingSessionResponse:
-    """파일 업로드 → 텍스트 추출 → 스테이징 세션 생성."""
+    """파일 업로드 → 텍스트 추출(동기) → 즉시 세션 생성 → 분석은 백그라운드."""
     ensure_chatbot_in_scope(db, principal=principal, chatbot_id=chatbot_id)
     org_id = require_institution_organization_id(principal)
 
     file_bytes = await file.read()
     filename = file.filename or "unknown"
 
-    # 텍스트 추출 (기존 추출 로직 재사용)
+    # 텍스트 추출 (동기, 빠름)
     try:
         from app.services.admin.knowledge_service import _extract_document_text  # noqa: PLC0415
         content_type = file.content_type or ""
@@ -177,14 +183,21 @@ async def create_staging_from_file(
     if not text.strip():
         raise HTTPException(status_code=422, detail="FILE_EMPTY_OR_UNREADABLE")
 
-    session_row = create_staging_session(
+    # 세션 즉시 생성
+    session_row = create_staging_session_immediate(
         db,
         chatbot_id=chatbot_id,
         organization_id=org_id,
-        text=text,
         source_type="file",
         source_name=filename,
     )
+
+    # AI 분석은 백그라운드에서 수행 (타임아웃 방지)
+    background_tasks.add_task(
+        analyze_staging_session_background,
+        str(session_row.id), text, chatbot_id, org_id,
+    )
+
     return _get_session_with_chunks(db, str(session_row.id), org_id)
 
 
