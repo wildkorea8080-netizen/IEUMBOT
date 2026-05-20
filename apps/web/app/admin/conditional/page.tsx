@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, Trash2, ToggleLeft, ToggleRight } from "lucide-react";
+import { Trash2, ToggleLeft, ToggleRight, X } from "lucide-react";
 
-import { AdminModal } from "../../../components/ui/admin-modal";
 import { ApiClientError } from "../../../lib/api";
 import { getAdminChatbots } from "../../../lib/api/admin-operations";
 import { apiClient } from "../../../lib/api/client";
@@ -11,15 +10,14 @@ import type { AdminChatbotItem } from "../../../lib/api/admin-operations-types";
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
-type TriggerType = "question" | "answer" | "both";
-type ActionType  = "link" | "video" | "file" | "contact";
+type ActionType = "link" | "video" | "file" | "contact";
 
 type ConditionalItem = {
   id: string;
   chatbotId: string;
   name: string;
   triggerKeywords: string[];
-  triggerType: TriggerType;
+  triggerType: string;
   actionType: ActionType;
   actionLabel: string;
   actionValue: string;
@@ -37,15 +35,222 @@ function errMsg(e: unknown) {
   return "오류가 발생했습니다.";
 }
 
-const ACTION_ICONS: Record<ActionType, string> = { link: "🔗", video: "🎬", file: "📎", contact: "📞" };
-const ACTION_LABELS: Record<ActionType, string> = { link: "링크", video: "동영상", file: "파일", contact: "연락처" };
-const TRIGGER_LABELS: Record<TriggerType, string> = { question: "질문", answer: "답변", both: "질문+답변" };
+// 액션 타입 메타
+const ACTION_META: Record<ActionType, { label: string; icon: string; placeholder: string; valuePlaceholder: string; valueLabelText: string }> = {
+  link:    { label: "링크 연결유도",  icon: "🌐", placeholder: "예: 플래니 홈페이지를 안내할 때",      valueLabelText: "링크 URL",       valuePlaceholder: "https://example.com" },
+  file:    { label: "파일 다운로드",  icon: "📁", placeholder: "예: 플래니 소개서를 요청할 때",        valueLabelText: "파일 URL",       valuePlaceholder: "https://example.com/file.pdf" },
+  video:   { label: "동영상 링크",    icon: "🎥", placeholder: "예: 사용법 영상을 보고 싶을 때",       valueLabelText: "동영상 URL",     valuePlaceholder: "https://youtube.com/watch?v=..." },
+  contact: { label: "전화번호 안내",  icon: "📞", placeholder: "예: 담당자 연락처를 알고 싶을 때",    valueLabelText: "전화번호 / 이메일", valuePlaceholder: "02-1234-5678" },
+};
 
 const DEFAULT_FORM = {
-  name: "", triggerKeywords: [] as string[], keywordInput: "",
-  triggerType: "both" as TriggerType, actionType: "link" as ActionType,
-  actionLabel: "", actionValue: "", actionDescription: "",
+  actionType: "" as ActionType | "",
+  condition: "",
+  actionLabel: "",
+  actionValue: "",
+  actionDescription: "",
 };
+
+// 조건 텍스트 → 트리거 키워드 자동 추출
+function extractKeywords(condition: string): string[] {
+  const stopwords = new Set(["을", "를", "이", "가", "은", "는", "에", "의", "로", "으로", "할", "때", "하는", "에서", "이나", "도", "만", "라고", "고", "하여", "하면"]);
+  return condition
+    .split(/[\s,]+/)
+    .map(w => w.replace(/[^가-힣a-zA-Z0-9]/g, "").trim())
+    .filter(w => w.length >= 2 && !stopwords.has(w))
+    .slice(0, 5);
+}
+
+// ── 모달 ──────────────────────────────────────────────────────────────────────
+
+function AddModal({
+  open, onClose, chatbotId, onSaved,
+}: {
+  open: boolean;
+  onClose: () => void;
+  chatbotId: string;
+  onSaved: () => void;
+}) {
+  const [form, setForm] = useState(DEFAULT_FORM);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (open) { setForm(DEFAULT_FORM); setError(null); }
+  }, [open]);
+
+  async function save() {
+    if (!form.actionType || !form.condition.trim() || !form.actionValue.trim()) {
+      setError("액션 타입, 조건, 값은 필수입니다."); return;
+    }
+    setIsSaving(true); setError(null);
+    try {
+      const keywords = extractKeywords(form.condition);
+      await apiClient.request<ConditionalItem>("/admin/conditional", {
+        method: "POST",
+        body: {
+          chatbotId,
+          name: form.condition.trim(),
+          triggerKeywords: keywords.length > 0 ? keywords : [form.condition.trim()],
+          triggerType: "both",
+          actionType: form.actionType,
+          actionLabel: form.actionLabel.trim() || ACTION_META[form.actionType as ActionType].label,
+          actionValue: form.actionValue.trim(),
+          actionDescription: form.actionDescription.trim() || null,
+        },
+      });
+      onSaved(); onClose();
+    } catch (e) { setError(errMsg(e)); }
+    finally { setIsSaving(false); }
+  }
+
+  if (!open) return null;
+
+  const meta = form.actionType ? ACTION_META[form.actionType as ActionType] : null;
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 9000,
+      background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center",
+    }}>
+      <div style={{
+        background: "#fff", borderRadius: 16, width: "100%", maxWidth: 480,
+        padding: "28px 28px 24px", boxShadow: "0 20px 60px rgba(0,0,0,.18)",
+        maxHeight: "90vh", overflowY: "auto",
+      }}>
+        {/* 헤더 */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
+          <h2 style={{ fontSize: 18, fontWeight: 700, color: "#111827" }}>추가 응답 설정</h2>
+          <button type="button" onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#9ca3af" }}>
+            <X style={{ width: 20, height: 20 }} />
+          </button>
+        </div>
+
+        {error && (
+          <div style={{ marginBottom: 16, padding: "10px 14px", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8, fontSize: 13, color: "#dc2626" }}>
+            {error}
+          </div>
+        )}
+
+        {/* 1. 액션 타입 선택 */}
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 6 }}>
+            액션 타입 선택
+          </label>
+          <select
+            value={form.actionType}
+            onChange={e => setForm(p => ({ ...p, actionType: e.target.value as ActionType | "" }))}
+            className="input-field"
+            style={{ width: "100%" }}
+          >
+            <option value="">액션 타입을 선택하세요</option>
+            {(Object.entries(ACTION_META) as [ActionType, typeof ACTION_META[ActionType]][]).map(([k, v]) => (
+              <option key={k} value={k}>{v.icon} {v.label}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* 2. 조건 */}
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 6 }}>
+            조건 <span style={{ fontWeight: 400, color: "#6b7280" }}>(언제 이 액션을 실행할까요?)</span>
+          </label>
+          <input
+            value={form.condition}
+            onChange={e => setForm(p => ({ ...p, condition: e.target.value }))}
+            placeholder={meta?.placeholder ?? "예: 사용자가 자료를 요청할 때"}
+            className="input-field"
+            style={{ width: "100%" }}
+          />
+          <p style={{ fontSize: 12, color: "#9ca3af", marginTop: 6 }}>
+            사용자 질문에 해당 조건이 부합할 때, 설정된 행동유도를 이용하여 답합니다.
+          </p>
+        </div>
+
+        {/* 3. 타입별 필드 */}
+        {meta && (
+          <>
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 6 }}>
+                {form.actionType === "file" ? "답변에 포함할 파일" : meta.valueLabelText}
+              </label>
+              {form.actionType === "file" ? (
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                    <label style={{
+                      display: "inline-flex", alignItems: "center", gap: 6,
+                      padding: "8px 14px", border: "1px solid #d1d5db", borderRadius: 8,
+                      cursor: "pointer", fontSize: 13, color: "#374151", background: "#f9fafb",
+                    }}>
+                      📎 파일 선택
+                      <input type="file" style={{ display: "none" }} onChange={e => {
+                        const file = e.target.files?.[0];
+                        if (file) setForm(p => ({ ...p, actionLabel: file.name }));
+                      }} />
+                    </label>
+                    {form.actionLabel && (
+                      <span style={{ fontSize: 13, color: "#2563eb", fontWeight: 500 }}>📄 {form.actionLabel}</span>
+                    )}
+                  </div>
+                  <input
+                    value={form.actionValue}
+                    onChange={e => setForm(p => ({ ...p, actionValue: e.target.value }))}
+                    placeholder={meta.valuePlaceholder}
+                    className="input-field"
+                    style={{ width: "100%" }}
+                  />
+                </div>
+              ) : (
+                <input
+                  value={form.actionValue}
+                  onChange={e => setForm(p => ({ ...p, actionValue: e.target.value }))}
+                  placeholder={meta.valuePlaceholder}
+                  className="input-field"
+                  style={{ width: "100%" }}
+                />
+              )}
+            </div>
+
+            <div style={{ marginBottom: 24 }}>
+              <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 6 }}>
+                {form.actionType === "file" ? "파일 설명" : "버튼 라벨"}
+                <span style={{ fontWeight: 400, color: "#9ca3af" }}> (선택)</span>
+              </label>
+              <input
+                value={form.actionType === "file" ? form.actionDescription : form.actionLabel}
+                onChange={e => {
+                  if (form.actionType === "file") setForm(p => ({ ...p, actionDescription: e.target.value }));
+                  else setForm(p => ({ ...p, actionLabel: e.target.value }));
+                }}
+                placeholder={form.actionType === "file" ? "고객에게 제공할 파일을 업로드하고 설명을 입력하세요." : "예: 자세히 보기"}
+                className="input-field"
+                style={{ width: "100%" }}
+              />
+            </div>
+          </>
+        )}
+
+        {/* 버튼 */}
+        <div style={{ display: "flex", gap: 10 }}>
+          <button type="button" onClick={onClose}
+            style={{ flex: 1, padding: "11px 0", border: "1px solid #d1d5db", borderRadius: 10, background: "#fff", fontSize: 14, fontWeight: 500, color: "#374151", cursor: "pointer" }}>
+            취소
+          </button>
+          <button type="button" onClick={() => void save()} disabled={isSaving || !form.actionType || !form.condition.trim() || !form.actionValue.trim()}
+            style={{
+              flex: 1, padding: "11px 0", borderRadius: 10, border: "none",
+              background: (!form.actionType || !form.condition.trim() || !form.actionValue.trim()) ? "#9ca3af" : "#111827",
+              fontSize: 14, fontWeight: 600, color: "#fff", cursor: isSaving ? "wait" : "pointer",
+            }}>
+            {isSaving ? "저장 중..." : "규칙 저장"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── 메인 페이지 ───────────────────────────────────────────────────────────────
 
 export default function ConditionalPage() {
   const [chatbots, setChatbots] = useState<AdminChatbotItem[]>([]);
@@ -53,10 +258,8 @@ export default function ConditionalPage() {
   const [items, setItems] = useState<ConditionalItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
-  const [form, setForm] = useState(DEFAULT_FORM);
 
   useEffect(() => {
     void (async () => {
@@ -68,10 +271,7 @@ export default function ConditionalPage() {
     })();
   }, []);
 
-  useEffect(() => {
-    if (!chatbotId) return;
-    void load();
-  }, [chatbotId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (chatbotId) void load(); }, [chatbotId]); // eslint-disable-line
 
   useEffect(() => {
     if (!toast) return;
@@ -88,44 +288,15 @@ export default function ConditionalPage() {
     finally { setIsLoading(false); }
   }
 
-  async function save() {
-    if (!form.name.trim() || !chatbotId) return;
-    setIsSaving(true);
-    setError(null);
-    try {
-      await apiClient.request<ConditionalItem>("/admin/conditional", {
-        method: "POST",
-        body: {
-          chatbotId,
-          name: form.name.trim(),
-          triggerKeywords: form.triggerKeywords,
-          triggerType: form.triggerType,
-          actionType: form.actionType,
-          actionLabel: form.actionLabel.trim(),
-          actionValue: form.actionValue.trim(),
-          actionDescription: form.actionDescription.trim() || null,
-        },
-      });
-      setIsModalOpen(false);
-      setForm(DEFAULT_FORM);
-      setToast("조건이 추가되었습니다.");
-      await load();
-    } catch (e) { setError(errMsg(e)); }
-    finally { setIsSaving(false); }
-  }
-
   async function toggle(item: ConditionalItem) {
     try {
-      await apiClient.request<ConditionalItem>(`/admin/conditional/${item.id}`, {
-        method: "PATCH",
-        body: { isEnabled: !item.isEnabled },
-      });
+      await apiClient.request(`/admin/conditional/${item.id}`, { method: "PATCH", body: { isEnabled: !item.isEnabled } });
       setItems(prev => prev.map(i => i.id === item.id ? { ...i, isEnabled: !i.isEnabled } : i));
     } catch (e) { setError(errMsg(e)); }
   }
 
   async function remove(id: string) {
-    if (!confirm("이 조건을 삭제하시겠습니까?")) return;
+    if (!confirm("이 조건별 답변 규칙을 삭제하시겠습니까?")) return;
     try {
       await apiClient.request(`/admin/conditional/${id}`, { method: "DELETE" });
       setItems(prev => prev.filter(i => i.id !== id));
@@ -133,164 +304,106 @@ export default function ConditionalPage() {
     } catch (e) { setError(errMsg(e)); }
   }
 
-  function addKeyword() {
-    const kw = form.keywordInput.trim();
-    if (!kw || form.triggerKeywords.includes(kw)) return;
-    setForm(p => ({ ...p, triggerKeywords: [...p.triggerKeywords, kw], keywordInput: "" }));
-  }
-
   return (
     <div className="space-y-4">
+      {/* 토스트 */}
       {toast && (
         <div style={{ position: "fixed", bottom: 32, right: 32, zIndex: 9999, padding: "12px 20px", borderRadius: 10, border: "1px solid #bbf7d0", background: "#f0fdf4", color: "#16a34a", fontSize: 14, fontWeight: 500, boxShadow: "0 4px 12px rgba(0,0,0,.1)" }}>
           {toast}
         </div>
       )}
 
-      <div className="mb-2">
-        <h1 className="section-title">조건별 답변 설정</h1>
-        <p style={{ fontSize: 13, color: "#64748b", marginTop: 2 }}>특정 키워드가 감지되면 링크·동영상·파일·연락처를 답변과 함께 제공합니다.</p>
+      {/* 페이지 헤더 */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+        <h1 className="section-title" style={{ margin: 0 }}>조건별 답변 설정</h1>
+        <span style={{ fontSize: 11, fontWeight: 700, background: "linear-gradient(135deg,#06b6d4,#2563eb)", color: "#fff", borderRadius: 6, padding: "2px 8px" }}>도움말</span>
       </div>
 
-      {/* 필터 + 추가 버튼 */}
-      <div className="bg-white rounded-xl border border-neutral-200 p-4" style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <select value={chatbotId} onChange={e => setChatbotId(e.target.value)} className="input-field" style={{ width: 200 }}>
+      {/* 챗봇 선택 */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <select value={chatbotId} onChange={e => setChatbotId(e.target.value)} className="input-field" style={{ width: 220 }}>
           {chatbots.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
-        <button type="button" onClick={() => { setError(null); setForm(DEFAULT_FORM); setIsModalOpen(true); }} className="btn-primary" style={{ marginLeft: "auto", padding: "8px 16px", display: "inline-flex", alignItems: "center", gap: 6 }}>
-          <Plus style={{ width: 14, height: 14 }} />조건 추가
-        </button>
       </div>
+
       {error && <p style={{ fontSize: 13, color: "#dc2626", padding: "8px 12px", background: "#fef2f2", borderRadius: 8, border: "1px solid #fecaca" }}>{error}</p>}
 
-      {/* 목록 */}
-      <div className="bg-white rounded-xl border border-neutral-200" style={{ overflow: "hidden" }}>
+      {/* AI 응답 추가 설정 카드 */}
+      <div className="bg-white rounded-xl border border-neutral-200" style={{ padding: 24 }}>
+        <h2 style={{ fontSize: 15, fontWeight: 700, color: "#111827", marginBottom: 4 }}>AI 응답 추가 설정</h2>
+        <p style={{ fontSize: 13, color: "#6b7280", marginBottom: 20 }}>
+          AI가 응답을 생성한 후, 사전에 설정된 조건에 맞춰 관련 링크·파일·영상 등을 자동으로 첨부해 더 풍부한 정보를 제공합니다.
+        </p>
+
         {isLoading ? (
-          <div style={{ padding: "40px 0", textAlign: "center", fontSize: 13, color: "#94a3b8" }}>불러오는 중...</div>
+          <div style={{ padding: "32px 0", textAlign: "center", fontSize: 13, color: "#94a3b8" }}>불러오는 중...</div>
         ) : items.length === 0 ? (
-          <div style={{ padding: "40px 0", textAlign: "center", fontSize: 13, color: "#94a3b8" }}>등록된 조건이 없습니다. 조건을 추가해보세요.</div>
+          <div style={{ padding: "24px 16px", background: "#f9fafb", borderRadius: 10, textAlign: "center" }}>
+            <p style={{ fontSize: 13, color: "#6b7280", fontWeight: 500 }}>등록된 조건별 답변 규칙이 없습니다.</p>
+          </div>
         ) : (
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-            <thead>
-              <tr>
-                <th className="table-header">조건명</th>
-                <th className="table-header">트리거 키워드</th>
-                <th className="table-header" style={{ width: 90 }}>범위</th>
-                <th className="table-header" style={{ width: 100 }}>액션 타입</th>
-                <th className="table-header">라벨 / 값</th>
-                <th className="table-header" style={{ width: 70 }}>활성</th>
-                <th className="table-header" style={{ width: 60 }}>삭제</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map(item => (
-                <tr key={item.id} style={{ borderBottom: "1px solid #f1f5f9", opacity: item.isEnabled ? 1 : 0.5 }}>
-                  <td className="table-cell" style={{ fontWeight: 500, color: "#1e293b" }}>{item.name}</td>
-                  <td className="table-cell">
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                      {item.triggerKeywords.map(k => (
-                        <span key={k} style={{ fontSize: 11, background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 4, padding: "1px 6px", color: "#475569" }}>{k}</span>
-                      ))}
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {items.map(item => {
+              const meta = ACTION_META[item.actionType as ActionType];
+              return (
+                <div key={item.id} style={{
+                  display: "flex", alignItems: "center", gap: 14,
+                  padding: "14px 16px", border: "1px solid #e5e7eb", borderRadius: 12,
+                  background: item.isEnabled ? "#fff" : "#f9fafb",
+                  opacity: item.isEnabled ? 1 : 0.6,
+                }}>
+                  {/* 아이콘 */}
+                  <span style={{ fontSize: 22, flexShrink: 0 }}>{meta?.icon ?? "📌"}</span>
+
+                  {/* 내용 */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "#111827", marginBottom: 2 }}>{item.name}</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 11, background: "#f1f5f9", color: "#475569", borderRadius: 4, padding: "1px 7px", fontWeight: 500 }}>{meta?.label ?? item.actionType}</span>
+                      <span style={{ fontSize: 12, color: "#9ca3af", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.actionValue}</span>
                     </div>
-                  </td>
-                  <td className="table-cell"><span className="badge-neutral">{TRIGGER_LABELS[item.triggerType as TriggerType]}</span></td>
-                  <td className="table-cell">
-                    <span style={{ fontSize: 13 }}>{ACTION_ICONS[item.actionType as ActionType]} {ACTION_LABELS[item.actionType as ActionType]}</span>
-                  </td>
-                  <td className="table-cell">
-                    <div style={{ fontWeight: 500, color: "#1e293b" }}>{item.actionLabel}</div>
-                    <div style={{ fontSize: 11, color: "#94a3b8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 240 }}>{item.actionValue}</div>
-                  </td>
-                  <td className="table-cell" style={{ textAlign: "center" }}>
-                    <button type="button" onClick={() => void toggle(item)} style={{ background: "none", border: "none", cursor: "pointer", color: item.isEnabled ? "#2563eb" : "#94a3b8" }}>
-                      {item.isEnabled ? <ToggleRight style={{ width: 22, height: 22 }} /> : <ToggleLeft style={{ width: 22, height: 22 }} />}
-                    </button>
-                  </td>
-                  <td className="table-cell" style={{ textAlign: "center" }}>
-                    <button type="button" onClick={() => void remove(item.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "#dc2626" }}>
-                      <Trash2 style={{ width: 15, height: 15 }} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  </div>
+
+                  {/* 토글 */}
+                  <button type="button" onClick={() => void toggle(item)}
+                    style={{ background: "none", border: "none", cursor: "pointer", color: item.isEnabled ? "#2563eb" : "#94a3b8", flexShrink: 0 }}>
+                    {item.isEnabled ? <ToggleRight style={{ width: 24, height: 24 }} /> : <ToggleLeft style={{ width: 24, height: 24 }} />}
+                  </button>
+
+                  {/* 삭제 */}
+                  <button type="button" onClick={() => void remove(item.id)}
+                    style={{ background: "none", border: "none", cursor: "pointer", color: "#d1d5db", flexShrink: 0 }}>
+                    <Trash2 style={{ width: 16, height: 16 }} />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
 
-      {/* 추가 모달 */}
-      <AdminModal open={isModalOpen} title="조건별 답변 추가" onClose={() => { if (!isSaving) { setIsModalOpen(false); setError(null); } }}>
-        <div className="space-y-4">
-          {error && <p style={{ fontSize: 13, color: "#dc2626", padding: "8px 12px", background: "#fef2f2", borderRadius: 8 }}>{error}</p>}
+      {/* 추가 버튼 */}
+      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+        <button
+          type="button"
+          onClick={() => setIsModalOpen(true)}
+          disabled={!chatbotId}
+          style={{
+            padding: "11px 22px", borderRadius: 10, border: "none",
+            background: chatbotId ? "#111827" : "#9ca3af",
+            color: "#fff", fontSize: 14, fontWeight: 600, cursor: chatbotId ? "pointer" : "not-allowed",
+          }}
+        >
+          조건별 답변 규칙 추가
+        </button>
+      </div>
 
-          <label className="block text-sm text-slate-700">
-            <span className="mb-1 block font-medium">조건명 *</span>
-            <input value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="예: 신청 방법 관련 링크" className="input-field" />
-          </label>
-
-          <div>
-            <span className="mb-1 block text-sm font-medium text-slate-700">트리거 키워드 *</span>
-            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-              <input value={form.keywordInput} onChange={e => setForm(p => ({ ...p, keywordInput: e.target.value }))}
-                onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addKeyword(); } }}
-                placeholder="키워드 입력 후 Enter" className="input-field" style={{ flex: 1 }} />
-              <button type="button" onClick={addKeyword} className="btn-secondary" style={{ padding: "8px 14px" }}>추가</button>
-            </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {form.triggerKeywords.map(k => (
-                <span key={k} style={{ fontSize: 12, background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 6, padding: "3px 10px", color: "#1d4ed8", display: "inline-flex", alignItems: "center", gap: 4 }}>
-                  {k}
-                  <button type="button" onClick={() => setForm(p => ({ ...p, triggerKeywords: p.triggerKeywords.filter(x => x !== k) }))} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#64748b" }}>✕</button>
-                </span>
-              ))}
-            </div>
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <label className="block text-sm text-slate-700">
-              <span className="mb-1 block font-medium">트리거 범위</span>
-              <select value={form.triggerType} onChange={e => setForm(p => ({ ...p, triggerType: e.target.value as TriggerType }))} className="input-field">
-                <option value="both">질문 + 답변</option>
-                <option value="question">질문만</option>
-                <option value="answer">답변만</option>
-              </select>
-            </label>
-            <label className="block text-sm text-slate-700">
-              <span className="mb-1 block font-medium">액션 타입</span>
-              <select value={form.actionType} onChange={e => setForm(p => ({ ...p, actionType: e.target.value as ActionType }))} className="input-field">
-                <option value="link">🔗 링크</option>
-                <option value="video">🎬 동영상</option>
-                <option value="file">📎 파일</option>
-                <option value="contact">📞 연락처</option>
-              </select>
-            </label>
-          </div>
-
-          <label className="block text-sm text-slate-700">
-            <span className="mb-1 block font-medium">버튼 라벨 *</span>
-            <input value={form.actionLabel} onChange={e => setForm(p => ({ ...p, actionLabel: e.target.value }))} placeholder="예: 신청하기" className="input-field" />
-          </label>
-          <label className="block text-sm text-slate-700">
-            <span className="mb-1 block font-medium">
-              {form.actionType === "contact" ? "전화번호 / 이메일" : form.actionType === "file" ? "파일 URL" : "URL"} *
-            </span>
-            <input value={form.actionValue} onChange={e => setForm(p => ({ ...p, actionValue: e.target.value }))}
-              placeholder={form.actionType === "contact" ? "예: 02-0000-0000" : "https://..."}
-              className="input-field" />
-          </label>
-          <label className="block text-sm text-slate-700">
-            <span className="mb-1 block font-medium">설명 <span style={{ fontSize: 11, color: "#94a3b8", fontWeight: 400 }}>(선택)</span></span>
-            <input value={form.actionDescription} onChange={e => setForm(p => ({ ...p, actionDescription: e.target.value }))} placeholder="버튼 hover 시 표시되는 설명" className="input-field" />
-          </label>
-
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-            <button type="button" onClick={() => { setIsModalOpen(false); setError(null); }} className="btn-secondary" style={{ padding: "8px 16px" }}>취소</button>
-            <button type="button" onClick={() => void save()} disabled={isSaving} className="btn-primary" style={{ padding: "8px 20px", opacity: isSaving ? 0.6 : 1 }}>
-              {isSaving ? "추가 중..." : "추가"}
-            </button>
-          </div>
-        </div>
-      </AdminModal>
+      <AddModal
+        open={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        chatbotId={chatbotId}
+        onSaved={() => { setToast("규칙이 추가되었습니다."); void load(); }}
+      />
     </div>
   );
 }
