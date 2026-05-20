@@ -25,6 +25,7 @@ type FormState = {
   apiKey: string;
   baseUrl: string;
   defaultModel: string;
+  fastModel: string;
   embeddingModel: string;
   monthlyBudgetLimit: string;
   memo: string;
@@ -38,11 +39,18 @@ const EMPTY_FORM: FormState = {
   apiKey: "",
   baseUrl: "",
   defaultModel: "",
+  fastModel: "",
   embeddingModel: "",
   monthlyBudgetLimit: "",
   memo: "",
   isActive: true,
   isDefault: false,
+};
+
+const MODEL_PLACEHOLDERS: Record<string, { quality: string; fast: string }> = {
+  openai:    { quality: "gpt-4.1",              fast: "gpt-4o-mini" },
+  anthropic: { quality: "claude-sonnet-4-6",    fast: "claude-haiku-4-5-20251001" },
+  azure:     { quality: "gpt-4o",               fast: "gpt-4o-mini" },
 };
 
 function getErrorMessage(error: unknown): string {
@@ -59,6 +67,7 @@ function toForm(item: SuperAdminApiConfigItem | null): FormState {
     apiKey: "",
     baseUrl: item.baseUrl ?? "",
     defaultModel: item.defaultModel ?? "",
+    fastModel: item.fastModel ?? "",
     embeddingModel: item.embeddingModel ?? "",
     monthlyBudgetLimit: item.monthlyBudgetLimit != null ? String(item.monthlyBudgetLimit) : "",
     memo: item.memo ?? "",
@@ -74,6 +83,7 @@ function toRequest(form: FormState): SuperAdminApiConfigUpsertRequest {
     apiKey: form.apiKey.trim() || undefined,
     baseUrl: form.baseUrl.trim() || undefined,
     defaultModel: form.defaultModel.trim() || undefined,
+    fastModel: form.fastModel.trim() || undefined,
     embeddingModel: form.embeddingModel.trim() || undefined,
     monthlyBudgetLimit: form.monthlyBudgetLimit ? Number(form.monthlyBudgetLimit) : null,
     memo: form.memo.trim() || undefined,
@@ -218,7 +228,7 @@ export function SuperAdminApiManagement() {
                   </div>
                 </div>
                 <p className="mt-2 text-xs text-slate-500">
-                  {item.provider} / {item.defaultModel ?? "-"}
+                  {item.provider} · 품질: <strong>{item.defaultModel ?? "미설정"}</strong> · 속도: <strong>{item.fastModel ?? "미설정"}</strong>
                 </p>
                 <p className="mt-1 text-xs text-slate-500">마스킹 키: {item.maskedKey}</p>
                 {isInvalidEncryption(item) ? (
@@ -284,11 +294,34 @@ export function SuperAdminApiManagement() {
                 />
               </label>
 
+              {/* 모델 역할 안내 */}
+              <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2.5 text-xs text-blue-700">
+                <p className="font-semibold mb-1">역할별 모델 설정</p>
+                <p>• <strong>품질 모델</strong>: 채팅 답변·FAQ 생성 (정확도 우선)</p>
+                <p>• <strong>속도 모델</strong>: 의도분류·리랭킹·쿼리리라이팅 (속도 우선)</p>
+                <p className="mt-1 text-blue-500">
+                  {form.provider === "anthropic"
+                    ? "Anthropic 권장: 품질=claude-sonnet-4-6 / 속도=claude-haiku-4-5-20251001"
+                    : "OpenAI 권장: 품질=gpt-4.1 / 속도=gpt-4o-mini"}
+                </p>
+              </div>
+
               <label className="text-sm text-slate-700">
-                <span className="mb-1 block font-medium">기본 모델</span>
+                <span className="mb-1 block font-medium">품질 모델 <span className="font-normal text-slate-400">(채팅 답변·FAQ)</span></span>
                 <input
                   value={form.defaultModel}
                   onChange={(event) => setForm((current) => ({ ...current, defaultModel: event.target.value }))}
+                  placeholder={MODEL_PLACEHOLDERS[form.provider]?.quality ?? "gpt-4.1"}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2"
+                />
+              </label>
+
+              <label className="text-sm text-slate-700">
+                <span className="mb-1 block font-medium">속도 모델 <span className="font-normal text-slate-400">(의도분류·리랭킹·팔로우업 등)</span></span>
+                <input
+                  value={form.fastModel}
+                  onChange={(event) => setForm((current) => ({ ...current, fastModel: event.target.value }))}
+                  placeholder={MODEL_PLACEHOLDERS[form.provider]?.fast ?? "gpt-4o-mini"}
                   className="w-full rounded-lg border border-slate-300 px-3 py-2"
                 />
               </label>

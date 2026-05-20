@@ -85,7 +85,7 @@ def generate_faq_from_chunks(
             response_json = _call_anthropic(
                 api_key=runtime_api.api_key,
                 base_url=runtime_api.base_url,
-                model=runtime_api.default_model or "claude-3-5-sonnet",
+                model=runtime_api.quality_model(),  # FAQ 생성: 품질 우선
                 temperature=0.3,
                 max_output_tokens=1500,
                 top_p=None,
@@ -98,7 +98,7 @@ def generate_faq_from_chunks(
                 provider=runtime_api.provider,
                 api_key=runtime_api.api_key,
                 base_url=runtime_api.base_url,
-                model=runtime_api.default_model or "gpt-4.1-mini",
+                model=runtime_api.quality_model(),  # FAQ 생성: 품질 우선
                 temperature=0.3,
                 max_output_tokens=1500,
                 top_p=None,

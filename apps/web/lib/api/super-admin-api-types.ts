@@ -4,6 +4,7 @@ export type SuperAdminApiConfigItem = {
   displayName: string;
   baseUrl?: string | null;
   defaultModel?: string | null;
+  fastModel?: string | null;
   embeddingModel?: string | null;
   isActive: boolean;
   isDefault: boolean;
@@ -25,6 +26,7 @@ export type SuperAdminApiConfigUpsertRequest = {
   apiKey?: string;
   baseUrl?: string;
   defaultModel?: string;
+  fastModel?: string;
   embeddingModel?: string;
   isActive: boolean;
   isDefault: boolean;

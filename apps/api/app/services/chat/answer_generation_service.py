@@ -223,7 +223,7 @@ def generate_grounded_answer(
             "model": answer_settings.model_runtime.model_name,
         }
 
-    model_name = answer_settings.model_runtime.model_name or runtime_api.default_model or "gpt-4.1-mini"
+    model_name = answer_settings.model_runtime.model_name or runtime_api.quality_model()
     start = time.perf_counter()
     try:
         if runtime_api.provider == "anthropic":

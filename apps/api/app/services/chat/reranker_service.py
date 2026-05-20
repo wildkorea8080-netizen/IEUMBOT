@@ -167,7 +167,7 @@ def rerank_chunks(
         logger.warning("[RERANKER] No runtime API config — fallback to original order")
         return chunks[:top_n]
 
-    model = runtime_api.default_model or "gpt-4.1-mini"
+    model = runtime_api.speed_model()  # 리랭킹: 속도 우선
 
     # ── 프롬프트 조립 ────────────────────────────────────────────────────────
     system_prompt = "검색 결과 관련성 평가 전문가입니다. JSON 배열만 출력하세요."

@@ -107,7 +107,7 @@ def classify_knowledge_topic(
             '"similar_topic": null, "tags": ["태그1", "태그2", "태그3"], "has_conflict": false}'
         )
 
-        model = runtime_api.default_model or "gpt-4.1-mini"
+        model = runtime_api.speed_model()  # 토픽 분류: 속도 우선
         if runtime_api.provider == "anthropic":
             url = (
                 f"{runtime_api.base_url.rstrip('/')}/v1/messages"

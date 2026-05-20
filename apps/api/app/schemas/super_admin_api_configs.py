@@ -9,6 +9,7 @@ class SuperAdminApiConfigItem(ApiSchema):
     display_name: str
     base_url: str | None = None
     default_model: str | None = None
+    fast_model: str | None = None
     embedding_model: str | None = None
     is_active: bool
     is_default: bool
@@ -30,6 +31,7 @@ class SuperAdminApiConfigCreateRequest(ApiSchema):
     api_key: str
     base_url: str | None = None
     default_model: str | None = None
+    fast_model: str | None = None
     embedding_model: str | None = None
     is_active: bool = True
     is_default: bool = False
@@ -43,6 +45,7 @@ class SuperAdminApiConfigUpdateRequest(ApiSchema):
     api_key: str | None = None
     base_url: str | None = None
     default_model: str | None = None
+    fast_model: str | None = None
     embedding_model: str | None = None
     is_active: bool | None = None
     is_default: bool | None = None

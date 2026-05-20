@@ -137,7 +137,7 @@ def _llm_generate_title_tags(
         if runtime_api is None:
             return "", []
 
-        model = runtime_api.default_model or "gpt-4.1-mini"
+        model = runtime_api.speed_model()  # 주제명 생성: 속도 우선
         system_prompt = (
             '당신은 지식 분류 전문가입니다. 주어진 텍스트를 분석해 JSON으로만 응답하세요.\n'
             '규칙:\n'

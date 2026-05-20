@@ -344,7 +344,7 @@ def _generate_followup_with_llm(
     if runtime_api is None:
         return []
 
-    model = runtime_api.default_model or "gpt-4.1-mini"
+    model = runtime_api.speed_model()  # 팔로우업 질문: 속도 우선
     system_prompt = "follow-up 질문 생성 전문가입니다. JSON 배열만 출력하세요. 설명 없이."
     user_prompt = (
         "다음 대화를 보고 사용자가 이어서 물어볼 법한 질문 3개를 만들어주세요.\n\n"
@@ -697,7 +697,7 @@ def _llm_select_from_pool(
         f"질문 목록:\n{pool_text}"
     )
 
-    model = runtime_api.default_model or "gpt-4.1-mini"
+    model = runtime_api.speed_model()  # 풀 기반 질문 선택: 속도 우선
     headers: dict[str, str] = {"Content-Type": "application/json"}
 
     if runtime_api.provider == "anthropic":

@@ -126,7 +126,7 @@ def _call_llm(db: Any, *, system: str, user: str) -> str:
         logger.warning("[QUERY_REWRITE] no runtime API config")
         return ""
 
-    model = runtime_api.default_model or "gpt-4.1-mini"
+    model = runtime_api.speed_model()  # 쿼리 리라이팅: 속도 우선
 
     if runtime_api.provider == "anthropic":
         url = (

@@ -129,7 +129,7 @@ def _call_llm(db: Session, system: str, user: str) -> str:
     if runtime_api is None:
         return ""
 
-    model = runtime_api.default_model or "gpt-4.1-mini"
+    model = runtime_api.speed_model()  # URL 분석: 속도 우선
     headers = {"Content-Type": "application/json"}
 
     if runtime_api.provider == "anthropic":

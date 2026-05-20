@@ -18,9 +18,22 @@ class ResolvedLLMApiConfig:
     provider: str
     api_key: str
     base_url: str | None
-    default_model: str | None
+    default_model: str | None   # 품질 우선: 채팅 답변, FAQ
+    fast_model: str | None      # 속도 우선: 의도분류, 리랭킹, 쿼리리라이팅
     embedding_model: str | None
     api_config_id: str | None
+
+    def quality_model(self) -> str:
+        """품질 우선 모델. 미설정 시 provider 기본값."""
+        if self.default_model:
+            return self.default_model
+        return "claude-sonnet-4-6" if self.provider == "anthropic" else "gpt-4.1"
+
+    def speed_model(self) -> str:
+        """속도 우선 모델. 미설정 시 provider 기본값."""
+        if self.fast_model:
+            return self.fast_model
+        return "claude-haiku-4-5-20251001" if self.provider == "anthropic" else "gpt-4o-mini"
 
 
 @dataclass
@@ -116,6 +129,7 @@ def resolve_runtime_api_config(db) -> ResolvedLLMApiConfig | None:
                     api_key=api_key,
                     base_url=config.base_url,
                     default_model=config.default_model,
+                    fast_model=getattr(config, "fast_model", None),
                     embedding_model=config.embedding_model,
                     api_config_id=config_id,
                 )
@@ -127,6 +141,7 @@ def resolve_runtime_api_config(db) -> ResolvedLLMApiConfig | None:
             api_key=settings.api_openai_api_key,
             base_url="https://api.openai.com/v1",
             default_model=None,
+            fast_model=None,
             embedding_model=None,
             api_config_id=None,
         )

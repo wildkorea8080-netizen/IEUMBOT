@@ -75,6 +75,7 @@ def _to_item(row: SystemApiConfig) -> SuperAdminApiConfigItem:
         display_name=row.display_name,
         base_url=row.base_url,
         default_model=row.default_model,
+        fast_model=getattr(row, "fast_model", None),
         embedding_model=row.embedding_model,
         is_active=row.is_active,
         is_default=row.is_default,
@@ -148,6 +149,7 @@ def create_api_config_service(
         api_key_encrypted=encrypt_secret(api_key),
         base_url=body.base_url.strip() if body.base_url else None,
         default_model=body.default_model.strip() if body.default_model else None,
+        fast_model=body.fast_model.strip() if body.fast_model else None,
         embedding_model=body.embedding_model.strip() if body.embedding_model else None,
         is_active=body.is_active,
         is_default=body.is_default,
@@ -201,6 +203,8 @@ def update_api_config_service(
         row.base_url = body.base_url.strip() or None
     if body.default_model is not None:
         row.default_model = body.default_model.strip() or None
+    if body.fast_model is not None:
+        row.fast_model = body.fast_model.strip() or None
     if body.embedding_model is not None:
         row.embedding_model = body.embedding_model.strip() or None
     if body.is_active is not None:
