@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import {
   Upload, Globe, CheckCircle, Save,
   Loader2,
@@ -236,6 +236,7 @@ function CommonFields({ form, chatbots, onChange }: {
 
 export function KnowledgeRegister() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
 
@@ -314,25 +315,37 @@ export function KnowledgeRegister() {
   };
 
   const submitFile = async () => {
-    if (!selectedFile) { setError("업로드할 파일을 선택해주세요."); return; }
-    setIsSubmitting(true); setError(null); setResult(null); setTrackedResult(null);
-    setSubmitStatus("파일을 업로드하고 텍스트를 추출하는 중입니다.");
+    if (!selectedFile || !fileForm.chatbotId) { setError("파일과 챗봇을 선택해주세요."); return; }
+    setIsSubmitting(true); setError(null);
+    setSubmitStatus("AI가 파일을 분석해 주제를 분류하는 중입니다. 잠시 기다려 주세요...");
     try {
-      const response = await uploadKnowledgeFile({ chatbotId: fileForm.chatbotId, file: selectedFile, title: fileForm.title, category: fileForm.category || undefined, field: fileForm.field || undefined, tags: parseTags(fileForm.tags), memo: fileForm.memo || undefined, effectiveDate: fileForm.effectiveDate || undefined, department: fileForm.department || undefined, use_vision: useVision });
-      setResult(response); setTrackedResult(response);
-      setSubmitStatus("파일 등록 요청이 완료되었습니다. 학습 상태를 확인 중입니다.");
-      setSelectedFile(null); setUseVision(false);
-    } catch (e) { setError(getErrorMessage(e)); setSubmitStatus(null); } finally { setIsSubmitting(false); }
+      const formData = new FormData();
+      formData.append("chatbot_id", fileForm.chatbotId);
+      formData.append("file", selectedFile);
+      const NEXT_PUBLIC_API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
+      const resp = await fetch(`${NEXT_PUBLIC_API_BASE_URL}/admin/knowledge/staging/file`, {
+        method: "POST", body: formData, credentials: "include",
+      });
+      if (!resp.ok) throw new Error(`STAGING_FAILED:${resp.status}`);
+      const session = await resp.json() as { sessionId: string };
+      router.push(`/admin/knowledge/review?session=${session.sessionId}`);
+    } catch (e) { setError(getErrorMessage(e)); setSubmitStatus(null); }
+    finally { setIsSubmitting(false); }
   };
 
   const submitText = async () => {
-    setIsSubmitting(true); setError(null); setResult(null); setTrackedResult(null);
-    setSubmitStatus("텍스트 지식을 등록하고 학습하는 중입니다.");
+    if (!textForm.chatbotId || !textForm.content.trim()) { setError("챗봇과 내용을 입력해주세요."); return; }
+    setIsSubmitting(true); setError(null);
+    setSubmitStatus("AI가 내용을 분석해 주제를 분류하는 중입니다. 잠시 기다려 주세요...");
     try {
-      const response = await createKnowledgeText({ chatbotId: textForm.chatbotId, title: textForm.title, content: textForm.content, category: textForm.category || undefined, field: textForm.field || undefined, tags: parseTags(textForm.tags), memo: textForm.memo || undefined, effectiveDate: textForm.effectiveDate || undefined, department: textForm.department || undefined });
-      setResult(response); setTrackedResult(response);
-      setSubmitStatus("텍스트 등록 요청이 완료되었습니다. 학습 상태를 확인 중입니다.");
-    } catch (e) { setError(getErrorMessage(e)); setSubmitStatus(null); } finally { setIsSubmitting(false); }
+      const { apiClient: _client } = await import("../../lib/api/client");
+      const session = await _client.request<{ sessionId: string }>("/admin/knowledge/staging/text", {
+        method: "POST",
+        body: { chatbotId: textForm.chatbotId, title: textForm.title || "텍스트 입력", content: textForm.content },
+      });
+      router.push(`/admin/knowledge/review?session=${session.sessionId}`);
+    } catch (e) { setError(getErrorMessage(e)); setSubmitStatus(null); }
+    finally { setIsSubmitting(false); }
   };
 
   const submitWebsite = async () => {

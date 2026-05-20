@@ -4635,6 +4635,102 @@ def create_text_knowledge_service(
     return get_knowledge_service(db, principal=principal, knowledge_id=str(doc.id))
 
 
+def create_text_knowledge_internal(
+    db: Session,
+    *,
+    chatbot_id: str,
+    organization_id: str,
+    title: str,
+    content: str,
+    tags: list[str] | None = None,
+) -> str:
+    """
+    스테이징 등록용 내부 함수 — principal 없이 직접 텍스트 지식 생성.
+    Returns: created document id (str)
+    """
+    chatbot = db.execute(
+        select(ChatbotSetting).where(ChatbotSetting.id == uuid.UUID(chatbot_id))
+    ).scalar_one_or_none()
+    if chatbot is None:
+        raise ValueError(f"CHATBOT_NOT_FOUND: {chatbot_id}")
+
+    KNOWLEDGE_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+    storage_name = f"{uuid.uuid4()}.txt"
+    storage_path = KNOWLEDGE_STORAGE_DIR / storage_name
+    storage_path.write_text(content, encoding="utf-8")
+
+    sensitive_detected = _detect_sensitive(content)
+    preview = _truncate_preview(content)
+
+    doc = Document(
+        organization_id=uuid.UUID(organization_id),
+        chatbot_id=chatbot.id,
+        title=title.strip(),
+        description=preview,
+        status="active",
+        uploaded_at=datetime.now(UTC),
+        metadata_json={
+            "tags": tags or [],
+            "content_preview": preview,
+            "summary": preview,
+            "sensitive_detected": sensitive_detected,
+            "source": "staging",
+        },
+    )
+    db.add(doc)
+    db.flush()
+
+    version = DocumentVersion(
+        organization_id=uuid.UUID(organization_id),
+        document_id=doc.id,
+        chatbot_id=chatbot.id,
+        version_number=1,
+        file_name=f"{title.strip()}.txt",
+        file_size_bytes=len(content.encode("utf-8")),
+        storage_key=str(storage_path),
+        mime_type="text/plain",
+        source_type="text",
+        corpus_domain=doc.corpus_domain,
+        status="queued",
+    )
+    db.add(version)
+    db.flush()
+    doc.current_version_id = version.id
+
+    job = IngestionJob(
+        organization_id=uuid.UUID(organization_id),
+        chatbot_id=chatbot.id,
+        document_id=doc.id,
+        document_version_id=version.id,
+        job_type="text_ingestion",
+        status="queued",
+        current_step="saved",
+        progress_percent=5,
+        metadata_json={"sourceType": "text", "source": "staging"},
+    )
+    db.add(job)
+    db.flush()
+
+    _rag_settings = _load_rag_settings_for_chatbot(
+        db, organization_id=organization_id, chatbot_id=chatbot_id
+    )
+    _ingest_document_version_content(
+        db,
+        organization_id=organization_id,
+        chatbot_id=chatbot_id,
+        document=doc,
+        version=version,
+        job=job,
+        file_name=f"{title.strip()}.txt",
+        file_bytes=content.encode("utf-8"),
+        content_type="text/plain",
+        metadata_updates={"sourceType": "text"},
+        rag_settings=_rag_settings,
+    )
+    db.commit()
+    return str(doc.id)
+
+
 def create_website_knowledge_service(
     db: Session,
     *,
