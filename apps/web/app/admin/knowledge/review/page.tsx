@@ -184,14 +184,14 @@ export default function KnowledgeReviewPage() {
 
   const load = useCallback(async (polling = false) => {
     if (!sessionId) return;
+    if (!polling) setIsLoading(true);
     try {
       const data = await apiClient.request<StagingSession>(`/admin/knowledge/staging/${sessionId}`);
 
       if (data.status === "analyzing") {
-        // 아직 분석 중 — 3초 후 다시 폴링
-        if (!polling) setIsLoading(true);
+        // 아직 분석 중 — 로딩 유지하면서 3초 후 재폴링
         setTimeout(() => void load(true), 3000);
-        return;
+        return;  // isLoading은 true 유지 (finally 없음)
       }
 
       if (data.status === "failed") {
@@ -204,8 +204,11 @@ export default function KnowledgeReviewPage() {
       const pending = new Set(data.chunks.filter(c => c.status === "pending").map(c => c.id));
       setCheckedIds(pending);
       if (data.chunks[0]) selectChunk(data.chunks[0]);
-    } catch { showToast("error", "세션을 불러오지 못했습니다."); }
-    finally { setIsLoading(false); }
+      setIsLoading(false);
+    } catch {
+      showToast("error", "세션을 불러오지 못했습니다.");
+      setIsLoading(false);
+    }
   }, [sessionId]); // eslint-disable-line
 
   useEffect(() => { void load(); }, [load]);
