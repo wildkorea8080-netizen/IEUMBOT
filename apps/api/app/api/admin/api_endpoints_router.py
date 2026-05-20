@@ -32,8 +32,11 @@ class ApiEndpointItem(ApiSchema):
     headers: dict[str, str]
     params: dict[str, str]
     intent_keywords: list[str]
+    response_type: str
     response_path: str | None
     response_template: str | None
+    view_config: dict | None
+    list_config: dict | None
     cache_seconds: int
     is_enabled: bool
     created_at: str
@@ -47,8 +50,11 @@ class ApiEndpointCreateRequest(ApiSchema):
     headers: dict[str, str] = {}
     params: dict[str, str] = {}
     intent_keywords: list[str]
+    response_type: Literal["text", "view", "list"] = "text"
     response_path: str | None = None
     response_template: str | None = None
+    view_config: dict | None = None
+    list_config: dict | None = None
     cache_seconds: int = 60
     is_enabled: bool = True
 
@@ -60,8 +66,11 @@ class ApiEndpointUpdateRequest(ApiSchema):
     headers: dict[str, str] | None = None
     params: dict[str, str] | None = None
     intent_keywords: list[str] | None = None
+    response_type: Literal["text", "view", "list"] | None = None
     response_path: str | None = None
     response_template: str | None = None
+    view_config: dict | None = None
+    list_config: dict | None = None
     cache_seconds: int | None = None
     is_enabled: bool | None = None
 
@@ -90,8 +99,11 @@ def _to_item(row: ApiEndpoint) -> ApiEndpointItem:
         headers=dict(row.headers or {}),
         params=dict(row.params or {}),
         intent_keywords=list(row.intent_keywords or []),
+        response_type=row.response_type or "text",
         response_path=row.response_path,
         response_template=row.response_template,
+        view_config=dict(row.view_config) if row.view_config else None,
+        list_config=dict(row.list_config) if row.list_config else None,
         cache_seconds=row.cache_seconds,
         is_enabled=row.is_enabled,
         created_at=row.created_at.isoformat(),
@@ -150,8 +162,11 @@ def create_api_endpoint(
         headers=dict(body.headers),
         params=dict(body.params),
         intent_keywords=[k.strip() for k in body.intent_keywords if k.strip()],
+        response_type=body.response_type,
         response_path=body.response_path,
         response_template=body.response_template,
+        view_config=body.view_config,
+        list_config=body.list_config,
         cache_seconds=max(0, body.cache_seconds),
         is_enabled=body.is_enabled,
     )
@@ -183,10 +198,16 @@ def update_api_endpoint(
         row.params = dict(body.params)
     if body.intent_keywords is not None:
         row.intent_keywords = [k.strip() for k in body.intent_keywords if k.strip()]
+    if body.response_type is not None:
+        row.response_type = body.response_type
     if body.response_path is not None:
         row.response_path = body.response_path
     if body.response_template is not None:
         row.response_template = body.response_template
+    if body.view_config is not None:
+        row.view_config = body.view_config
+    if body.list_config is not None:
+        row.list_config = body.list_config
     if body.cache_seconds is not None:
         row.cache_seconds = max(0, body.cache_seconds)
     if body.is_enabled is not None:

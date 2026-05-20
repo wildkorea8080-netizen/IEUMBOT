@@ -72,6 +72,54 @@ def _render_template(template: str, data: Any) -> str:
     return template.replace("{data}", str(data)).replace("{items}", str(data))
 
 
+def _render_view(data: Any, config: dict) -> str:
+    """view 타입: 제목+내용+링크 카드 형식 텍스트 생성."""
+    title = _extract_by_path(data, config.get("titlePath") or "") if config.get("titlePath") else None
+    content = _extract_by_path(data, config.get("contentPath") or "") if config.get("contentPath") else None
+    link = _extract_by_path(data, config.get("moreLinkPath") or "") if config.get("moreLinkPath") else None
+
+    parts: list[str] = []
+    if title:
+        parts.append(f"[제목] {title}")
+    if content:
+        parts.append(str(content))
+    if link:
+        parts.append(f"자세히 보기: {link}")
+    return "\n".join(parts) if parts else ""
+
+
+def _render_list(data: Any, config: dict) -> str:
+    """list 타입: 항목 목록 형식 텍스트 생성."""
+    items_path = config.get("itemsPath") or ""
+    items = _extract_by_path(data, items_path) if items_path else data
+    if not isinstance(items, list):
+        items = [items] if items else []
+
+    content_fields: list[str] = config.get("contentFields") or []
+    column_labels: list[str] = config.get("columnLabels") or []
+    link_field: str = config.get("sourceLinkPath") or ""
+
+    rows: list[str] = []
+    for i, item in enumerate(items[:20], 1):
+        if not isinstance(item, dict):
+            rows.append(f"{i}. {item}")
+            continue
+        cell_parts: list[str] = []
+        for j, field in enumerate(content_fields):
+            val = item.get(field)
+            if val is None:
+                continue
+            label = column_labels[j] if j < len(column_labels) else field
+            cell_parts.append(f"{label}: {val}")
+        link = item.get(link_field) if link_field else None
+        row_text = " | ".join(cell_parts)
+        if link:
+            row_text += f" ({link})"
+        rows.append(f"{i}. {row_text}")
+
+    return "\n".join(rows)
+
+
 # ── 캐시 ─────────────────────────────────────────────────────────────────────
 
 def _cache_get(endpoint_id: str) -> str | None:
@@ -169,15 +217,22 @@ def call_api_endpoint(endpoint: ApiEndpoint, question: str) -> str | None:
         except json.JSONDecodeError:
             data = raw_body
 
-        # response_path 로 데이터 추출
-        if endpoint.response_path:
-            extracted = _extract_by_path(data, endpoint.response_path)
-        else:
-            extracted = data
+        response_type = (endpoint.response_type or "text").lower()
 
-        # response_template 으로 텍스트 생성
-        template = endpoint.response_template or "{data}"
-        text = _render_template(template, extracted)
+        if response_type == "view":
+            cfg = dict(endpoint.view_config or {})
+            text = _render_view(data, cfg)
+        elif response_type == "list":
+            cfg = dict(endpoint.list_config or {})
+            text = _render_list(data, cfg)
+        else:
+            # text 타입: 기존 JSONPath + template 방식
+            if endpoint.response_path:
+                extracted = _extract_by_path(data, endpoint.response_path)
+            else:
+                extracted = data
+            template = endpoint.response_template or "{data}"
+            text = _render_template(template, extracted)
 
         if not text.strip():
             return None
