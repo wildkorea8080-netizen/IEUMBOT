@@ -4648,8 +4648,9 @@ def create_text_knowledge_internal(
     스테이징 등록용 내부 함수 — principal 없이 직접 텍스트 지식 생성.
     Returns: created document id (str)
     """
+    from app.models.chatbot_settings import ChatbotSetting as _ChatbotSetting  # noqa: PLC0415
     chatbot = db.execute(
-        select(ChatbotSetting).where(ChatbotSetting.id == uuid.UUID(chatbot_id))
+        select(_ChatbotSetting).where(_ChatbotSetting.id == uuid.UUID(chatbot_id))
     ).scalar_one_or_none()
     if chatbot is None:
         raise ValueError(f"CHATBOT_NOT_FOUND: {chatbot_id}")

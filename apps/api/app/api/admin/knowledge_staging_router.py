@@ -165,10 +165,10 @@ async def create_staging_from_file(
 
     # 텍스트 추출 (기존 추출 로직 재사용)
     try:
-        from app.services.admin.knowledge_service import _extract_text_from_bytes  # noqa: PLC0415
-        text = _extract_text_from_bytes(file_bytes, filename)
+        from app.services.admin.knowledge_service import _extract_document_text  # noqa: PLC0415
+        content_type = file.content_type or ""
+        text, _, _ = _extract_document_text(filename, file_bytes, content_type, use_vision=False, db=db)
     except Exception:
-        # fallback: UTF-8 디코딩 시도
         try:
             text = file_bytes.decode("utf-8", errors="replace")
         except Exception as exc:
