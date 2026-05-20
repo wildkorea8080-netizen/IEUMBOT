@@ -19,27 +19,45 @@ _TIMEOUT = 12
 _MAX_TEXT = 3000
 
 
-# ── 간단 HTML → 텍스트 ────────────────────────────────────────────────────────
+# ── HTML → 텍스트 (JS 렌더링 사이트 대응) ────────────────────────────────────
+
+_META_NAMES = {"description", "keywords", "og:description", "og:title", "twitter:description", "twitter:title"}
 
 class _TextExtractor(HTMLParser):
     def __init__(self) -> None:
         super().__init__()
         self._skip = False
-        self.texts: list[str] = []
+        self._in_title = False
+        self.meta_texts: list[str] = []   # <title> + <meta> 우선 수집
+        self.body_texts: list[str] = []   # 본문 텍스트
 
     def handle_starttag(self, tag: str, attrs: list) -> None:
-        if tag in ("script", "style", "noscript"):
+        if tag in ("script", "style"):
             self._skip = True
+        elif tag == "title":
+            self._in_title = True
+        elif tag == "meta":
+            attr_dict = dict(attrs)
+            name = (attr_dict.get("name") or attr_dict.get("property") or "").lower()
+            content = (attr_dict.get("content") or "").strip()
+            if content and name in _META_NAMES:
+                self.meta_texts.append(content)
 
     def handle_endtag(self, tag: str) -> None:
-        if tag in ("script", "style", "noscript"):
+        if tag in ("script", "style"):
             self._skip = False
+        elif tag == "title":
+            self._in_title = False
 
     def handle_data(self, data: str) -> None:
-        if not self._skip:
+        if self._in_title:
             text = data.strip()
             if text:
-                self.texts.append(text)
+                self.meta_texts.append(text)
+        elif not self._skip:
+            text = data.strip()
+            if text:
+                self.body_texts.append(text)
 
 
 def _fetch_text(url: str) -> str:
@@ -48,13 +66,19 @@ def _fetch_text(url: str) -> str:
     ctx.verify_mode = ssl.CERT_NONE
     req = urllib.request.Request(
         url,
-        headers={"User-Agent": "Mozilla/5.0 (compatible; IeumBot/1.0)"},
+        headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
+        },
     )
     with urllib.request.urlopen(req, timeout=_TIMEOUT, context=ctx) as resp:
         raw = resp.read(150_000).decode("utf-8", errors="replace")
     parser = _TextExtractor()
     parser.feed(raw)
-    text = " ".join(parser.texts)
+
+    # meta 텍스트를 앞에, 본문을 뒤에 붙여 JS 렌더링 사이트도 최소한의 정보 확보
+    combined = parser.meta_texts + parser.body_texts
+    text = " ".join(combined)
     return re.sub(r"\s+", " ", text).strip()[:_MAX_TEXT]
 
 
