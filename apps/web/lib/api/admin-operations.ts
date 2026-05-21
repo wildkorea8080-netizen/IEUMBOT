@@ -187,6 +187,27 @@ export async function getKnowledgeDetail(knowledgeId: string): Promise<Knowledge
   return apiClient.request<KnowledgeDetail>(`/admin/knowledge/${knowledgeId}`);
 }
 
+export type KnowledgeContent = {
+  content: string;
+  chunkCount: number;
+  sourceType: string;
+  title: string;
+};
+
+export async function getKnowledgeContent(knowledgeId: string): Promise<KnowledgeContent> {
+  return apiClient.request<KnowledgeContent>(`/admin/knowledge/${knowledgeId}/content`);
+}
+
+export async function updateKnowledgeContent(
+  knowledgeId: string,
+  content: string,
+): Promise<{ success: boolean; versionNumber: number }> {
+  return apiClient.request(`/admin/knowledge/${knowledgeId}/content`, {
+    method: "PUT",
+    body: { content },
+  });
+}
+
 export async function createKnowledgeText(body: KnowledgeTextCreateRequest): Promise<KnowledgeDetail> {
   return apiClient.request<KnowledgeDetail>("/admin/knowledge/text", {
     method: "POST",

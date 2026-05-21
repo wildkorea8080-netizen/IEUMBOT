@@ -4052,6 +4052,138 @@ def list_knowledge_diagnostics_service(
     ).items
 
 
+def get_knowledge_content_service(
+    db: Session,
+    *,
+    principal: AdminPrincipal,
+    knowledge_id: str,
+) -> dict:
+    """지식의 실제 텍스트 내용을 DocumentChunk에서 읽어 반환."""
+    organization_id = require_institution_organization_id(principal)
+    doc_row = get_document_knowledge_row(db, organization_id=organization_id, knowledge_id=knowledge_id)
+    if doc_row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="KNOWLEDGE_NOT_FOUND")
+    doc, version, _job = doc_row
+    if version is None:
+        return {"content": "", "chunk_count": 0, "source_type": "file"}
+
+    from sqlalchemy import select as sa_select  # noqa: PLC0415
+    chunk_texts = list(
+        db.execute(
+            sa_select(DocumentChunk.text_content, DocumentChunk.section_title, DocumentChunk.chunk_order)
+            .where(DocumentChunk.document_version_id == version.id)
+            .order_by(DocumentChunk.chunk_order.asc())
+        ).all()
+    )
+
+    # 청크 결합 (섹션 제목이 있으면 앞에 붙임)
+    parts: list[str] = []
+    for text, section, _ in chunk_texts:
+        if section and section.strip():
+            parts.append(f"## {section.strip()}\n\n{text or ''}")
+        else:
+            parts.append(text or "")
+    combined = "\n\n".join(parts).strip()
+
+    # 파일 저장본이 있으면 청크보다 우선
+    if not combined and version.storage_key:
+        try:
+            storage_path = Path(version.storage_key)
+            if storage_path.exists() and version.mime_type in ("text/plain", "text/markdown"):
+                combined = storage_path.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+    return {
+        "content": combined,
+        "chunk_count": len(chunk_texts),
+        "source_type": version.source_type or "file",
+        "title": doc.title,
+    }
+
+
+def update_knowledge_content_service(
+    db: Session,
+    *,
+    principal: AdminPrincipal,
+    knowledge_id: str,
+    content: str,
+    background_tasks=None,
+) -> dict:
+    """지식 내용 수정 — 새 버전 파일로 저장 후 재색인."""
+    if not content.strip():
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="CONTENT_EMPTY")
+
+    organization_id = require_institution_organization_id(principal)
+    doc_row = get_document_knowledge_row(db, organization_id=organization_id, knowledge_id=knowledge_id)
+    if doc_row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="KNOWLEDGE_NOT_FOUND")
+
+    doc, version, _job = doc_row
+    if version is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="NO_ACTIVE_VERSION")
+
+    # 새 버전 파일 저장
+    KNOWLEDGE_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+    new_storage = KNOWLEDGE_STORAGE_DIR / f"{uuid.uuid4()}.txt"
+    new_storage.write_text(content, encoding="utf-8")
+
+    new_version = DocumentVersion(
+        organization_id=uuid.UUID(organization_id),
+        document_id=doc.id,
+        chatbot_id=version.chatbot_id,
+        version_number=(version.version_number or 1) + 1,
+        file_name=version.file_name or f"{doc.title}.txt",
+        file_size_bytes=len(content.encode("utf-8")),
+        storage_key=str(new_storage),
+        mime_type="text/plain",
+        source_type="text",
+        corpus_domain=version.corpus_domain,
+        effective_date=version.effective_date,
+        issuing_department=version.issuing_department,
+        status="queued",
+        is_active=True,
+    )
+    # 이전 버전 비활성화
+    version.is_active = False
+    db.add(new_version)
+    db.flush()
+    doc.current_version_id = new_version.id
+
+    new_job = IngestionJob(
+        organization_id=uuid.UUID(organization_id),
+        chatbot_id=version.chatbot_id,
+        document_id=doc.id,
+        document_version_id=new_version.id,
+        job_type="text_ingestion",
+        status="queued",
+        current_step="saved",
+        progress_percent=5,
+        metadata_json={"sourceType": "text", "source": "content_edit"},
+    )
+    db.add(new_job)
+    db.flush()
+
+    _rag_settings = _load_rag_settings_for_chatbot(
+        db, organization_id=organization_id, chatbot_id=str(version.chatbot_id)
+    )
+    _ingest_document_version_content(
+        db,
+        organization_id=organization_id,
+        chatbot_id=str(version.chatbot_id),
+        document=doc,
+        version=new_version,
+        job=new_job,
+        file_name=new_version.file_name,
+        file_bytes=content.encode("utf-8"),
+        content_type="text/plain",
+        metadata_updates={"sourceType": "text"},
+        rag_settings=_rag_settings,
+    )
+    db.commit()
+    return {"success": True, "version_number": new_version.version_number}
+
+
 def get_knowledge_service(
     db: Session,
     *,

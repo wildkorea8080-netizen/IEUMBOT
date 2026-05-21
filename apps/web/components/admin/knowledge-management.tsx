@@ -3,21 +3,26 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import {
-  Search, RefreshCw, Trash2, Wand2,
-  CheckCircle, Loader2, XCircle, Clock, BookOpen,
+  Search, RefreshCw, Trash2, ChevronDown, ChevronRight as ChevronRightIcon,
+  CheckCircle, Loader2, XCircle, Clock, BookOpen, PenLine, Globe,
 } from "lucide-react";
+import { useEditor, EditorContent } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
+import Underline from "@tiptap/extension-underline";
 
 import { FaqGenerateModal } from "./FaqGenerateModal";
 import { ApiClientError } from "../../lib/api";
 import {
   deleteKnowledge,
   getAdminChatbots,
+  getKnowledgeContent,
   getKnowledgeDetail,
   getKnowledgeList,
   getKnowledgeRuntimeStatus,
   patchAdminChatbot,
   patchKnowledge,
   reindexKnowledge,
+  updateKnowledgeContent,
 } from "../../lib/api/admin-operations";
 import type {
   KnowledgeDetail,
@@ -164,13 +169,19 @@ export function KnowledgeManagement() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("");
-  const [field, setField] = useState("");
-  const [status, setStatus] = useState("");
   const [detail, setDetail] = useState<KnowledgeDetail | null>(null);
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  // 내용 에디터
+  const [contentText, setContentText] = useState("");
+  const [isContentLoading, setIsContentLoading] = useState(false);
+  const [isContentSaving, setIsContentSaving] = useState(false);
+  const [isContentDirty, setIsContentDirty] = useState(false);
+  const [showContentEditor, setShowContentEditor] = useState(false);
+  // 웹사이트 탭 도메인 펼침
+  const [expandedDomains, setExpandedDomains] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [runtimeStatus, setRuntimeStatus] = useState<KnowledgeRuntimeStatus | null>(null);
@@ -180,14 +191,32 @@ export function KnowledgeManagement() {
   // 다른 탭의 건수 (탭 뱃지에 항상 양쪽 표시)
   const [otherGroupCount, setOtherGroupCount] = useState<number>(0);
 
+  // TipTap 에디터 인스턴스 (내용 편집용)
+  const contentEditor = useEditor({
+    extensions: [StarterKit, Underline],
+    content: "",
+    onUpdate: () => setIsContentDirty(true),
+    editorProps: {
+      attributes: { style: "min-height:200px;padding:12px;outline:none;font-size:13px;line-height:1.8;" },
+    },
+  });
+
   const categories = useMemo(
     () => Array.from(new Set(items.map((item) => item.category).filter(Boolean))).sort(),
     [items],
   );
-  const fields = useMemo(
-    () => Array.from(new Set(items.map((item) => item.field).filter(Boolean))).sort(),
-    [items],
-  );
+
+  // 웹사이트 탭: 도메인별 그룹
+  const byDomain = useMemo(() => {
+    const map = new Map<string, KnowledgeItem[]>();
+    for (const item of items) {
+      let domain = "기타";
+      try { domain = new URL(item.sourceUrl ?? item.sourceLabel ?? "http://x").hostname || "기타"; } catch { /* */ }
+      if (!map.has(domain)) map.set(domain, []);
+      map.get(domain)!.push(item);
+    }
+    return map;
+  }, [items]);
 
   const load = async () => {
     setIsLoading(true);
@@ -227,14 +256,49 @@ export function KnowledgeManagement() {
   const openDetail = async (knowledgeId: string) => {
     setIsDetailLoading(true);
     setError(null);
+    setShowContentEditor(false);
+    setIsContentDirty(false);
+    setContentText("");
     try {
       const response = await getKnowledgeDetail(knowledgeId);
       setDetail(response);
       setEditor(toEditor(response));
+      // 파일/텍스트 타입이면 내용 자동 로드
+      if (response.sourceGroup === "file_text") {
+        setIsContentLoading(true);
+        try {
+          const c = await getKnowledgeContent(knowledgeId);
+          setContentText(c.content ?? "");
+          if (contentEditor) {
+            contentEditor.commands.setContent(
+              c.content ? `<p>${c.content.replace(/\n\n/g, "</p><p>").replace(/\n/g, "<br>")}</p>` : "<p></p>",
+            );
+          }
+        } catch { /* 내용 로드 실패는 무시 */ }
+        finally { setIsContentLoading(false); }
+      }
     } catch (detailError) {
       setError(getErrorMessage(detailError));
     } finally {
       setIsDetailLoading(false);
+    }
+  };
+
+  const saveContent = async () => {
+    if (!detail || !contentEditor) return;
+    setIsContentSaving(true);
+    try {
+      const html = contentEditor.getHTML();
+      // HTML → 텍스트 변환 (태그 제거)
+      const text = html.replace(/<br\s*\/?>/gi, "\n").replace(/<\/p>/gi, "\n").replace(/<[^>]*>/g, "").trim();
+      await updateKnowledgeContent(detail.id, text);
+      setIsContentDirty(false);
+      setNotice("내용이 저장되었습니다. 재색인이 시작됩니다.");
+      setTimeout(() => setNotice(null), 3000);
+    } catch (e) {
+      setError(getErrorMessage(e));
+    } finally {
+      setIsContentSaving(false);
     }
   };
 
@@ -427,17 +491,26 @@ export function KnowledgeManagement() {
         <span style={{ fontSize: 12, color: "#94a3b8" }}>동일한 파일명을 다시 업로드해도 재학습하지 않습니다</span>
       </div>
 
-      {/* 검색 바 */}
-      <div style={{ position: "relative" }}>
-        <Search style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", width: 16, height: 16, color: "#9ca3af", pointerEvents: "none" }} />
-        <input
-          value={query}
-          onChange={e => setQuery(e.target.value)}
-          onKeyDown={e => { if (e.key === "Enter") void load(); }}
-          placeholder="제목, 내용, 메모, 태그로 검색하세요."
-          className="input-field"
-          style={{ paddingLeft: 40, width: "100%", background: "#fff", borderRadius: 10 }}
-        />
+      {/* 검색 바 + 구분 필터 */}
+      <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ position: "relative", flex: 1 }}>
+          <Search style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", width: 16, height: 16, color: "#9ca3af", pointerEvents: "none" }} />
+          <input
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") void load(); }}
+            placeholder="제목, 내용, 메모, 태그로 검색하세요."
+            className="input-field"
+            style={{ paddingLeft: 40, width: "100%", background: "#fff", borderRadius: 10 }}
+          />
+        </div>
+        {categories.length > 0 && (
+          <select value={category} onChange={e => { setCategory(e.target.value); void load(); }}
+            className="input-field" style={{ width: 160, borderRadius: 10 }}>
+            <option value="">전체 구분</option>
+            {categories.map(c => <option key={c ?? ""} value={c ?? ""}>{c}</option>)}
+          </select>
+        )}
       </div>
 
       {/* 알림 */}
@@ -456,6 +529,48 @@ export function KnowledgeManagement() {
           <div style={{ fontSize: 15, fontWeight: 600, color: "#334155", marginBottom: 6 }}>등록된 지식이 없습니다</div>
           <div style={{ fontSize: 13, color: "#94a3b8", marginBottom: 20 }}>지식 등록 버튼을 클릭해 문서를 추가해보세요</div>
           <Link href="/admin/knowledge/register" className="btn-primary" style={{ fontSize: 13 }}>지식 등록하기</Link>
+        </div>
+      ) : sourceGroup === "website" ? (
+        <div className="bg-white rounded-xl border border-neutral-200 overflow-hidden">
+          {[...byDomain.entries()].map(([domain, domainItems]) => {
+            const isExpanded = expandedDomains.has(domain);
+            return (
+              <div key={domain} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                <div onClick={() => setExpandedDomains(prev => { const n = new Set(prev); if (n.has(domain)) n.delete(domain); else n.add(domain); return n; })}
+                  style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 18px", cursor: "pointer", background: "#fafafa" }}>
+                  {isExpanded ? <ChevronDown style={{ width: 14, height: 14, color: "#6b7280" }} /> : <ChevronRightIcon style={{ width: 14, height: 14, color: "#6b7280" }} />}
+                  <Globe style={{ width: 14, height: 14, color: "#2563eb" }} />
+                  <span style={{ fontSize: 14, fontWeight: 600, color: "#111827" }}>{domain}</span>
+                  <span style={{ fontSize: 12, color: "#9ca3af" }}>({domainItems.length}개 페이지)</span>
+                </div>
+                {isExpanded && domainItems.map(item => (
+                  <div key={item.id} onClick={() => void openDetail(item.id)}
+                    style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 18px 10px 44px", borderTop: "1px solid #f9fafb", cursor: "pointer" }}
+                    className="hover:bg-neutral-50">
+                    <input type="checkbox" checked={selectedIds.includes(item.id)} onClick={e => e.stopPropagation()}
+                      onChange={() => setSelectedIds(c => c.includes(item.id) ? c.filter(id => id !== item.id) : [...c, item.id])}
+                      style={{ width: 14, height: 14 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 500, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.title}</div>
+                      <div style={{ fontSize: 11, color: "#9ca3af", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.sourceUrl ?? item.sourceLabel}</div>
+                    </div>
+                    <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                      {item.tags.slice(0, 3).map(t => <span key={t} style={{ fontSize: 10, border: "1px solid #e5e7eb", borderRadius: 20, padding: "1px 8px", color: "#374151" }}>{t}</span>)}
+                    </div>
+                    <StatusBadge item={item} />
+                    <div style={{ display: "flex", gap: 4 }} onClick={e => e.stopPropagation()}>
+                      <button type="button" onClick={() => void performRowAction(item.id, "reindex")} style={{ padding: 4, background: "none", border: "1px solid #e2e8f0", borderRadius: 5, cursor: "pointer", color: "#64748b" }}>
+                        <RefreshCw style={{ width: 12, height: 12 }} />
+                      </button>
+                      <button type="button" onClick={() => void performRowAction(item.id, "delete")} style={{ padding: 4, background: "none", border: "1px solid #fca5a5", borderRadius: 5, cursor: "pointer", color: "#dc2626" }}>
+                        <Trash2 style={{ width: 12, height: 12 }} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })}
         </div>
       ) : (
         <div className="bg-white rounded-xl border border-neutral-200 overflow-x-auto">
@@ -585,7 +700,71 @@ export function KnowledgeManagement() {
               </button>
             </div>
 
-            {isDetailLoading ? <p className="px-6 py-8 text-sm text-slate-500">상세 정보를 불러오는 중입니다.</p> : null}
+            {isDetailLoading ? (
+              <div style={{ padding: "40px 0", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>
+                <Loader2 style={{ width: 20, height: 20, margin: "0 auto 8px", animation: "spin 1s linear infinite" }} />
+                불러오는 중...
+              </div>
+            ) : null}
+
+            {/* ── 내용 에디터 섹션 ── */}
+            {detail && detail.sourceGroup === "file_text" && (
+              <div style={{ borderBottom: "1px solid #e5e7eb", margin: "0 24px", paddingBottom: 16, paddingTop: 16 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>지식 내용</span>
+                    {isContentLoading && <Loader2 style={{ width: 13, height: 13, animation: "spin 1s linear infinite", color: "#9ca3af" }} />}
+                    {detail.chunkCount !== undefined && (
+                      <span style={{ fontSize: 11, color: "#9ca3af" }}>{detail.chunkCount ?? 0}개 청크</span>
+                    )}
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button type="button"
+                      onClick={() => setShowContentEditor(p => !p)}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 10px", border: `1px solid ${showContentEditor ? "#2563eb" : "#e5e7eb"}`, borderRadius: 6, background: showContentEditor ? "#eff6ff" : "#f9fafb", color: showContentEditor ? "#2563eb" : "#6b7280", fontSize: 12, cursor: "pointer" }}>
+                      <PenLine style={{ width: 11, height: 11 }} />{showContentEditor ? "닫기" : "수정"}
+                    </button>
+                    {showContentEditor && isContentDirty && (
+                      <button type="button" onClick={() => void saveContent()} disabled={isContentSaving}
+                        style={{ padding: "4px 12px", border: "none", borderRadius: 6, background: "#2563eb", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer", opacity: isContentSaving ? 0.6 : 1 }}>
+                        {isContentSaving ? "저장 중..." : "저장 후 재색인"}
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {isContentLoading ? (
+                  <div style={{ fontSize: 12, color: "#9ca3af", textAlign: "center", padding: "16px 0" }}>내용 로딩 중...</div>
+                ) : showContentEditor ? (
+                  <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, background: "#fafafa" }}>
+                    {/* 간단 툴바 */}
+                    <div style={{ display: "flex", gap: 3, padding: "6px 10px", borderBottom: "1px solid #f1f5f9", background: "#f9fafb" }}>
+                      {[
+                        ["B", () => contentEditor?.chain().focus().toggleBold().run()],
+                        ["I", () => contentEditor?.chain().focus().toggleItalic().run()],
+                        ["H2", () => contentEditor?.chain().focus().toggleHeading({ level: 2 }).run()],
+                        ["H3", () => contentEditor?.chain().focus().toggleHeading({ level: 3 }).run()],
+                        ["• 목록", () => contentEditor?.chain().focus().toggleBulletList().run()],
+                      ].map(([label, fn]) => (
+                        <button key={String(label)} type="button" onMouseDown={e => { e.preventDefault(); (fn as () => void)(); }}
+                          style={{ padding: "3px 7px", fontSize: 12, border: "1px solid #e5e7eb", borderRadius: 4, background: "#fff", cursor: "pointer", color: "#374151" }}>
+                          {String(label)}
+                        </button>
+                      ))}
+                    </div>
+                    <EditorContent editor={contentEditor} />
+                  </div>
+                ) : contentText ? (
+                  <div style={{ fontSize: 12, color: "#374151", lineHeight: 1.8, maxHeight: 200, overflowY: "auto", background: "#fafafa", borderRadius: 8, padding: "10px 12px", border: "1px solid #f1f5f9", whiteSpace: "pre-wrap" }}>
+                    {contentText.slice(0, 600)}{contentText.length > 600 ? "..." : ""}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 12, color: "#9ca3af", textAlign: "center", padding: "12px 0" }}>
+                    내용을 불러오지 못했습니다. 수정 버튼을 눌러 직접 입력할 수 있습니다.
+                  </div>
+                )}
+              </div>
+            )}
 
             {detail && editor ? (
               <div className="space-y-6 px-6 py-6">

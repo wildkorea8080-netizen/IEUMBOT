@@ -130,6 +130,34 @@ def admin_get_knowledge(
     return get_knowledge_service(db, principal=principal, knowledge_id=knowledge_id)
 
 
+@router.get("/knowledge/{knowledge_id}/content")
+def admin_get_knowledge_content(
+    knowledge_id: str,
+    principal: AdminPrincipal = Depends(require_institution_admin_auth),
+    db: Session = Depends(get_db_session),
+) -> dict:
+    """지식 항목의 실제 텍스트 내용 반환 (DocumentChunk.text_content 합산)."""
+    from app.services.admin.knowledge_service import get_knowledge_content_service  # noqa: PLC0415
+    return get_knowledge_content_service(db, principal=principal, knowledge_id=knowledge_id)
+
+
+@router.put("/knowledge/{knowledge_id}/content")
+def admin_put_knowledge_content(
+    knowledge_id: str,
+    body: dict,
+    background_tasks: BackgroundTasks,
+    principal: AdminPrincipal = Depends(require_institution_admin_auth),
+    db: Session = Depends(get_db_session),
+) -> dict:
+    """지식 내용 수정 → 새 버전 생성 후 재색인."""
+    from app.services.admin.knowledge_service import update_knowledge_content_service  # noqa: PLC0415
+    return update_knowledge_content_service(
+        db, principal=principal, knowledge_id=knowledge_id,
+        content=str(body.get("content") or ""),
+        background_tasks=background_tasks,
+    )
+
+
 @router.patch("/knowledge/{knowledge_id}", response_model=KnowledgeDetailResponse)
 def admin_patch_knowledge(
     knowledge_id: str,
