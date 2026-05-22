@@ -23,8 +23,9 @@ export const adminNav: NavGroup[] = [
   {
     title: "AI 설정",
     items: [
-      { label: "AI 기본설정",    href: "/admin/ai/basic",    icon: "Bot",     setupKey: "ai_basic" },
-      { label: "대화 스타일 설정", href: "/admin/ai/style",    icon: "Palette", setupKey: "ai_style" },
+      { label: "AI 기본설정",    href: "/admin/ai/basic",    icon: "Bot",      setupKey: "ai_basic" },
+      { label: "대화 스타일 설정", href: "/admin/ai/style",    icon: "Palette",  setupKey: "ai_style" },
+      { label: "위젯 설정",      href: "/admin/widget",      icon: "Settings2" },
       { label: "조건별 답변 설정", href: "/admin/conditional", icon: "Zap" },
     ],
   },
