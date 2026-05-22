@@ -18,9 +18,12 @@ import {
 } from "../../lib/admin-ui/selected-chatbot";
 import {
   getSetupStatus,
+  markSetupDone,
   SETUP_STATUS_EVENT,
   type SetupStatus,
 } from "../../lib/admin-ui/setup-status";
+import { getAdminChatbots } from "../../lib/api/admin-operations";
+import { getAdminInstallGuide } from "../../lib/api/install-guide";
 import { apiClient } from "../../lib/api";
 import { clearAdminAccessToken } from "../../lib/auth/token";
 import { useRouter } from "next/navigation";
@@ -66,11 +69,29 @@ export function AdminSidebar() {
 
   useEffect(() => {
     function syncSetup() {
-      setSetupStatus(getSetupStatus());
+      setSetupStatus({ ...getSetupStatus() });
     }
     syncSetup();
     window.addEventListener(SETUP_STATUS_EVENT, syncSetup);
     window.addEventListener("storage", syncSetup);
+
+    // API로 완료 여부 자동 감지 (최초 1회)
+    void (async () => {
+      try {
+        const [chatbotRes, installRes] = await Promise.all([
+          getAdminChatbots().catch(() => null),
+          getAdminInstallGuide().catch(() => null),
+        ]);
+        if (chatbotRes && chatbotRes.items.length > 0) {
+          markSetupDone("ai_basic");
+          markSetupDone("ai_style");
+        }
+        if (installRes && installRes.items.some(i => i.allowedDomains.length > 0)) {
+          markSetupDone("install");
+        }
+      } catch { /* silently ignore */ }
+    })();
+
     return () => {
       window.removeEventListener(SETUP_STATUS_EVENT, syncSetup);
       window.removeEventListener("storage", syncSetup);

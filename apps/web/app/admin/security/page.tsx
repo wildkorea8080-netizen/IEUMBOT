@@ -241,15 +241,15 @@ export default function SecurityPage() {
           <span style={{ fontSize: 15, fontWeight: 700, color: "#111827" }}>보안현황</span>
           <span style={{ fontSize: 13, color: "#9ca3af" }}>부적절한 질문은 정책에 의해 자동 차단되며, 안전한 거부 메시지로 안내됩니다.</span>
         </div>
-        <div style={{ display: "flex", gap: 32, flexWrap: "wrap" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12 }}>
           {stats.map(s => (
-            <div key={s.key} style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <div style={{ width: 44, height: 44, borderRadius: "50%", background: "#111827", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <div key={s.key} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", background: "#f9fafb", borderRadius: 12 }}>
+              <div style={{ width: 40, height: 40, borderRadius: "50%", background: "#111827", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                 {s.icon}
               </div>
-              <div>
-                <div style={{ fontSize: 24, fontWeight: 800, color: "#111827", lineHeight: 1.1 }}>{s.value}</div>
-                <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 2, whiteSpace: "nowrap" }}>{s.label}</div>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 22, fontWeight: 800, color: "#111827", lineHeight: 1.1 }}>{s.value}</div>
+                <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.label}</div>
               </div>
             </div>
           ))}
