@@ -16,6 +16,11 @@ import {
   readSelectedAdminChatbot,
   type SelectedAdminChatbot,
 } from "../../lib/admin-ui/selected-chatbot";
+import {
+  getSetupStatus,
+  SETUP_STATUS_EVENT,
+  type SetupStatus,
+} from "../../lib/admin-ui/setup-status";
 import { apiClient } from "../../lib/api";
 import { clearAdminAccessToken } from "../../lib/auth/token";
 import { useRouter } from "next/navigation";
@@ -44,6 +49,7 @@ export function AdminSidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const [selectedChatbot, setSelectedChatbot] = useState<SelectedAdminChatbot | null>(null);
+  const [setupStatus, setSetupStatus] = useState<SetupStatus>({});
 
   useEffect(() => {
     function sync() {
@@ -55,6 +61,19 @@ export function AdminSidebar() {
     return () => {
       window.removeEventListener("storage", sync);
       window.removeEventListener(ADMIN_SELECTED_CHATBOT_EVENT, sync as EventListener);
+    };
+  }, []);
+
+  useEffect(() => {
+    function syncSetup() {
+      setSetupStatus(getSetupStatus());
+    }
+    syncSetup();
+    window.addEventListener(SETUP_STATUS_EVENT, syncSetup);
+    window.addEventListener("storage", syncSetup);
+    return () => {
+      window.removeEventListener(SETUP_STATUS_EVENT, syncSetup);
+      window.removeEventListener("storage", syncSetup);
     };
   }, []);
 
@@ -193,17 +212,13 @@ export function AdminSidebar() {
                   />
                   <span style={{ flex: 1 }}>{item.label}</span>
                   {item.badge ? (
-                    <span
-                      style={{
-                        fontSize: 10,
-                        fontWeight: 600,
-                        background: "#dbeafe",
-                        color: "#1d4ed8",
-                        borderRadius: 10,
-                        padding: "1px 7px",
-                      }}
-                    >
+                    <span style={{ fontSize: 10, fontWeight: 600, background: "#dbeafe", color: "#1d4ed8", borderRadius: 10, padding: "1px 7px" }}>
                       {item.badge}
+                    </span>
+                  ) : null}
+                  {item.setupKey && !setupStatus[item.setupKey] ? (
+                    <span style={{ fontSize: 10, fontWeight: 700, background: "#fef2f2", color: "#ef4444", borderRadius: 6, padding: "1px 6px", border: "1px solid #fecaca" }}>
+                      미완료
                     </span>
                   ) : null}
                 </Link>

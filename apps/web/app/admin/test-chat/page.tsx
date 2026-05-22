@@ -1,401 +1,351 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
+import { RefreshCw, Send } from "lucide-react";
 
-import { PagePanel } from "../../../components/ui/page-panel";
-import { ChatDebugTrace } from "../../../components/admin/chat-debug-trace";
 import { ApiClientError } from "../../../lib/api";
+import { getAdminChatbots } from "../../../lib/api/admin-operations";
 import { sendAdminTestChatMessage } from "../../../lib/api/runtime-chat";
 import type { ChatCitation, ChatRuntimeResponse } from "../../../lib/api/runtime-chat-types";
+import type { AdminChatbotItem } from "../../../lib/api/admin-operations-types";
+
+// ── 타입 ──────────────────────────────────────────────────────────────────────
 
 type ChatTurn =
-  | { id: string; role: "user"; question: string; createdAt: number }
-  | {
-      id: string;
-      role: "assistant";
-      response: ChatRuntimeResponse;
-      createdAt: number;
-    };
+  | { id: string; role: "user"; question: string; time: string }
+  | { id: string; role: "assistant"; response: ChatRuntimeResponse; time: string; elapsedMs: number };
 
-function getErrorMessage(error: unknown): string {
-  if (error instanceof ApiClientError) {
-    return `${error.code}: ${error.message}`;
-  }
+// ── 유틸 ──────────────────────────────────────────────────────────────────────
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof ApiClientError) return `${error.code}: ${error.message}`;
   return "테스트 요청 처리 중 오류가 발생했습니다.";
 }
 
-function formatScore(value: unknown): string {
-  if (typeof value !== "number" || Number.isNaN(value)) {
-    return "-";
-  }
-  return value.toFixed(4);
+function nowTime() {
+  return new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
 }
 
-function outcomeLabel(outcome: string): string {
-  if (outcome === "answered") return "응답 완료";
-  if (outcome === "insufficient_evidence") return "근거 부족";
-  if (outcome === "restricted") return "정책 제한";
-  if (outcome === "conflict") return "근거 충돌";
-  if (outcome === "escalate") return "이관 권장";
-  return outcome;
+function secLabel(ms: number | null | undefined) {
+  if (ms == null) return "-";
+  return `${(ms / 1000).toFixed(2)}초`;
 }
 
-function compactMap(value: unknown): string {
-  if (!value || typeof value !== "object") {
-    return "-";
-  }
-  const entries = Object.entries(value as Record<string, unknown>);
-  if (entries.length === 0) {
-    return "-";
-  }
-  return entries
-    .slice(0, 6)
-    .map(([key, item]) => `${key}: ${String(item)}`)
-    .join(" | ");
+function scorePercent(score: number | null | undefined) {
+  if (score == null) return null;
+  return `${(score * 100).toFixed(1)}%`;
 }
 
-function renderCitation(citation: ChatCitation, index: number) {
+// ── 메시지 렌더 ───────────────────────────────────────────────────────────────
+
+function UserBubble({ question, time }: { question: string; time: string }) {
   return (
-    <li key={`${citation.documentVersionId ?? "none"}-${index}`} className="rounded-md border border-slate-200 p-2">
-      <p className="font-medium text-slate-900">{citation.documentName ?? "문서명 없음"}</p>
-      <p className="mt-1">
-        문서ID: {citation.documentId ?? "-"} | 버전ID: {citation.documentVersionId ?? "-"}
-      </p>
-      <p className="mt-1">
-        페이지: {citation.pageNumber ?? "-"} | 섹션: {citation.sectionTitle ?? "-"}
-      </p>
-      <p className="mt-1">
-        소스: {citation.sourceType ?? "-"} | rank: {citation.finalRank ?? "-"} | score:{" "}
-        {formatScore(citation.score)}
-      </p>
-      {citation.sourceUrl ? <p className="mt-1 break-all">URL: {citation.sourceUrl}</p> : null}
-    </li>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, marginBottom: 20 }}>
+      <div style={{
+        background: "#ef4444", color: "#fff",
+        borderRadius: "20px 20px 4px 20px",
+        padding: "10px 18px", fontSize: 14, maxWidth: "70%", lineHeight: 1.6,
+      }}>{question}</div>
+      <span style={{ fontSize: 11, color: "#9ca3af" }}>{time}</span>
+    </div>
   );
 }
+
+function AssistantBubble({ response, time }: { response: ChatRuntimeResponse; time: string }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 20 }}>
+      <div style={{ fontSize: 14, color: "#111827", lineHeight: 1.8, whiteSpace: "pre-wrap" }}>
+        {response.answer.text}
+      </div>
+      <span style={{ fontSize: 11, color: "#9ca3af" }}>{time}</span>
+    </div>
+  );
+}
+
+function FollowUpQuestions({ questions, onSelect }: { questions: string[]; onSelect: (q: string) => void }) {
+  if (questions.length === 0) return null;
+  return (
+    <div style={{ marginTop: 4, marginBottom: 20 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10, fontSize: 13, color: "#6b7280", fontWeight: 500 }}>
+        <span>✦</span>
+        <span>이런 질문들은 어떠신가요?</span>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {questions.slice(0, 3).map(q => (
+          <button key={q} type="button" onClick={() => onSelect(q)}
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              padding: "12px 16px", border: "1px solid #e5e7eb", borderRadius: 10,
+              background: "#fff", fontSize: 13, color: "#374151", cursor: "pointer",
+              textAlign: "left",
+            }}>
+            <span style={{ flex: 1, marginRight: 10 }}>{q}</span>
+            <span style={{ color: "#9ca3af", flexShrink: 0 }}>→</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── 우측 정보 패널 ─────────────────────────────────────────────────────────────
+
+function InfoPanel({ turn, showPanel }: {
+  turn: Extract<ChatTurn, { role: "assistant" }> | null;
+  showPanel: boolean;
+}) {
+  if (!showPanel) return null;
+
+  const trace = turn?.response.trace;
+  const citations: ChatCitation[] = turn?.response.citations ?? [];
+  const retrievalMs = trace?.retrieval?.latencyMs ?? null;
+  const llmMs = trace?.llm?.latencyMs ?? null;
+  const totalMs = trace?.latencyMs ?? turn?.elapsedMs ?? null;
+  const outputMs = totalMs != null && llmMs != null ? totalMs - llmMs : totalMs;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20, height: "100%", overflowY: "auto" }}>
+      {/* 성능 지표 */}
+      <div>
+        <div style={{ fontSize: 13, fontWeight: 700, color: "#111827", marginBottom: 12 }}>성능 지표</div>
+        {[
+          { label: "정보 조회 시간", value: secLabel(retrievalMs) },
+          { label: "추론 완료 시간", value: secLabel(llmMs ?? totalMs) },
+          { label: "출력 완료 시간", value: secLabel(outputMs) },
+        ].map(row => (
+          <div key={row.label} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid #f1f5f9", fontSize: 13 }}>
+            <span style={{ color: "#6b7280" }}>{row.label}</span>
+            <span style={{ color: "#111827", fontWeight: 500 }}>{row.value}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* 조회된 정보 */}
+      <div>
+        <div style={{ fontSize: 13, fontWeight: 700, color: "#111827", marginBottom: 12 }}>조회된 정보</div>
+        {citations.length === 0 ? (
+          <p style={{ fontSize: 13, color: "#9ca3af" }}>조회된 정보가 없습니다.</p>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            {citations.map((c, i) => (
+              <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #f9fafb" }}>
+                <span style={{ fontSize: 13, color: "#374151", flex: 1, marginRight: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {c.documentName ?? "-"}
+                </span>
+                <span style={{ fontSize: 12, color: "#9ca3af", flexShrink: 0 }}>유사도({scorePercent(c.score) ?? "-"})</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {citations.length > 0 && (
+          <div style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: "#6b7280" }}>
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#2563eb", flexShrink: 0, display: "inline-block" }} />
+            답변에 참고한 정보
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── 메인 ──────────────────────────────────────────────────────────────────────
 
 export default function TestChatPage() {
+  const [chatbots, setChatbots] = useState<AdminChatbotItem[]>([]);
   const [chatbotId, setChatbotId] = useState("");
+  const [chatbotName, setChatbotName] = useState("");
   const [question, setQuestion] = useState("");
-  const [topK, setTopK] = useState(8);
-  const [isSending, setIsSending] = useState(false);
-  const [debugEnabled, setDebugEnabled] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [turns, setTurns] = useState<ChatTurn[]>([]);
-  const [selectedAssistantId, setSelectedAssistantId] = useState<string | null>(null);
+  const [isSending, setIsSending] = useState(false);
+  const [showPanel, setShowPanel] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const assistantTurns = useMemo(
-    () => turns.filter((item): item is Extract<ChatTurn, { role: "assistant" }> => item.role === "assistant"),
-    [turns],
-  );
-  const selectedAssistant = useMemo(() => {
-    if (!selectedAssistantId) {
-      return assistantTurns.at(-1) ?? null;
-    }
-    return assistantTurns.find((item) => item.id === selectedAssistantId) ?? assistantTurns.at(-1) ?? null;
-  }, [assistantTurns, selectedAssistantId]);
+  const lastAssistantTurn = [...turns].reverse().find(
+    (t): t is Extract<ChatTurn, { role: "assistant" }> => t.role === "assistant"
+  ) ?? null;
 
-  async function handleSend(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const currentChatbotId = chatbotId.trim();
-    const currentQuestion = question.trim();
-    if (!currentChatbotId) {
-      setErrorMessage("챗봇 ID를 입력하세요.");
-      return;
-    }
-    if (!currentQuestion) {
-      setErrorMessage("질문을 입력하세요.");
-      return;
-    }
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await getAdminChatbots();
+        setChatbots(res.items);
+        if (res.items[0]) { setChatbotId(res.items[0].id); setChatbotName(res.items[0].name); }
+      } catch { /* silently ignore */ }
+    })();
+  }, []);
 
-    setIsSending(true);
-    setErrorMessage(null);
-    const userTurn: ChatTurn = {
-      id: `u_${Date.now()}`,
-      role: "user",
-      question: currentQuestion,
-      createdAt: Date.now(),
-    };
-    setTurns((prev) => [...prev, userTurn]);
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [turns]);
+
+  async function handleSend(e: FormEvent) {
+    e.preventDefault();
+    if (!chatbotId || !question.trim() || isSending) return;
+    const q = question.trim();
     setQuestion("");
-
+    setErrorMessage(null);
+    setTurns(prev => [...prev, { id: `u_${Date.now()}`, role: "user", question: q, time: nowTime() }]);
+    setIsSending(true);
+    const start = Date.now();
     try {
-      const response = await sendAdminTestChatMessage(currentChatbotId, currentQuestion, { topK });
-      const assistantTurn: ChatTurn = {
-        id: `a_${response.requestId}`,
-        role: "assistant",
-        response,
-        createdAt: Date.now(),
-      };
-      setTurns((prev) => [...prev, assistantTurn]);
-      setSelectedAssistantId(assistantTurn.id);
-    } catch (error) {
-      setErrorMessage(getErrorMessage(error));
+      const response = await sendAdminTestChatMessage(chatbotId, q, { topK: 8 });
+      const elapsedMs = Date.now() - start;
+      setTurns(prev => [...prev, { id: `a_${Date.now()}`, role: "assistant", response, time: nowTime(), elapsedMs }]);
+    } catch (err) {
+      setErrorMessage(getErrorMessage(err));
+      setTurns(prev => prev.slice(0, -1));
     } finally {
       setIsSending(false);
     }
   }
 
-  function handleQuestionKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.nativeEvent.isComposing) return;
-    if (event.key !== "Enter" || event.shiftKey) return;
-    event.preventDefault();
-    event.currentTarget.form?.requestSubmit();
+  function handleKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.nativeEvent.isComposing) return;
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      e.currentTarget.form?.requestSubmit();
+    }
   }
 
-  function renderFollowUpQuestions(items: string[] | undefined) {
-    const questions = (items ?? []).slice(0, 3);
-    if (questions.length === 0) return null;
-    return (
-      <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-3">
-        <p className="text-xs font-semibold text-slate-600">이런 질문들은 어떠신가요? </p>
-        <div className="mt-2 flex flex-wrap gap-2">
-          {questions.map((item) => (
-            <button
-              key={item}
-              type="button"
-              onClick={() => setQuestion(item)}
-              className="rounded-md border border-slate-300 bg-white px-2 py-1 text-left text-xs text-slate-700 hover:bg-slate-100"
-            >
-              {item}
-            </button>
-          ))}
-        </div>
-      </div>
-    );
+  function handleChatbotChange(id: string) {
+    const chatbot = chatbots.find(c => c.id === id);
+    setChatbotId(id);
+    setChatbotName(chatbot?.name ?? "");
+  }
+
+  function reset() {
+    setTurns([]);
+    setErrorMessage(null);
   }
 
   return (
-    <div className="space-y-4">
-      <PagePanel
-        title="테스트 채팅"
-        description="운영자가 실제 런타임 파이프라인을 점검하고 정책/가드레일 동작을 확인하는 관리자 전용 콘솔입니다."
-      >
-        <form onSubmit={handleSend} className="grid gap-3">
-          <div className="grid gap-3 md:grid-cols-3">
-            <label className="block text-xs text-slate-700">
-              챗봇 ID
-              <input
-                value={chatbotId}
-                onChange={(event) => setChatbotId(event.target.value)}
-                placeholder="챗봇 UUID"
-                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                required
-              />
-            </label>
-            <label className="block text-xs text-slate-700">
-              topK
-              <input
-                type="number"
-                min={1}
-                max={20}
-                value={topK}
-                onChange={(event) => setTopK(Number(event.target.value))}
-                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-              />
-            </label>
-            <label className="flex items-end gap-2 text-xs text-slate-700">
-              <input
-                type="checkbox"
-                checked={debugEnabled}
-                onChange={(event) => setDebugEnabled(event.target.checked)}
-                className="mb-2"
-              />
-              <span className="mb-1 font-medium">디버그 보기</span>
-            </label>
-            <div className="flex items-end gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setTurns([]);
-                  setSelectedAssistantId(null);
-                  setErrorMessage(null);
-                }}
-                className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
-              >
-                세션 초기화
-              </button>
+    <div style={{ display: "flex", gap: 20, height: "calc(100vh - 96px)", minHeight: 500 }}>
+
+      {/* ── 왼쪽: 채팅 패널 ───────────────────────────────────────────────────── */}
+      <div style={{ flex: 1, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
+
+        {/* 채팅 헤더 */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px", borderBottom: "1px solid #f1f5f9", flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ width: 36, height: 36, borderRadius: "50%", background: "#dbeafe", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>🤖</div>
+            {chatbots.length > 1 ? (
+              <select value={chatbotId} onChange={e => handleChatbotChange(e.target.value)}
+                style={{ fontSize: 15, fontWeight: 700, color: "#111827", border: "none", background: "transparent", outline: "none", cursor: "pointer" }}>
+                {chatbots.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            ) : (
+              <span style={{ fontSize: 15, fontWeight: 700, color: "#111827" }}>{chatbotName || "챗봇"}</span>
+            )}
+          </div>
+          <button type="button" onClick={reset}
+            style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 14px", border: "1px solid #e5e7eb", borderRadius: 8, background: "#fff", fontSize: 13, color: "#374151", cursor: "pointer" }}>
+            <RefreshCw style={{ width: 13, height: 13 }} />초기화
+          </button>
+        </div>
+
+        {/* 메시지 영역 */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "24px 24px 8px" }}>
+          {turns.length === 0 ? (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", flexDirection: "column", gap: 12 }}>
+              <div style={{ fontSize: 32, color: "#9ca3af" }}>💬</div>
+              <p style={{ fontSize: 18, fontWeight: 600, color: "#374151", textAlign: "center" }}>당신의 궁금증, 에이전트에게 물어보세요~</p>
             </div>
-          </div>
-          <label className="block text-xs text-slate-700">
-            질문
-            <textarea
-              value={question}
-              onChange={(event) => setQuestion(event.target.value)}
-              onKeyDown={handleQuestionKeyDown}
-              rows={3}
-              placeholder="질문을 입력하고 전송하세요."
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-              required
-            />
-          </label>
-          <div className="flex items-center gap-2">
-            <button
-              type="submit"
-              disabled={isSending}
-              className="rounded-md bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-60"
-            >
-              {isSending ? "실행 중..." : "전송"}
-            </button>
-            {errorMessage ? (
-              <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-                {errorMessage}
-              </p>
-            ) : null}
-          </div>
+          ) : (
+            <>
+              {turns.map(turn => {
+                if (turn.role === "user") {
+                  return <UserBubble key={turn.id} question={turn.question} time={turn.time} />;
+                }
+                const followUps = turn.response.followUpQuestions ?? turn.response.trace.followUpQuestions ?? [];
+                return (
+                  <div key={turn.id}>
+                    <AssistantBubble response={turn.response} time={turn.time} />
+                    <FollowUpQuestions questions={followUps} onSelect={q => setQuestion(q)} />
+                  </div>
+                );
+              })}
+              {isSending && (
+                <div style={{ display: "flex", gap: 4, padding: "8px 0 16px" }}>
+                  {[0, 1, 2].map(i => (
+                    <div key={i} style={{ width: 8, height: 8, borderRadius: "50%", background: "#d1d5db", animation: `bounce 1.2s ${i * 0.2}s infinite` }} />
+                  ))}
+                </div>
+              )}
+              <div ref={messagesEndRef} />
+            </>
+          )}
+        </div>
+
+        {/* 에러 */}
+        {errorMessage && (
+          <div style={{ padding: "8px 20px", fontSize: 12, color: "#dc2626", background: "#fef2f2", borderTop: "1px solid #fecaca", flexShrink: 0 }}>{errorMessage}</div>
+        )}
+
+        {/* 입력창 */}
+        <form onSubmit={handleSend} style={{ padding: "12px 16px", borderTop: "1px solid #f1f5f9", display: "flex", gap: 10, alignItems: "center", flexShrink: 0 }}>
+          <input
+            value={question}
+            onChange={e => setQuestion(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={chatbotId ? "메시지를 입력하세요..." : "챗봇을 먼저 선택하세요."}
+            disabled={!chatbotId || isSending}
+            style={{
+              flex: 1, padding: "12px 16px", border: "1.5px solid #e5e7eb", borderRadius: 24,
+              fontSize: 14, outline: "none", background: "#fff",
+              borderColor: question ? "#2563eb" : "#e5e7eb", transition: "border-color 0.15s",
+            }}
+          />
+          <button type="submit" disabled={!question.trim() || !chatbotId || isSending}
+            style={{
+              width: 44, height: 44, borderRadius: "50%", border: "none",
+              background: (!question.trim() || !chatbotId || isSending) ? "#d1d5db" : "#111827",
+              cursor: (!question.trim() || !chatbotId || isSending) ? "not-allowed" : "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+            }}>
+            <Send style={{ width: 16, height: 16, color: "#fff" }} />
+          </button>
         </form>
-      </PagePanel>
+      </div>
 
-      <div className="grid gap-4 xl:grid-cols-[1.1fr_1fr]">
-        <PagePanel
-          title="A. 대화 패널"
-          description="현재 관리자 테스트 세션의 질문/응답 히스토리를 확인합니다."
-        >
-          <div className="space-y-2">
-            {turns.length === 0 ? (
-              <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600">
-                질문을 입력하고 테스트를 실행하세요.
-              </div>
-            ) : (
-              turns.map((turn) =>
-                turn.role === "user" ? (
-                  <article key={turn.id} className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm">
-                    <p className="text-xs font-semibold text-slate-500">사용자</p>
-                    <p className="mt-1 whitespace-pre-wrap text-slate-900">{turn.question}</p>
-                  </article>
-                ) : (
-                  <article
-                    key={turn.id}
-                    className={[
-                      "cursor-pointer rounded-md border p-3 text-sm",
-                      selectedAssistant?.id === turn.id
-                        ? "border-brand-300 bg-brand-50"
-                        : "border-slate-200 bg-white hover:bg-slate-50",
-                    ].join(" ")}
-                    onClick={() => setSelectedAssistantId(turn.id)}
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-xs font-semibold text-slate-500">어시스턴트</p>
-                      <span className="rounded border border-slate-300 px-2 py-0.5 text-xs text-slate-700">
-                        {outcomeLabel(turn.response.outcome)}
-                      </span>
-                    </div>
-                    <p className="mt-1 whitespace-pre-wrap text-slate-900">{turn.response.answer.text}</p>
-                    {renderFollowUpQuestions(turn.response.followUpQuestions)}
-                  </article>
-                ),
-              )
-            )}
+      {/* ── 오른쪽: 응답 상세 정보 ──────────────────────────────────────────── */}
+      <div style={{ width: 300, flexShrink: 0, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16, padding: "20px", display: "flex", flexDirection: "column", gap: 0, overflow: "hidden" }}>
+        {/* 패널 헤더 */}
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 6 }}>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: "#111827", marginBottom: 4 }}>응답 상세 정보</div>
+            <div style={{ fontSize: 12, color: "#9ca3af" }}>AI 답변 생성의 근거 및 성능 정보를 확인합니다.</div>
           </div>
-        </PagePanel>
+          {/* AI 설정 토글 */}
+          <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", marginTop: 2, flexShrink: 0 }}>
+            <span style={{ fontSize: 12, color: "#374151", fontWeight: 500 }}>AI 설정</span>
+            <div onClick={() => setShowPanel(p => !p)} style={{
+              width: 40, height: 22, borderRadius: 11,
+              background: showPanel ? "#2563eb" : "#e5e7eb",
+              position: "relative", cursor: "pointer", transition: "background 0.2s",
+            }}>
+              <div style={{
+                position: "absolute", top: 3, left: showPanel ? 21 : 3,
+                width: 16, height: 16, borderRadius: "50%", background: "#fff",
+                boxShadow: "0 1px 3px rgba(0,0,0,.2)", transition: "left 0.2s",
+              }} />
+            </div>
+          </label>
+        </div>
 
-        <div className="space-y-4">
-          <PagePanel
-            title="B. 최종 응답"
-            description="선택된 응답의 결과 마커, 답변 내용, 인용 정보를 확인합니다."
-          >
-            {!selectedAssistant ? (
-              <p className="text-sm text-slate-600">선택된 응답이 없습니다.</p>
-            ) : (
-              <div className="space-y-3 text-sm">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="rounded border border-slate-300 px-2 py-0.5 text-xs text-slate-700">
-                    결과: {selectedAssistant.response.outcome}
-                  </span>
-                  <span className="rounded border border-slate-300 px-2 py-0.5 text-xs text-slate-700">
-                    요청 ID: {selectedAssistant.response.requestId}
-                  </span>
-                </div>
-                <div className="rounded-md border border-slate-200 bg-white p-3">
-                  <p className="whitespace-pre-wrap text-slate-900">{selectedAssistant.response.answer.text}</p>
-                  {renderFollowUpQuestions(selectedAssistant.response.followUpQuestions)}
-                  {debugEnabled ? <ChatDebugTrace trace={selectedAssistant.response.trace} /> : null}
-                </div>
-                {(selectedAssistant.response.answer.warnings ?? []).length > 0 ? (
-                  <ul className="space-y-1 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-                    {(selectedAssistant.response.answer.warnings ?? []).map((warning, index) => (
-                      <li key={`${warning}-${index}`}>- {warning}</li>
-                    ))}
-                  </ul>
-                ) : null}
-                <div>
-                  <p className="mb-2 text-xs font-semibold text-slate-700">인용</p>
-                  {selectedAssistant.response.citations.length === 0 ? (
-                    <p className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-3 text-xs text-slate-600">
-                      인용이 없습니다. 정책 차단/근거 부족으로 답변이 제한되었을 수 있습니다.
-                    </p>
-                  ) : (
-                    <ul className="space-y-2 text-xs text-slate-700">
-                      {selectedAssistant.response.citations.map(renderCitation)}
-                    </ul>
-                  )}
-                </div>
-              </div>
-            )}
-          </PagePanel>
-
-          <PagePanel
-            title="C. 파이프라인 트레이스"
-            description="정규화 질의, 정책 판단, 가드레일 매칭, LLM 실행 여부를 확인합니다."
-          >
-            {!selectedAssistant ? (
-              <p className="text-sm text-slate-600">응답을 선택하면 트레이스가 표시됩니다.</p>
-            ) : (
-              <div className="space-y-2 text-xs text-slate-700">
-                <p>정규화 질의: {String(selectedAssistant.response.trace.normalizedQuery ?? "-")}</p>
-                <p>정책 판단: {compactMap(selectedAssistant.response.policyDecision)}</p>
-                <p>검색 결과: {compactMap(selectedAssistant.response.trace.retrieval)}</p>
-                <p>가드레일: {compactMap(selectedAssistant.response.trace.guardrail)}</p>
-                <p>
-                  LLM: 실행={String(selectedAssistant.response.trace.llm?.executed ?? false)} | 오류 코드=
-                  {String(selectedAssistant.response.trace.llm?.errorCode ?? "-")}
-                </p>
-                <p>메시지: {compactMap(selectedAssistant.response.trace.messages)}</p>
-              </div>
-            )}
-          </PagePanel>
-
-          <PagePanel
-            title="D. 검색 근거 요약"
-            description="선택된 응답에서 사용된 문서 근거 요약(문서/코퍼스/점수)을 표시합니다."
-          >
-            {!selectedAssistant ? (
-              <p className="text-sm text-slate-600">응답을 선택하면 근거 요약이 표시됩니다.</p>
-            ) : selectedAssistant.response.citations.length === 0 ? (
-              <p className="text-sm text-slate-600">
-                표시할 검색 근거가 없습니다. 차단 응답이거나 인용 조립이 생략된 상태일 수 있습니다.
-              </p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="min-w-full border-collapse text-xs">
-                  <thead>
-                    <tr className="border-b border-slate-200 text-left text-slate-600">
-                      <th className="px-2 py-1">문서</th>
-                      <th className="px-2 py-1">자료 유형</th>
-                      <th className="px-2 py-1">페이지/섹션</th>
-                      <th className="px-2 py-1">점수</th>
-                      <th className="px-2 py-1">순위</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {selectedAssistant.response.citations.map((citation, index) => (
-                      <tr key={`${citation.documentVersionId ?? "row"}-${index}`} className="border-b border-slate-100">
-                        <td className="px-2 py-1 text-slate-900">{citation.documentName ?? "-"}</td>
-                        <td className="px-2 py-1">{citation.sourceType ?? "-"}</td>
-                        <td className="px-2 py-1">
-                          {citation.pageNumber ?? "-"} / {citation.sectionTitle ?? "-"}
-                        </td>
-                        <td className="px-2 py-1">{formatScore(citation.score)}</td>
-                        <td className="px-2 py-1">{citation.finalRank ?? "-"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </PagePanel>
+        <div style={{ flex: 1, overflowY: "auto", marginTop: 16 }}>
+          <InfoPanel turn={lastAssistantTurn} showPanel={showPanel} />
         </div>
       </div>
+
+      {/* 바운스 애니메이션 */}
+      <style>{`
+        @keyframes bounce {
+          0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+          40% { transform: scale(1); opacity: 1; }
+        }
+      `}</style>
     </div>
   );
 }

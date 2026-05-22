@@ -36,11 +36,53 @@ function errMsg(e: unknown) {
 }
 
 // 액션 타입 메타
-const ACTION_META: Record<ActionType, { label: string; icon: string; placeholder: string; valuePlaceholder: string; valueLabelText: string }> = {
-  link:    { label: "링크 연결유도",  icon: "🌐", placeholder: "예: 플래니 홈페이지를 안내할 때",      valueLabelText: "링크 URL",       valuePlaceholder: "https://example.com" },
-  file:    { label: "파일 다운로드",  icon: "📁", placeholder: "예: 플래니 소개서를 요청할 때",        valueLabelText: "파일 URL",       valuePlaceholder: "https://example.com/file.pdf" },
-  video:   { label: "동영상 링크",    icon: "🎥", placeholder: "예: 사용법 영상을 보고 싶을 때",       valueLabelText: "동영상 URL",     valuePlaceholder: "https://youtube.com/watch?v=..." },
-  contact: { label: "전화번호 안내",  icon: "📞", placeholder: "예: 담당자 연락처를 알고 싶을 때",    valueLabelText: "전화번호 / 이메일", valuePlaceholder: "02-1234-5678" },
+type ActionMeta = {
+  label: string;
+  icon: string;
+  placeholder: string;
+  valueLabelText: string;
+  valuePlaceholder: string;
+  valueHelper: string;
+  descriptionLabel: string;
+  descriptionPlaceholder: string;
+};
+const ACTION_META: Record<ActionType, ActionMeta> = {
+  link: {
+    label: "링크 연결유도", icon: "🌐",
+    placeholder: "예: 제품 또는 솔루션에 대한 질문이라면",
+    valueLabelText: "연결할 링크 주소",
+    valuePlaceholder: "예: https://www.company.com/product",
+    valueHelper: "고객에게 안내할 웹사이트 주소를 입력하세요.",
+    descriptionLabel: "링크 설명",
+    descriptionPlaceholder: "예: 제품소개 페이지",
+  },
+  file: {
+    label: "파일 다운로드", icon: "📁",
+    placeholder: "예: 제품 또는 솔루션에 대한 질문이라면",
+    valueLabelText: "답변에 포함할 파일",
+    valuePlaceholder: "https://example.com/file.pdf",
+    valueHelper: "고객에게 제공할 파일을 업로드하고 설명을 입력하세요.",
+    descriptionLabel: "파일 설명",
+    descriptionPlaceholder: "예: 2024년 가격표",
+  },
+  video: {
+    label: "동영상 링크", icon: "🎥",
+    placeholder: "예: 제품 또는 솔루션에 대한 질문이라면",
+    valueLabelText: "동영상 링크 (YouTube, Vimeo 등)",
+    valuePlaceholder: "예: https://youtube.com/watch?v=xxxxx",
+    valueHelper: "고객에게 보여줄 동영상의 URL을 입력하세요.",
+    descriptionLabel: "동영상 설명",
+    descriptionPlaceholder: "예: 제품 사용 가이드",
+  },
+  contact: {
+    label: "전화번호 안내", icon: "📞",
+    placeholder: "예: 제품 또는 솔루션에 대한 질문이라면",
+    valueLabelText: "전화번호",
+    valuePlaceholder: "예: 02-1234-5678",
+    valueHelper: "고객에게 안내할 연락처와 운영시간을 입력하세요.",
+    descriptionLabel: "운영시간 (선택사항)",
+    descriptionPlaceholder: "예: 평일 9-18시",
+  },
 };
 
 const DEFAULT_FORM = {
@@ -86,6 +128,7 @@ function AddModal({
     setIsSaving(true); setError(null);
     try {
       const keywords = extractKeywords(form.condition);
+      const typeMeta = ACTION_META[form.actionType as ActionType];
       await apiClient.request<ConditionalItem>("/admin/conditional", {
         method: "POST",
         body: {
@@ -94,7 +137,7 @@ function AddModal({
           triggerKeywords: keywords.length > 0 ? keywords : [form.condition.trim()],
           triggerType: "both",
           actionType: form.actionType,
-          actionLabel: form.actionLabel.trim() || ACTION_META[form.actionType as ActionType].label,
+          actionLabel: typeMeta.label,
           actionValue: form.actionValue.trim(),
           actionDescription: form.actionDescription.trim() || null,
         },
@@ -144,8 +187,8 @@ function AddModal({
             style={{ width: "100%" }}
           >
             <option value="">액션 타입을 선택하세요</option>
-            {(Object.entries(ACTION_META) as [ActionType, typeof ACTION_META[ActionType]][]).map(([k, v]) => (
-              <option key={k} value={k}>{v.icon} {v.label}</option>
+            {(Object.entries(ACTION_META) as [ActionType, ActionMeta][]).map(([k, v]) => (
+              <option key={k} value={k}>{v.label}</option>
             ))}
           </select>
         </div>
@@ -172,7 +215,7 @@ function AddModal({
           <>
             <div style={{ marginBottom: 20 }}>
               <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 6 }}>
-                {form.actionType === "file" ? "답변에 포함할 파일" : meta.valueLabelText}
+                {meta.valueLabelText}
               </label>
               {form.actionType === "file" ? (
                 <div>
@@ -182,14 +225,14 @@ function AddModal({
                       padding: "8px 14px", border: "1px solid #d1d5db", borderRadius: 8,
                       cursor: "pointer", fontSize: 13, color: "#374151", background: "#f9fafb",
                     }}>
-                      📎 파일 선택
+                      파일 선택
                       <input type="file" style={{ display: "none" }} onChange={e => {
                         const file = e.target.files?.[0];
                         if (file) setForm(p => ({ ...p, actionLabel: file.name }));
                       }} />
                     </label>
                     {form.actionLabel && (
-                      <span style={{ fontSize: 13, color: "#2563eb", fontWeight: 500 }}>📄 {form.actionLabel}</span>
+                      <span style={{ fontSize: 13, color: "#2563eb", fontWeight: 500 }}>{form.actionLabel}</span>
                     )}
                   </div>
                   <input
@@ -209,20 +252,17 @@ function AddModal({
                   style={{ width: "100%" }}
                 />
               )}
+              <p style={{ fontSize: 12, color: "#9ca3af", marginTop: 6 }}>{meta.valueHelper}</p>
             </div>
 
             <div style={{ marginBottom: 24 }}>
               <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 6 }}>
-                {form.actionType === "file" ? "파일 설명" : "버튼 라벨"}
-                <span style={{ fontWeight: 400, color: "#9ca3af" }}> (선택)</span>
+                {meta.descriptionLabel}
               </label>
               <input
-                value={form.actionType === "file" ? form.actionDescription : form.actionLabel}
-                onChange={e => {
-                  if (form.actionType === "file") setForm(p => ({ ...p, actionDescription: e.target.value }));
-                  else setForm(p => ({ ...p, actionLabel: e.target.value }));
-                }}
-                placeholder={form.actionType === "file" ? "고객에게 제공할 파일을 업로드하고 설명을 입력하세요." : "예: 자세히 보기"}
+                value={form.actionDescription}
+                onChange={e => setForm(p => ({ ...p, actionDescription: e.target.value }))}
+                placeholder={meta.descriptionPlaceholder}
                 className="input-field"
                 style={{ width: "100%" }}
               />

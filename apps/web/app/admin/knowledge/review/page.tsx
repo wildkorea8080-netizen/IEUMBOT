@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
-  ChevronRight, Eye, GitMerge, Loader2, PenLine, Plus, Shield, Tag, AlertTriangle,
+  ChevronRight, Eye, GitMerge, Loader2, PenLine, Plus, Shield, Tag,
 } from "lucide-react";
 
 // ── Word-level diff (LCS 기반) ────────────────────────────────────────────────
@@ -311,6 +311,95 @@ function ChunkListItem({ chunk, isSelected, isChecked, onClick, onToggle }: {
   );
 }
 
+// ── AI 분석 화면 ──────────────────────────────────────────────────────────────
+
+function AnalysisScreen() {
+  const [countdown, setCountdown] = useState(60);
+  const [step, setStep] = useState(0); // 0: step1 진행, 1: step2 진행, 2: step3 진행
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCountdown(prev => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const t1 = setTimeout(() => setStep(1), 5000);
+    const t2 = setTimeout(() => setStep(2), 20000);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, []);
+
+  const radius = 44;
+  const circumference = 2 * Math.PI * radius;
+  const progress = (60 - countdown) / 60;
+  const dashOffset = circumference * (1 - progress);
+
+  type StepStatus = "done" | "active" | "pending";
+  const steps: { icon: string; label: string; status: StepStatus }[] = [
+    { icon: "📄", label: step >= 1 ? "파일 분석 완료!" : "파일 분석 중...", status: step >= 1 ? "done" : "active" },
+    { icon: "📋", label: step >= 2 ? "주제별 분류 완료!" : "주제별 분류 중...", status: step === 0 ? "pending" : step === 1 ? "active" : "done" },
+    { icon: "⚙️", label: "기존 지식과 통합 단계", status: step < 2 ? "pending" : "active" },
+    { icon: "🔧", label: "컨텐츠 가공 단계", status: "pending" },
+  ];
+
+  const borderColor: Record<StepStatus, string> = { done: "#86efac", active: "#93c5fd", pending: "#e5e7eb" };
+  const bgColor: Record<StepStatus, string> = { done: "#f0fdf4", active: "#eff6ff", pending: "#f9fafb" };
+  const textColor: Record<StepStatus, string> = { done: "#15803d", active: "#1d4ed8", pending: "#9ca3af" };
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "60vh" }}>
+      <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 20, padding: "40px 48px", textAlign: "center", width: "100%", maxWidth: 440 }}>
+        {/* 원형 타이머 */}
+        <div style={{ position: "relative", width: 110, height: 110, margin: "0 auto 24px" }}>
+          <svg width="110" height="110" style={{ transform: "rotate(-90deg)" }}>
+            <circle cx="55" cy="55" r={radius} fill="none" stroke="#e5e7eb" strokeWidth="6" />
+            <circle
+              cx="55" cy="55" r={radius} fill="none"
+              stroke="#2563eb" strokeWidth="6"
+              strokeDasharray={circumference}
+              strokeDashoffset={dashOffset}
+              strokeLinecap="round"
+              style={{ transition: "stroke-dashoffset 1s linear" }}
+            />
+          </svg>
+          <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+            <span style={{ fontSize: 11, color: "#9ca3af", marginBottom: 1 }}>예상 소요시간</span>
+            <span style={{ fontSize: 22, fontWeight: 700, color: "#111827" }}>{countdown}초</span>
+          </div>
+        </div>
+
+        <div style={{ fontSize: 18, fontWeight: 700, color: "#111827", marginBottom: 6 }}>AI가 데이터를 분석하고 있습니다</div>
+        <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 28 }}>잠시만 기다려주세요. 곧 주제별로 정리해드릴게요!</div>
+
+        {/* 단계 카드 */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {steps.map((s, i) => (
+            <div key={i} style={{
+              display: "flex", alignItems: "center", gap: 12,
+              padding: "12px 16px", border: `1px solid ${borderColor[s.status]}`,
+              borderRadius: 12, background: bgColor[s.status],
+              position: "relative", overflow: "hidden",
+            }}>
+              <span style={{ fontSize: 18 }}>{s.icon}</span>
+              <span style={{ fontSize: 13, fontWeight: 500, color: textColor[s.status], flex: 1, textAlign: "left" }}>{s.label}</span>
+              {s.status === "done" && <span style={{ fontSize: 16, color: "#16a34a" }}>✓</span>}
+              {s.status === "active" && <Loader2 style={{ width: 16, height: 16, color: "#2563eb", animation: "spin 1s linear infinite", flexShrink: 0 }} />}
+              {s.status === "active" && (
+                <div style={{ position: "absolute", bottom: 0, left: 0, height: 3, background: "#2563eb", borderRadius: "0 0 0 12px", animation: "progress-bar 2s ease-in-out infinite", width: "60%" }} />
+              )}
+            </div>
+          ))}
+        </div>
+
+        <style>{`
+          @keyframes progress-bar { 0%{width:10%} 50%{width:80%} 100%{width:10%} }
+        `}</style>
+      </div>
+    </div>
+  );
+}
+
 // ── 메인 ──────────────────────────────────────────────────────────────────────
 
 export default function KnowledgeReviewPage() {
@@ -513,20 +602,7 @@ export default function KnowledgeReviewPage() {
   // ── 로딩 화면 ─────────────────────────────────────────────────────────────
 
   if (isLoading) {
-    return (
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "60vh", flexDirection: "column", gap: 16 }}>
-        <Loader2 style={{ width: 36, height: 36, animation: "spin 1s linear infinite", color: "#2563eb" }} />
-        <div style={{ textAlign: "center" }}>
-          <div style={{ fontSize: 16, fontWeight: 600, color: "#111827", marginBottom: 6 }}>GPT-4.1이 문서를 분석하고 있습니다</div>
-          <div style={{ fontSize: 13, color: "#6b7280" }}>내용 정리 및 주제 분류 중 · 파일 크기에 따라 1~3분 소요됩니다.</div>
-          <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 4 }}>창을 닫지 마세요. 완료되면 자동으로 화면이 전환됩니다.</div>
-        </div>
-        <div style={{ width: 220, height: 4, background: "#e5e7eb", borderRadius: 4, overflow: "hidden" }}>
-          <div style={{ height: "100%", background: "#2563eb", borderRadius: 4, animation: "progress 2s ease-in-out infinite", width: "60%" }} />
-        </div>
-        <style>{`@keyframes progress { 0%{width:10%} 50%{width:80%} 100%{width:10%} }`}</style>
-      </div>
-    );
+    return <AnalysisScreen />;
   }
 
   if (!session) {

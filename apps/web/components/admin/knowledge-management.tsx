@@ -169,6 +169,7 @@ export function KnowledgeManagement() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("");
+  const [field, setField] = useState("");
   const [detail, setDetail] = useState<KnowledgeDetail | null>(null);
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -203,6 +204,11 @@ export function KnowledgeManagement() {
 
   const categories = useMemo(
     () => Array.from(new Set(items.map((item) => item.category).filter(Boolean))).sort(),
+    [items],
+  );
+
+  const fields = useMemo(
+    () => Array.from(new Set(items.map((item) => item.field).filter(Boolean))).sort(),
     [items],
   );
 
@@ -509,6 +515,13 @@ export function KnowledgeManagement() {
             className="input-field" style={{ width: 160, borderRadius: 10 }}>
             <option value="">전체 구분</option>
             {categories.map(c => <option key={c ?? ""} value={c ?? ""}>{c}</option>)}
+          </select>
+        )}
+        {fields.length > 0 && (
+          <select value={field} onChange={e => { setField(e.target.value); void load(); }}
+            className="input-field" style={{ width: 160, borderRadius: 10 }}>
+            <option value="">전체 분야</option>
+            {fields.map(f => <option key={f ?? ""} value={f ?? ""}>{f}</option>)}
           </select>
         )}
       </div>

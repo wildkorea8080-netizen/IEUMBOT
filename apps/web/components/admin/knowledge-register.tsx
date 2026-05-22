@@ -1,12 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
-import {
-  Upload, Globe, CheckCircle, Save,
-  Loader2,
-} from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { X, Plus, Loader2 } from "lucide-react";
 
 import { ApiClientError } from "../../lib/api";
 import { writeSelectedAdminChatbot } from "../../lib/admin-ui/selected-chatbot";
@@ -14,551 +10,450 @@ import {
   createKnowledgeWebsite,
   createKnowledgeTextToStaging,
   getAdminChatbots,
-  getKnowledgeDetail,
-  getKnowledgeRuntimeStatus,
   uploadKnowledgeFileToStaging,
 } from "../../lib/api/admin-operations";
-import type {
-  AdminChatbotItem,
-  KnowledgeDetail,
-  KnowledgeRuntimeStatus,
-} from "../../lib/api/admin-operations-types";
+import type { AdminChatbotItem } from "../../lib/api/admin-operations-types";
 
-// ── 타입 ─────────────────────────────────────────────────
+type RegisterType = "file" | "text" | "website";
 
-type CommonFormState = {
-  chatbotId: string;
-  title: string;
-  category: string;
-  field: string;
-  tags: string;
-  memo: string;
-  effectiveDate: string;
-  department: string;
-};
-
-type TextFormState = CommonFormState & { content: string };
-
-type WebsiteFormState = {
-  chatbotId: string;
-  title: string;
-  url: string;
-  crawlPageLimit: string;
-  crawlAllPages: boolean;
-  includeAttachments: boolean;
-  excludedPaths: string;
-  category: string;
-  field: string;
-  tags: string;
-  memo: string;
-  department: string;
-};
-
-// ── 유틸 ─────────────────────────────────────────────────
-
-function emptyCommonForm(chatbotId = ""): CommonFormState {
-  return { chatbotId, title: "", category: "", field: "", tags: "", memo: "", effectiveDate: "", department: "" };
-}
-function emptyWebsiteForm(chatbotId = ""): WebsiteFormState {
-  return { chatbotId, title: "", url: "", crawlPageLimit: "300", crawlAllPages: true, includeAttachments: true, excludedPaths: "", category: "", field: "", tags: "", memo: "", department: "" };
-}
-function parseTags(value: string): string[] {
-  return value.split(",").map((s) => s.trim()).filter(Boolean);
-}
-function parseExcludedPaths(value: string): string[] {
-  return value.split(/\r?\n|,/).map((s) => s.trim()).filter(Boolean);
-}
 function getErrorMessage(error: unknown): string {
   if (error instanceof ApiClientError) {
-    if (error.code === "WEBSITE_ALREADY_REGISTERED") return "이미 등록된 웹사이트입니다. 동일한 챗봇에는 같은 URL을 중복 등록할 수 없습니다.";
+    if (error.code === "WEBSITE_ALREADY_REGISTERED") return "이미 등록된 웹사이트입니다.";
     return `${error.code}: ${error.message}`;
   }
   return error instanceof Error ? error.message : "지식 등록에 실패했습니다.";
 }
-function statusBadgeClass(status: string): string {
-  if (status === "ready" || status === "completed") return "badge-success";
-  if (status === "processing" || status === "queued") return "badge-warning";
-  if (status === "failed") return "badge-danger";
-  return "badge-neutral";
-}
-function statusLabel(status?: string | null): string {
-  if (!status) return "-";
-  const map: Record<string, string> = { queued: "대기 중", processing: "학습 중", completed: "완료", ready: "완료", failed: "실패", inactive: "비활성" };
-  return map[status] ?? status;
-}
 
-// ── 타입 선택 카드 ────────────────────────────────────────
-
-type RegisterType = "file" | "text" | "website";
+// ── SVG 아이콘 ─────────────────────────────────────────────────────────────────
 
 function UploadSvg() {
   return (
-    <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
-      <path d="M20 26V14M20 14L15 19M20 14L25 19" stroke="#9ca3af" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-      <path d="M10 28C7.79 28 6 26.21 6 24c0-1.93 1.4-3.54 3.24-3.9A8 8 0 0 1 20 10a8 8 0 0 1 7.9 6.7A4.5 4.5 0 0 1 34 21c0 3.87-2.13 7-8 7H10Z" stroke="#9ca3af" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+    <svg width="44" height="44" viewBox="0 0 44 44" fill="none">
+      <path d="M22 28V16M22 16L17 21M22 16L27 21" stroke="#9ca3af" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M12 30C9.79 30 8 28.21 8 26c0-1.93 1.4-3.54 3.24-3.9A9 9 0 0 1 22 12a9 9 0 0 1 8.76 7.5A5 5 0 0 1 36 24c0 3.31-2.69 6-8 6H12Z" stroke="#9ca3af" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
-function WebsiteSvg() {
-  return (
-    <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
-      <rect x="8" y="10" width="24" height="20" rx="3" stroke="#9ca3af" strokeWidth="2"/>
-      <path d="M8 16h24M16 10v4M24 10v4" stroke="#9ca3af" strokeWidth="2" strokeLinecap="round"/>
-      <circle cx="27" cy="27" r="6" fill="#fff" stroke="#9ca3af" strokeWidth="1.5"/>
-      <path d="M27 24v3l2 1.5" stroke="#9ca3af" strokeWidth="1.5" strokeLinecap="round"/>
-    </svg>
-  );
-}
+
 function PasteSvg() {
   return (
-    <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
-      <rect x="14" y="8" width="16" height="22" rx="2" stroke="#9ca3af" strokeWidth="2"/>
-      <rect x="10" y="12" width="16" height="22" rx="2" fill="#fff" stroke="#9ca3af" strokeWidth="2"/>
-      <path d="M14 18h8M14 22h6M14 26h5" stroke="#9ca3af" strokeWidth="1.5" strokeLinecap="round"/>
+    <svg width="44" height="44" viewBox="0 0 44 44" fill="none">
+      <rect x="15" y="10" width="18" height="24" rx="2" stroke="#9ca3af" strokeWidth="2" />
+      <path d="M19 17h6M19 21h5M19 25h7" stroke="#9ca3af" strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   );
 }
 
-const TYPE_META: Record<RegisterType, { icon: React.ReactNode; title: string; desc: string; isNew?: boolean }> = {
-  file: {
-    icon: <UploadSvg />,
-    title: "파일 업로드",
-    desc: "문서 파일을 업로드하면\nAI 답변 생성에 활용합니다.",
-  },
-  website: {
-    icon: <WebsiteSvg />,
-    title: "웹사이트 연결",
-    desc: "웹사이트 URL을 연결해\nAI 답변에 활용할 정보를 가져옵니다.",
-    isNew: true,
-  },
-  text: {
-    icon: <PasteSvg />,
-    title: "텍스트 붙여넣기",
-    desc: "텍스트를 직접 입력해\nAI 답변에 사용할 지식을 등록하세요.",
-  },
-};
-
-function TypeCard({ type, selected, onClick }: { type: RegisterType; selected: boolean; onClick: () => void }) {
-  const meta = TYPE_META[type];
+function WebsiteSvg() {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      style={{
-        position: "relative",
-        background: "#fff",
-        border: `1.5px solid ${selected ? "#2563eb" : "#e5e7eb"}`,
-        borderRadius: 16,
-        padding: "28px 20px",
-        cursor: "pointer",
-        textAlign: "center",
-        transition: "border-color 0.15s, box-shadow 0.15s",
-        boxShadow: selected ? "0 0 0 3px rgba(37,99,235,0.1)" : "0 1px 3px rgba(0,0,0,0.04)",
-      }}
-    >
-      {meta.isNew && (
-        <span style={{
-          position: "absolute", top: 14, right: 14,
-          fontSize: 10, fontWeight: 700, background: "#2563eb", color: "#fff",
-          borderRadius: 20, padding: "2px 8px",
-        }}>NEW</span>
-      )}
-      {selected && (
-        <CheckCircle style={{ position: "absolute", top: 14, left: 14, width: 18, height: 18, color: "#2563eb" }} />
-      )}
-      <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
-        {meta.icon}
-      </div>
-      <div style={{ fontSize: 15, fontWeight: 700, color: "#111827", marginBottom: 8 }}>{meta.title}</div>
-      <div style={{ fontSize: 13, color: "#6b7280", lineHeight: 1.65, whiteSpace: "pre-line" }}>{meta.desc}</div>
-    </button>
+    <svg width="44" height="44" viewBox="0 0 44 44" fill="none">
+      <rect x="8" y="12" width="24" height="18" rx="3" stroke="#9ca3af" strokeWidth="2" />
+      <path d="M8 19h24M14 12v4M26 12v4" stroke="#9ca3af" strokeWidth="2" strokeLinecap="round" />
+      <circle cx="32" cy="32" r="6" fill="#fff" stroke="#9ca3af" strokeWidth="1.5" />
+      <path d="M32 29v3l2 1.5" stroke="#9ca3af" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
   );
 }
 
-// ── 공통 필드 ─────────────────────────────────────────────
+// ── 모달 래퍼 ─────────────────────────────────────────────────────────────────
 
-function Label({ children, required }: { children: React.ReactNode; required?: boolean }) {
-  return (
-    <span style={{ fontSize: 14, fontWeight: 500, color: "#334155", display: "block", marginBottom: 6 }}>
-      {children}
-      {required && <span style={{ color: "#dc2626", marginLeft: 2 }}>*</span>}
-    </span>
-  );
-}
-
-function CommonFields({ form, chatbots, onChange }: {
-  form: CommonFormState;
-  chatbots: AdminChatbotItem[];
-  onChange: (key: keyof CommonFormState, value: string) => void;
+function Modal({ open, onClose, title, subtitle, children }: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  subtitle: string;
+  children: React.ReactNode;
 }) {
+  if (!open) return null;
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <label>
-        <Label required>챗봇 선택</Label>
-        <select value={form.chatbotId} onChange={e => onChange("chatbotId", e.target.value)} className="input-field">
-          <option value="">챗봇 선택</option>
-          {chatbots.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
-      </label>
-      <label>
-        <Label required>제목</Label>
-        <input value={form.title} onChange={e => onChange("title", e.target.value)} className="input-field" placeholder="제목 입력" />
-      </label>
-      <label>
-        <Label>카테고리</Label>
-        <input value={form.category} onChange={e => onChange("category", e.target.value)} className="input-field" placeholder="정책, 공지" />
-      </label>
-      <label>
-        <Label>분야</Label>
-        <input value={form.field} onChange={e => onChange("field", e.target.value)} className="input-field" placeholder="복지, 교통" />
-      </label>
-      <label>
-        <Label>태그</Label>
-        <input value={form.tags} onChange={e => onChange("tags", e.target.value)} className="input-field" placeholder="쉼표로 구분" />
-      </label>
-      <label>
-        <Label>담당 부서</Label>
-        <input value={form.department} onChange={e => onChange("department", e.target.value)} className="input-field" placeholder="담당 부서" />
-      </label>
-      <label>
-        <Label>시행일</Label>
-        <input type="date" value={form.effectiveDate} onChange={e => onChange("effectiveDate", e.target.value)} className="input-field" />
-      </label>
-      <label className="md:col-span-2">
-        <Label>메모</Label>
-        <textarea value={form.memo} onChange={e => onChange("memo", e.target.value)} rows={3} className="input-field" placeholder="운영 메모" />
-      </label>
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 9000,
+      background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center",
+    }}>
+      <div style={{
+        background: "#fff", borderRadius: 16, width: "100%", maxWidth: 560,
+        padding: "32px", boxShadow: "0 20px 60px rgba(0,0,0,.18)",
+        maxHeight: "90vh", overflowY: "auto",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+          <h2 style={{ fontSize: 20, fontWeight: 700, color: "#111827" }}>{title}</h2>
+          <button type="button" onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#9ca3af" }}>
+            <X style={{ width: 20, height: 20 }} />
+          </button>
+        </div>
+        <p style={{ fontSize: 13, color: "#6b7280", marginBottom: 24 }}>{subtitle}</p>
+        {children}
+      </div>
     </div>
   );
 }
 
-// ── 메인 컴포넌트 ─────────────────────────────────────────
+// ── 모달 하단 버튼 ─────────────────────────────────────────────────────────────
 
-export function KnowledgeRegister() {
-  const searchParams = useSearchParams();
-  const router = useRouter();
+function ModalButtons({ onCancel, onConfirm, disabled, isLoading }: {
+  onCancel: () => void;
+  onConfirm: () => void;
+  disabled?: boolean;
+  isLoading?: boolean;
+}) {
+  return (
+    <div style={{ display: "flex", gap: 10 }}>
+      <button type="button" onClick={onCancel} style={{
+        flex: 1, padding: "12px 0", border: "1px solid #d1d5db", borderRadius: 10,
+        background: "#fff", fontSize: 14, fontWeight: 500, color: "#374151", cursor: "pointer",
+      }}>취소</button>
+      <button type="button" onClick={onConfirm} disabled={disabled || isLoading} style={{
+        flex: 1, padding: "12px 0", border: "none", borderRadius: 10,
+        background: (disabled || isLoading) ? "#9ca3af" : "#111827",
+        fontSize: 14, fontWeight: 600, color: "#fff",
+        cursor: (disabled || isLoading) ? "not-allowed" : "pointer",
+        display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+      }}>
+        {isLoading ? <><Loader2 style={{ width: 14, height: 14, animation: "spin 1s linear infinite" }} />처리 중...</> : "완료"}
+      </button>
+    </div>
+  );
+}
+
+// ── 파일 업로드 모달 ──────────────────────────────────────────────────────────
+
+function FileModal({ open, onClose, onSubmit, isSubmitting }: {
+  open: boolean; onClose: () => void;
+  onSubmit: (file: File, skipAi: boolean) => void;
+  isSubmitting: boolean;
+}) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [file, setFile] = useState<File | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [skipAi, setSkipAi] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
 
-  const [chatbots, setChatbots] = useState<AdminChatbotItem[]>([]);
-  const [selectedType, setSelectedType] = useState<RegisterType>("file");
-  const [fileForm, setFileForm] = useState<CommonFormState>(emptyCommonForm());
-  const [textForm, setTextForm] = useState<TextFormState>({ ...emptyCommonForm(), content: "" });
-  const [websiteForm, setWebsiteForm] = useState<WebsiteFormState>(emptyWebsiteForm());
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [useVision, setUseVision] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<KnowledgeDetail | null>(null);
-  const [trackedResult, setTrackedResult] = useState<KnowledgeDetail | null>(null);
-  const [submitStatus, setSubmitStatus] = useState<string | null>(null);
-  const [runtimeStatus, setRuntimeStatus] = useState<KnowledgeRuntimeStatus | null>(null);
-
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        const [response, runtime] = await Promise.all([getAdminChatbots(), getKnowledgeRuntimeStatus()]);
-        if (!mounted) return;
-        setChatbots(response.items);
-        setRuntimeStatus(runtime);
-        const defaultChatbotId = response.items[0]?.id ?? "";
-        const prefill = searchParams.get("prefill");
-        const type = searchParams.get("type");
-        setFileForm(emptyCommonForm(defaultChatbotId));
-        setTextForm({ ...emptyCommonForm(defaultChatbotId), title: prefill && type === "text" ? prefill : "", content: prefill && type === "text" ? `Q: ${prefill}\nA: ` : "" });
-        setWebsiteForm(emptyWebsiteForm(defaultChatbotId));
-        if (prefill && type === "text") setSelectedType("text");
-      } catch (e) {
-        if (mounted) setError(getErrorMessage(e));
-      } finally {
-        if (mounted) setIsLoading(false);
-      }
-    })();
-    return () => { mounted = false; };
-  }, [searchParams]);
-
-  useEffect(() => {
-    const activeChatbotId = selectedType === "file" ? fileForm.chatbotId : selectedType === "text" ? textForm.chatbotId : websiteForm.chatbotId;
-    const chatbot = chatbots.find(c => c.id === activeChatbotId);
-    if (chatbot) writeSelectedAdminChatbot({ id: chatbot.id, name: chatbot.name });
-  }, [chatbots, fileForm.chatbotId, selectedType, textForm.chatbotId, websiteForm.chatbotId]);
-
-  useEffect(() => {
-    if (!result?.id) return;
-    let cancelled = false;
-    let timer: number | undefined;
-    const terminal = new Set(["completed", "ready", "failed", "inactive"]);
-    const refresh = async () => {
-      try {
-        const detail = await getKnowledgeDetail(result.id);
-        if (cancelled) return;
-        setTrackedResult(detail);
-        const s = detail.ingestionStatus || detail.displayStatus || detail.status;
-        if (s === "failed") setSubmitStatus("학습 처리에 실패했습니다. 목록 화면에서 진단 정보를 확인하세요.");
-        else if (terminal.has(s)) setSubmitStatus("등록과 학습 처리가 완료되었습니다.");
-        else setSubmitStatus("등록 요청이 완료되었습니다. 학습 상태를 확인 중입니다.");
-        if (terminal.has(s) && timer) window.clearInterval(timer);
-      } catch {
-        if (!cancelled) setSubmitStatus("등록 결과를 받았습니다. 목록 화면에서 최신 학습 상태를 확인하세요.");
-      }
-    };
-    void refresh();
-    timer = window.setInterval(() => { void refresh(); }, 2500);
-    return () => { cancelled = true; if (timer) window.clearInterval(timer); };
-  }, [result?.id]);
-
-  const handleFile = (file: File | null) => {
-    setSelectedFile(file);
-    if (!file?.name.toLowerCase().endsWith(".pdf")) setUseVision(false);
-  };
-
-  const submitFile = async () => {
-    if (!selectedFile || !fileForm.chatbotId) { setError("파일과 챗봇을 선택해주세요."); return; }
-    setIsSubmitting(true); setError(null);
-    setSubmitStatus("AI가 파일을 분석해 주제를 분류하는 중입니다. 잠시 기다려 주세요...");
-    try {
-      const session = await uploadKnowledgeFileToStaging({ chatbotId: fileForm.chatbotId, file: selectedFile });
-      router.push(`/admin/knowledge/review?session=${session.sessionId}`);
-    } catch (e) { setError(getErrorMessage(e)); setSubmitStatus(null); }
-    finally { setIsSubmitting(false); }
-  };
-
-  const submitText = async () => {
-    if (!textForm.chatbotId || !textForm.content.trim()) { setError("챗봇과 내용을 입력해주세요."); return; }
-    setIsSubmitting(true); setError(null);
-    setSubmitStatus("AI가 내용을 분석해 주제를 분류하는 중입니다. 잠시 기다려 주세요...");
-    try {
-      const session = await createKnowledgeTextToStaging({
-        chatbotId: textForm.chatbotId,
-        title: textForm.title || "텍스트 입력",
-        content: textForm.content,
-      });
-      router.push(`/admin/knowledge/review?session=${session.sessionId}`);
-    } catch (e) { setError(getErrorMessage(e)); setSubmitStatus(null); }
-    finally { setIsSubmitting(false); }
-  };
-
-  const submitWebsite = async () => {
-    setIsSubmitting(true); setError(null); setResult(null); setTrackedResult(null);
-    setSubmitStatus("웹사이트 등록 요청을 보내는 중입니다.");
-    try {
-      const response = await createKnowledgeWebsite({ chatbotId: websiteForm.chatbotId, url: websiteForm.url, title: websiteForm.title, crawlPageLimit: Number(websiteForm.crawlPageLimit) || 300, crawlAllPages: websiteForm.crawlAllPages, includeAttachments: websiteForm.includeAttachments, excludedPaths: parseExcludedPaths(websiteForm.excludedPaths), category: websiteForm.category || undefined, field: websiteForm.field || undefined, tags: parseTags(websiteForm.tags), memo: websiteForm.memo || undefined, department: websiteForm.department || undefined });
-      setResult(response); setTrackedResult(response);
-      setSubmitStatus("웹사이트 수집 요청이 등록되었습니다. 학습 상태를 확인 중입니다.");
-    } catch (e) { setError(getErrorMessage(e)); setSubmitStatus(null); } finally { setIsSubmitting(false); }
-  };
-
-  const visibleResult = trackedResult ?? result;
-  const visibleStatus = visibleResult?.ingestionStatus || visibleResult?.displayStatus || visibleResult?.status;
+  useEffect(() => { if (open) { setFile(null); setSkipAi(false); setLocalError(null); } }, [open]);
 
   return (
-    <div className="space-y-6 max-w-3xl">
-
-      {/* OCR 상태 배너 */}
-      {runtimeStatus && !runtimeStatus.scannedPdfReady && (
-        <div style={{ background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 10, padding: "10px 16px", fontSize: 13, color: "#92400e" }}>
-          스캔 PDF OCR 환경이 준비되지 않았습니다. 이미지형 PDF는 텍스트 추출이 제한될 수 있습니다.
-        </div>
+    <Modal open={open} onClose={onClose} title="파일 업로드" subtitle="문서 파일을 업로드하면 AI 답변 생성에 활용합니다.">
+      {localError && (
+        <div style={{ marginBottom: 16, padding: "10px 14px", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8, fontSize: 13, color: "#dc2626" }}>{localError}</div>
       )}
 
-      {/* 타입 선택 카드 */}
-      <div className="grid grid-cols-3 gap-4">
-        {(["file", "website", "text"] as RegisterType[]).map(t => (
-          <TypeCard key={t} type={t} selected={selectedType === t} onClick={() => setSelectedType(t)} />
+      <div
+        onClick={() => fileInputRef.current?.click()}
+        onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={e => { e.preventDefault(); setDragOver(false); setFile(e.dataTransfer.files[0] ?? null); }}
+        style={{
+          border: `2px dashed ${dragOver ? "#2563eb" : "#e5e7eb"}`,
+          borderRadius: 12, padding: "60px 24px", textAlign: "center",
+          background: dragOver ? "#eff6ff" : "#f9fafb", cursor: "pointer",
+          marginBottom: 20, transition: "all 0.15s",
+        }}
+      >
+        {file ? (
+          <>
+            <div style={{ fontSize: 36, marginBottom: 8 }}>📄</div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "#1e293b" }}>{file.name}</div>
+            <div style={{ fontSize: 12, color: "#64748b", marginTop: 4 }}>{(file.size / 1024 / 1024).toFixed(2)} MB</div>
+          </>
+        ) : (
+          <>
+            <svg width="40" height="40" viewBox="0 0 40 40" fill="none" style={{ margin: "0 auto 14px", display: "block" }}>
+              <path d="M20 26V14M20 14L15 19M20 14L25 19" stroke="#9ca3af" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M10 28C7.79 28 6 26.21 6 24c0-1.93 1.4-3.54 3.24-3.9A8 8 0 0 1 20 10a8 8 0 0 1 7.9 6.7A4.5 4.5 0 0 1 34 21c0 3.87-2.13 7-8 7H10Z" stroke="#9ca3af" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <div style={{ fontSize: 15, fontWeight: 600, color: "#374151", marginBottom: 6 }}>파일을 드래그하거나 클릭하세요</div>
+            <div style={{ fontSize: 13, color: "#9ca3af" }}>PDF, Excel, HWP, PPT, Docs 파일 지원</div>
+          </>
+        )}
+        <input ref={fileInputRef} type="file" style={{ display: "none" }} onChange={e => setFile(e.target.files?.[0] ?? null)} />
+      </div>
+
+      <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginBottom: 24, fontSize: 13, color: "#374151" }}>
+        <input type="checkbox" checked={skipAi} onChange={e => setSkipAi(e.target.checked)} />
+        * AI 교정을 건너뜁니다.
+      </label>
+
+      <ModalButtons
+        onCancel={onClose}
+        onConfirm={() => { if (!file) { setLocalError("파일을 선택해주세요."); return; } onSubmit(file, skipAi); }}
+        disabled={!file}
+        isLoading={isSubmitting}
+      />
+    </Modal>
+  );
+}
+
+// ── 텍스트 붙여넣기 모달 ──────────────────────────────────────────────────────
+
+function TextModal({ open, onClose, onSubmit, isSubmitting }: {
+  open: boolean; onClose: () => void;
+  onSubmit: (content: string, skipAi: boolean) => void;
+  isSubmitting: boolean;
+}) {
+  const [content, setContent] = useState("");
+  const [skipAi, setSkipAi] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  useEffect(() => { if (open) { setContent(""); setSkipAi(false); setLocalError(null); } }, [open]);
+
+  return (
+    <Modal open={open} onClose={onClose} title="텍스트 붙여넣기" subtitle="텍스트를 직접 입력해 AI 답변에 사용할 지식을 등록하세요.">
+      {localError && (
+        <div style={{ marginBottom: 16, padding: "10px 14px", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8, fontSize: 13, color: "#dc2626" }}>{localError}</div>
+      )}
+
+      <textarea
+        value={content}
+        onChange={e => setContent(e.target.value)}
+        placeholder="여기에 텍스트를 붙여넣으세요."
+        style={{
+          width: "100%", height: 180, padding: 16, boxSizing: "border-box",
+          border: "2px dashed #e5e7eb", borderRadius: 12,
+          background: "#f9fafb", resize: "vertical",
+          fontSize: 13, color: "#374151", outline: "none",
+          marginBottom: 16, fontFamily: "inherit", lineHeight: 1.7,
+        }}
+      />
+
+      <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginBottom: 16, fontSize: 13, color: "#374151" }}>
+        <input type="checkbox" checked={skipAi} onChange={e => setSkipAi(e.target.checked)} />
+        * AI 교정을 건너뜁니다.
+      </label>
+
+      <div style={{ marginBottom: 24, fontSize: 12, color: "#6b7280", lineHeight: 2 }}>
+        <div>・ 제목과 본문은 줄바꿈으로 구분해 주세요.</div>
+        <div>・ 불필요한 UI 요소나 광고 문구는 제거된 뒤 등록해 주세요.</div>
+        <div>・ 목록은 -, ·, 번호 등을 사용하면 이해도가 높아집니다.</div>
+        <div>・ 한 번에 너무 많은 내용을 붙여넣기보다는 주제별로 나누어 등록하는 것을 권장합니다.</div>
+      </div>
+
+      <ModalButtons
+        onCancel={onClose}
+        onConfirm={() => { if (!content.trim()) { setLocalError("내용을 입력해주세요."); return; } onSubmit(content, skipAi); }}
+        disabled={!content.trim()}
+        isLoading={isSubmitting}
+      />
+    </Modal>
+  );
+}
+
+// ── 웹사이트 연결 모달 ────────────────────────────────────────────────────────
+
+function WebsiteModal({ open, onClose, onSubmit, isSubmitting }: {
+  open: boolean; onClose: () => void;
+  onSubmit: (urls: string[]) => void;
+  isSubmitting: boolean;
+}) {
+  const [urls, setUrls] = useState(["", "", ""]);
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  useEffect(() => { if (open) { setUrls(["", "", ""]); setLocalError(null); } }, [open]);
+
+  const updateUrl = (i: number, val: string) => setUrls(prev => prev.map((u, j) => j === i ? val : u));
+
+  return (
+    <Modal open={open} onClose={onClose} title="웹사이트 연결" subtitle="웹사이트 URL을 연결해 AI 답변에 활용할 정보를 가져옵니다.">
+      {localError && (
+        <div style={{ marginBottom: 16, padding: "10px 14px", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8, fontSize: 13, color: "#dc2626" }}>{localError}</div>
+      )}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 12 }}>
+        {urls.map((url, i) => (
+          <input
+            key={i}
+            value={url}
+            onChange={e => updateUrl(i, e.target.value)}
+            placeholder="지식으로 등록할 웹사이트의 URL을 입력해주세요."
+            style={{
+              width: "100%", padding: "12px 14px", boxSizing: "border-box",
+              border: "1px solid #e5e7eb", borderRadius: 10, fontSize: 13,
+              color: "#374151", background: "#f9fafb", outline: "none",
+            }}
+          />
         ))}
       </div>
 
-      {/* 폼 영역 */}
-      {!isLoading && (
-        <div className="bg-white rounded-2xl border border-neutral-200 p-6 space-y-6">
-          <div>
-            <h2 style={{ fontSize: 15, fontWeight: 700, color: "#111827", marginBottom: 4 }}>
-              {selectedType === "file" ? "파일 업로드" : selectedType === "website" ? "웹사이트 연결" : "텍스트 붙여넣기"}
-            </h2>
-            <p style={{ fontSize: 13, color: "#6b7280" }}>
-              {selectedType === "file" && "문서 파일(PDF, Word 등)을 업로드하면 AI가 내용을 분석해 지식으로 등록합니다."}
-              {selectedType === "website" && "웹사이트에 최신화된 정보를 그대로 가져와 AI가 답변에 활용할 수 있도록 등록합니다."}
-              {selectedType === "text" && "직접 텍스트를 입력하거나 복사해 붙여넣어 지식을 등록할 수 있습니다."}
-            </p>
-          </div>
+      <button type="button" onClick={() => setUrls(prev => [...prev, ""])}
+        style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, color: "#6b7280", marginBottom: 20, display: "flex", alignItems: "center", gap: 4, padding: 0 }}>
+        <Plus style={{ width: 14, height: 14 }} /> 추가 입력
+      </button>
 
-          {error && (
-            <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8, padding: "10px 14px", fontSize: 13, color: "#dc2626" }}>
-              {error}
-            </div>
-          )}
-          {submitStatus && (
-            <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 8, padding: "10px 14px", fontSize: 13, color: "#1d4ed8" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                {isSubmitting && <Loader2 style={{ width: 14, height: 14, animation: "spin 1s linear infinite" }} />}
-                <span>{submitStatus}</span>
-              </div>
-              {visibleResult && (
-                <div style={{ marginTop: 8, display: "flex", gap: 16, fontSize: 12, color: "#1e40af" }}>
-                  <span>진행률: {visibleResult.ingestionProgressPercent ?? 0}%</span>
-                  <span>청크: {visibleResult.chunkCount ?? 0}</span>
-                  <span>임베딩: {visibleResult.embeddingCount ?? 0}</span>
-                </div>
-              )}
-            </div>
-          )}
+      <div style={{ marginBottom: 24, fontSize: 12, color: "#6b7280", lineHeight: 2 }}>
+        <div>・ 공개된 텍스트 콘텐츠만 수집됩니다 (이미지, 동영상 제외)</div>
+        <div>・ 페이지 제목은 AI가 자동 추출하며, 직접 수정 가능합니다.</div>
+        <div>・ 로그인이 필요한 페이지 및 개별 게시물은 수집할 수 없습니다.</div>
+      </div>
 
-          {/* 파일 업로드 폼 */}
-          {selectedType === "file" && (
-            <div className="space-y-5">
-              {/* 드래그앤드롭 영역 */}
-              <div
-                onClick={() => fileInputRef.current?.click()}
-                onDragOver={e => { e.preventDefault(); setDragOver(true); }}
-                onDragLeave={() => setDragOver(false)}
-                onDrop={e => { e.preventDefault(); setDragOver(false); handleFile(e.dataTransfer.files[0] ?? null); }}
-                style={{
-                  border: `2px dashed ${dragOver ? "#2563eb" : "#cbd5e1"}`,
-                  borderRadius: 12, padding: "40px 24px", textAlign: "center",
-                  background: dragOver ? "#eff6ff" : "#f8fafc", cursor: "pointer",
-                  transition: "all 0.15s",
-                }}
-              >
-                <Upload style={{ width: 48, height: 48, color: "#94a3b8", margin: "0 auto 12px" }} />
-                {selectedFile ? (
-                  <div>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: "#1e293b" }}>{selectedFile.name}</div>
-                    <div style={{ fontSize: 12, color: "#64748b", marginTop: 4 }}>{(selectedFile.size / 1024 / 1024).toFixed(2)} MB</div>
-                  </div>
-                ) : (
-                  <>
-                    <div style={{ fontSize: 14, color: "#334155", fontWeight: 500 }}>파일을 드래그하거나 클릭해서 선택하세요</div>
-                    <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 6 }}>PDF, DOCX, HWP, XLSX, PPTX, TXT (최대 50MB)</div>
-                  </>
-                )}
-                <input ref={fileInputRef} type="file" className="hidden" onChange={e => handleFile(e.target.files?.[0] ?? null)} />
-              </div>
+      <ModalButtons
+        onCancel={onClose}
+        onConfirm={() => {
+          const valid = urls.filter(u => u.trim());
+          if (valid.length === 0) { setLocalError("URL을 1개 이상 입력해주세요."); return; }
+          onSubmit(valid);
+        }}
+        isLoading={isSubmitting}
+      />
+    </Modal>
+  );
+}
 
-              {/* Vision 체크박스 */}
-              {selectedFile?.name.toLowerCase().endsWith(".pdf") && (
-                <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>
-                  <input type="checkbox" checked={useVision} onChange={e => setUseVision(e.target.checked)} style={{ marginTop: 2 }} />
-                  <div>
-                    <div style={{ fontSize: 14, fontWeight: 500, color: "#334155" }}>Vision 학습 사용</div>
-                    <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>표·이미지가 포함된 PDF나 스캔 문서에 권장합니다. 처리 시간이 길어질 수 있습니다.</div>
-                  </div>
-                </label>
-              )}
+// ── 타입 카드 ─────────────────────────────────────────────────────────────────
 
-              <CommonFields form={fileForm} chatbots={chatbots} onChange={(k, v) => setFileForm(c => ({ ...c, [k]: v }))} />
+const TYPE_META: Record<RegisterType, { icon: React.ReactNode; title: string; desc: string; isNew?: boolean }> = {
+  file:    { icon: <UploadSvg />, title: "파일 업로드",      desc: "문서 파일을 업로드하면\nAI 답변 생성에 활용합니다." },
+  text:    { icon: <PasteSvg />, title: "텍스트 붙여넣기",   desc: "텍스트를 직접 입력해\nAI 답변에 사용할 지식을 등록하세요." },
+  website: { icon: <WebsiteSvg />, title: "웹사이트 연결",   desc: "웹사이트 URL을 연결해\nAI 답변에 활용할 정보를 가져옵니다.", isNew: true },
+};
 
-              <button type="button" onClick={() => void submitFile()} disabled={isSubmitting} className="btn-primary w-full flex items-center justify-center gap-2" style={{ padding: "12px 24px", fontSize: 15 }}>
-                {isSubmitting ? <><Loader2 style={{ width: 16, height: 16, animation: "spin 1s linear infinite" }} />등록 중...</> : <><Save style={{ width: 16, height: 16 }} />등록하기</>}
-              </button>
-            </div>
-          )}
+function TypeCard({ type, onClick }: { type: RegisterType; onClick: () => void }) {
+  const meta = TYPE_META[type];
+  const [hovered, setHovered] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        position: "relative", background: "#fff",
+        border: `1.5px solid ${hovered ? "#2563eb" : "#e5e7eb"}`,
+        borderRadius: 16, padding: "40px 24px", cursor: "pointer", textAlign: "center",
+        boxShadow: hovered ? "0 0 0 3px rgba(37,99,235,0.1)" : "0 1px 3px rgba(0,0,0,0.04)",
+        transition: "border-color 0.15s, box-shadow 0.15s",
+      }}
+    >
+      {meta.isNew && (
+        <span style={{ position: "absolute", top: 14, right: 14, fontSize: 10, fontWeight: 700, background: "#2563eb", color: "#fff", borderRadius: 20, padding: "2px 8px" }}>NEW</span>
+      )}
+      <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>{meta.icon}</div>
+      <div style={{ fontSize: 15, fontWeight: 700, color: "#111827", marginBottom: 8 }}>{meta.title}</div>
+      <div style={{ fontSize: 13, color: "#6b7280", lineHeight: 1.7, whiteSpace: "pre-line" }}>{meta.desc}</div>
+    </button>
+  );
+}
 
-          {/* 텍스트 폼 */}
-          {selectedType === "text" && (
-            <div className="space-y-5">
-              <CommonFields form={textForm} chatbots={chatbots} onChange={(k, v) => setTextForm(c => ({ ...c, [k]: v }))} />
-              <label>
-                <Label required>본문</Label>
-                <textarea value={textForm.content} onChange={e => setTextForm(c => ({ ...c, content: e.target.value }))} rows={10} className="input-field" style={{ minHeight: 200 }} placeholder={"텍스트를 직접 입력하거나 복사해 붙여넣으세요.\n\nQ: 자주 묻는 질문\nA: 답변 내용"} />
-              </label>
-              <button type="button" onClick={() => void submitText()} disabled={isSubmitting} className="btn-primary w-full flex items-center justify-center gap-2" style={{ padding: "12px 24px", fontSize: 15 }}>
-                {isSubmitting ? <><Loader2 style={{ width: 16, height: 16, animation: "spin 1s linear infinite" }} />등록 중...</> : <><Save style={{ width: 16, height: 16 }} />등록하기</>}
-              </button>
-            </div>
-          )}
+// ── 메인 컴포넌트 ─────────────────────────────────────────────────────────────
 
-          {/* 웹사이트 폼 */}
-          {selectedType === "website" && (
-            <div className="space-y-5">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <label>
-                  <Label required>챗봇 선택</Label>
-                  <select value={websiteForm.chatbotId} onChange={e => setWebsiteForm(c => ({ ...c, chatbotId: e.target.value }))} className="input-field">
-                    <option value="">챗봇 선택</option>
-                    {chatbots.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
-                </label>
-                <label>
-                  <Label required>URL</Label>
-                  <div style={{ position: "relative" }}>
-                    <Globe style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", width: 15, height: 15, color: "#94a3b8" }} />
-                    <input value={websiteForm.url} onChange={e => setWebsiteForm(c => ({ ...c, url: e.target.value }))} className="input-field" style={{ paddingLeft: 32 }} placeholder="https://" />
-                  </div>
-                </label>
-                <label>
-                  <Label required>제목</Label>
-                  <input value={websiteForm.title} onChange={e => setWebsiteForm(c => ({ ...c, title: e.target.value }))} className="input-field" />
-                </label>
-                <label>
-                  <Label>크롤링 페이지 수</Label>
-                  <input type="number" min={1} max={1000} value={websiteForm.crawlPageLimit} onChange={e => setWebsiteForm(c => ({ ...c, crawlPageLimit: e.target.value }))} className="input-field" />
-                </label>
-                <label className="flex items-center gap-3 cursor-pointer" style={{ border: "1px solid #e2e8f0", borderRadius: 10, padding: "10px 14px", background: "#f8fafc" }}>
-                  <input type="checkbox" checked={websiteForm.crawlAllPages} onChange={e => setWebsiteForm(c => ({ ...c, crawlAllPages: e.target.checked }))} />
-                  <span style={{ fontSize: 14, fontWeight: 500, color: "#334155" }}>하위 페이지 전체 수집</span>
-                </label>
-                <label className="flex items-center gap-3 cursor-pointer" style={{ border: "1px solid #e2e8f0", borderRadius: 10, padding: "10px 14px", background: "#f8fafc" }}>
-                  <input type="checkbox" checked={websiteForm.includeAttachments} onChange={e => setWebsiteForm(c => ({ ...c, includeAttachments: e.target.checked }))} />
-                  <span style={{ fontSize: 14, fontWeight: 500, color: "#334155" }}>첨부파일도 색인</span>
-                </label>
-                <label>
-                  <Label>카테고리</Label>
-                  <input value={websiteForm.category} onChange={e => setWebsiteForm(c => ({ ...c, category: e.target.value }))} className="input-field" />
-                </label>
-                <label>
-                  <Label>분야</Label>
-                  <input value={websiteForm.field} onChange={e => setWebsiteForm(c => ({ ...c, field: e.target.value }))} className="input-field" />
-                </label>
-                <label>
-                  <Label>담당 부서</Label>
-                  <input value={websiteForm.department} onChange={e => setWebsiteForm(c => ({ ...c, department: e.target.value }))} className="input-field" />
-                </label>
-                <label>
-                  <Label>태그</Label>
-                  <input value={websiteForm.tags} onChange={e => setWebsiteForm(c => ({ ...c, tags: e.target.value }))} className="input-field" placeholder="쉼표로 구분" />
-                </label>
-                <label className="md:col-span-2">
-                  <Label>제외 경로</Label>
-                  <textarea value={websiteForm.excludedPaths} onChange={e => setWebsiteForm(c => ({ ...c, excludedPaths: e.target.value }))} rows={3} className="input-field" placeholder={"/login\n/board/history"} />
-                  <p style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>줄바꿈 또는 쉼표로 여러 경로를 입력할 수 있습니다.</p>
-                </label>
-                <label className="md:col-span-2">
-                  <Label>메모</Label>
-                  <textarea value={websiteForm.memo} onChange={e => setWebsiteForm(c => ({ ...c, memo: e.target.value }))} rows={3} className="input-field" />
-                </label>
-              </div>
-              <button type="button" onClick={() => void submitWebsite()} disabled={isSubmitting} className="btn-primary w-full flex items-center justify-center gap-2" style={{ padding: "12px 24px", fontSize: 15 }}>
-                {isSubmitting ? <><Loader2 style={{ width: 16, height: 16, animation: "spin 1s linear infinite" }} />등록 중...</> : <><Save style={{ width: 16, height: 16 }} />등록하기</>}
-              </button>
-            </div>
-          )}
+export function KnowledgeRegister() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const [chatbots, setChatbots] = useState<AdminChatbotItem[]>([]);
+  const [chatbotId, setChatbotId] = useState("");
+  const [modal, setModal] = useState<RegisterType | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await getAdminChatbots();
+        setChatbots(res.items);
+        const defaultId = res.items[0]?.id ?? "";
+        setChatbotId(defaultId);
+        if (res.items[0]) writeSelectedAdminChatbot({ id: res.items[0].id, name: res.items[0].name });
+        if (searchParams.get("type") === "text") setModal("text");
+      } catch (e) { setError(getErrorMessage(e)); }
+      finally { setIsLoading(false); }
+    })();
+  }, [searchParams]);
+
+  const handleChatbotChange = (id: string) => {
+    setChatbotId(id);
+    const chatbot = chatbots.find(c => c.id === id);
+    if (chatbot) writeSelectedAdminChatbot({ id: chatbot.id, name: chatbot.name });
+  };
+
+  const handleFileSubmit = async (file: File) => {
+    if (!chatbotId) { setError("챗봇을 선택해주세요."); return; }
+    setIsSubmitting(true); setError(null);
+    try {
+      const session = await uploadKnowledgeFileToStaging({ chatbotId, file });
+      setModal(null);
+      router.push(`/admin/knowledge/review?session=${session.sessionId}`);
+    } catch (e) { setError(getErrorMessage(e)); }
+    finally { setIsSubmitting(false); }
+  };
+
+  const handleTextSubmit = async (content: string) => {
+    if (!chatbotId) { setError("챗봇을 선택해주세요."); return; }
+    setIsSubmitting(true); setError(null);
+    try {
+      const session = await createKnowledgeTextToStaging({ chatbotId, title: "직접입력_텍스트", content });
+      setModal(null);
+      router.push(`/admin/knowledge/review?session=${session.sessionId}`);
+    } catch (e) { setError(getErrorMessage(e)); }
+    finally { setIsSubmitting(false); }
+  };
+
+  const handleWebsiteSubmit = async (urls: string[]) => {
+    if (!chatbotId) { setError("챗봇을 선택해주세요."); return; }
+    setIsSubmitting(true); setError(null);
+    try {
+      for (const url of urls) {
+        let title = url;
+        try { title = new URL(url).hostname; } catch { /* fallback to url */ }
+        await createKnowledgeWebsite({
+          chatbotId, url, title,
+          crawlPageLimit: 300, crawlAllPages: true,
+          includeAttachments: true, excludedPaths: [], tags: [],
+        });
+      }
+      setModal(null);
+      router.push("/admin/knowledge/list");
+    } catch (e) {
+      if (!(e instanceof ApiClientError && e.code === "WEBSITE_ALREADY_REGISTERED")) {
+        setError(getErrorMessage(e));
+      } else {
+        setModal(null);
+        router.push("/admin/knowledge/list");
+      }
+    } finally { setIsSubmitting(false); }
+  };
+
+  if (isLoading) return null;
+
+  return (
+    <div>
+      {error && (
+        <div style={{ marginBottom: 16, padding: "10px 14px", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8, fontSize: 13, color: "#dc2626" }}>{error}</div>
+      )}
+
+      {/* 챗봇 선택 (복수인 경우) */}
+      {chatbots.length > 1 && (
+        <div style={{ marginBottom: 20 }}>
+          <select value={chatbotId} onChange={e => handleChatbotChange(e.target.value)} className="input-field" style={{ width: 220 }}>
+            {chatbots.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
         </div>
       )}
 
-      {/* 등록 결과 */}
-      {visibleResult && (
-        <div className="bg-white rounded-2xl border border-neutral-200 p-6">
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-            <strong style={{ fontSize: 15, color: "#1e293b" }}>{visibleResult.title}</strong>
-            <span className={statusBadgeClass(visibleStatus || visibleResult.status)}>{statusLabel(visibleStatus || visibleResult.status)}</span>
-          </div>
-          <p style={{ fontSize: 13, color: "#64748b", marginBottom: 16 }}>{visibleResult.summary ?? "등록이 완료되었습니다."}</p>
-          <div className="grid grid-cols-4 gap-3" style={{ marginBottom: 16 }}>
-            {[["진행률", `${visibleResult.ingestionProgressPercent ?? 0}%`], ["텍스트", `${visibleResult.extractedTextLength ?? 0}자`], ["청크", `${visibleResult.chunkCount ?? 0}`], ["임베딩", `${visibleResult.embeddingCount ?? 0}`]].map(([label, val]) => (
-              <div key={label} style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, padding: "8px 12px" }}>
-                <div style={{ fontSize: 11, color: "#94a3b8" }}>{label}</div>
-                <div style={{ fontSize: 14, fontWeight: 600, color: "#1e293b" }}>{val}</div>
-              </div>
-            ))}
-          </div>
-          <div style={{ display: "flex", gap: 10 }}>
-            <Link href="/admin/knowledge/list" className="btn-primary" style={{ fontSize: 13 }}>목록에서 확인</Link>
-            <button type="button" onClick={() => { setResult(null); setTrackedResult(null); setSubmitStatus(null); }} className="btn-secondary" style={{ fontSize: 13 }}>계속 등록</button>
-          </div>
-        </div>
-      )}
+      {/* 타입 카드 */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 20 }}>
+        <TypeCard type="file" onClick={() => setModal("file")} />
+        <TypeCard type="text" onClick={() => setModal("text")} />
+        <TypeCard type="website" onClick={() => setModal("website")} />
+      </div>
+
+      {/* 모달 */}
+      <FileModal
+        open={modal === "file"}
+        onClose={() => { if (!isSubmitting) setModal(null); }}
+        onSubmit={handleFileSubmit}
+        isSubmitting={isSubmitting}
+      />
+      <TextModal
+        open={modal === "text"}
+        onClose={() => { if (!isSubmitting) setModal(null); }}
+        onSubmit={handleTextSubmit}
+        isSubmitting={isSubmitting}
+      />
+      <WebsiteModal
+        open={modal === "website"}
+        onClose={() => { if (!isSubmitting) setModal(null); }}
+        onSubmit={handleWebsiteSubmit}
+        isSubmitting={isSubmitting}
+      />
     </div>
   );
 }

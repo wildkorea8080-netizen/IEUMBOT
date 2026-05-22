@@ -24,6 +24,7 @@ import {
   getDashboardSummary,
   getDashboardUsageTrend,
 } from "../../../lib/api/admin-operations";
+import { apiClient } from "../../../lib/api/client";
 import type {
   DashboardQuestionTypeItem,
   DashboardRecentChatItem,
@@ -82,6 +83,7 @@ export default function DashboardPage() {
   const [usageTrend, setUsageTrend]   = useState<DashboardUsageTrendItem[]>([]);
   const [questionTypes, setQuestionTypes] = useState<DashboardQuestionTypeItem[]>([]);
   const [recentChats, setRecentChats] = useState<DashboardRecentChatItem[]>([]);
+  const [secSummary, setSecSummary]   = useState<{ total: number; privacyExposure: number; abnormalAccess: number; inappropriate: number; negativeEmotion: number } | null>(null);
   const [isLoading, setIsLoading]     = useState(true);
   const [error, setError]             = useState<string | null>(null);
 
@@ -91,16 +93,20 @@ export default function DashboardPage() {
     setIsLoading(true);
     setError(null);
     try {
-      const [s, u, q, r] = await Promise.all([
+      const [s, u, q, r, sec] = await Promise.all([
         getDashboardSummary(),
         getDashboardUsageTrend(range),
         getDashboardQuestionTypes(range),
         getDashboardRecentChats({ limit: 8 }),
+        apiClient.request<{ items: unknown[]; total: number; summary: { total: number; privacyExposure: number; abnormalAccess: number; inappropriate: number; negativeEmotion: number } }>(
+          "/admin/security/events?page=1&pageSize=1"
+        ).catch(() => null),
       ]);
       setSummary(s);
       setUsageTrend(u);
       setQuestionTypes(q);
       setRecentChats(r);
+      if (sec) setSecSummary(sec.summary);
     } catch (e) {
       setError(getErrorMessage(e));
     } finally {
@@ -134,6 +140,7 @@ export default function DashboardPage() {
 
       {/* ── 상단 필터 바 ── */}
       <div className="bg-white rounded-xl border border-neutral-200 shadow-card p-4 flex flex-wrap items-center gap-3">
+        <span style={{ fontSize: 13, fontWeight: 500, color: "#374151" }}>조회기간</span>
         <div className="flex items-center gap-2">
           <input
             type="date"
@@ -383,6 +390,33 @@ export default function DashboardPage() {
               })}
             </div>
           )}
+        </div>
+      </div>
+
+      {/* ── 보안현황 ── */}
+      <div className="bg-white rounded-xl border border-neutral-200 shadow-card" style={{ padding: "20px 28px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+          <span style={{ fontSize: 15, fontWeight: 700, color: "#111827" }}>보안현황</span>
+          <span style={{ fontSize: 13, color: "#9ca3af" }}>부적절한 질문은 정책에 의해 자동 차단되며, 안전한 거부 메시지로 안내됩니다.</span>
+        </div>
+        <div style={{ display: "flex", gap: 32, flexWrap: "wrap" }}>
+          {[
+            { label: "총 보안 이벤트",      value: secSummary?.total ?? 0,            icon: "🛡️" },
+            { label: "개인정보 노출 위험",   value: secSummary?.privacyExposure ?? 0,  icon: "👤" },
+            { label: "비정상 행동",          value: secSummary?.abnormalAccess ?? 0,   icon: "⚠️" },
+            { label: "부적절 발언 (비방/혐오)", value: secSummary?.inappropriate ?? 0, icon: "🚫" },
+            { label: "부정 감정 (불만)",      value: secSummary?.negativeEmotion ?? 0, icon: "😞" },
+          ].map(s => (
+            <div key={s.label} style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{ width: 44, height: 44, borderRadius: "50%", background: "#111827", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>
+                {s.icon}
+              </div>
+              <div>
+                <div style={{ fontSize: 24, fontWeight: 800, color: "#111827", lineHeight: 1.1 }}>{s.value}</div>
+                <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 2, whiteSpace: "nowrap" }}>{s.label}</div>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     </div>
