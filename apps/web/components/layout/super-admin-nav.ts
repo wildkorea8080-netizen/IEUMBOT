@@ -9,6 +9,7 @@ export const superAdminNavItems = [
   { href: "/super-admin/widgets", label: "위젯 관리", icon: "widget", section: "Service" },
   { href: "/super-admin/api", label: "API 설정", icon: "api", section: "Platform" },
   { href: "/super-admin/api/usage", label: "API 사용량", icon: "usage", section: "Platform" },
+  { href: "/super-admin/answer-settings", label: "고급 답변 설정", icon: "system", section: "Platform" },
   { href: "/super-admin/system", label: "시스템 제어", icon: "system", section: "Platform" },
   { href: "/super-admin/notifications", label: "알림", icon: "notification", section: "Platform" },
   { href: "/super-admin/enforcement", label: "제재 관리", icon: "security", section: "Platform" },
