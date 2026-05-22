@@ -320,16 +320,6 @@ export default function AdminAiBasicPage() {
                 <p style={hintStyle}>고객이 대화할 AI 에이전트의 실제 이름입니다.</p>
               </div>
 
-              {/* 에이전트 이미지 */}
-              <div>
-                <label style={labelStyle}>AI 대화 에이전트 이미지 설정</label>
-                <div style={{ width: 80, height: 80, border: "2px dashed #e5e7eb", borderRadius: 12, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", cursor: "pointer", background: "#f9fafb" }}>
-                  <span style={{ fontSize: 24, marginBottom: 4 }}>↑</span>
-                  <span style={{ fontSize: 10, color: "#9ca3af", textAlign: "center", lineHeight: 1.4 }}>권장 크기: 80x80 픽셀<br />PNG, JPG, SVG (최대 2MB)</span>
-                </div>
-                <p style={hintStyle}>대화창 상단에 이미지를 표시합니다.</p>
-              </div>
-
               {/* AI 지침설정 */}
               <div>
                 <label style={labelStyle}>AI 지침설정</label>
@@ -386,6 +376,32 @@ export default function AdminAiBasicPage() {
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#9ca3af" }}>
                   <span>간결함</span><span>보통</span><span>자세함</span>
                 </div>
+              </div>
+            </div>
+          </div>
+
+          {/* ── 응답 정책 메시지 ──────────────────────────────────── */}
+          <div className="bg-white rounded-xl border border-neutral-200" style={{ padding: "20px 24px" }}>
+            <h3 style={{ fontSize: 15, fontWeight: 700, color: "#111827", marginBottom: 4 }}>응답 정책 메시지</h3>
+            <p style={{ fontSize: 13, color: "#9ca3af", marginBottom: 20 }}>답변이 어려운 상황에서 사용자에게 표시할 안내 메시지를 설정합니다.</p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              <div>
+                <label style={labelStyle}>운영시간 외 메시지</label>
+                <textarea value={form.operatingHoursMessage} onChange={e => upd("operatingHoursMessage", e.target.value)} rows={2}
+                  placeholder="현재 운영시간이 아닙니다. 운영시간에 다시 문의해 주세요."
+                  style={{ ...inputStyle, resize: "vertical", lineHeight: 1.7 }} />
+              </div>
+              <div>
+                <label style={labelStyle}>폴백 메시지</label>
+                <textarea value={form.fallbackMessage} onChange={e => upd("fallbackMessage", e.target.value)} rows={2}
+                  placeholder="현재 등록된 자료에서 해당 내용을 찾기 어렵습니다. 담당 부서에 문의해 주세요."
+                  style={{ ...inputStyle, resize: "vertical", lineHeight: 1.7 }} />
+                <p style={hintStyle}>지식베이스에서 답을 찾지 못할 때 표시할 메시지입니다.</p>
+              </div>
+              <div>
+                <label style={labelStyle}>대표 문의 연락처</label>
+                <input value={form.contactPhone} onChange={e => upd("contactPhone", e.target.value)} placeholder="예: 02-1234-5678" style={inputStyle} />
+                <p style={hintStyle}>이관 안내 시 표시할 대표 연락처입니다.</p>
               </div>
             </div>
           </div>

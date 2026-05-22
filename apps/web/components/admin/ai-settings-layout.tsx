@@ -2,17 +2,13 @@
 
 import Link from "next/link";
 import { useEffect, type ReactNode } from "react";
+// Link is used in the "챗봇 생성하기" button below
 import { Save, Loader2, CheckCircle, Plus } from "lucide-react";
 
 import { writeSelectedAdminChatbot } from "../../lib/admin-ui/selected-chatbot";
 
 export const AI_CHATBOT_STORAGE_KEY = "ieumbot_admin_ai_chatbot_id";
 
-const AI_TABS = [
-  { href: "/admin/ai/basic",        label: "AI 기본 설정" },
-  { href: "/admin/ai/style",        label: "대화 스타일" },
-  { href: "/admin/answer-settings", label: "고급 설정" },
-] as const;
 
 type ChatbotOption = { id: string; name: string; status: string };
 
@@ -69,34 +65,6 @@ export function AiSettingsLayout({
         )}
       </div>
 
-      {/* 탭 네비게이션 */}
-      <div className="flex" style={{ borderBottom: "1px solid #e2e8f0", marginBottom: 24, gap: 4 }}>
-        {AI_TABS.map(tab => {
-          const isActive = activeHref === tab.href;
-          return (
-            <Link
-              key={tab.href}
-              href={tab.href}
-              style={{
-                padding: "10px 16px",
-                fontSize: 14,
-                fontWeight: isActive ? 600 : 400,
-                color: isActive ? "#2563eb" : "#64748b",
-                borderBottom: `2px solid ${isActive ? "#2563eb" : "transparent"}`,
-                borderTop: "none",
-                borderLeft: "none",
-                borderRight: "none",
-                background: isActive ? "#eff6ff" : "transparent",
-                textDecoration: "none",
-                borderRadius: "8px 8px 0 0",
-                transition: "all 0.15s",
-              }}
-            >
-              {tab.label}
-            </Link>
-          );
-        })}
-      </div>
 
       {notice}
 
