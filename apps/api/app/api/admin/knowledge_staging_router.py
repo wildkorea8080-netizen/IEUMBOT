@@ -215,8 +215,8 @@ async def create_staging_from_file(
         raise HTTPException(status_code=422, detail="FILE_EMPTY_OR_UNREADABLE")
 
     # 중복 파일 감지 (동일 챗봇 내 같은 파일명의 활성 버전 존재 여부)
-    from app.models.document import Document  # noqa: PLC0415
-    from app.models.document_version import DocumentVersion as DocVersion  # noqa: PLC0415
+    from app.models.documents import Document  # noqa: PLC0415
+    from app.models.document_versions import DocumentVersion as DocVersion  # noqa: PLC0415
 
     existing = db.execute(
         select(DocVersion.id)
