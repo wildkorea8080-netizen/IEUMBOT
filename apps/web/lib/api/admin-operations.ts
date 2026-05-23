@@ -19,6 +19,10 @@ import type {
   FaqBulkRegisterResponse,
   FaqGenerateResponse,
   FaqItem,
+  FaqManagementItem,
+  FaqManagementListResponse,
+  FaqManagementCreateRequest,
+  FaqManagementUpdateRequest,
   KnowledgeDetail,
   KnowledgeItem,
   KnowledgeListResponse,
@@ -625,4 +629,30 @@ export async function patchUnansweredLog(
     method: "PATCH",
     body: { status },
   });
+}
+
+// ── FAQ 관리 ─────────────────────────────────────────────────────────────────
+
+export async function listFaqItems(
+  chatbotId: string,
+  includeInactive = false,
+): Promise<FaqManagementListResponse> {
+  const params = new URLSearchParams({ chatbot_id: chatbotId });
+  if (includeInactive) params.set("include_inactive", "true");
+  return apiClient.request<FaqManagementListResponse>(`/admin/faq?${params}`);
+}
+
+export async function createFaqItem(body: FaqManagementCreateRequest): Promise<FaqManagementItem> {
+  return apiClient.request<FaqManagementItem>("/admin/faq", { method: "POST", body });
+}
+
+export async function updateFaqItem(
+  faqId: string,
+  body: FaqManagementUpdateRequest,
+): Promise<FaqManagementItem> {
+  return apiClient.request<FaqManagementItem>(`/admin/faq/${faqId}`, { method: "PATCH", body });
+}
+
+export async function deleteFaqItem(faqId: string): Promise<void> {
+  await apiClient.request(`/admin/faq/${faqId}`, { method: "DELETE" });
 }

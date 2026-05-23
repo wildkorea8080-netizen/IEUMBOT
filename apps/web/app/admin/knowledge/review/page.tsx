@@ -160,7 +160,7 @@ function DiffView({ original, current, piiRegions }: {
     </div>
   );
 }
-import { useEditor, EditorContent } from "@tiptap/react";
+import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Underline from "@tiptap/extension-underline";
 import Link from "@tiptap/extension-link";
@@ -198,7 +198,7 @@ type StagingSession = {
 
 // ── TipTap 툴바 ───────────────────────────────────────────────────────────────
 
-function EditorToolbar({ editor }: { editor: ReturnType<typeof useEditor> }) {
+function EditorToolbar({ editor }: { editor: Editor | null }) {
   if (!editor) return null;
 
   const btn = (active: boolean, onClick: () => void, label: string) => (
@@ -425,6 +425,7 @@ export default function KnowledgeReviewPage() {
 
   // TipTap 에디터
   const editor = useEditor({
+    immediatelyRender: false,
     extensions: [
       StarterKit,
       Underline,

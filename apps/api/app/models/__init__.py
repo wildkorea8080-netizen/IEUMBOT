@@ -30,6 +30,7 @@ from app.models.widget_deployments import WidgetDeployment
 from app.models.api_endpoint import ApiEndpoint
 from app.models.conditional_response import ConditionalResponse
 from app.models.security_event import SecurityEvent
+from app.models.faq_item import FaqItem
 from app.models.unanswered_log import UnansweredLog
 from app.models.web_sources import WebSource
 
@@ -65,6 +66,7 @@ __all__ = [
     "SystemIntegration",
     "ApiEndpoint",
     "ConditionalResponse",
+    "FaqItem",
     "SecurityEvent",
     "UnansweredLog",
     "User",

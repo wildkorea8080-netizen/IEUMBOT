@@ -117,6 +117,43 @@ export type AdminDocumentsResponse = {
   items: AdminDocumentItem[];
 };
 
+// ── FAQ 관리 (AI 분석 → 검토 등록) ──────────────────────────────────────────
+
+export type FaqManagementItem = {
+  id: string;
+  chatbotId: string;
+  question: string;
+  answer: string;
+  tags: string[];
+  isActive: boolean;
+  sortOrder: number;
+  sourceStagingSessionId: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type FaqManagementListResponse = {
+  items: FaqManagementItem[];
+  total: number;
+};
+
+export type FaqManagementCreateRequest = {
+  chatbotId: string;
+  question: string;
+  answer: string;
+  tags?: string[];
+};
+
+export type FaqManagementUpdateRequest = {
+  question?: string;
+  answer?: string;
+  tags?: string[];
+  isActive?: boolean;
+  sortOrder?: number;
+};
+
+// ── 지식 그룹 ─────────────────────────────────────────────────────────────────
+
 export type KnowledgeSourceGroup = "file_text" | "website";
 export type KnowledgeSourceType = "file" | "text" | "website";
 

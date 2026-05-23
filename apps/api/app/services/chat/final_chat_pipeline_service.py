@@ -1909,6 +1909,39 @@ def run_final_chat_pipeline(
         logger.warning("[API_CONNECTOR] skipped: %s", _api_exc)
     _perf_api_ms = int((time.perf_counter() - _t0) * 1000)
 
+    # ── FAQ 우선 검색 ─────────────────────────────────────────────────────────
+    # 등록된 FAQ와 시맨틱 유사도가 임계값 이상이면 RAG 없이 FAQ 답변으로 즉시 반환
+    faq_match: dict | None = None
+    try:
+        from app.services.admin.faq_service import search_faq_by_question  # noqa: PLC0415
+        faq_match = search_faq_by_question(
+            db,
+            chatbot_id=str(chatbot.id),
+            query=search_query,
+        )
+    except Exception as _faq_exc:
+        logger.warning("[FAQ] search skipped: %s", _faq_exc)
+
+    if faq_match is not None:
+        logger.info("[FAQ] matched score=%.3f → early return", faq_match["score"])
+        return _persist_immediate_response(
+            db,
+            body=body,
+            chatbot=chatbot,
+            session=session,
+            session_token=session_token,
+            normalized_query=normalized_query,
+            stream_mode=stream_mode,
+            tone_summary=tone_summary,
+            outcome="answered",
+            answer_text=faq_match["answer"],
+            reason="faq_match",
+            detected_intent=detected_intent or "",
+            intent_routing_method=intent_routing_method,
+            intent_confidence=intent_confidence,
+            classifier_reason=classifier_reason,
+        )
+
     retrieval_start = time.perf_counter()
     retrieval_output = retrieve_for_precheck(
         db,

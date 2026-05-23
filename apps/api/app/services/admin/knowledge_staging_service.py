@@ -432,11 +432,16 @@ def register_staging_chunks(
     chatbot_id: str,
     chunk_ids: list[str] | None = None,
 ) -> dict[str, int]:
-    """
-    선택된 스테이징 청크를 실제 지식으로 등록.
+    """선택된 스테이징 청크를 FAQ + RAG 지식으로 동시 등록.
+
+    각 청크는:
+    1. FAQ 항목으로 생성 (topic_title = question, content = answer, 임베딩 자동)
+    2. RAG 텍스트 지식으로도 색인 (기존 검색 파이프라인 유지)
+
     chunk_ids=None 이면 pending 상태 전체 등록.
     """
     from app.services.admin.knowledge_service import create_text_knowledge_internal  # noqa: PLC0415
+    from app.services.admin.faq_service import create_faq_item  # noqa: PLC0415
 
     session_row = db.execute(
         select(KnowledgeStagingSession).where(
@@ -465,14 +470,29 @@ def register_staging_chunks(
 
     for chunk in chunks:
         try:
-            create_text_knowledge_internal(
+            # ① FAQ 등록 (question=topic_title, answer=content)
+            create_faq_item(
                 db,
                 chatbot_id=str(session_row.chatbot_id),
                 organization_id=str(session_row.organization_id),
-                title=chunk.topic_title,
-                content=chunk.content,
+                question=chunk.topic_title,
+                answer=chunk.content,
                 tags=list(chunk.tags or []),
+                source_staging_session_id=session_id,
             )
+            # ② RAG 색인 (기존 검색 파이프라인에도 추가)
+            try:
+                create_text_knowledge_internal(
+                    db,
+                    chatbot_id=str(session_row.chatbot_id),
+                    organization_id=str(session_row.organization_id),
+                    title=chunk.topic_title,
+                    content=chunk.content,
+                    tags=list(chunk.tags or []),
+                )
+            except Exception as rag_exc:
+                logger.warning("[STAGING] RAG indexing failed id=%s: %s (FAQ still registered)", chunk.id, rag_exc)
+
             chunk.status = "registered"
             registered += 1
         except Exception as exc:

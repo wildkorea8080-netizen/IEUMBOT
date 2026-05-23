@@ -11,6 +11,7 @@ import StarterKit from "@tiptap/starter-kit";
 import Underline from "@tiptap/extension-underline";
 
 import { FaqGenerateModal } from "./FaqGenerateModal";
+import { FaqManagement } from "./faq-management";
 import { ApiClientError } from "../../lib/api";
 import {
   deleteKnowledge,
@@ -164,7 +165,8 @@ function splitLines(value: string): string[] {
 }
 
 export function KnowledgeManagement() {
-  const [sourceGroup, setSourceGroup] = useState<KnowledgeSourceGroup>("file_text");
+  const [activeTab, setActiveTab] = useState<"file_text" | "website" | "faq">("file_text");
+  const sourceGroup: KnowledgeSourceGroup = activeTab === "faq" ? "file_text" : activeTab;
   const [items, setItems] = useState<KnowledgeItem[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [query, setQuery] = useState("");
@@ -256,8 +258,8 @@ export function KnowledgeManagement() {
   };
 
   useEffect(() => {
-    void load();
-  }, [sourceGroup]);
+    if (activeTab !== "faq") void load();
+  }, [activeTab]);
 
   const openDetail = async (knowledgeId: string) => {
     setIsDetailLoading(true);
@@ -439,8 +441,8 @@ export function KnowledgeManagement() {
   };
 
   // 탭별 카운트: 현재 탭은 items.length, 반대 탭은 otherGroupCount
-  const fileCount = sourceGroup === "file_text" ? items.length : otherGroupCount;
-  const websiteCount = sourceGroup === "website" ? items.length : otherGroupCount;
+  const fileCount = activeTab === "file_text" ? items.length : otherGroupCount;
+  const websiteCount = activeTab === "website" ? items.length : otherGroupCount;
 
   // 상태 아이콘
   const StatusBadge = ({ item }: { item: KnowledgeItem }) => {
@@ -459,22 +461,25 @@ export function KnowledgeManagement() {
       {/* 탭 + 우측 액션 */}
       <div className="flex items-center justify-between" style={{ borderBottom: "1px solid #e2e8f0" }}>
         <div className="flex">
-          {([["file_text", `파일·텍스트 (${fileCount})`], ["website", `웹사이트 (${websiteCount})`]] as [KnowledgeSourceGroup, string][]).map(([group, label]) => (
+          {([
+            ["file_text", `파일·텍스트 (${fileCount})`],
+            ["website", `웹사이트 (${websiteCount})`],
+            ["faq", "FAQ"],
+          ] as ["file_text" | "website" | "faq", string][]).map(([tab, label]) => (
             <button
-              key={group}
+              key={tab}
               type="button"
-              onClick={() => setSourceGroup(group)}
+              onClick={() => setActiveTab(tab)}
               style={{
                 padding: "12px 16px",
                 fontSize: 14,
-                fontWeight: sourceGroup === group ? 600 : 400,
-                color: sourceGroup === group ? "#2563eb" : "#64748b",
-                borderBottom: `2px solid ${sourceGroup === group ? "#2563eb" : "transparent"}`,
+                fontWeight: activeTab === tab ? 600 : 400,
+                color: activeTab === tab ? "#2563eb" : "#64748b",
                 background: "none",
                 border: "none",
                 borderBottomWidth: 2,
                 borderBottomStyle: "solid",
-                borderBottomColor: sourceGroup === group ? "#2563eb" : "transparent",
+                borderBottomColor: activeTab === tab ? "#2563eb" : "transparent",
                 cursor: "pointer",
                 transition: "all 0.15s",
               }}
@@ -483,10 +488,15 @@ export function KnowledgeManagement() {
             </button>
           ))}
         </div>
-        <Link href="/admin/knowledge/register" className="btn-primary" style={{ fontSize: 13, padding: "7px 14px" }}>
-          + 지식 등록
-        </Link>
+        {activeTab !== "faq" && (
+          <Link href="/admin/knowledge/register" className="btn-primary" style={{ fontSize: 13, padding: "7px 14px" }}>
+            + 지식 등록
+          </Link>
+        )}
       </div>
+
+      {activeTab === "faq" ? <FaqManagement /> : (
+      <>
 
       {/* 중복 방지 설정 */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, padding: "8px 14px" }}>
@@ -1159,6 +1169,8 @@ export function KnowledgeManagement() {
           }}
         />
       ) : null}
+
+      </>)}
     </div>
   );
 }

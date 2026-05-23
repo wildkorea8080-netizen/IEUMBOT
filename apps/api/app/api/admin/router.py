@@ -14,6 +14,7 @@ from app.api.admin.knowledge_sync_router import router as knowledge_sync_router
 from app.api.admin.security_events_router import router as security_events_router
 from app.api.admin.unanswered_router import router as unanswered_router
 from app.api.admin.install_guide_router import router as install_guide_router
+from app.api.admin.faq_router import router as faq_router
 from app.api.admin.knowledge_router import router as knowledge_router
 from app.api.admin.knowledge_staging_router import router as knowledge_staging_router
 from app.api.admin.logs_router import router as admin_logs_router
@@ -34,6 +35,7 @@ router.include_router(api_usage_router)
 router.include_router(notifications_router)
 router.include_router(audit_logs_router)
 router.include_router(install_guide_router)
+router.include_router(faq_router)
 router.include_router(knowledge_router)
 router.include_router(knowledge_staging_router)
 router.include_router(search_control_router)
