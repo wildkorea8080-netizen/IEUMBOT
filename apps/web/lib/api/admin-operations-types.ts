@@ -200,6 +200,15 @@ export type KnowledgeItem = {
   isActive: boolean;
   isWebsiteAttachment: boolean;
   parentWebsiteUrl?: string | null;
+  webSourceId?: string | null;
+};
+
+export type WebSourceSyncSettings = {
+  webSourceId: string;
+  syncEnabled: boolean;
+  syncIntervalDays: number | null;
+  nextSyncAt: string | null;
+  lastSyncedAt: string | null;
 };
 
 export type KnowledgeDetail = KnowledgeItem & {

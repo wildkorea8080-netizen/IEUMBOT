@@ -193,6 +193,7 @@ type StagingSession = {
   sourceName: string | null;
   status: string;
   totalChunks: number;
+  isDuplicateFile?: boolean;
   chunks: StagingChunk[];
 };
 
@@ -649,6 +650,24 @@ export default function KnowledgeReviewPage() {
           </button>
         </div>
       </div>
+
+      {/* 파일 중복 여부 배너 */}
+      {session.sourceType === "file" && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 10, padding: "10px 16px", borderRadius: 10,
+          marginBottom: 10, flexShrink: 0, fontSize: 13,
+          background: session.isDuplicateFile ? "#fef9c3" : "#f0fdf4",
+          border: `1px solid ${session.isDuplicateFile ? "#fde047" : "#bbf7d0"}`,
+          color: session.isDuplicateFile ? "#854d0e" : "#15803d",
+        }}>
+          <span style={{ fontSize: 18 }}>{session.isDuplicateFile ? "⚠️" : "✅"}</span>
+          {session.isDuplicateFile ? (
+            <span><strong>중복 파일</strong> — 이미 등록된 파일과 동일한 이름입니다. 파일·텍스트 탭 재학습은 생략되고, 아래 주제로 <strong>FAQ만 등록</strong>됩니다.</span>
+          ) : (
+            <span><strong>신규 파일</strong> — 파일·텍스트 탭에 자동 등록 및 학습이 시작되었습니다. 아래 주제를 검토하여 <strong>FAQ로 추가</strong>하세요.</span>
+          )}
+        </div>
+      )}
 
       {/* 통계 */}
       <div style={{ display: "flex", gap: 20, marginBottom: 10, flexShrink: 0, flexWrap: "wrap" }}>

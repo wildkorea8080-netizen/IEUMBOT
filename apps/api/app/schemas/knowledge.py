@@ -61,6 +61,7 @@ class KnowledgeItem(ApiSchema):
     is_active: bool = True
     is_website_attachment: bool = False
     parent_website_url: str | None = None
+    web_source_id: str | None = None
 
 
 class KnowledgeListResponse(ApiSchema):

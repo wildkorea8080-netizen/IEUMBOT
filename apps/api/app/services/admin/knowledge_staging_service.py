@@ -301,6 +301,7 @@ def create_staging_session_immediate(
     organization_id: str,
     source_type: str,
     source_name: str,
+    is_duplicate_file: bool = False,
 ) -> KnowledgeStagingSession:
     """
     세션 레코드만 즉시 생성하고 반환 (status=analyzing).
@@ -313,6 +314,7 @@ def create_staging_session_immediate(
         source_name=source_name,
         status="analyzing",
         total_chunks=0,
+        is_duplicate_file=is_duplicate_file,
     )
     db.add(session_row)
     db.commit()
@@ -468,6 +470,9 @@ def register_staging_chunks(
     chunks = list(db.execute(stmt).scalars().all())
     registered = 0
 
+    # 파일 업로드 세션은 RAG를 업로드 시점에 즉시 처리했으므로 등록 시 FAQ만 생성
+    skip_rag = session_row.source_type == "file"
+
     for chunk in chunks:
         try:
             # ① FAQ 등록 (question=topic_title, answer=content)
@@ -480,18 +485,19 @@ def register_staging_chunks(
                 tags=list(chunk.tags or []),
                 source_staging_session_id=session_id,
             )
-            # ② RAG 색인 (기존 검색 파이프라인에도 추가)
-            try:
-                create_text_knowledge_internal(
-                    db,
-                    chatbot_id=str(session_row.chatbot_id),
-                    organization_id=str(session_row.organization_id),
-                    title=chunk.topic_title,
-                    content=chunk.content,
-                    tags=list(chunk.tags or []),
-                )
-            except Exception as rag_exc:
-                logger.warning("[STAGING] RAG indexing failed id=%s: %s (FAQ still registered)", chunk.id, rag_exc)
+            # ② RAG 색인 — 텍스트 입력 세션에서만 수행 (파일은 업로드 시점에 이미 처리)
+            if not skip_rag:
+                try:
+                    create_text_knowledge_internal(
+                        db,
+                        chatbot_id=str(session_row.chatbot_id),
+                        organization_id=str(session_row.organization_id),
+                        title=chunk.topic_title,
+                        content=chunk.content,
+                        tags=list(chunk.tags or []),
+                    )
+                except Exception as rag_exc:
+                    logger.warning("[STAGING] RAG indexing failed id=%s: %s (FAQ still registered)", chunk.id, rag_exc)
 
             chunk.status = "registered"
             registered += 1

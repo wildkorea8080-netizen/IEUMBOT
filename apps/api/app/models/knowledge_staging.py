@@ -27,6 +27,10 @@ class KnowledgeStagingSession(Base):
         comment="ready | partial | completed",
     )
     total_chunks: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    is_duplicate_file: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false",
+        comment="True이면 동일 파일명 기존 문서 존재 → RAG 재등록 없이 FAQ만 생성",
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

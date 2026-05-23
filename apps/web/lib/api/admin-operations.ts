@@ -30,6 +30,7 @@ import type {
   KnowledgeTextCreateRequest,
   KnowledgeUpdateRequest,
   KnowledgeWebsiteCreateRequest,
+  WebSourceSyncSettings,
 } from "./admin-operations-types";
 
 function formatUnknownApiDetail(value: unknown): string | undefined {
@@ -301,6 +302,7 @@ export type StagingSessionResponse = {
   sourceName: string | null;
   status: string;
   totalChunks: number;
+  isDuplicateFile?: boolean;
   chunks: Array<{
     id: string;
     topicTitle: string;
@@ -655,4 +657,26 @@ export async function updateFaqItem(
 
 export async function deleteFaqItem(faqId: string): Promise<void> {
   await apiClient.request(`/admin/faq/${faqId}`, { method: "DELETE" });
+}
+
+// ── 웹소스 자동 업데이트 ─────────────────────────────────────────────────────
+
+export async function triggerWebSourceSync(webSourceId: string): Promise<void> {
+  await apiClient.request(`/admin/knowledge/web-sources/${webSourceId}/sync`, { method: "POST" });
+}
+
+export async function getWebSourceSyncSettings(webSourceId: string): Promise<WebSourceSyncSettings> {
+  return apiClient.request<WebSourceSyncSettings>(
+    `/admin/knowledge/web-sources/${webSourceId}/sync-settings`,
+  );
+}
+
+export async function updateWebSourceSyncSettings(
+  webSourceId: string,
+  body: { syncEnabled: boolean; syncIntervalDays?: number | null },
+): Promise<WebSourceSyncSettings> {
+  return apiClient.request<WebSourceSyncSettings>(
+    `/admin/knowledge/web-sources/${webSourceId}/sync-settings`,
+    { method: "PATCH", body },
+  );
 }

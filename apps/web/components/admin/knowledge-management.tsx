@@ -20,16 +20,20 @@ import {
   getKnowledgeDetail,
   getKnowledgeList,
   getKnowledgeRuntimeStatus,
+  getWebSourceSyncSettings,
   patchAdminChatbot,
   patchKnowledge,
   reindexKnowledge,
+  triggerWebSourceSync,
   updateKnowledgeContent,
+  updateWebSourceSyncSettings,
 } from "../../lib/api/admin-operations";
 import type {
   KnowledgeDetail,
   KnowledgeItem,
   KnowledgeRuntimeStatus,
   KnowledgeSourceGroup,
+  WebSourceSyncSettings,
 } from "../../lib/api/admin-operations-types";
 
 function getErrorMessage(error: unknown): string {
@@ -185,6 +189,11 @@ export function KnowledgeManagement() {
   const [showContentEditor, setShowContentEditor] = useState(false);
   // 웹사이트 탭 도메인 펼침
   const [expandedDomains, setExpandedDomains] = useState<Set<string>>(new Set());
+  // 웹사이트 자동 업데이트 모달
+  const [syncModalId, setSyncModalId] = useState<string | null>(null);
+  const [syncSettings, setSyncSettings] = useState<WebSourceSyncSettings | null>(null);
+  const [isSyncLoading, setIsSyncLoading] = useState(false);
+  const [syncingId, setSyncingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [runtimeStatus, setRuntimeStatus] = useState<KnowledgeRuntimeStatus | null>(null);
@@ -557,14 +566,49 @@ export function KnowledgeManagement() {
         <div className="bg-white rounded-xl border border-neutral-200 overflow-hidden">
           {[...byDomain.entries()].map(([domain, domainItems]) => {
             const isExpanded = expandedDomains.has(domain);
+            const firstItem = domainItems[0];
             return (
               <div key={domain} style={{ borderBottom: "1px solid #f1f5f9" }}>
-                <div onClick={() => setExpandedDomains(prev => { const n = new Set(prev); if (n.has(domain)) n.delete(domain); else n.add(domain); return n; })}
-                  style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 18px", cursor: "pointer", background: "#fafafa" }}>
-                  {isExpanded ? <ChevronDown style={{ width: 14, height: 14, color: "#6b7280" }} /> : <ChevronRightIcon style={{ width: 14, height: 14, color: "#6b7280" }} />}
-                  <Globe style={{ width: 14, height: 14, color: "#2563eb" }} />
-                  <span style={{ fontSize: 14, fontWeight: 600, color: "#111827" }}>{domain}</span>
-                  <span style={{ fontSize: 12, color: "#9ca3af" }}>({domainItems.length}개 페이지)</span>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 18px", background: "#fafafa" }}>
+                  <div onClick={() => setExpandedDomains(prev => { const n = new Set(prev); if (n.has(domain)) n.delete(domain); else n.add(domain); return n; })}
+                    style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, cursor: "pointer" }}>
+                    {isExpanded ? <ChevronDown style={{ width: 14, height: 14, color: "#6b7280" }} /> : <ChevronRightIcon style={{ width: 14, height: 14, color: "#6b7280" }} />}
+                    <Globe style={{ width: 14, height: 14, color: "#2563eb" }} />
+                    <span style={{ fontSize: 14, fontWeight: 600, color: "#111827" }}>{domain}</span>
+                    <span style={{ fontSize: 12, color: "#9ca3af" }}>({domainItems.length}개)</span>
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button type="button"
+                      disabled={syncingId === firstItem.id}
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        setSyncingId(firstItem.id);
+                        try {
+                          await triggerWebSourceSync(firstItem.id);
+                          setNotice("업데이트 작업이 시작되었습니다.");
+                          void load();
+                        } catch { setError("업데이트 요청에 실패했습니다."); }
+                        finally { setSyncingId(null); }
+                      }}
+                      style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 10px", fontSize: 12, border: "1px solid #2563eb", borderRadius: 6, background: "#eff6ff", color: "#2563eb", cursor: "pointer" }}>
+                      {syncingId === firstItem.id ? <Loader2 style={{ width: 11, height: 11 }} className="animate-spin" /> : <RefreshCw style={{ width: 11, height: 11 }} />}
+                      지금 업데이트
+                    </button>
+                    <button type="button"
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        setIsSyncLoading(true);
+                        setSyncModalId(firstItem.id);
+                        try {
+                          const s = await getWebSourceSyncSettings(firstItem.id);
+                          setSyncSettings(s);
+                        } catch { setSyncSettings(null); }
+                        finally { setIsSyncLoading(false); }
+                      }}
+                      style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 10px", fontSize: 12, border: "1px solid #e5e7eb", borderRadius: 6, background: "#fff", color: "#374151", cursor: "pointer" }}>
+                      자동 업데이트 설정
+                    </button>
+                  </div>
                 </div>
                 {isExpanded && domainItems.map(item => (
                   <div key={item.id} onClick={() => void openDetail(item.id)}
@@ -1170,7 +1214,84 @@ export function KnowledgeManagement() {
         />
       ) : null}
 
+      {/* 자동 업데이트 설정 모달 */}
+      {syncModalId && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.4)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }}
+          onClick={() => { setSyncModalId(null); setSyncSettings(null); }}>
+          <div style={{ background: "#fff", borderRadius: 16, padding: 28, width: 400, boxShadow: "0 20px 60px rgba(0,0,0,.2)" }}
+            onClick={e => e.stopPropagation()}>
+            <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 20, color: "#111827" }}>자동 업데이트 설정</h3>
+            {isSyncLoading ? (
+              <div style={{ textAlign: "center", padding: 20 }}><Loader2 style={{ width: 24, height: 24 }} className="animate-spin" /></div>
+            ) : (
+              <SyncSettingsForm
+                initial={syncSettings}
+                onSave={async (enabled, intervalDays) => {
+                  try {
+                    await updateWebSourceSyncSettings(syncModalId, { syncEnabled: enabled, syncIntervalDays: intervalDays });
+                    setNotice("자동 업데이트 설정이 저장되었습니다.");
+                    setSyncModalId(null);
+                    setSyncSettings(null);
+                  } catch { setError("설정 저장에 실패했습니다."); }
+                }}
+                onCancel={() => { setSyncModalId(null); setSyncSettings(null); }}
+              />
+            )}
+          </div>
+        </div>
+      )}
+
       </>)}
+    </div>
+  );
+}
+
+function SyncSettingsForm({
+  initial,
+  onSave,
+  onCancel,
+}: {
+  initial: WebSourceSyncSettings | null;
+  onSave: (enabled: boolean, intervalDays: number | null) => Promise<void>;
+  onCancel: () => void;
+}) {
+  const [enabled, setEnabled] = useState(initial?.syncEnabled ?? false);
+  const [intervalDays, setIntervalDays] = useState<number>(initial?.syncIntervalDays ?? 7);
+  const [saving, setSaving] = useState(false);
+
+  return (
+    <div>
+      <label style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20, cursor: "pointer" }}>
+        <input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)} style={{ width: 16, height: 16 }} />
+        <span style={{ fontSize: 14, fontWeight: 600, color: "#111827" }}>자동 업데이트 사용</span>
+      </label>
+      {enabled && (
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 8 }}>업데이트 주기</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {([3, 7, 15, 30] as const).map(days => (
+              <button key={days} type="button"
+                onClick={() => setIntervalDays(days)}
+                style={{ padding: "6px 16px", border: `2px solid ${intervalDays === days ? "#2563eb" : "#e5e7eb"}`, borderRadius: 8, background: intervalDays === days ? "#eff6ff" : "#fff", color: intervalDays === days ? "#2563eb" : "#374151", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                {days}일
+              </button>
+            ))}
+          </div>
+          {initial?.nextSyncAt && (
+            <div style={{ marginTop: 10, fontSize: 12, color: "#9ca3af" }}>
+              다음 업데이트: {new Date(initial.nextSyncAt).toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+            </div>
+          )}
+        </div>
+      )}
+      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+        <button type="button" onClick={onCancel} style={{ padding: "8px 16px", border: "1px solid #e5e7eb", borderRadius: 8, background: "#fff", fontSize: 13, cursor: "pointer", color: "#374151" }}>취소</button>
+        <button type="button" disabled={saving}
+          onClick={async () => { setSaving(true); await onSave(enabled, enabled ? intervalDays : null); setSaving(false); }}
+          style={{ padding: "8px 20px", border: "none", borderRadius: 8, background: "#111827", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+          {saving ? "저장 중..." : "저장"}
+        </button>
+      </div>
     </div>
   );
 }

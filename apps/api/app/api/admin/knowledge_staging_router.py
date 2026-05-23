@@ -50,6 +50,7 @@ class StagingSessionResponse(ApiSchema):
     source_name: str | None
     status: str
     total_chunks: int
+    is_duplicate_file: bool = False
     chunks: list[StagingChunkItem]
 
 
@@ -120,8 +121,38 @@ def _get_session_with_chunks(
         source_name=session_row.source_name,
         status=session_row.status,
         total_chunks=session_row.total_chunks,
+        is_duplicate_file=session_row.is_duplicate_file,
         chunks=[_chunk_to_item(c) for c in chunks],
     )
+
+
+def _rag_ingest_background(
+    chatbot_id: str,
+    organization_id: str,
+    filename: str,
+    text: str,
+) -> None:
+    """파일 업로드 시 RAG 즉시 색인 (백그라운드 태스크)."""
+    from app.db import SessionLocal  # noqa: PLC0415
+    from app.services.admin.knowledge_service import create_text_knowledge_internal  # noqa: PLC0415
+
+    db = SessionLocal()
+    try:
+        create_text_knowledge_internal(
+            db,
+            chatbot_id=chatbot_id,
+            organization_id=organization_id,
+            title=filename,
+            content=text,
+            tags=[],
+        )
+        import logging  # noqa: PLC0415
+        logging.getLogger(__name__).info("[STAGING] RAG background ingest done file=%s", filename)
+    except Exception as exc:
+        import logging  # noqa: PLC0415
+        logging.getLogger(__name__).warning("[STAGING] RAG background ingest failed file=%s: %s", filename, exc)
+    finally:
+        db.close()
 
 
 # ── 엔드포인트 ─────────────────────────────────────────────────────────────────
@@ -183,6 +214,23 @@ async def create_staging_from_file(
     if not text.strip():
         raise HTTPException(status_code=422, detail="FILE_EMPTY_OR_UNREADABLE")
 
+    # 중복 파일 감지 (동일 챗봇 내 같은 파일명의 활성 버전 존재 여부)
+    from app.models.document import Document  # noqa: PLC0415
+    from app.models.document_version import DocumentVersion as DocVersion  # noqa: PLC0415
+
+    existing = db.execute(
+        select(DocVersion.id)
+        .join(Document, DocVersion.document_id == Document.id)
+        .where(
+            Document.chatbot_id == uuid.UUID(chatbot_id),
+            Document.status == "active",
+            DocVersion.file_name == filename,
+            DocVersion.is_active.is_(True),
+        )
+        .limit(1)
+    ).scalar_one_or_none()
+    is_duplicate = existing is not None
+
     # 세션 즉시 생성
     session_row = create_staging_session_immediate(
         db,
@@ -190,7 +238,15 @@ async def create_staging_from_file(
         organization_id=org_id,
         source_type="file",
         source_name=filename,
+        is_duplicate_file=is_duplicate,
     )
+
+    # 중복 아닌 경우: RAG 색인 즉시 트리거 (백그라운드)
+    if not is_duplicate:
+        background_tasks.add_task(
+            _rag_ingest_background,
+            chatbot_id, org_id, filename, text,
+        )
 
     # AI 분석은 백그라운드에서 수행 (타임아웃 방지)
     background_tasks.add_task(
