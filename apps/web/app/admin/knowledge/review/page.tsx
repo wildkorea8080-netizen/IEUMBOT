@@ -581,21 +581,6 @@ export default function KnowledgeReviewPage() {
     finally { setIsRegistering(false); }
   }
 
-  async function registerAll() {
-    if (!session) return;
-    const hasPii = session.chunks.filter(c => c.status === "pending" && c.piiDetected);
-    if (hasPii.length > 0 && !confirm(`전체 중 ${hasPii.length}개에 민감정보가 포함되어 있습니다. 등록 전 내용을 꼭 확인하세요. 계속하시겠습니까?`)) return;
-    setIsRegistering(true);
-    try {
-      const result = await apiClient.request<{ registered: number; total: number }>(
-        `/admin/knowledge/staging/${session.sessionId}/register`,
-        { method: "POST", body: { chunkIds: null } }
-      );
-      showToast("success", `${result.registered}개 주제가 모두 등록되었습니다.`);
-      setTimeout(() => router.push("/admin/knowledge/list"), 1200);
-    } catch { showToast("error", "등록 실패"); }
-    finally { setIsRegistering(false); }
-  }
 
   const pendingCount = session?.chunks.filter(c => c.status === "pending").length ?? 0;
   const registeredCount = session?.chunks.filter(c => c.status === "registered").length ?? 0;
@@ -643,10 +628,6 @@ export default function KnowledgeReviewPage() {
           <button type="button" onClick={() => router.push("/admin/knowledge/list")}
             style={{ padding: "9px 16px", border: "1px solid #d1d5db", borderRadius: 8, background: "#fff", fontSize: 13, cursor: "pointer", color: "#374151" }}>
             목록으로
-          </button>
-          <button type="button" onClick={() => void registerAll()} disabled={isRegistering || pendingCount === 0}
-            style={{ padding: "9px 20px", border: "none", borderRadius: 8, background: pendingCount === 0 ? "#9ca3af" : "#111827", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-            {isRegistering ? "등록 중..." : "전체 등록"}
           </button>
         </div>
       </div>
@@ -713,26 +694,6 @@ export default function KnowledgeReviewPage() {
             ))}
           </div>
 
-          <div style={{ padding: "10px 12px", borderTop: "1px solid #f1f5f9" }}>
-            <div style={{ display: "flex", fontSize: 11, color: "#9ca3af", gap: 10, marginBottom: 8 }}>
-              <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
-                <input type="checkbox" style={{ width: 11, height: 11 }} />1차 주제분류 완료
-              </label>
-              <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
-                <input type="checkbox" style={{ width: 11, height: 11 }} />2차 통합 등록 완료
-              </label>
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button type="button" onClick={() => { if (confirm("이 세션을 삭제하시겠습니까?")) router.push("/admin/knowledge/register"); }}
-                style={{ flex: 1, padding: "9px 0", border: "1px solid #e5e7eb", borderRadius: 8, background: "#fff", fontSize: 13, cursor: "pointer", color: "#374151" }}>
-                삭제
-              </button>
-              <button type="button" onClick={() => void registerSelected()} disabled={isRegistering || checkedIds.size === 0}
-                style={{ flex: 2, padding: "9px 0", border: "none", borderRadius: 8, background: checkedIds.size === 0 ? "#9ca3af" : "#111827", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-                {isRegistering ? "등록 중..." : `등록 (${checkedIds.size})`}
-              </button>
-            </div>
-          </div>
         </div>
 
         {/* ② 오른쪽 패널 — TipTap 에디터 */}
@@ -871,6 +832,40 @@ export default function KnowledgeReviewPage() {
               왼쪽에서 주제를 선택하면 내용을 확인하고 편집할 수 있습니다.
             </div>
           )}
+        </div>
+      </div>
+
+      {/* 하단 고정 바 */}
+      <div style={{ flexShrink: 0, borderTop: "1px solid #e5e7eb", paddingTop: 12, marginTop: 10 }}>
+        {/* 상태 표시줄 */}
+        <div style={{ display: "flex", alignItems: "center", gap: 18, marginBottom: 10, fontSize: 12, color: "#6b7280" }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            <span style={{ width: 16, height: 16, borderRadius: "50%", background: "#16a34a", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 10, flexShrink: 0 }}>✓</span>
+            1차 주제분석 분석 완료
+          </span>
+          <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            <span style={{ width: 16, height: 16, borderRadius: "50%", background: "#16a34a", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 10, flexShrink: 0 }}>✓</span>
+            2차 통합 지식생성 완료
+          </span>
+          <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            <span style={{ width: 16, height: 16, borderRadius: "50%", background: piiCount > 0 ? "#dc2626" : "#16a34a", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 10, flexShrink: 0 }}>✓</span>
+            개인정보 {piiCount}건 감지됨
+          </span>
+          <span style={{ marginLeft: "auto", color: "#9ca3af" }}>선택하신 주제를 일괄 등록하실 수 있습니다.</span>
+        </div>
+        {/* 버튼 */}
+        <div style={{ display: "flex", gap: 10 }}>
+          <button type="button"
+            onClick={() => { if (confirm("이 세션을 삭제하시겠습니까?")) router.push("/admin/knowledge/register"); }}
+            style={{ flex: 1, padding: "12px 0", border: "none", borderRadius: 10, background: "#dc2626", color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
+            삭제
+          </button>
+          <button type="button"
+            onClick={() => void registerSelected()}
+            disabled={isRegistering || checkedIds.size === 0}
+            style={{ flex: 2, padding: "12px 0", border: "none", borderRadius: 10, background: checkedIds.size === 0 ? "#9ca3af" : "#111827", color: "#fff", fontSize: 14, fontWeight: 700, cursor: checkedIds.size === 0 ? "default" : "pointer" }}>
+            {isRegistering ? "등록 중..." : "등록"}
+          </button>
         </div>
       </div>
 
