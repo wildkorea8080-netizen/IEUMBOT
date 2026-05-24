@@ -576,7 +576,12 @@ export default function KnowledgeReviewPage() {
         { method: "POST", body: { chunkIds: [...checkedIds] } }
       );
       showToast("success", `${result.registered}개 주제가 등록되었습니다.`);
-      await load();
+      setSession(prev => prev ? {
+        ...prev,
+        chunks: prev.chunks.map(c => checkedIds.has(c.id) ? { ...c, status: "registered" as const } : c),
+      } : prev);
+      setCheckedIds(new Set());
+      setTimeout(() => router.push("/admin/knowledge/list"), 1500);
     } catch { showToast("error", "등록 실패"); }
     finally { setIsRegistering(false); }
   }
