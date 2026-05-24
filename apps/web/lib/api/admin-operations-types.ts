@@ -125,6 +125,8 @@ export type FaqManagementItem = {
   question: string;
   answer: string;
   tags: string[];
+  category: string | null;
+  field: string | null;
   isActive: boolean;
   sortOrder: number;
   sourceStagingSessionId: string | null;
@@ -142,6 +144,8 @@ export type FaqManagementCreateRequest = {
   question: string;
   answer: string;
   tags?: string[];
+  category?: string | null;
+  field?: string | null;
 };
 
 export type FaqManagementUpdateRequest = {
@@ -150,6 +154,8 @@ export type FaqManagementUpdateRequest = {
   tags?: string[];
   isActive?: boolean;
   sortOrder?: number;
+  category?: string | null;
+  field?: string | null;
 };
 
 // ── 지식 그룹 ─────────────────────────────────────────────────────────────────

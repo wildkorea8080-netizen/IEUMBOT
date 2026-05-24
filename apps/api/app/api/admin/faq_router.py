@@ -32,6 +32,8 @@ class FaqItemResponse(ApiSchema):
     question: str
     answer: str
     tags: list[str]
+    category: str | None
+    field: str | None
     is_active: bool
     sort_order: int
     source_staging_session_id: str | None
@@ -49,6 +51,8 @@ class FaqCreateRequest(ApiSchema):
     question: str
     answer: str
     tags: list[str] = []
+    category: str | None = None
+    field: str | None = None
 
 
 class FaqUpdateRequest(ApiSchema):
@@ -57,6 +61,8 @@ class FaqUpdateRequest(ApiSchema):
     tags: list[str] | None = None
     is_active: bool | None = None
     sort_order: int | None = None
+    category: str | None = None
+    field: str | None = None
 
 
 def _to_response(row: Any) -> FaqItemResponse:
@@ -66,6 +72,8 @@ def _to_response(row: Any) -> FaqItemResponse:
         question=row.question,
         answer=row.answer,
         tags=list(row.tags or []),
+        category=row.category,
+        field=row.field,
         is_active=row.is_active,
         sort_order=row.sort_order,
         source_staging_session_id=row.source_staging_session_id,
@@ -109,6 +117,8 @@ def create_faq(
         question=body.question,
         answer=body.answer,
         tags=body.tags,
+        category=body.category,
+        field=body.field,
     )
     return _to_response(row)
 
@@ -130,6 +140,8 @@ def update_faq(
         tags=body.tags,
         is_active=body.is_active,
         sort_order=body.sort_order,
+        category=body.category,
+        field=body.field,
     )
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="FAQ_NOT_FOUND")

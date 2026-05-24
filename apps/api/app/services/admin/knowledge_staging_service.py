@@ -553,14 +553,17 @@ def register_staging_chunks(
     for chunk in chunks:
         try:
             # ① FAQ 등록 (question=topic_title, answer=content)
+            chunk_tags = list(chunk.tags or [])
             create_faq_item(
                 db,
                 chatbot_id=str(session_row.chatbot_id),
                 organization_id=str(session_row.organization_id),
                 question=chunk.topic_title,
                 answer=chunk.content,
-                tags=list(chunk.tags or []),
+                tags=chunk_tags,
                 source_staging_session_id=session_id,
+                category=chunk_tags[0] if chunk_tags else None,
+                field=chunk_tags[1] if len(chunk_tags) > 1 else None,
             )
             # ② RAG 색인 — 텍스트 입력 세션에서만 수행 (파일은 업로드 시점에 이미 처리)
             if not skip_rag:

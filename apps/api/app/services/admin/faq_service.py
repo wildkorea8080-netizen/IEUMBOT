@@ -29,6 +29,8 @@ def create_faq_item(
     answer: str,
     tags: list[str] | None = None,
     source_staging_session_id: str | None = None,
+    category: str | None = None,
+    field: str | None = None,
 ) -> FaqItem:
     """FAQ 항목 생성 (임베딩 자동 생성)."""
     embedding = _generate_faq_embedding(question)
@@ -39,6 +41,8 @@ def create_faq_item(
         question=question[:500],
         answer=answer,
         tags=tags or [],
+        category=category,
+        field=field,
         source_staging_session_id=source_staging_session_id,
         embedding=embedding,
         is_active=True,
@@ -90,6 +94,8 @@ def update_faq_item(
     tags: list[str] | None = None,
     is_active: bool | None = None,
     sort_order: int | None = None,
+    category: str | None = None,
+    field: str | None = None,
 ) -> FaqItem | None:
     row = get_faq_item(db, faq_id=faq_id, organization_id=organization_id)
     if row is None:
@@ -106,6 +112,10 @@ def update_faq_item(
         row.is_active = is_active
     if sort_order is not None:
         row.sort_order = sort_order
+    if category is not None:
+        row.category = category
+    if field is not None:
+        row.field = field
 
     db.commit()
     db.refresh(row)

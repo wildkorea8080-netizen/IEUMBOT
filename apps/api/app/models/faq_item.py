@@ -29,6 +29,8 @@ class FaqItem(Base):
     question: Mapped[str] = mapped_column(String(500), nullable=False)
     answer: Mapped[str] = mapped_column(Text, nullable=False)
     tags: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
+    category: Mapped[str | None] = mapped_column(String(200), nullable=True, comment="대분류")
+    field: Mapped[str | None] = mapped_column(String(200), nullable=True, comment="소분류")
     # 출처 추적
     source_staging_session_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     # 시맨틱 검색용 임베딩 (question 텍스트 기준)

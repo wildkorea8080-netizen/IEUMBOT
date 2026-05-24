@@ -113,6 +113,8 @@ function FaqEditModal({
   onDeleted: () => void;
 }) {
   const [editQuestion, setEditQuestion] = useState(item?.question ?? "");
+  const [editCategory, setEditCategory] = useState(item?.category ?? "");
+  const [editField, setEditField] = useState(item?.field ?? "");
   const [editTags, setEditTags] = useState<string[]>(item?.tags ?? []);
   const [editActive, setEditActive] = useState(item?.isActive ?? true);
   const [tagInput, setTagInput] = useState("");
@@ -161,10 +163,12 @@ function FaqEditModal({
     setIsSaving(true);
     setError(null);
     try {
+      const catVal = editCategory.trim() || null;
+      const fieldVal = editField.trim() || null;
       if (!item) {
-        await createFaqItem({ chatbotId, question: editQuestion.trim(), answer: answerHtml, tags: editTags });
+        await createFaqItem({ chatbotId, question: editQuestion.trim(), answer: answerHtml, tags: editTags, category: catVal, field: fieldVal });
       } else {
-        await updateFaqItem(item.id, { question: editQuestion.trim(), answer: answerHtml, tags: editTags, isActive: editActive });
+        await updateFaqItem(item.id, { question: editQuestion.trim(), answer: answerHtml, tags: editTags, isActive: editActive, category: catVal, field: fieldVal });
       }
       onSaved();
     } catch (e) {
@@ -226,6 +230,28 @@ function FaqEditModal({
               placeholder="예: 신청 기간은 언제인가요?"
               style={{ width: "100%", fontSize: 18, fontWeight: 700, color: "#111827", border: "none", outline: "none", padding: 0, background: "transparent", boxSizing: "border-box" }}
             />
+          </div>
+
+          {/* 대분류 / 소분류 */}
+          <div style={{ padding: "8px 24px 12px", borderBottom: "1px solid #f9fafb", flexShrink: 0, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#9ca3af", marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.8 }}>대분류</div>
+              <input
+                value={editCategory}
+                onChange={e => { setEditCategory(e.target.value); setIsDirty(true); }}
+                placeholder="예: 민원, 교육, 복지"
+                style={{ width: "100%", fontSize: 13, border: "1px solid #e5e7eb", borderRadius: 6, padding: "6px 10px", outline: "none", boxSizing: "border-box", background: "#fafafa" }}
+              />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#9ca3af", marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.8 }}>소분류</div>
+              <input
+                value={editField}
+                onChange={e => { setEditField(e.target.value); setIsDirty(true); }}
+                placeholder="예: 행정민원, 초등교육"
+                style={{ width: "100%", fontSize: 13, border: "1px solid #e5e7eb", borderRadius: 6, padding: "6px 10px", outline: "none", boxSizing: "border-box", background: "#fafafa" }}
+              />
+            </div>
           </div>
 
           {/* 활성화 (수정 시) */}
@@ -446,7 +472,7 @@ export function FaqManagement({ onCountLoaded }: { onCountLoaded?: (count: numbe
       ) : (
         <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden" }}>
           {/* 테이블 헤더 */}
-          <div style={{ display: "grid", gridTemplateColumns: "56px 80px 1fr 180px 110px 72px", padding: "10px 16px", borderBottom: "1px solid #f1f5f9", background: "#f9fafb" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "100px 130px 1fr 160px 90px 72px", padding: "10px 16px", borderBottom: "1px solid #f1f5f9", background: "#f9fafb" }}>
             {["구분", "분야", "제목", "태그", "생성일", "상태"].map(h => (
               <div key={h} style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", textTransform: "uppercase", letterSpacing: 0.6 }}>{h}</div>
             ))}
@@ -458,7 +484,7 @@ export function FaqManagement({ onCountLoaded }: { onCountLoaded?: (count: numbe
               key={item.id}
               onClick={() => setModalTarget(item)}
               style={{
-                display: "grid", gridTemplateColumns: "56px 80px 1fr 180px 110px 72px",
+                display: "grid", gridTemplateColumns: "100px 130px 1fr 160px 90px 72px",
                 padding: "14px 16px",
                 borderBottom: idx < items.length - 1 ? "1px solid #f1f5f9" : "none",
                 cursor: "pointer", alignItems: "center",
@@ -467,23 +493,29 @@ export function FaqManagement({ onCountLoaded }: { onCountLoaded?: (count: numbe
               onMouseEnter={e => (e.currentTarget.style.background = "#f8fafc")}
               onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
             >
-              {/* 구분 — 대표 키워드 (첫 번째 태그) */}
-              <div>
+              {/* 구분 — 대표 키워드 (category 또는 첫 태그) */}
+              <div style={{ paddingRight: 8 }}>
                 <div style={{
-                  fontSize: 11, fontWeight: 600, color: item.sourceStagingSessionId ? "#1d4ed8" : "#15803d",
+                  fontSize: 11, fontWeight: 600,
+                  color: item.sourceStagingSessionId ? "#1d4ed8" : "#15803d",
                   background: item.sourceStagingSessionId ? "#eff6ff" : "#f0fdf4",
                   border: `1px solid ${item.sourceStagingSessionId ? "#bfdbfe" : "#bbf7d0"}`,
                   borderRadius: 6, padding: "3px 8px",
-                  maxWidth: 52, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                  display: "inline-block", maxWidth: "100%",
                 }}>
-                  {item.tags[0] ?? "FAQ"}
+                  {item.category ?? item.tags[0] ?? "FAQ"}
                 </div>
               </div>
 
-              {/* 분야 — 2-depth */}
-              <div style={{ fontSize: 11, color: "#6b7280", lineHeight: 1.4 }}>
-                <div style={{ color: "#374151", fontWeight: 500 }}>FAQ</div>
-                <div style={{ color: "#9ca3af" }}>{item.sourceStagingSessionId ? "AI 분석" : "직접 입력"}</div>
+              {/* 분야 — 대분류/소분류 2-depth */}
+              <div style={{ fontSize: 11, color: "#6b7280", lineHeight: 1.5, paddingRight: 8 }}>
+                <div style={{ color: "#374151", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {item.category ?? "-"}
+                </div>
+                <div style={{ color: "#9ca3af", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {item.field ?? "-"}
+                </div>
               </div>
 
               {/* 제목 + 미리보기 */}
