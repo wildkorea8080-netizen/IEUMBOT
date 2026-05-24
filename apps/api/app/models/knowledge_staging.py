@@ -59,6 +59,10 @@ class KnowledgeStagingChunk(Base):
     merge_candidate_title: Mapped[str | None] = mapped_column(String(500), nullable=True)
     merge_candidate_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     merge_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    merge_original_content: Mapped[str | None] = mapped_column(
+        Text, nullable=True,
+        comment="병합 대상 기존 지식의 원본 텍스트 (diff 표시용)",
+    )
     registration_type: Mapped[str] = mapped_column(
         String(20), nullable=False, default="new", server_default="new",
         comment="new | merge",

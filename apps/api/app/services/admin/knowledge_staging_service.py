@@ -243,6 +243,72 @@ def _llm_analyze_chunk(
         return "", [], ""
 
 
+# ── 기존 지식 내용 조회 + AI 병합 ────────────────────────────────────────────
+
+def _fetch_existing_knowledge_content(doc_id: str, db: Session) -> str | None:
+    """기존 지식 아이템(Document)의 text_content 청크를 합쳐 반환."""
+    try:
+        from app.models.document_versions import DocumentVersion  # noqa: PLC0415
+        from app.models.document_chunks import DocumentChunk  # noqa: PLC0415
+        import uuid as _uuid  # noqa: PLC0415
+
+        version = db.execute(
+            select(DocumentVersion)
+            .where(
+                DocumentVersion.document_id == _uuid.UUID(doc_id),
+                DocumentVersion.is_active.is_(True),
+                DocumentVersion.status == "completed",
+            )
+            .order_by(DocumentVersion.created_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+        if not version:
+            return None
+
+        chunks = db.execute(
+            select(DocumentChunk.text_content)
+            .where(DocumentChunk.document_version_id == version.id)
+            .order_by(DocumentChunk.chunk_index)
+            .limit(6)
+        ).scalars().all()
+        return "\n\n".join(c for c in chunks if c) or None
+    except Exception as exc:
+        logger.debug("[STAGING] fetch existing content failed: %s", exc)
+        return None
+
+
+def _llm_merge_content(original: str, new_content: str, db: Session) -> str | None:
+    """기존 내용과 신규 내용을 AI로 병합해 최신화된 단일 문서로 반환."""
+    try:
+        from app.services.llm_api_config_runtime_service import resolve_runtime_api_config  # noqa: PLC0415
+
+        runtime_api = resolve_runtime_api_config(db)
+        if runtime_api is None:
+            return None
+
+        system_prompt = (
+            "당신은 공공기관 챗봇 지식 데이터베이스 관리 전문가입니다.\n"
+            "기존 지식 문서와 새로 추가된 내용을 분석해 최신화된 단일 문서로 통합합니다.\n"
+            "반드시 마크다운 형식으로만 답변하세요. 설명 문장을 앞에 붙이지 마세요."
+        )
+        user_prompt = (
+            "아래 기존 문서와 신규 내용을 하나로 통합해주세요.\n\n"
+            f"[기존 내용]\n{original[:1200]}\n\n"
+            f"[신규 내용]\n{new_content[:1200]}\n\n"
+            "규칙:\n"
+            "- 중복 내용은 최신 버전으로 통합\n"
+            "- 기존에 없던 새 정보는 추가\n"
+            "- 기존 정보가 변경되었으면 수정\n"
+            "- 불필요한 내용은 제거\n"
+            "- 마크다운 형식으로 정리 (## 제목, ### 소제목, - 항목)\n"
+            "- 통합된 최종 문서만 출력"
+        )
+        return _call_llm_raw(runtime_api, system_prompt, user_prompt, max_tokens=1800, timeout=30) or None
+    except Exception as exc:
+        logger.debug("[STAGING] merge content failed: %s", exc)
+        return None
+
+
 # ── 병합 후보 검사 ────────────────────────────────────────────────────────────
 
 def _check_merge_candidate(
@@ -360,17 +426,28 @@ def analyze_staging_session_background(
 
             merge_title, merge_id, merge_score = _check_merge_candidate(chunk_text, chatbot_id, db)
             registration_type = "merge" if merge_title else "new"
+            merge_original_content: str | None = None
+
+            if registration_type == "merge" and merge_id:
+                existing_text = _fetch_existing_knowledge_content(merge_id, db)
+                if existing_text:
+                    merge_original_content = existing_text
+                    merged = _llm_merge_content(existing_text, final_content, db)
+                    if merged:
+                        final_content = merged
+                        pii_found, pii_regions = detect_pii(final_content)
 
             chunk_row = KnowledgeStagingChunk(
                 session_id=session_row.id,
                 topic_title=topic_title,
-                content=final_content,   # LLM 정리 내용 우선, 실패 시 원본
+                content=final_content,
                 tags=llm_tags,
                 pii_detected=pii_found,
                 pii_regions=pii_regions,
                 merge_candidate_title=merge_title,
                 merge_candidate_id=merge_id,
                 merge_score=merge_score,
+                merge_original_content=merge_original_content,
                 registration_type=registration_type,
                 status="pending",
                 sort_order=i,

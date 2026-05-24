@@ -38,6 +38,7 @@ class StagingChunkItem(ApiSchema):
     merge_candidate_title: str | None
     merge_candidate_id: str | None
     merge_score: float | None
+    merge_original_content: str | None = None
     registration_type: str
     status: str
     sort_order: int
@@ -89,6 +90,7 @@ def _chunk_to_item(row: KnowledgeStagingChunk) -> StagingChunkItem:
         merge_candidate_title=row.merge_candidate_title,
         merge_candidate_id=row.merge_candidate_id,
         merge_score=row.merge_score,
+        merge_original_content=row.merge_original_content,
         registration_type=row.registration_type,
         status=row.status,
         sort_order=row.sort_order,
