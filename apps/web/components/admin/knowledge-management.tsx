@@ -1,14 +1,18 @@
 "use client";
 
-import Link from "next/link";
+import NextLink from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import {
   Search, RefreshCw, Trash2, ChevronDown, ChevronRight as ChevronRightIcon,
   CheckCircle, Loader2, XCircle, Clock, BookOpen, PenLine, Globe,
+  Upload, Shield,
 } from "lucide-react";
-import { useEditor, EditorContent } from "@tiptap/react";
+import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Underline from "@tiptap/extension-underline";
+import { Link as TiptapLink } from "@tiptap/extension-link";
+import { Image } from "@tiptap/extension-image";
+import { Table, TableRow, TableCell, TableHeader } from "@tiptap/extension-table";
 
 import { FaqGenerateModal } from "./FaqGenerateModal";
 import { FaqManagement } from "./faq-management";
@@ -35,6 +39,70 @@ import type {
   KnowledgeSourceGroup,
   WebSourceSyncSettings,
 } from "../../lib/api/admin-operations-types";
+
+// ── 에디터 툴바 ────────────────────────────────────────────────────────────────
+
+function EditorToolbar({ editor }: { editor: Editor | null }) {
+  if (!editor) return null;
+
+  const btn = (active: boolean, onClick: () => void, label: string, title?: string) => (
+    <button
+      key={label}
+      type="button"
+      title={title ?? label}
+      onMouseDown={e => { e.preventDefault(); onClick(); }}
+      style={{
+        padding: "3px 7px", fontSize: 12, fontWeight: active ? 700 : 400,
+        border: `1px solid ${active ? "#2563eb" : "#e5e7eb"}`,
+        borderRadius: 4, background: active ? "#eff6ff" : "#fff",
+        color: active ? "#2563eb" : "#374151", cursor: "pointer", minWidth: 26, lineHeight: 1.4,
+      }}
+    >{label}</button>
+  );
+
+  const sep = () => <div style={{ width: 1, background: "#e5e7eb", margin: "0 2px", alignSelf: "stretch" }} />;
+
+  const insertTable = () => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
+  const insertImage = () => {
+    const url = prompt("이미지 URL을 입력하세요:");
+    if (url) editor.chain().focus().setImage({ src: url }).run();
+  };
+  const setLink = () => {
+    const url = prompt("링크 URL을 입력하세요:", editor.getAttributes("link").href ?? "");
+    if (url === null) return;
+    if (url === "") { editor.chain().focus().unsetLink().run(); return; }
+    editor.chain().focus().setLink({ href: url }).run();
+  };
+
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 3, padding: "6px 10px", borderBottom: "1px solid #f1f5f9", background: "#f9fafb" }}>
+      {btn(editor.isActive("heading", { level: 1 }), () => editor.chain().focus().toggleHeading({ level: 1 }).run(), "H1")}
+      {btn(editor.isActive("heading", { level: 2 }), () => editor.chain().focus().toggleHeading({ level: 2 }).run(), "H2")}
+      {btn(editor.isActive("heading", { level: 3 }), () => editor.chain().focus().toggleHeading({ level: 3 }).run(), "H3")}
+      {btn(editor.isActive("paragraph"), () => editor.chain().focus().setParagraph().run(), "P", "본문")}
+      {sep()}
+      {btn(editor.isActive("bold"), () => editor.chain().focus().toggleBold().run(), "B", "굵게")}
+      {btn(editor.isActive("italic"), () => editor.chain().focus().toggleItalic().run(), "I", "기울임")}
+      {btn(editor.isActive("underline"), () => editor.chain().focus().toggleUnderline().run(), "U", "밑줄")}
+      {btn(editor.isActive("strike"), () => editor.chain().focus().toggleStrike().run(), "S", "취소선")}
+      {sep()}
+      <button type="button" title="수평선" onMouseDown={e => { e.preventDefault(); editor.chain().focus().setHorizontalRule().run(); }}
+        style={{ padding: "3px 7px", fontSize: 12, border: "1px solid #e5e7eb", borderRadius: 4, background: "#fff", color: "#374151", cursor: "pointer" }}>—</button>
+      {btn(editor.isActive("code"), () => editor.chain().focus().toggleCode().run(), "<>", "코드")}
+      {sep()}
+      {btn(editor.isActive("bulletList"), () => editor.chain().focus().toggleBulletList().run(), "• List", "글머리 목록")}
+      {btn(editor.isActive("orderedList"), () => editor.chain().focus().toggleOrderedList().run(), "1. List", "번호 목록")}
+      {btn(editor.isActive("blockquote"), () => editor.chain().focus().toggleBlockquote().run(), "→", "인용")}
+      {sep()}
+      <button type="button" title="표 삽입" onMouseDown={e => { e.preventDefault(); insertTable(); }}
+        style={{ padding: "3px 7px", fontSize: 12, border: "1px solid #e5e7eb", borderRadius: 4, background: "#fff", color: "#374151", cursor: "pointer" }}>Table</button>
+      <button type="button" title="링크" onMouseDown={e => { e.preventDefault(); setLink(); }}
+        style={{ padding: "3px 7px", fontSize: 12, border: `1px solid ${editor.isActive("link") ? "#2563eb" : "#e5e7eb"}`, borderRadius: 4, background: editor.isActive("link") ? "#eff6ff" : "#fff", color: editor.isActive("link") ? "#2563eb" : "#374151", cursor: "pointer" }}>Link</button>
+      <button type="button" title="이미지 삽입" onMouseDown={e => { e.preventDefault(); insertImage(); }}
+        style={{ padding: "3px 7px", fontSize: 12, border: "1px solid #e5e7eb", borderRadius: 4, background: "#fff", color: "#374151", cursor: "pointer" }}>Image</button>
+    </div>
+  );
+}
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof ApiClientError) {
@@ -202,10 +270,22 @@ export function KnowledgeManagement() {
   const [skipDuplicateReindex, setSkipDuplicateReindex] = useState(false);
   // 다른 탭의 건수 (탭 뱃지에 항상 양쪽 표시)
   const [otherGroupCount, setOtherGroupCount] = useState<number>(0);
+  // 관련 파일 탭
+  const [relatedFileTab, setRelatedFileTab] = useState<"file" | "youtube">("file");
+  const [youtubeUrl, setYoutubeUrl] = useState("");
 
   // TipTap 에디터 인스턴스 (내용 편집용)
   const contentEditor = useEditor({
-    extensions: [StarterKit, Underline],
+    extensions: [
+      StarterKit,
+      Underline,
+      TiptapLink.configure({ openOnClick: false }),
+      Image,
+      Table,
+      TableRow,
+      TableHeader,
+      TableCell,
+    ],
     content: "",
     onUpdate: () => setIsContentDirty(true),
     editorProps: {
@@ -498,9 +578,9 @@ export function KnowledgeManagement() {
           ))}
         </div>
         {activeTab !== "faq" && (
-          <Link href="/admin/knowledge/register" className="btn-primary" style={{ fontSize: 13, padding: "7px 14px" }}>
+          <NextLink href="/admin/knowledge/register" className="btn-primary" style={{ fontSize: 13, padding: "7px 14px" }}>
             + 지식 등록
-          </Link>
+          </NextLink>
         )}
       </div>
 
@@ -560,7 +640,7 @@ export function KnowledgeManagement() {
           <BookOpen style={{ width: 48, height: 48, color: "#cbd5e1", margin: "0 auto 12px" }} />
           <div style={{ fontSize: 15, fontWeight: 600, color: "#334155", marginBottom: 6 }}>등록된 지식이 없습니다</div>
           <div style={{ fontSize: 13, color: "#94a3b8", marginBottom: 20 }}>지식 등록 버튼을 클릭해 문서를 추가해보세요</div>
-          <Link href="/admin/knowledge/register" className="btn-primary" style={{ fontSize: 13 }}>지식 등록하기</Link>
+          <NextLink href="/admin/knowledge/register" className="btn-primary" style={{ fontSize: 13 }}>지식 등록하기</NextLink>
         </div>
       ) : sourceGroup === "website" ? (
         <div className="bg-white rounded-xl border border-neutral-200 overflow-hidden">
@@ -774,6 +854,17 @@ export function KnowledgeManagement() {
               </div>
             ) : null}
 
+            {/* PII 감지 결과 */}
+            {detail && detail.sensitiveDetected && (
+              <div style={{ margin: "12px 24px 0", padding: "10px 14px", background: "#fff7ed", border: "1px solid #fdba74", borderRadius: 8, display: "flex", alignItems: "flex-start", gap: 8 }}>
+                <Shield style={{ width: 14, height: 14, color: "#ea580c", flexShrink: 0, marginTop: 1 }} />
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#ea580c", marginBottom: 2 }}>민감정보 감지됨</div>
+                  <div style={{ fontSize: 11, color: "#9a3412", lineHeight: 1.5 }}>이 문서에서 개인정보·민감정보가 감지되었습니다. 내용 검토 후 필요 시 수정하세요.</div>
+                </div>
+              </div>
+            )}
+
             {/* ── 내용 에디터 섹션 ── */}
             {detail && detail.sourceGroup === "file_text" && (
               <div style={{ borderBottom: "1px solid #e5e7eb", margin: "0 24px", paddingBottom: 16, paddingTop: 16 }}>
@@ -804,21 +895,7 @@ export function KnowledgeManagement() {
                   <div style={{ fontSize: 12, color: "#9ca3af", textAlign: "center", padding: "16px 0" }}>내용 로딩 중...</div>
                 ) : showContentEditor ? (
                   <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, background: "#fafafa" }}>
-                    {/* 간단 툴바 */}
-                    <div style={{ display: "flex", gap: 3, padding: "6px 10px", borderBottom: "1px solid #f1f5f9", background: "#f9fafb" }}>
-                      {[
-                        ["B", () => contentEditor?.chain().focus().toggleBold().run()],
-                        ["I", () => contentEditor?.chain().focus().toggleItalic().run()],
-                        ["H2", () => contentEditor?.chain().focus().toggleHeading({ level: 2 }).run()],
-                        ["H3", () => contentEditor?.chain().focus().toggleHeading({ level: 3 }).run()],
-                        ["• 목록", () => contentEditor?.chain().focus().toggleBulletList().run()],
-                      ].map(([label, fn]) => (
-                        <button key={String(label)} type="button" onMouseDown={e => { e.preventDefault(); (fn as () => void)(); }}
-                          style={{ padding: "3px 7px", fontSize: 12, border: "1px solid #e5e7eb", borderRadius: 4, background: "#fff", cursor: "pointer", color: "#374151" }}>
-                          {String(label)}
-                        </button>
-                      ))}
-                    </div>
+                    <EditorToolbar editor={contentEditor} />
                     <EditorContent editor={contentEditor} />
                   </div>
                 ) : contentText ? (
@@ -908,14 +985,43 @@ export function KnowledgeManagement() {
                       className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                     />
                   </label>
+                  {/* 관련 파일 */}
+                  <div className="space-y-2 md:col-span-2">
+                    <span className="text-sm font-medium text-slate-700">관련 파일</span>
+                    <div style={{ display: "flex", gap: 0, borderBottom: "1px solid #e5e7eb", marginBottom: 8 }}>
+                      {(["file", "youtube"] as const).map(tab => (
+                        <button key={tab} type="button"
+                          onClick={() => setRelatedFileTab(tab)}
+                          style={{ padding: "6px 14px", fontSize: 12, fontWeight: relatedFileTab === tab ? 600 : 400, color: relatedFileTab === tab ? "#2563eb" : "#6b7280", background: "none", border: "none", borderBottom: `2px solid ${relatedFileTab === tab ? "#2563eb" : "transparent"}`, cursor: "pointer", marginBottom: -1 }}>
+                          {tab === "file" ? "파일 업로드" : "YouTube 링크"}
+                        </button>
+                      ))}
+                    </div>
+                    {relatedFileTab === "file" ? (
+                      <div style={{ border: "2px dashed #e5e7eb", borderRadius: 8, padding: "20px 16px", textAlign: "center", background: "#fafafa" }}>
+                        <Upload style={{ width: 20, height: 20, color: "#9ca3af", margin: "0 auto 6px" }} />
+                        <div style={{ fontSize: 12, color: "#6b7280" }}>파일을 드래그하거나 클릭하여 업로드</div>
+                        <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 4 }}>PDF, DOCX, XLSX (최대 10MB)</div>
+                      </div>
+                    ) : (
+                      <input
+                        value={youtubeUrl}
+                        onChange={e => setYoutubeUrl(e.target.value)}
+                        placeholder="https://www.youtube.com/watch?v=..."
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                      />
+                    )}
+                  </div>
+
                   <label className="space-y-2 md:col-span-2">
-                    <span className="text-sm font-medium text-slate-700">메모</span>
+                    <span className="text-sm font-medium text-slate-700">버전 메모</span>
                     <textarea
                       value={editor.memo}
                       onChange={(event) =>
                         setEditor((current) => (current ? { ...current, memo: event.target.value } : current))
                       }
-                      rows={4}
+                      rows={3}
+                      placeholder="이 버전에 대한 변경 내용 또는 메모를 입력하세요."
                       className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                     />
                   </label>
@@ -1200,6 +1306,27 @@ export function KnowledgeManagement() {
           </div>
         </div>
       )}
+
+      <style>{`
+        .tiptap { outline: none; }
+        .tiptap p { margin: 0.5em 0; }
+        .tiptap h1 { font-size: 1.4em; font-weight: 700; margin: 0.8em 0 0.4em; }
+        .tiptap h2 { font-size: 1.2em; font-weight: 600; margin: 0.7em 0 0.3em; }
+        .tiptap h3 { font-size: 1.05em; font-weight: 600; margin: 0.6em 0 0.3em; }
+        .tiptap ul, .tiptap ol { padding-left: 1.5em; margin: 0.5em 0; }
+        .tiptap blockquote { border-left: 3px solid #e5e7eb; padding-left: 1em; color: #6b7280; margin: 0.5em 0; }
+        .tiptap code { background: #f1f5f9; border-radius: 3px; padding: 1px 4px; font-size: 0.9em; font-family: monospace; }
+        .tiptap strong { font-weight: 700; }
+        .tiptap em { font-style: italic; }
+        .tiptap u { text-decoration: underline; }
+        .tiptap s { text-decoration: line-through; }
+        .tiptap hr { border: none; border-top: 1px solid #e5e7eb; margin: 1em 0; }
+        .tiptap img { max-width: 100%; border-radius: 6px; }
+        .tiptap table { border-collapse: collapse; width: 100%; margin: 0.8em 0; }
+        .tiptap th, .tiptap td { border: 1px solid #e5e7eb; padding: 6px 10px; font-size: 12px; }
+        .tiptap th { background: #f9fafb; font-weight: 600; }
+        .tiptap a { color: #2563eb; text-decoration: underline; }
+      `}</style>
 
       {faqTargetItem ? (
         <FaqGenerateModal

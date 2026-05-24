@@ -465,26 +465,38 @@ export function FaqManagement() {
               onMouseEnter={e => (e.currentTarget.style.background = "#f8fafc")}
               onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
             >
-              {/* 구분 */}
+              {/* 구분 — 대표 키워드 (첫 번째 태그) */}
               <div>
                 <div style={{
-                  width: 34, height: 34, borderRadius: 8, fontSize: 16,
+                  fontSize: 11, fontWeight: 600, color: item.sourceStagingSessionId ? "#1d4ed8" : "#15803d",
                   background: item.sourceStagingSessionId ? "#eff6ff" : "#f0fdf4",
-                  display: "flex", alignItems: "center", justifyContent: "center",
+                  border: `1px solid ${item.sourceStagingSessionId ? "#bfdbfe" : "#bbf7d0"}`,
+                  borderRadius: 6, padding: "3px 8px",
+                  maxWidth: 52, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                 }}>
-                  {item.sourceStagingSessionId ? "🤖" : "✏️"}
+                  {item.tags[0] ?? "FAQ"}
                 </div>
               </div>
 
-              {/* 분야 */}
-              <div style={{ fontSize: 12, color: "#6b7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {item.sourceStagingSessionId ? "AI자동" : "직접입력"}
+              {/* 분야 — 2-depth */}
+              <div style={{ fontSize: 11, color: "#6b7280", lineHeight: 1.4 }}>
+                <div style={{ color: "#374151", fontWeight: 500 }}>FAQ</div>
+                <div style={{ color: "#9ca3af" }}>{item.sourceStagingSessionId ? "AI 분석" : "직접 입력"}</div>
               </div>
 
               {/* 제목 + 미리보기 */}
               <div style={{ minWidth: 0, paddingRight: 12 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginBottom: 3 }}>
-                  {item.question}
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {item.question}
+                  </div>
+                  <span style={{
+                    fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 4, flexShrink: 0,
+                    background: item.sourceStagingSessionId ? "#fef3c7" : "#f1f5f9",
+                    color: item.sourceStagingSessionId ? "#b45309" : "#475569",
+                  }}>
+                    {item.sourceStagingSessionId ? "신규등록" : "직접"}
+                  </span>
                 </div>
                 <div style={{ fontSize: 12, color: "#9ca3af", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {item.answer.replace(/<[^>]+>/g, "").slice(0, 60)}{item.answer.length > 60 ? "..." : ""}
