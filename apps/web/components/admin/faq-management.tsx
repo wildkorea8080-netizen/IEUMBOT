@@ -331,7 +331,7 @@ function FaqEditModal({
 
 // ── 메인 컴포넌트 ──────────────────────────────────────────────────────────────
 
-export function FaqManagement() {
+export function FaqManagement({ onCountLoaded }: { onCountLoaded?: (count: number) => void }) {
   const [chatbotId, setChatbotId] = useState<string | null>(null);
   const [items, setItems] = useState<FaqManagementItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -349,6 +349,7 @@ export function FaqManagement() {
     try {
       const res = await listFaqItems(id, true);
       setItems(res.items);
+      onCountLoaded?.(res.items.length);
     } catch (e) {
       setError(getErrorMessage(e));
     } finally {
@@ -366,6 +367,7 @@ export function FaqManagement() {
         if (id) {
           const faqRes = await listFaqItems(id, true);
           setItems(faqRes.items);
+          onCountLoaded?.(faqRes.items.length);
         }
       } catch (e) {
         setError(getErrorMessage(e));

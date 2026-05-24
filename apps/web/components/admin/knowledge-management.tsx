@@ -268,8 +268,10 @@ export function KnowledgeManagement() {
   const [faqTargetItem, setFaqTargetItem] = useState<KnowledgeItem | null>(null);
   const [settingsChatbotId, setSettingsChatbotId] = useState<string | null>(null);
   const [skipDuplicateReindex, setSkipDuplicateReindex] = useState(false);
-  // 다른 탭의 건수 (탭 뱃지에 항상 양쪽 표시)
-  const [otherGroupCount, setOtherGroupCount] = useState<number>(0);
+  // 탭별 안정적인 카운트 (로딩 중에도 정확한 수 유지)
+  const [stableFileCnt, setStableFileCnt] = useState<number>(0);
+  const [stableWebCnt, setStableWebCnt] = useState<number>(0);
+  const [faqCount, setFaqCount] = useState<number>(0);
   // 관련 파일 탭
   const [relatedFileTab, setRelatedFileTab] = useState<"file" | "youtube">("file");
   const [youtubeUrl, setYoutubeUrl] = useState("");
@@ -333,7 +335,13 @@ export function KnowledgeManagement() {
         getAdminChatbots(),
       ]);
       setItems(response.items);
-      setOtherGroupCount(otherRes.items.length);
+      if (sourceGroup === "file_text") {
+        setStableFileCnt(response.items.length);
+        setStableWebCnt(otherRes.items.length);
+      } else {
+        setStableWebCnt(response.items.length);
+        setStableFileCnt(otherRes.items.length);
+      }
       setRuntimeStatus(runtime);
       const chatbot = chatbotResponse.items[0];
       setSettingsChatbotId(chatbot?.id ?? null);
@@ -529,9 +537,9 @@ export function KnowledgeManagement() {
     }
   };
 
-  // 탭별 카운트: 현재 탭은 items.length, 반대 탭은 otherGroupCount
-  const fileCount = activeTab === "file_text" ? items.length : otherGroupCount;
-  const websiteCount = activeTab === "website" ? items.length : otherGroupCount;
+  // 탭별 카운트: 로딩 중·이후 모두 안정적인 캐시 값 사용
+  const fileCount = stableFileCnt;
+  const websiteCount = stableWebCnt;
 
   // 상태 아이콘
   const StatusBadge = ({ item }: { item: KnowledgeItem }) => {
@@ -553,7 +561,7 @@ export function KnowledgeManagement() {
           {([
             ["file_text", `파일·텍스트 (${fileCount})`],
             ["website", `웹사이트 (${websiteCount})`],
-            ["faq", "FAQ"],
+            ["faq", faqCount > 0 ? `FAQ (${faqCount})` : "FAQ"],
           ] as ["file_text" | "website" | "faq", string][]).map(([tab, label]) => (
             <button
               key={tab}
@@ -584,7 +592,7 @@ export function KnowledgeManagement() {
         )}
       </div>
 
-      {activeTab === "faq" ? <FaqManagement /> : (
+      {activeTab === "faq" ? <FaqManagement onCountLoaded={setFaqCount} /> : (
       <>
 
       {/* 중복 방지 설정 */}
