@@ -428,3 +428,44 @@ export type FaqBulkRegisterResponse = {
 export type AdminChatLogsResponse = {
   items: AdminChatLogItem[];
 };
+
+// ── 스마트 FAQ 분석 ────────────────────────────────────────────────────────────
+
+export type FaqSuggestedItem = {
+  question: string;
+  answer: string;
+  tags: string[];
+  topic: string;
+  category: string | null;
+  field: string | null;
+};
+
+export type FaqAnalyzedTopic = {
+  topic: string;
+  description: string;
+  category: string | null;
+  field: string | null;
+  chunkIndices: number[];
+  faqs: FaqSuggestedItem[];
+};
+
+export type FaqAnalyzeResponse = {
+  knowledgeId: string;
+  documentTitle: string;
+  topics: FaqAnalyzedTopic[];
+  totalFaqs: number;
+};
+
+export type FaqBulkCreateItem = {
+  question: string;
+  answer: string;
+  tags: string[];
+  category: string | null;
+  field: string | null;
+};
+
+export type FaqBulkCreateResponse = {
+  created: number;
+  failed: number;
+  faqIds: string[];
+};

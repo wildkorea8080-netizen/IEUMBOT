@@ -1,6 +1,5 @@
 """FAQ API — 관리자용 CRUD 엔드포인트."""
 
-import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -9,10 +8,10 @@ from sqlalchemy.orm import Session
 from app.api.dependencies.auth import AdminPrincipal, require_institution_admin_auth
 from app.db import get_db_session
 from app.schemas import ApiSchema
+from app.schemas.knowledge import FaqBulkCreateRequest, FaqBulkCreateResponse
 from app.services.admin.faq_service import (
     create_faq_item,
     delete_faq_item,
-    get_faq_item,
     list_faq_items,
     update_faq_item,
 )
@@ -158,3 +157,43 @@ def delete_faq(
     deleted = delete_faq_item(db, faq_id=faq_id, organization_id=org_id)
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="FAQ_NOT_FOUND")
+
+
+@router.post("/faq/bulk-create", response_model=FaqBulkCreateResponse, status_code=201)
+def bulk_create_faq(
+    body: FaqBulkCreateRequest,
+    principal: AdminPrincipal = Depends(require_institution_admin_auth),
+    db: Session = Depends(get_db_session),
+) -> FaqBulkCreateResponse:
+    """
+    스마트 분석으로 생성된 FAQ를 일괄로 faq_items 테이블에 등록.
+    각 FAQ는 개별 category/field/tags를 가질 수 있음.
+    실패한 항목은 건너뜀.
+    """
+    ensure_chatbot_in_scope(db, principal=principal, chatbot_id=body.chatbot_id)
+    org_id = require_institution_organization_id(principal)
+
+    created_ids: list[str] = []
+    failed = 0
+
+    for faq in body.faqs:
+        try:
+            row = create_faq_item(
+                db,
+                chatbot_id=body.chatbot_id,
+                organization_id=org_id,
+                question=faq.question,
+                answer=faq.answer,
+                tags=faq.tags,
+                category=faq.category,
+                field=faq.field,
+            )
+            created_ids.append(str(row.id))
+        except Exception:
+            failed += 1
+
+    return FaqBulkCreateResponse(
+        created=len(created_ids),
+        failed=failed,
+        faq_ids=created_ids,
+    )

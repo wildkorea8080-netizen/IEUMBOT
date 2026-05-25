@@ -57,6 +57,9 @@ class Settings(BaseSettings):
     use_reranking: bool = False
     rerank_top_n: int = 5
     use_query_rewriting: bool = False
+    use_contextual_retrieval: bool = False
+    contextual_retrieval_model: str = "gpt-4o-mini"
+    contextual_retrieval_max_workers: int = 5
 
     model_config = SettingsConfigDict(
         env_file=".env",

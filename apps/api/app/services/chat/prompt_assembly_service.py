@@ -148,7 +148,9 @@ def build_answer_prompt(
 ) -> dict[str, str]:
     source_lines: list[str] = []
     for index, item in enumerate(candidates[:5], start=1):
-        text_preview = str(item.get("contentSignals", {}).get("textPreview", "") or "").strip()
+        signals      = item.get("contentSignals") or {}
+        text_preview = str(signals.get("textPreview", "") or "").strip()
+        context_text = str(signals.get("contextText", "") or "").strip()
 
         source_type = item.get("sourceType", "")
         source_url  = item.get("sourceUrl") or ""
@@ -172,11 +174,14 @@ def build_answer_prompt(
         # 섹션 라인 (있을 때만)
         section_line = f"섹션: {section}\n" if section else ""
 
+        # context_text: 문서 내 청크 위치 요약 — 있을 때만 근거 본문 앞에 삽입
+        body = f"{context_text}\n{text_preview}" if context_text else text_preview
+
         source_lines.append(
             f"[S{index}] {origin_line}\n"
             f"{section_line}"
             f"관련도: {score:.4f}\n"
-            f"근거 본문:\n{text_preview}\n"
+            f"근거 본문:\n{body}\n"
         )
 
     flags = question_type_flags or {}

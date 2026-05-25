@@ -168,3 +168,57 @@ class FaqBulkRegisterResponse(ApiSchema):
     registered: int
     failed: int
     knowledge_ids: list[str]
+
+
+# ── 스마트 FAQ 분석 (2단계 파이프라인) ─────────────────────────────────────────
+
+class FaqAnalyzeRequest(ApiSchema):
+    chatbot_id: str
+    max_topics: int = Field(default=6, ge=1, le=10)
+    faqs_per_topic: int = Field(default=2, ge=1, le=4)
+
+
+class FaqSuggestedItem(ApiSchema):
+    question: str
+    answer: str
+    tags: list[str] = Field(default_factory=list)
+    topic: str
+    category: str | None = None
+    field: str | None = None
+
+
+class FaqAnalyzedTopic(ApiSchema):
+    topic: str
+    description: str
+    category: str | None = None
+    field: str | None = None
+    chunk_indices: list[int] = Field(default_factory=list)
+    faqs: list[FaqSuggestedItem] = Field(default_factory=list)
+
+
+class FaqAnalyzeResponse(ApiSchema):
+    knowledge_id: str
+    document_title: str
+    topics: list[FaqAnalyzedTopic]
+    total_faqs: int
+
+
+# ── 스마트 일괄 등록 (per-FAQ category/field) ──────────────────────────────────
+
+class FaqBulkCreateItem(ApiSchema):
+    question: str
+    answer: str
+    tags: list[str] = Field(default_factory=list)
+    category: str | None = None
+    field: str | None = None
+
+
+class FaqBulkCreateRequest(ApiSchema):
+    chatbot_id: str
+    faqs: list[FaqBulkCreateItem]
+
+
+class FaqBulkCreateResponse(ApiSchema):
+    created: int
+    failed: int
+    faq_ids: list[str]

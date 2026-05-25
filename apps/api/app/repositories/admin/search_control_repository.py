@@ -1,3 +1,4 @@
+import re
 import uuid
 from datetime import date
 from typing import Any
@@ -19,6 +20,41 @@ from app.services.embedding_service import coerce_embedding_vector
 # USE_HYBRID_SEARCH=true 이면 BM25(tsvector) + RRF 활성화
 # false(기본) 이면 기존 LIKE 방식 유지 (롤백 대비)
 _USE_HYBRID_SEARCH: bool = settings.use_hybrid_search
+
+# ── 한국어 BM25 쿼리 bigram 확장 ─────────────────────────────────────────────
+_KO_RE = re.compile(r"[가-힣]")
+_Q_SPLIT_RE = re.compile(r"[^\w가-힣]+")
+
+
+def _build_bm25_tsquery(terms: list[str]) -> str:
+    """
+    검색어 목록을 bigram 확장 AND/OR tsquery 문자열로 변환.
+
+    각 검색어를 2-gram으로 쪼개 OR로 묶고, 검색어 간은 AND로 연결:
+      "주택지원사업" → (주택지원사업 | 주택 | 택지 | 지원 | 원사 | 사업)
+      "주택 신청" → (주택 | 주 | 택) & (신청 | 신 | 청)
+
+    이렇게 하면 "주택지원사업" 하나짜리 토큰에서도 "주택" 검색이 매칭된다.
+    """
+    and_parts: list[str] = []
+    for term in terms:
+        subtokens = _Q_SPLIT_RE.split(term.strip())
+        for subtoken in subtokens:
+            if not subtoken:
+                continue
+            variants: list[str] = [re.sub(r"'", "''", subtoken)]
+            if len(subtoken) >= 3 and _KO_RE.search(subtoken):
+                for i in range(len(subtoken) - 1):
+                    bg = subtoken[i : i + 2]
+                    if _KO_RE.search(bg):
+                        esc = re.sub(r"'", "''", bg)
+                        if esc not in variants:
+                            variants.append(esc)
+            if len(variants) == 1:
+                and_parts.append(variants[0])
+            else:
+                and_parts.append("(" + " | ".join(variants) + ")")
+    return " & ".join(and_parts) if and_parts else ""
 
 
 def get_chatbot_in_scope(
@@ -437,23 +473,31 @@ def _fetch_bm25_candidates(
     if not question_terms:
         return []
 
-    query_text = " ".join(question_terms)
-
     # ── BM25 검색: text_search_vector IS NOT NULL ───────────────────────────
-    tsquery_expr = func.plainto_tsquery("simple", query_text)
-    bm25_stmt = (
-        base_stmt.where(
-            DocumentChunk.text_search_vector.is_not(None),
-            DocumentChunk.text_search_vector.op("@@")(tsquery_expr),
+    # bigram 확장 AND/OR tsquery: 한국어 복합어 부분 매칭 지원
+    # 예) "주택지원사업" 검색 → "주택" 단독 검색도 매칭됨
+    tsquery_str = _build_bm25_tsquery(question_terms)
+    if not tsquery_str:
+        return _fetch_like_candidates(
+            db, base_stmt=base_stmt, question_terms=question_terms, limit_count=limit_count
         )
-        .order_by(
-            func.ts_rank(DocumentChunk.text_search_vector, tsquery_expr).desc(),
-            DocumentVersion.document_priority.asc(),
-            DocumentVersion.version_number.desc(),
-        )
-        .limit(limit_count)
-    )
+
     try:
+        tsquery_expr = func.to_tsquery("simple", tsquery_str)
+        # ts_rank 점수 계산은 원본 plainto_tsquery 기반으로 유지 (OR 확장 시 점수 희석 방지)
+        rank_query_expr = func.plainto_tsquery("simple", " ".join(question_terms))
+        bm25_stmt = (
+            base_stmt.where(
+                DocumentChunk.text_search_vector.is_not(None),
+                DocumentChunk.text_search_vector.op("@@")(tsquery_expr),
+            )
+            .order_by(
+                func.ts_rank(DocumentChunk.text_search_vector, rank_query_expr).desc(),
+                DocumentVersion.document_priority.asc(),
+                DocumentVersion.version_number.desc(),
+            )
+            .limit(limit_count)
+        )
         bm25_rows: list[tuple[DocumentChunk, Document, DocumentVersion]] = list(
             db.execute(bm25_stmt).fetchall()
         )

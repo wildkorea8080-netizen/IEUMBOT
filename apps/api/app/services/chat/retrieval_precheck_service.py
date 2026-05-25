@@ -1037,6 +1037,7 @@ def search_relevant_chunks(
                 "contentSignals": {
                     "sectionTitle": section_title or "",
                     "textPreview": text_preview,
+                    "contextText": chunk.context_text or "",
                 },
             }
         )

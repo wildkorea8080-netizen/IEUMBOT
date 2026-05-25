@@ -16,6 +16,9 @@ import type {
   DashboardRecentChatItem,
   DashboardSummaryResponse,
   DashboardUsageTrendItem,
+  FaqAnalyzeResponse,
+  FaqBulkCreateItem,
+  FaqBulkCreateResponse,
   FaqBulkRegisterResponse,
   FaqGenerateResponse,
   FaqItem,
@@ -244,6 +247,13 @@ export async function reindexKnowledge(knowledgeId: string): Promise<KnowledgeDe
   });
 }
 
+export async function reindexAllKnowledge(chatbotId: string): Promise<{ queued: number; skipped: number }> {
+  return apiClient.request<{ queued: number; skipped: number }>(
+    `/admin/knowledge/reindex-all?chatbotId=${encodeURIComponent(chatbotId)}`,
+    { method: "POST" },
+  );
+}
+
 export async function uploadKnowledgeFile(body: {
   chatbotId: string;
   file: File;
@@ -373,6 +383,33 @@ export async function generateFaqFromKnowledge(
       body: { knowledge_id: knowledgeId, chatbot_id: chatbotId, faq_count: faqCount },
     },
   );
+}
+
+export async function analyzeFaqFromKnowledge(
+  knowledgeId: string,
+  params: { chatbotId: string; maxTopics?: number; faqsPerTopic?: number },
+): Promise<FaqAnalyzeResponse> {
+  return apiClient.request<FaqAnalyzeResponse>(
+    `/admin/knowledge/${knowledgeId}/analyze-faq`,
+    {
+      method: "POST",
+      body: {
+        chatbot_id: params.chatbotId,
+        max_topics: params.maxTopics ?? 6,
+        faqs_per_topic: params.faqsPerTopic ?? 2,
+      },
+    },
+  );
+}
+
+export async function bulkCreateFaq(
+  chatbotId: string,
+  faqs: FaqBulkCreateItem[],
+): Promise<FaqBulkCreateResponse> {
+  return apiClient.request<FaqBulkCreateResponse>("/admin/faq/bulk-create", {
+    method: "POST",
+    body: { chatbot_id: chatbotId, faqs },
+  });
 }
 
 export async function bulkRegisterFaq(params: {

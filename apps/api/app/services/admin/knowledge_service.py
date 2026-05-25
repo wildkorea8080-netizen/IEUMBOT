@@ -1,4 +1,5 @@
 import gzip
+import logging
 import os
 import random
 import re
@@ -7,14 +8,13 @@ import ssl
 import time
 import uuid
 import zlib
-import logging
 from collections.abc import Callable
-from typing import Any
 from datetime import UTC, date, datetime, timedelta
 from hashlib import sha256
 from html.parser import HTMLParser
 from io import BytesIO
 from pathlib import Path
+from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, unquote, urldefrag, urljoin, urlparse
 from urllib.request import HTTPSHandler, ProxyHandler, Request, build_opener
@@ -51,7 +51,11 @@ from app.services.admin.scope_service import (
     ensure_web_source_in_scope,
     require_institution_organization_id,
 )
-from app.services.embedding_service import EmbeddingFailure, generate_embedding_or_raise, generate_embeddings_batch
+from app.services.embedding_service import (
+    EmbeddingFailure,
+    generate_embedding_or_raise,
+    generate_embeddings_batch,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -211,6 +215,37 @@ PDF_TEXT_MIN_LETTER_RATIO = 0.55
 PDF_TEXT_MIN_WORDS = 12
 PDF_TEXT_ALLOWED_CHAR_REGEX = re.compile(r"[0-9A-Za-z가-힣\s\.,:/()%\-·&]")
 MOJIBAKE_MARKER_REGEX = re.compile(r"(?:�|ì|ë|í|ê|ä|å|æ|媛|蹂|諛|쒖|섏|덈|듬)")
+
+# ── BM25 한국어 bigram 색인 ────────────────────────────────────────────────────
+_KO_CHAR_RE = re.compile(r"[가-힣]")
+_TOKEN_SPLIT_RE = re.compile(r"[^\w가-힣]+")
+
+
+def _build_tsvector_text(text: str) -> str:
+    """
+    PostgreSQL BM25 색인(tsvector)용 텍스트 생성.
+
+    한국어 3글자 이상 토큰에 2-gram 확장을 적용해 부분 검색을 지원한다.
+    예) "주택지원사업" → "주택지원사업 주택 택지 지원 원사 사업"
+       → tsvector에 '주택'이 포함되므로 "주택" 검색 시 매칭됨.
+    """
+    tokens = _TOKEN_SPLIT_RE.split(text)
+    result: list[str] = []
+    seen: set[str] = set()
+    for token in tokens:
+        if not token:
+            continue
+        if token not in seen:
+            result.append(token)
+            seen.add(token)
+        # 3글자 이상 한국어 토큰만 bigram 생성 (2글자는 이미 최소 단위)
+        if len(token) >= 3 and _KO_CHAR_RE.search(token):
+            for i in range(len(token) - 1):
+                bigram = token[i : i + 2]
+                if _KO_CHAR_RE.search(bigram) and bigram not in seen:
+                    result.append(bigram)
+                    seen.add(bigram)
+    return " ".join(result)
 STALE_QUEUED_AFTER = timedelta(minutes=int(os.getenv("INGEST_STALE_QUEUED_MINUTES", "20")))
 STALE_PROCESSING_AFTER = timedelta(minutes=int(os.getenv("INGEST_STALE_PROCESSING_MINUTES", "120")))
 SKIP_FILE_EXTENSIONS = {
@@ -1533,6 +1568,110 @@ def _load_rag_settings_for_chatbot(
         return None
 
 
+# ── Contextual Retrieval ──────────────────────────────────────────────────────
+
+_CONTEXT_PROMPT_TEMPLATE = """<document>
+{doc_text}
+</document>
+
+Here is a chunk from the document:
+<chunk>
+{chunk_text}
+</chunk>
+
+Please give a short succinct context (2-3 sentences in Korean) to situate this chunk within the overall document for the purpose of improving search retrieval. Answer only with the context and nothing else."""
+
+_CONTEXT_INTRO_CHARS = 600     # 문서 도입부 (항상 포함)
+_CONTEXT_WINDOW_BEFORE = 400   # 청크 앞 여백
+_CONTEXT_WINDOW_AFTER = 800    # 청크 뒤 여백
+
+
+def _build_chunk_doc_preview(full_text: str, chunk_text: str) -> str:
+    """청크 위치 기반 슬라이딩 윈도우로 LLM에 전달할 문서 맥락을 구성한다."""
+    intro = full_text[:_CONTEXT_INTRO_CHARS]
+    # 청크 위치 탐색 (앞 80자로 빠르게 찾기)
+    pos = full_text.find(chunk_text[:80])
+    if pos <= _CONTEXT_INTRO_CHARS or pos == -1:
+        # 도입부와 겹치거나 못 찾으면 intro + 그 이후 window
+        window_start = _CONTEXT_INTRO_CHARS
+        window_end = window_start + _CONTEXT_WINDOW_BEFORE + _CONTEXT_WINDOW_AFTER
+        surrounding = full_text[window_start:window_end]
+    else:
+        window_start = max(_CONTEXT_INTRO_CHARS, pos - _CONTEXT_WINDOW_BEFORE)
+        window_end = pos + _CONTEXT_WINDOW_AFTER
+        surrounding = full_text[window_start:window_end]
+
+    if not surrounding or surrounding == intro:
+        return intro
+    return intro + "\n...\n" + surrounding
+
+
+def _generate_chunk_contexts(
+    document_title: str,
+    full_text: str,
+    chunks: list[dict],
+) -> list[str | None]:
+    """
+    각 청크에 대해 GPT-4o-mini로 2-3문장 문맥 요약을 생성한다.
+
+    반환: chunk 순서와 동일한 길이의 리스트 (실패 청크는 None).
+    - 너무 짧거나 정보가 없는 청크는 생성 건너뜀 (None 반환).
+    - 청크 위치 기반 슬라이딩 윈도우로 문서 맥락을 구성해 긴 문서 후반부도 정확히 처리.
+    """
+    import concurrent.futures  # noqa: PLC0415
+
+    from app.core.config import settings as _settings  # noqa: PLC0415
+
+    results: list[str | None] = [None] * len(chunks)
+
+    def _call_one(idx: int, chunk_text: str) -> tuple[int, str | None]:
+        # 너무 짧은 청크(TOC, 헤더 등)는 건너뜀
+        if len(chunk_text.strip()) < 80:
+            return idx, None
+        doc_preview = _build_chunk_doc_preview(full_text, chunk_text)
+        prompt = _CONTEXT_PROMPT_TEMPLATE.format(
+            doc_text=doc_preview,
+            chunk_text=chunk_text[:600],
+        )
+        try:
+            import openai  # noqa: PLC0415
+
+            api_key = getattr(_settings, "openai_api_key", None) or os.getenv("API_OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
+            if not api_key:
+                return idx, None
+            client = openai.OpenAI(api_key=api_key)
+            resp = client.chat.completions.create(
+                model=_settings.contextual_retrieval_model,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=150,
+                temperature=0.0,
+            )
+            context = (resp.choices[0].message.content or "").strip()
+            return idx, context if context else None
+        except Exception as exc:
+            logger.warning("[CONTEXTUAL_RETRIEVAL] chunk=%d failed: %s", idx, exc)
+            return idx, None
+
+    max_workers = getattr(_settings, "contextual_retrieval_max_workers", 5)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(_call_one, i, str(c.get("text") or "")): i
+            for i, c in enumerate(chunks)
+        }
+        for future in concurrent.futures.as_completed(futures):
+            idx, ctx = future.result()
+            results[idx] = ctx
+
+    generated = sum(1 for r in results if r is not None)
+    logger.info(
+        "[CONTEXTUAL_RETRIEVAL] title=%s chunks=%d contexts_generated=%d",
+        document_title[:40],
+        len(chunks),
+        generated,
+    )
+    return results
+
+
 def _ingest_document_version_content(
     db: Session,
     *,
@@ -1701,11 +1840,40 @@ def _ingest_document_version_content(
     document.processed_at = now
     document.current_version_id = version.id
 
+    # ── Contextual Retrieval: LLM 문맥 생성 (선택적) ────────────────────────
+    from app.core.config import settings as _cfg  # noqa: PLC0415
+
+    chunk_contexts: list[str | None] = [None] * len(chunks)
+    if getattr(_cfg, "use_contextual_retrieval", False):
+        if job is not None:
+            job.current_step = "contextual_retrieval"
+            job.progress_percent = 60
+            db.flush()
+        try:
+            chunk_contexts = _generate_chunk_contexts(
+                document_title=document.title,
+                full_text=extracted_text,
+                chunks=chunks,
+            )
+        except Exception as _ctx_exc:
+            logger.warning("[CONTEXTUAL_RETRIEVAL] generation failed, proceeding without context: %s", _ctx_exc)
+            chunk_contexts = [None] * len(chunks)
+
+    if job is not None:
+        job.current_step = "embedding"
+        job.progress_percent = 65
+        db.flush()
+
     embedding_count = 0
     embedding_error_counts: dict[str, int] = {}
+    # context가 있으면 "context\n\nchunk_text" 로 임베딩, 없으면 기존 "section_title\nchunk_text"
     embedding_texts = [
-        f"{str(chunk_item.get('section_title') or document.title)}\n{str(chunk_item.get('text') or '')}"
-        for chunk_item in chunks
+        (
+            f"{chunk_contexts[i]}\n\n{str(chunk_item.get('text') or '')}"
+            if chunk_contexts[i]
+            else f"{str(chunk_item.get('section_title') or document.title)}\n{str(chunk_item.get('text') or '')}"
+        )
+        for i, chunk_item in enumerate(chunks)
     ]
     embeddings = generate_embeddings_batch(
         db,
@@ -1716,6 +1884,7 @@ def _ingest_document_version_content(
     for index, chunk_item in enumerate(chunks, start=1):
         chunk_text = str(chunk_item.get("text") or "")
         section_title = str(chunk_item.get("section_title") or document.title)
+        context_text = chunk_contexts[index - 1]
         embedding = embeddings[index - 1] if index - 1 < len(embeddings) else None
         if _embedding_generated(embedding):
             embedding_count += 1
@@ -1723,13 +1892,9 @@ def _ingest_document_version_content(
             embedding_error_counts["EMBEDDING_BATCH_FAILED"] = (
                 embedding_error_counts.get("EMBEDDING_BATCH_FAILED", 0) + 1
             )
-        # text_search_vector: section_title + text_content 를 'simple' 사전으로 색인
-        # to_tsvector는 서버사이드 함수이므로 insert 시 func.to_tsvector() 로 전달
-        # 마이그레이션 미실행 환경에서는 컬럼 자체가 없으므로 try/except 로 보호
-        _tsv_value = func.to_tsvector(
-            "simple",
-            (section_title + " " + chunk_text) if section_title else chunk_text,
-        )
+        # text_search_vector: context + section_title + text_content (BM25 색인)
+        _tsv_raw = " ".join(filter(None, [context_text, section_title, chunk_text]))
+        _tsv_value = func.to_tsvector("simple", _build_tsvector_text(_tsv_raw))
         db.add(
             DocumentChunk(
                 organization_id=uuid.UUID(organization_id),
@@ -1741,6 +1906,7 @@ def _ingest_document_version_content(
                 section_title=section_title,
                 corpus_domain=version.corpus_domain,
                 text_content=chunk_text,
+                context_text=context_text,
                 metadata_json={
                     **merged_metadata,
                     "sourceType": merged_metadata.get("sourceType") or version.source_type,
@@ -1758,29 +1924,31 @@ def _ingest_document_version_content(
             err_msg = str(exc).lower()
             # text_search_vector 컬럼이 아직 없는 경우(마이그레이션 미실행) —
             # tsv 없이 재시도. 운영 DB 에서는 마이그레이션 후 이 경로를 타지 않음.
-            if "text_search_vector" in err_msg or "undefined column" in err_msg:
+            if "text_search_vector" in err_msg or "context_text" in err_msg or "undefined column" in err_msg:
                 db.rollback()
-                db.add(
-                    DocumentChunk(
-                        organization_id=uuid.UUID(organization_id),
-                        document_id=document.id,
-                        chatbot_id=uuid.UUID(chatbot_id),
-                        document_version_id=version.id,
-                        chunk_order=index,
-                        page_number=None,
-                        section_title=section_title,
-                        corpus_domain=version.corpus_domain,
-                        text_content=chunk_text,
-                        metadata_json={
-                            **merged_metadata,
-                            "sourceType": merged_metadata.get("sourceType") or version.source_type,
-                            "section_title": section_title,
-                        },
-                        embedding=embedding,
-                        token_count=len(chunk_text.split()),
-                        content_hash=sha256(chunk_text.encode("utf-8")).hexdigest(),
-                    )
+                # 미실행 마이그레이션 환경: text_search_vector / context_text 없이 재시도
+                _fallback_kwargs: dict = dict(
+                    organization_id=uuid.UUID(organization_id),
+                    document_id=document.id,
+                    chatbot_id=uuid.UUID(chatbot_id),
+                    document_version_id=version.id,
+                    chunk_order=index,
+                    page_number=None,
+                    section_title=section_title,
+                    corpus_domain=version.corpus_domain,
+                    text_content=chunk_text,
+                    metadata_json={
+                        **merged_metadata,
+                        "sourceType": merged_metadata.get("sourceType") or version.source_type,
+                        "section_title": section_title,
+                    },
+                    embedding=embedding,
+                    token_count=len(chunk_text.split()),
+                    content_hash=sha256(chunk_text.encode("utf-8")).hexdigest(),
                 )
+                if "context_text" not in err_msg:
+                    _fallback_kwargs["context_text"] = context_text
+                db.add(DocumentChunk(**_fallback_kwargs))
                 db.flush()
             else:
                 logger.exception(
@@ -3227,11 +3395,30 @@ def _ingest_web_source_content(
         version.error_message = "색인 가능한 웹사이트 텍스트가 없습니다."
         return
 
+    # ── Contextual Retrieval (웹소스) ─────────────────────────────────────────
+    from app.core.config import settings as _cfg  # noqa: PLC0415
+
+    web_chunk_contexts: list[str | None] = [None] * len(chunks)
+    if getattr(_cfg, "use_contextual_retrieval", False):
+        try:
+            web_chunk_contexts = _generate_chunk_contexts(
+                document_title=web_source.name,
+                full_text=combined_text,
+                chunks=chunks,
+            )
+        except Exception as _ctx_exc:
+            logger.warning("[CONTEXTUAL_RETRIEVAL][WEB] failed, proceeding without context: %s", _ctx_exc)
+            web_chunk_contexts = [None] * len(chunks)
+
     embedding_count = 0
     embedding_error_counts: dict[str, int] = {}
     embedding_texts = [
-        f"{str(chunk_item.get('section_title') or web_source.name)}\n{str(chunk_item['text'] or '')}"
-        for chunk_item in chunks
+        (
+            f"{web_chunk_contexts[i]}\n\n{str(chunk_item.get('text') or '')}"
+            if web_chunk_contexts[i]
+            else f"{str(chunk_item.get('section_title') or web_source.name)}\n{str(chunk_item.get('text') or '')}"
+        )
+        for i, chunk_item in enumerate(chunks)
     ]
     embeddings = generate_embeddings_batch(
         db,
@@ -3249,6 +3436,7 @@ def _ingest_web_source_content(
         navigation_removed = str(
             chunk_item.get("navigation_removed") or crawl_diagnostics.get("navigation_removed") or ""
         )
+        context_text = web_chunk_contexts[index - 1]
         embedding = embeddings[index - 1] if index - 1 < len(embeddings) else None
         if _embedding_generated(embedding):
             embedding_count += 1
@@ -3256,6 +3444,8 @@ def _ingest_web_source_content(
             embedding_error_counts["EMBEDDING_BATCH_FAILED"] = (
                 embedding_error_counts.get("EMBEDDING_BATCH_FAILED", 0) + 1
             )
+        _tsv_raw = " ".join(filter(None, [context_text, section_title, chunk_text]))
+        _tsv_value = func.to_tsvector("simple", _build_tsvector_text(_tsv_raw))
         db.add(
             DocumentChunk(
                 organization_id=uuid.UUID(organization_id),
@@ -3267,6 +3457,7 @@ def _ingest_web_source_content(
                 section_title=section_title,
                 corpus_domain="official_website_indexed",
                 text_content=chunk_text,
+                context_text=context_text,
                 metadata_json={
                     "sourceType": "website",
                     "web_source_id": str(web_source.id),
@@ -3280,13 +3471,46 @@ def _ingest_web_source_content(
                 embedding=embedding,
                 token_count=len(chunk_text.split()),
                 content_hash=sha256(chunk_text.encode("utf-8")).hexdigest(),
+                text_search_vector=_tsv_value,
             )
         )
         try:
             db.flush()
         except SQLAlchemyError as exc:
-            logger.exception("[EMBEDDING_ERROR] chunk_id=%s error_code=VECTOR_SAVE_ERROR error=%s", f"{web_source.id}:{index}", exc)
-            raise
+            err_msg = str(exc).lower()
+            if "text_search_vector" in err_msg or "context_text" in err_msg or "undefined column" in err_msg:
+                db.rollback()
+                _fallback_kwargs: dict = dict(
+                    organization_id=uuid.UUID(organization_id),
+                    document_id=document.id,
+                    chatbot_id=uuid.UUID(chatbot_id),
+                    document_version_id=version.id,
+                    chunk_order=index,
+                    page_number=None,
+                    section_title=section_title,
+                    corpus_domain="official_website_indexed",
+                    text_content=chunk_text,
+                    metadata_json={
+                        "sourceType": "website",
+                        "web_source_id": str(web_source.id),
+                        "url": chunk_url,
+                        "page_title": page_title,
+                        "final_url": chunk_final_url,
+                        "section_title": section_title,
+                        "extraction_method": extraction_method or None,
+                        "navigation_removed": navigation_removed.lower() == "true",
+                    },
+                    embedding=embedding,
+                    token_count=len(chunk_text.split()),
+                    content_hash=sha256(chunk_text.encode("utf-8")).hexdigest(),
+                )
+                if "context_text" not in err_msg:
+                    _fallback_kwargs["context_text"] = context_text
+                db.add(DocumentChunk(**_fallback_kwargs))
+                db.flush()
+            else:
+                logger.exception("[EMBEDDING_ERROR] chunk_id=%s error_code=VECTOR_SAVE_ERROR error=%s", f"{web_source.id}:{index}", exc)
+                raise
 
     version.embedding_count = embedding_count
     web_source.embedding_count = embedding_count
@@ -4550,6 +4774,86 @@ def reindex_knowledge_service(
         return get_knowledge_service(db, principal=principal, knowledge_id=knowledge_id)
 
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="KNOWLEDGE_NOT_FOUND")
+
+
+def reindex_all_knowledge_service(
+    db: Session,
+    *,
+    principal: AdminPrincipal,
+    chatbot_id: str,
+    background_tasks=None,
+) -> dict:
+    """
+    챗봇의 모든 완료/실패 지식 항목을 일괄 재색인 큐에 등록.
+
+    Contextual Retrieval 활성화 후 기존 문서에 context_text를 채울 때 사용.
+    반환: {"queued": int, "skipped": int}
+    """
+    organization_id = require_institution_organization_id(principal)
+    ensure_chatbot_in_scope(db, principal=principal, chatbot_id=chatbot_id)
+
+    queued = 0
+    skipped = 0
+
+    # ── 문서 항목 ─────────────────────────────────────────────────────────────
+    doc_rows = list_document_knowledge_rows(db, organization_id=organization_id, chatbot_id=chatbot_id)
+    for doc, version, existing_job in doc_rows:
+        # 이미 처리 중인 것은 건너뜀
+        if existing_job is not None and existing_job.status in ("queued", "processing"):
+            skipped += 1
+            continue
+        if version is None:
+            skipped += 1
+            continue
+
+        version.status = "queued"
+        doc.status = "processing"
+        job = IngestionJob(
+            organization_id=uuid.UUID(organization_id),
+            chatbot_id=doc.chatbot_id,
+            document_id=doc.id,
+            document_version_id=version.id,
+            created_by_admin_id=uuid.UUID(principal.admin_id),
+            job_type="document_reindex",
+            status="queued",
+            current_step="queued",
+            progress_percent=0,
+            metadata_json={"trigger": "admin_reindex_all"},
+        )
+        db.add(job)
+        db.flush()
+        if background_tasks is not None:
+            background_tasks.add_task(_process_reindex_job, principal, str(doc.id), str(job.id))
+        queued += 1
+
+    # ── 웹 소스 항목 ──────────────────────────────────────────────────────────
+    web_rows = list_web_source_knowledge_rows(db, organization_id=organization_id, chatbot_id=chatbot_id)
+    for web_source, existing_job in web_rows:
+        if existing_job is not None and existing_job.status in ("queued", "processing"):
+            skipped += 1
+            continue
+
+        web_source.status = "processing"
+        job = IngestionJob(
+            organization_id=uuid.UUID(organization_id),
+            chatbot_id=web_source.chatbot_id,
+            web_source_id=web_source.id,
+            created_by_admin_id=uuid.UUID(principal.admin_id),
+            job_type="web_source_reindex",
+            status="queued",
+            current_step="queued",
+            progress_percent=0,
+            metadata_json={"trigger": "admin_reindex_all"},
+        )
+        db.add(job)
+        db.flush()
+        if background_tasks is not None:
+            background_tasks.add_task(_process_reindex_job, principal, str(web_source.id), str(job.id))
+        queued += 1
+
+    db.commit()
+    logger.info("[REINDEX_ALL] chatbot_id=%s queued=%d skipped=%d", chatbot_id, queued, skipped)
+    return {"queued": queued, "skipped": skipped}
 
 
 async def create_file_knowledge_service(

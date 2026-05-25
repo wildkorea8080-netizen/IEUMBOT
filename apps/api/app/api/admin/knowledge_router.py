@@ -1,14 +1,28 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Query, Response, UploadFile, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 from sqlalchemy.orm import Session
 
 from app.api.dependencies.auth import AdminPrincipal, require_institution_admin_auth
 from app.db import get_db_session
 from app.schemas.knowledge import (
+    FaqAnalyzedTopic,
+    FaqAnalyzeRequest,
+    FaqAnalyzeResponse,
     FaqBulkRegisterRequest,
     FaqBulkRegisterResponse,
     FaqGenerateRequest,
     FaqGenerateResponse,
     FaqItem,
+    FaqSuggestedItem,
     KnowledgeDetailResponse,
     KnowledgeItem,
     KnowledgeListResponse,
@@ -27,6 +41,7 @@ from app.services.admin.knowledge_service import (
     list_knowledge_diagnostics_service,
     list_knowledge_service,
     patch_knowledge_service,
+    reindex_all_knowledge_service,
     reindex_knowledge_service,
 )
 
@@ -150,7 +165,9 @@ def admin_put_knowledge_content(
     db: Session = Depends(get_db_session),
 ) -> dict:
     """지식 내용 수정 → 새 버전 생성 후 재색인."""
-    from app.services.admin.knowledge_service import update_knowledge_content_service  # noqa: PLC0415
+    from app.services.admin.knowledge_service import (
+        update_knowledge_content_service,  # noqa: PLC0415
+    )
     return update_knowledge_content_service(
         db, principal=principal, knowledge_id=knowledge_id,
         content=str(body.get("content") or ""),
@@ -189,6 +206,22 @@ def admin_reindex_knowledge(
         db,
         principal=principal,
         knowledge_id=knowledge_id,
+        background_tasks=background_tasks,
+    )
+
+
+@router.post("/knowledge/reindex-all", status_code=status.HTTP_202_ACCEPTED)
+def admin_reindex_all_knowledge(
+    chatbot_id: str = Query(alias="chatbotId"),
+    background_tasks: BackgroundTasks = None,
+    principal: AdminPrincipal = Depends(require_institution_admin_auth),
+    db: Session = Depends(get_db_session),
+) -> dict:
+    """챗봇의 모든 지식 항목을 일괄 재색인 큐에 등록. Contextual Retrieval 활성화 후 사용."""
+    return reindex_all_knowledge_service(
+        db,
+        principal=principal,
+        chatbot_id=chatbot_id,
         background_tasks=background_tasks,
     )
 
@@ -245,6 +278,84 @@ def admin_generate_faq_from_knowledge(
         knowledge_id=knowledge_id,
         generated=[FaqItem(**item) for item in faq_list],
         total=len(faq_list),
+    )
+
+
+@router.post("/knowledge/{knowledge_id}/analyze-faq", response_model=FaqAnalyzeResponse)
+def admin_analyze_faq_from_knowledge(
+    knowledge_id: str,
+    body: FaqAnalyzeRequest,
+    principal: AdminPrincipal = Depends(require_institution_admin_auth),
+    db: Session = Depends(get_db_session),
+) -> FaqAnalyzeResponse:
+    """
+    등록된 knowledge의 전체 청크를 2단계 파이프라인으로 분석해 FAQ를 제안.
+      Phase 1 — 전체 청크 샘플링 → 주제 클러스터(category/field 포함) 추출
+      Phase 2 — 주제별 관련 청크 선택 → 병렬 FAQ 생성
+    생성 결과는 저장하지 않고 반환만 함 — 관리자가 검수 후 /faq/bulk-create로 등록.
+    """
+    from fastapi import HTTPException
+    from sqlalchemy import select
+
+    from app.models import DocumentChunk
+    from app.repositories.admin.knowledge_repository import get_document_knowledge_row
+    from app.services.admin.faq_generation_service import analyze_and_generate_faq
+    from app.services.admin.scope_service import require_institution_organization_id
+
+    organization_id = require_institution_organization_id(principal)
+    row = get_document_knowledge_row(db, organization_id=organization_id, knowledge_id=knowledge_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Knowledge not found")
+
+    doc, version, _job = row
+    if version is None:
+        raise HTTPException(status_code=400, detail="Knowledge has no indexed version")
+
+    # 전체 청크 조회 (순서대로)
+    chunk_stmt = (
+        select(DocumentChunk.text_content)
+        .where(DocumentChunk.document_version_id == version.id)
+        .order_by(DocumentChunk.chunk_order.asc())
+    )
+    chunk_texts = [str(t) for t in db.execute(chunk_stmt).scalars().all() if t]
+
+    result = analyze_and_generate_faq(
+        db,
+        organization_id=organization_id,
+        chatbot_id=body.chatbot_id,
+        knowledge_id=knowledge_id,
+        document_title=doc.title,
+        chunk_texts=chunk_texts,
+        max_topics=body.max_topics,
+        faqs_per_topic=body.faqs_per_topic,
+    )
+
+    topics_out = [
+        FaqAnalyzedTopic(
+            topic=t["topic"],
+            description=t["description"],
+            category=t.get("category"),
+            field=t.get("field"),
+            chunk_indices=t.get("chunk_indices", []),
+            faqs=[
+                FaqSuggestedItem(
+                    question=f["question"],
+                    answer=f["answer"],
+                    tags=f.get("tags", []),
+                    topic=f["topic"],
+                    category=f.get("category"),
+                    field=f.get("field"),
+                )
+                for f in t.get("faqs", [])
+            ],
+        )
+        for t in result.get("topics", [])
+    ]
+    return FaqAnalyzeResponse(
+        knowledge_id=knowledge_id,
+        document_title=doc.title,
+        topics=topics_out,
+        total_faqs=result.get("total_faqs", 0),
     )
 
 

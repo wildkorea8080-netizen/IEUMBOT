@@ -14,6 +14,7 @@ import { Link as TiptapLink } from "@tiptap/extension-link";
 import { Image } from "@tiptap/extension-image";
 import { Table, TableRow, TableCell, TableHeader } from "@tiptap/extension-table";
 
+import { FaqAnalyzeModal } from "./FaqAnalyzeModal";
 import { FaqGenerateModal } from "./FaqGenerateModal";
 import { FaqManagement } from "./faq-management";
 import { ApiClientError } from "../../lib/api";
@@ -27,6 +28,7 @@ import {
   getWebSourceSyncSettings,
   patchAdminChatbot,
   patchKnowledge,
+  reindexAllKnowledge,
   reindexKnowledge,
   triggerWebSourceSync,
   updateKnowledgeContent,
@@ -266,6 +268,7 @@ export function KnowledgeManagement() {
   const [notice, setNotice] = useState<string | null>(null);
   const [runtimeStatus, setRuntimeStatus] = useState<KnowledgeRuntimeStatus | null>(null);
   const [faqTargetItem, setFaqTargetItem] = useState<KnowledgeItem | null>(null);
+  const [faqAnalyzeItem, setFaqAnalyzeItem] = useState<KnowledgeItem | null>(null);
   const [settingsChatbotId, setSettingsChatbotId] = useState<string | null>(null);
   const [skipDuplicateReindex, setSkipDuplicateReindex] = useState(false);
   // 탭별 안정적인 카운트 (로딩 중에도 정확한 수 유지)
@@ -275,6 +278,8 @@ export function KnowledgeManagement() {
   // 관련 파일 탭
   const [relatedFileTab, setRelatedFileTab] = useState<"file" | "youtube">("file");
   const [youtubeUrl, setYoutubeUrl] = useState("");
+  // 전체 재색인
+  const [isReindexingAll, setIsReindexingAll] = useState(false);
 
   // TipTap 에디터 인스턴스 (내용 편집용)
   const contentEditor = useEditor({
@@ -522,6 +527,22 @@ export function KnowledgeManagement() {
     setSelectedIds(items.map((item) => item.id));
   };
 
+  const handleReindexAll = async () => {
+    if (!settingsChatbotId) return;
+    if (!confirm("모든 지식 항목을 재색인하시겠습니까?\n\nContextual Retrieval 문맥 생성이 포함되어 처리 시간이 걸릴 수 있습니다.")) return;
+    setIsReindexingAll(true);
+    setError(null);
+    try {
+      const result = await reindexAllKnowledge(settingsChatbotId);
+      setNotice(`재색인 큐에 ${result.queued}개 등록됨 (건너뜀: ${result.skipped}개). 목록을 새로고침하면 진행 상태를 확인할 수 있습니다.`);
+      void load();
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setIsReindexingAll(false);
+    }
+  };
+
   const handleSkipDuplicateToggle = async (value: boolean) => {
     if (!settingsChatbotId) return;
     const previous = skipDuplicateReindex;
@@ -586,9 +607,26 @@ export function KnowledgeManagement() {
           ))}
         </div>
         {activeTab !== "faq" && (
-          <NextLink href="/admin/knowledge/register" className="btn-primary" style={{ fontSize: 13, padding: "7px 14px" }}>
-            + 지식 등록
-          </NextLink>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              onClick={() => void handleReindexAll()}
+              disabled={isReindexingAll || !settingsChatbotId}
+              title="모든 지식 항목 재색인 (Contextual Retrieval 적용)"
+              style={{
+                display: "flex", alignItems: "center", gap: 6,
+                fontSize: 13, padding: "7px 14px", borderRadius: 8,
+                border: "1px solid #e2e8f0", background: "#f8fafc",
+                color: "#475569", cursor: isReindexingAll || !settingsChatbotId ? "not-allowed" : "pointer",
+                opacity: isReindexingAll || !settingsChatbotId ? 0.6 : 1,
+              }}
+            >
+              <RefreshCw style={{ width: 14, height: 14, ...(isReindexingAll ? { animation: "spin 1s linear infinite" } : {}) }} />
+              {isReindexingAll ? "재색인 중..." : "전체 재색인"}
+            </button>
+            <NextLink href="/admin/knowledge/register" className="btn-primary" style={{ fontSize: 13, padding: "7px 14px" }}>
+              + 지식 등록
+            </NextLink>
+          </div>
         )}
       </div>
 
@@ -1302,6 +1340,23 @@ export function KnowledgeManagement() {
                   </button>
                   <button
                     type="button"
+                    onClick={() => setFaqAnalyzeItem(detail)}
+                    disabled={isSaving || !settingsChatbotId}
+                    className="rounded-lg border border-violet-300 px-4 py-2 text-sm text-violet-700 disabled:opacity-50"
+                    title="2단계 파이프라인으로 주제별 FAQ를 자동 분석·생성합니다"
+                  >
+                    스마트 FAQ 분석
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFaqTargetItem(detail)}
+                    disabled={isSaving || !settingsChatbotId}
+                    className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700 disabled:opacity-50"
+                  >
+                    FAQ 자동 생성
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => void performRowAction(detail.id, "delete")}
                     disabled={isSaving}
                     className="rounded-lg border border-red-300 px-4 py-2 text-sm text-red-700 disabled:opacity-50"
@@ -1343,6 +1398,20 @@ export function KnowledgeManagement() {
           onClose={() => setFaqTargetItem(null)}
           onRegistered={(count) => {
             setFaqTargetItem(null);
+            setNotice(`${count}개 FAQ가 등록되었습니다.`);
+            void load();
+          }}
+        />
+      ) : null}
+
+      {faqAnalyzeItem && settingsChatbotId ? (
+        <FaqAnalyzeModal
+          knowledgeId={faqAnalyzeItem.id}
+          knowledgeTitle={faqAnalyzeItem.title}
+          chatbotId={settingsChatbotId}
+          onClose={() => setFaqAnalyzeItem(null)}
+          onRegistered={(count) => {
+            setFaqAnalyzeItem(null);
             setNotice(`${count}개 FAQ가 등록되었습니다.`);
             void load();
           }}

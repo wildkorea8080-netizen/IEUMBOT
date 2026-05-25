@@ -39,6 +39,7 @@ class DocumentChunk(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     section_title: Mapped[str | None] = mapped_column(Text, nullable=True)
     corpus_domain: Mapped[str] = mapped_column(String(40), nullable=False, default="policy")
     text_content: Mapped[str] = mapped_column(Text, nullable=False)
+    context_text: Mapped[str | None] = mapped_column(Text, nullable=True, comment="LLM-generated contextual summary for this chunk (Contextual Retrieval)")
     metadata_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(1536), nullable=True)
     token_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
