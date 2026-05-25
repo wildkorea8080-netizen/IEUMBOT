@@ -26,6 +26,7 @@ import {
   getKnowledgeList,
   getKnowledgeRuntimeStatus,
   getWebSourceSyncSettings,
+  listFaqItems,
   patchAdminChatbot,
   patchKnowledge,
   reindexAllKnowledge,
@@ -351,6 +352,11 @@ export function KnowledgeManagement() {
       const chatbot = chatbotResponse.items[0];
       setSettingsChatbotId(chatbot?.id ?? null);
       setSkipDuplicateReindex(chatbot?.skipDuplicateFileReindex ?? false);
+      if (chatbot?.id) {
+        void listFaqItems(chatbot.id, true)
+          .then(res => setFaqCount(res.total))
+          .catch(() => {});
+      }
       setSelectedIds((current) => current.filter((id) => response.items.some((item) => item.id === id)));
     } catch (loadError) {
       setError(getErrorMessage(loadError));
