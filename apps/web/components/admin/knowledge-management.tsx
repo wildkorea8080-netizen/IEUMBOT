@@ -15,7 +15,6 @@ import { Image } from "@tiptap/extension-image";
 import { Table, TableRow, TableCell, TableHeader } from "@tiptap/extension-table";
 
 import { FaqAnalyzeModal } from "./FaqAnalyzeModal";
-import { FaqGenerateModal } from "./FaqGenerateModal";
 import { FaqManagement } from "./faq-management";
 import { ApiClientError } from "../../lib/api";
 import {
@@ -264,7 +263,6 @@ export function KnowledgeManagement() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [runtimeStatus, setRuntimeStatus] = useState<KnowledgeRuntimeStatus | null>(null);
-  const [faqTargetItem, setFaqTargetItem] = useState<KnowledgeItem | null>(null);
   const [faqAnalyzeItem, setFaqAnalyzeItem] = useState<KnowledgeItem | null>(null);
   const [settingsChatbotId, setSettingsChatbotId] = useState<string | null>(null);
   const [skipDuplicateReindex, setSkipDuplicateReindex] = useState(false);
@@ -1290,17 +1288,9 @@ export function KnowledgeManagement() {
                     onClick={() => setFaqAnalyzeItem(detail)}
                     disabled={isSaving || !settingsChatbotId}
                     className="rounded-lg border border-violet-300 px-4 py-2 text-sm text-violet-700 disabled:opacity-50"
-                    title="2단계 파이프라인으로 주제별 FAQ를 자동 분석·생성합니다"
+                    title="AI가 문서를 분석해 주제별 FAQ를 추천합니다. 검토·편집 후 FAQ 탭에 등록됩니다."
                   >
-                    스마트 FAQ 분석
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setFaqTargetItem(detail)}
-                    disabled={isSaving || !settingsChatbotId}
-                    className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700 disabled:opacity-50"
-                  >
-                    FAQ 자동 생성
+                    FAQ 재분석
                   </button>
                   <button
                     type="button"
@@ -1338,19 +1328,6 @@ export function KnowledgeManagement() {
         .tiptap a { color: #2563eb; text-decoration: underline; }
       `}</style>
 
-      {faqTargetItem ? (
-        <FaqGenerateModal
-          knowledgeId={faqTargetItem.id}
-          knowledgeTitle={faqTargetItem.title}
-          onClose={() => setFaqTargetItem(null)}
-          onRegistered={(count) => {
-            setFaqTargetItem(null);
-            setNotice(`${count}개 FAQ가 등록되었습니다.`);
-            void load();
-          }}
-        />
-      ) : null}
-
       {faqAnalyzeItem && settingsChatbotId ? (
         <FaqAnalyzeModal
           knowledgeId={faqAnalyzeItem.id}
@@ -1359,8 +1336,9 @@ export function KnowledgeManagement() {
           onClose={() => setFaqAnalyzeItem(null)}
           onRegistered={(count) => {
             setFaqAnalyzeItem(null);
-            setNotice(`${count}개 FAQ가 등록되었습니다.`);
-            void load();
+            setNotice(`${count}개 FAQ가 FAQ 탭에 등록되었습니다.`);
+            setActiveTab("faq");
+            setDetail(null);
           }}
         />
       ) : null}

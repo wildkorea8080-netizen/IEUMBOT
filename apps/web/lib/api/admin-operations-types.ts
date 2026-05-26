@@ -414,22 +414,6 @@ export type AdminChatLogItem = {
   };
 };
 
-export type FaqItem = {
-  question: string;
-  answer: string;
-};
-
-export type FaqGenerateResponse = {
-  knowledge_id: string;
-  generated: FaqItem[];
-  total: number;
-};
-
-export type FaqBulkRegisterResponse = {
-  registered: number;
-  failed: number;
-  knowledge_ids: string[];
-};
 
 export type AdminChatLogsResponse = {
   items: AdminChatLogItem[];

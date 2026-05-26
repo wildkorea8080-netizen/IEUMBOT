@@ -19,9 +19,6 @@ import type {
   FaqAnalyzeResponse,
   FaqBulkCreateItem,
   FaqBulkCreateResponse,
-  FaqBulkRegisterResponse,
-  FaqGenerateResponse,
-  FaqItem,
   FaqManagementItem,
   FaqManagementListResponse,
   FaqManagementCreateRequest,
@@ -371,20 +368,6 @@ export async function createKnowledgeTextToStaging(body: {
   });
 }
 
-export async function generateFaqFromKnowledge(
-  knowledgeId: string,
-  chatbotId: string,
-  faqCount: number = 5,
-): Promise<FaqGenerateResponse> {
-  return apiClient.request<FaqGenerateResponse>(
-    `/admin/knowledge/${knowledgeId}/generate-faq`,
-    {
-      method: "POST",
-      body: { knowledge_id: knowledgeId, chatbot_id: chatbotId, faq_count: faqCount },
-    },
-  );
-}
-
 export async function analyzeFaqFromKnowledge(
   knowledgeId: string,
   params: { chatbotId: string; maxTopics?: number; faqsPerTopic?: number },
@@ -410,26 +393,6 @@ export async function bulkCreateFaq(
     method: "POST",
     body: { chatbot_id: chatbotId, faqs },
   });
-}
-
-export async function bulkRegisterFaq(params: {
-  chatbotId: string;
-  faqs: FaqItem[];
-  category?: string;
-  tags?: string[];
-}): Promise<FaqBulkRegisterResponse> {
-  return apiClient.request<FaqBulkRegisterResponse>(
-    `/admin/knowledge/faq/bulk-register`,
-    {
-      method: "POST",
-      body: {
-        chatbot_id: params.chatbotId,
-        faqs: params.faqs,
-        category: params.category ?? "FAQ",
-        tags: params.tags ?? ["auto-generated", "faq"],
-      },
-    },
-  );
 }
 
 export async function getAdminChatbots(): Promise<AdminChatbotsResponse> {

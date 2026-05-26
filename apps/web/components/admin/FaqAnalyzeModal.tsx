@@ -1,6 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { useEditor, EditorContent } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
+import Underline from "@tiptap/extension-underline";
 import { analyzeFaqFromKnowledge, bulkCreateFaq } from "../../lib/api/admin-operations";
 import type { FaqAnalyzedTopic } from "../../lib/api/admin-operations-types";
 
@@ -23,6 +26,31 @@ type TopicState = Omit<FaqAnalyzedTopic, "faqs"> & {
 
 function makeUid() {
   return Math.random().toString(36).slice(2, 10);
+}
+
+function AnswerEditor({
+  initialHtml,
+  onChange,
+}: {
+  initialHtml: string;
+  onChange: (html: string) => void;
+}) {
+  const editor = useEditor({
+    immediatelyRender: false,
+    extensions: [StarterKit, Underline],
+    content: initialHtml.includes("<") ? initialHtml : `<p>${initialHtml.replace(/\n/g, "</p><p>")}</p>`,
+    onUpdate: ({ editor: e }) => onChange(e.getHTML()),
+    editorProps: {
+      attributes: {
+        style: "min-height:80px;padding:8px 10px;outline:none;font-size:12px;line-height:1.7;color:#374151;",
+      },
+    },
+  });
+  return (
+    <div style={{ border: "1px solid #d1d5db", borderRadius: 6, background: "#fff", overflow: "hidden" }}>
+      <EditorContent editor={editor} />
+    </div>
+  );
 }
 
 type Props = {
@@ -186,7 +214,7 @@ export function FaqAnalyzeModal({
         {/* 헤더 */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "18px 24px", borderBottom: "1px solid #e5e7eb" }}>
           <div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: "#111827" }}>스마트 FAQ 분석</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: "#111827" }}>FAQ 재분석</div>
             <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 2, maxWidth: 480, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {knowledgeTitle}
             </div>
@@ -323,16 +351,14 @@ export function FaqAnalyzeModal({
                                       rows={2}
                                       value={faq.question}
                                       onChange={(e) => updateFaqField(topicIdx, faq.uid, "question", e.target.value)}
-                                      style={{ width: "100%", padding: "4px 8px", border: "1px solid #d1d5db", borderRadius: 6, fontSize: 12, resize: "vertical" }}
+                                      style={{ width: "100%", padding: "4px 8px", border: "1px solid #d1d5db", borderRadius: 6, fontSize: 12, resize: "vertical", boxSizing: "border-box" }}
                                     />
                                   </div>
                                   <div>
                                     <div style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", marginBottom: 2 }}>A</div>
-                                    <textarea
-                                      rows={3}
-                                      value={faq.answer}
-                                      onChange={(e) => updateFaqField(topicIdx, faq.uid, "answer", e.target.value)}
-                                      style={{ width: "100%", padding: "4px 8px", border: "1px solid #d1d5db", borderRadius: 6, fontSize: 12, resize: "vertical" }}
+                                    <AnswerEditor
+                                      initialHtml={faq.answer}
+                                      onChange={(html) => updateFaqField(topicIdx, faq.uid, "answer", html)}
                                     />
                                   </div>
                                 </div>
