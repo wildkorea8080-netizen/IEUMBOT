@@ -597,8 +597,11 @@ export default function KnowledgeReviewPage() {
       } : prev);
       setCheckedIds(new Set());
       setTimeout(() => router.push("/admin/knowledge/list"), 1500);
-    } catch { showToast("error", "등록 실패"); }
-    finally { setIsRegistering(false); }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[REGISTER] error:", msg);
+      showToast("error", `등록 실패: ${msg.slice(0, 80)}`);
+    } finally { setIsRegistering(false); }
   }
 
 

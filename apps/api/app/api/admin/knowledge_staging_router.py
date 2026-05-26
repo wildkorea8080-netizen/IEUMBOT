@@ -350,6 +350,9 @@ def register_staging(
     db: Session = Depends(get_db_session),
 ) -> StagingRegisterResponse:
     """선택된(또는 전체) 청크를 실제 지식으로 등록."""
+    import logging as _log  # noqa: PLC0415
+    _logger = _log.getLogger(__name__)
+
     org_id = require_institution_organization_id(principal)
 
     session_row = db.execute(
@@ -361,12 +364,16 @@ def register_staging(
     if session_row is None:
         raise HTTPException(status_code=404, detail="STAGING_SESSION_NOT_FOUND")
 
-    result = register_staging_chunks(
-        db,
-        session_id=session_id,
-        chatbot_id=str(session_row.chatbot_id),
-        chunk_ids=body.chunk_ids,
-    )
+    try:
+        result = register_staging_chunks(
+            db,
+            session_id=session_id,
+            chatbot_id=str(session_row.chatbot_id),
+            chunk_ids=body.chunk_ids,
+        )
+    except Exception as exc:
+        _logger.error("[STAGING] register failed session=%s: %s", session_id, exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"REGISTER_FAILED: {exc}") from exc
     return StagingRegisterResponse(**result)
 
 

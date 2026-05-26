@@ -33,8 +33,12 @@ def create_faq_item(
     field: str | None = None,
     memo: str | None = None,
     youtube_url: str | None = None,
+    commit: bool = True,
 ) -> FaqItem:
-    """FAQ 항목 생성 (임베딩 자동 생성)."""
+    """FAQ 항목 생성 (임베딩 자동 생성).
+
+    commit=False 로 호출하면 flush만 하고 커밋하지 않음 — 배치 등록 시 사용.
+    """
     embedding = _generate_faq_embedding(question)
 
     row = FaqItem(
@@ -53,8 +57,12 @@ def create_faq_item(
         sort_order=0,
     )
     db.add(row)
-    db.commit()
-    db.refresh(row)
+    if commit:
+        db.commit()
+        db.refresh(row)
+    else:
+        db.flush()
+        db.refresh(row)
     logger.info("[FAQ] created id=%s chatbot=%s", row.id, chatbot_id)
     return row
 

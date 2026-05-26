@@ -551,40 +551,50 @@ def register_staging_chunks(
     skip_rag = session_row.source_type == "file"
 
     for chunk in chunks:
+        chunk_id_str = str(chunk.id)
+        chunk_tags = list(chunk.tags or [])
+        # ① FAQ 등록 — 별도 세션으로 격리 (각 FAQ 커밋이 메인 세션에 영향 없음)
+        faq_ok = False
         try:
-            # ① FAQ 등록 (question=topic_title, answer=content)
-            chunk_tags = list(chunk.tags or [])
-            create_faq_item(
-                db,
-                chatbot_id=str(session_row.chatbot_id),
-                organization_id=str(session_row.organization_id),
-                question=chunk.topic_title,
-                answer=chunk.content,
-                tags=chunk_tags,
-                source_staging_session_id=session_id,
-                category=chunk_tags[0] if chunk_tags else None,
-                field=chunk_tags[1] if len(chunk_tags) > 1 else None,
-            )
-            # ② RAG 색인 — 텍스트 입력 세션에서만 수행 (파일은 업로드 시점에 이미 처리)
-            if not skip_rag:
-                try:
-                    create_text_knowledge_internal(
-                        db,
-                        chatbot_id=str(session_row.chatbot_id),
-                        organization_id=str(session_row.organization_id),
-                        title=chunk.topic_title,
-                        content=chunk.content,
-                        tags=list(chunk.tags or []),
-                    )
-                except Exception as rag_exc:
-                    logger.warning("[STAGING] RAG indexing failed id=%s: %s (FAQ still registered)", chunk.id, rag_exc)
+            from app.db import SessionLocal  # noqa: PLC0415
+            with SessionLocal() as faq_db:
+                create_faq_item(
+                    faq_db,
+                    chatbot_id=str(session_row.chatbot_id),
+                    organization_id=str(session_row.organization_id),
+                    question=chunk.topic_title,
+                    answer=chunk.content,
+                    tags=chunk_tags,
+                    source_staging_session_id=session_id,
+                    category=chunk_tags[0] if chunk_tags else None,
+                    field=chunk_tags[1] if len(chunk_tags) > 1 else None,
+                )
+            faq_ok = True
+        except Exception as exc:
+            logger.warning("[STAGING] FAQ create failed chunk=%s: %s", chunk_id_str, exc)
 
+        # ② RAG 색인 — 텍스트 입력 세션에서만 수행 (파일은 업로드 시점에 이미 처리)
+        if faq_ok and not skip_rag:
+            try:
+                create_text_knowledge_internal(
+                    db,
+                    chatbot_id=str(session_row.chatbot_id),
+                    organization_id=str(session_row.organization_id),
+                    title=chunk.topic_title,
+                    content=chunk.content,
+                    tags=chunk_tags,
+                )
+            except Exception as rag_exc:
+                logger.warning("[STAGING] RAG indexing failed chunk=%s: %s (FAQ still registered)", chunk_id_str, rag_exc)
+
+        if faq_ok:
             chunk.status = "registered"
             registered += 1
-        except Exception as exc:
-            logger.warning("[STAGING] chunk register failed id=%s: %s", chunk.id, exc)
+        else:
             chunk.status = "failed"
 
+    # autoflush=False 세션이므로 SELECT 전 명시적 flush
+    db.flush()
     if all(c.status != "pending" for c in db.execute(
         select(KnowledgeStagingChunk).where(
             KnowledgeStagingChunk.session_id == session_row.id
