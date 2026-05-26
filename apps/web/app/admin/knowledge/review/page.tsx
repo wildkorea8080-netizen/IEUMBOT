@@ -721,55 +721,61 @@ export default function KnowledgeReviewPage() {
           {selectedChunk ? (
             <>
               {/* ── 제목 ── */}
-              <div style={{ padding: "14px 20px 10px", borderBottom: "1px solid #f1f5f9", flexShrink: 0, display: "flex", alignItems: "center", gap: 10 }}>
-                <span style={{ fontSize: 18 }}>📄</span>
+              <div style={{ padding: "16px 22px 12px", borderBottom: "1px solid #f1f5f9", flexShrink: 0, display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 20 }}>📄</span>
                 <input value={editTitle} onChange={e => { setEditTitle(e.target.value); setIsDirty(true); }}
                   placeholder="주제명을 입력하세요"
                   style={{ flex: 1, fontSize: 18, fontWeight: 700, color: "#111827", border: "none", outline: "none", padding: 0, background: "transparent" }} />
                 <button type="button" onClick={() => void skipChunk(selectedChunk.id)} disabled={selectedChunk.status !== "pending"}
-                  style={{ padding: "5px 12px", border: "1px solid #e5e7eb", borderRadius: 6, background: "#f9fafb", fontSize: 12, cursor: "pointer", color: "#6b7280", opacity: selectedChunk.status !== "pending" ? 0.4 : 1, flexShrink: 0 }}>
+                  style={{ padding: "6px 14px", border: "1px solid #e5e7eb", borderRadius: 6, background: "#f9fafb", fontSize: 12, cursor: "pointer", color: "#6b7280", opacity: selectedChunk.status !== "pending" ? 0.4 : 1, flexShrink: 0 }}>
                   건너뛰기
                 </button>
                 <button type="button" onClick={() => void saveChunk()} disabled={isSavingChunk || !isDirty || showDiff}
-                  style={{ padding: "5px 16px", border: "none", borderRadius: 6, background: (isDirty && !showDiff) ? "#2563eb" : "#9ca3af", color: "#fff", fontSize: 12, fontWeight: 600, cursor: (isDirty && !showDiff) ? "pointer" : "default", flexShrink: 0 }}>
+                  style={{ padding: "6px 18px", border: "none", borderRadius: 6, background: (isDirty && !showDiff) ? "#2563eb" : "#d1d5db", color: "#fff", fontSize: 12, fontWeight: 600, cursor: (isDirty && !showDiff) ? "pointer" : "default", flexShrink: 0 }}>
                   {isSavingChunk ? "저장 중..." : "저장"}
                 </button>
               </div>
 
               {/* ── 민감한 정보 감지 결과 ── */}
-              <div style={{ margin: "10px 18px 0", padding: "10px 14px", background: "#f9fafb", border: "1px solid #f1f5f9", borderRadius: 8, flexShrink: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", marginBottom: 4 }}>민감한 정보 감지 결과</div>
-                {selectedChunk.piiDetected && selectedChunk.piiRegions.length > 0 ? (
-                  <div style={{ fontSize: 12, color: "#dc2626" }}>
-                    {selectedChunk.piiRegions.map((r, i) => (
-                      <span key={i} style={{ marginRight: 10, display: "inline-flex", alignItems: "center", gap: 3 }}>
-                        <Shield style={{ width: 10, height: 10 }} />{r.type}({r.preview})
-                      </span>
-                    ))}
-                  </div>
-                ) : (
-                  <div style={{ fontSize: 12, color: "#6b7280" }}>감지된 민감 정보가 없습니다.</div>
+              <div style={{ padding: "10px 22px", borderBottom: "1px solid #f1f5f9", flexShrink: 0, background: "#fafafa" }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 7 }}>민감한 정보 감지 결과</div>
+                {selectedChunk.piiDetected && selectedChunk.piiRegions.length > 0 ? (() => {
+                  const counts: Record<string, number> = {};
+                  selectedChunk.piiRegions.forEach(r => { counts[r.type] = (counts[r.type] ?? 0) + 1; });
+                  const iconMap: Record<string, string> = { 성명: "👤", 주민번호: "🔒", 전화번호: "📞", 이메일: "@", 계좌번호: "🏦", 신용카드: "💳", 여권번호: "🛂", 주소: "📍" };
+                  return (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {Object.entries(counts).map(([type, cnt]) => (
+                        <span key={type} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "4px 12px", background: "#fff", border: "1px solid #fca5a5", borderRadius: 20, fontSize: 12, color: "#dc2626", fontWeight: 500 }}>
+                          <span style={{ fontSize: 13 }}>{iconMap[type] ?? "⚠️"}</span>{type} {cnt}건
+                        </span>
+                      ))}
+                    </div>
+                  );
+                })() : (
+                  <span style={{ fontSize: 12, color: "#6b7280" }}>감지된 민감 정보가 없습니다.</span>
                 )}
               </div>
 
               {/* ── diff 범례 + 변경 보기 토글 ── */}
-              <div style={{ padding: "8px 18px", display: "flex", alignItems: "center", gap: 16, flexShrink: 0, flexWrap: "wrap" }}>
-                <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#6b7280", cursor: "pointer" }}>
-                  <span style={{ width: 14, height: 14, background: "#fef3c7", border: "1px solid #fcd34d", borderRadius: 3, display: "inline-block" }} />수정된 내용
-                </label>
-                <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#6b7280", cursor: "pointer" }}>
-                  <span style={{ width: 14, height: 14, background: "#dcfce7", border: "1px solid #86efac", borderRadius: 3, display: "inline-block" }} />새로 추가된 내용
-                </label>
-                <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#6b7280", cursor: "pointer" }}>
-                  <span style={{ width: 14, height: 14, background: "#fee2e2", border: "1px solid #fca5a5", borderRadius: 3, display: "inline-block" }} />민감정보 감지
-                </label>
+              <div style={{ padding: "8px 22px", borderBottom: "1px solid #f1f5f9", display: "flex", alignItems: "center", gap: 16, flexShrink: 0, flexWrap: "wrap" }}>
+                {[
+                  { color: "#fef3c7", border: "#fcd34d", label: "수정된 내용" },
+                  { color: "#dcfce7", border: "#86efac", label: "새로 추가된 내용" },
+                  { color: "#fee2e2", border: "#fca5a5", label: "민감정보 감지" },
+                ].map(item => (
+                  <span key={item.label} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#6b7280" }}>
+                    <span style={{ width: 13, height: 13, background: item.color, border: `1px solid ${item.border}`, borderRadius: 3, display: "inline-block", flexShrink: 0 }} />
+                    {item.label}
+                  </span>
+                ))}
                 <div style={{ flex: 1 }} />
                 <button
                   type="button"
                   onClick={() => setShowDiff(d => !d)}
                   style={{
                     display: "inline-flex", alignItems: "center", gap: 4,
-                    padding: "4px 12px", border: `1px solid ${showDiff ? "#2563eb" : "#e5e7eb"}`,
+                    padding: "5px 14px", border: `1px solid ${showDiff ? "#2563eb" : "#e5e7eb"}`,
                     borderRadius: 6, background: showDiff ? "#eff6ff" : "#f9fafb",
                     color: showDiff ? "#2563eb" : "#6b7280", fontSize: 12, cursor: "pointer",
                   }}
@@ -780,102 +786,101 @@ export default function KnowledgeReviewPage() {
                 </button>
               </div>
 
-              {/* ── 병합 안내 (merge 청크만) ── */}
+              {/* ── 병합 안내 ── */}
               {selectedChunk.registrationType === "merge" && selectedChunk.mergeCandidateTitle && (
-                <div style={{ margin: "0 18px 6px", padding: "8px 12px", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, fontSize: 12, color: "#92400e", display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                <div style={{ margin: "8px 22px 0", padding: "9px 14px", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, fontSize: 12, color: "#92400e", display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
                   <GitMerge style={{ width: 12, height: 12, flexShrink: 0 }} />
-                  기존 지식 <strong>"{selectedChunk.mergeCandidateTitle}"</strong>과 {Math.round((selectedChunk.mergeScore ?? 0) * 100)}% 유사 — AI가 내용을 통합했습니다. 변경 확인 후 등록하세요.
+                  기존 지식 <strong>"{selectedChunk.mergeCandidateTitle}"</strong>과 {Math.round((selectedChunk.mergeScore ?? 0) * 100)}% 유사 — AI가 내용을 통합했습니다.
                 </div>
               )}
 
               {/* ── TipTap 툴바 ── */}
-              <div style={{ flexShrink: 0 }}>
+              <div style={{ flexShrink: 0, borderBottom: "1px solid #f1f5f9" }}>
                 <EditorToolbar editor={editor} />
               </div>
 
-              {/* ── 에디터 or Diff ── */}
-              <div style={{ flex: 1, overflow: "auto", padding: "8px 18px 0" }}>
-                {showDiff ? (
-                  <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, background: "#fff", overflow: "hidden" }}>
-                    <DiffView
-                      original={originalContentRef.current}
-                      current={currentText || originalContentRef.current}
-                      piiRegions={selectedChunk.piiRegions}
-                    />
-                  </div>
-                ) : (
-                  <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, background: "#fafafa" }}>
-                    <EditorContent editor={editor} />
-                  </div>
-                )}
-              </div>
+              {/* ── 스크롤 영역: 에디터 + 하단 섹션 ── */}
+              <div style={{ flex: 1, overflowY: "auto", padding: "16px 22px 20px", display: "flex", flexDirection: "column", gap: 16 }}>
 
-              {/* ── AI 개인정보 필터링 건너뜀 ── */}
-              <div style={{ padding: "8px 20px 4px", flexShrink: 0 }}>
+                {/* 에디터 or Diff */}
+                <div style={{ minHeight: 420 }}>
+                  {showDiff ? (
+                    <div style={{ border: "1px solid #e5e7eb", borderRadius: 10, background: "#fff", overflow: "hidden", minHeight: 420 }}>
+                      <DiffView
+                        original={originalContentRef.current}
+                        current={currentText || originalContentRef.current}
+                        piiRegions={selectedChunk.piiRegions}
+                      />
+                    </div>
+                  ) : (
+                    <div style={{ border: "1px solid #e5e7eb", borderRadius: 10, background: "#fff", minHeight: 420 }}>
+                      <EditorContent editor={editor} />
+                    </div>
+                  )}
+                </div>
+
+                {/* AI 개인정보 필터링 */}
                 <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13, color: "#374151", cursor: "pointer" }}>
                   <input type="checkbox" checked={skipPiiFilter} onChange={e => setSkipPiiFilter(e.target.checked)} style={{ width: 14, height: 14 }} />
-                  * AI 개인정보 필터링을 건너뜁니다..
+                  AI 개인정보 필터링을 건너뜁니다
                 </label>
-              </div>
 
-              {/* ── 태그 관리 ── */}
-              <div style={{ padding: "10px 20px", borderTop: "1px solid #f1f5f9", flexShrink: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", marginBottom: 6 }}>태그 관리</div>
-                <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 8 }}>주제 내용을 수정하면 AI가 자동으로 태그를 분석하여 업데이트합니다.</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
-                  {editTags.map(tag => (
-                    <span key={tag} style={{ fontSize: 12, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 20, padding: "3px 10px", color: "#374151", display: "inline-flex", alignItems: "center", gap: 4 }}>
-                      {tag}
-                      <button type="button" onClick={() => { setEditTags(prev => prev.filter(t => t !== tag)); setIsDirty(true); }}
-                        style={{ background: "none", border: "none", cursor: "pointer", color: "#94a3b8", padding: 0, fontSize: 14 }}>×</button>
-                    </span>
-                  ))}
-                </div>
-                <div style={{ display: "flex", gap: 6 }}>
-                  <input value={tagInput} onChange={e => setTagInput(e.target.value)}
-                    onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addTag(); } }}
-                    placeholder="새로운 태그 추가"
-                    style={{ flex: 1, border: "1px solid #e5e7eb", borderRadius: 8, padding: "7px 12px", fontSize: 12, outline: "none", background: "#fafafa" }} />
-                  <button type="button" onClick={addTag}
-                    style={{ padding: "7px 14px", border: "1px solid #e5e7eb", borderRadius: 8, background: "#fff", fontSize: 12, cursor: "pointer" }}>추가</button>
-                </div>
-              </div>
-
-              {/* ── 관련 파일 ── */}
-              <div style={{ padding: "10px 20px", borderTop: "1px solid #f1f5f9", flexShrink: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", marginBottom: 4 }}>관련 파일</div>
-                <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 8 }}>이 주제와 관련된 파일이나 영상 링크를 등록하면, AI 답변 시 함께 제공됩니다.</div>
-                {/* 탭 */}
-                <div style={{ display: "flex", gap: 0, marginBottom: 8, borderBottom: "1px solid #e5e7eb" }}>
-                  {(["file", "youtube"] as const).map(tab => (
-                    <button key={tab} type="button" onClick={() => setRelatedFileTab(tab)}
-                      style={{ padding: "6px 16px", fontSize: 12, border: "none", background: "none", cursor: "pointer", color: relatedFileTab === tab ? "#111827" : "#6b7280", fontWeight: relatedFileTab === tab ? 700 : 400, borderBottom: relatedFileTab === tab ? "2px solid #111827" : "2px solid transparent", marginBottom: -1 }}>
-                      {tab === "file" ? "파일 업로드" : "YouTube 링크"}
-                    </button>
-                  ))}
-                </div>
-                {relatedFileTab === "file" ? (
-                  <div style={{ border: "1px dashed #d1d5db", borderRadius: 8, padding: "20px", textAlign: "center", background: "#f9fafb", cursor: "pointer" }}
-                    onClick={() => document.getElementById(`file-input-${selectedChunk.id}`)?.click()}>
-                    <div style={{ fontSize: 13, color: "#6b7280" }}>파일을 드래그하거나 클릭하세요</div>
-                    <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 4 }}>PDF, 이미지(PNG, JPG, GIF, WEBP), TXT, HWP, DOCX 지원</div>
-                    <input id={`file-input-${selectedChunk.id}`} type="file" style={{ display: "none" }} accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.txt,.hwp,.docx" />
+                {/* 태그 관리 */}
+                <div style={{ padding: "14px 16px", background: "#f9fafb", borderRadius: 10, border: "1px solid #f1f5f9" }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 8 }}>태그</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+                    {editTags.map(tag => (
+                      <span key={tag} style={{ fontSize: 12, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 20, padding: "4px 12px", color: "#374151", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                        {tag}
+                        <button type="button" onClick={() => { setEditTags(prev => prev.filter(t => t !== tag)); setIsDirty(true); }}
+                          style={{ background: "none", border: "none", cursor: "pointer", color: "#94a3b8", padding: 0, fontSize: 14, lineHeight: 1 }}>×</button>
+                      </span>
+                    ))}
                   </div>
-                ) : (
-                  <input value={youtubeUrl} onChange={e => setYoutubeUrl(e.target.value)}
-                    placeholder="YouTube URL을 입력하세요"
-                    style={{ width: "100%", border: "1px solid #e5e7eb", borderRadius: 8, padding: "9px 12px", fontSize: 12, outline: "none", background: "#fafafa", boxSizing: "border-box" }} />
-                )}
-              </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <input value={tagInput} onChange={e => setTagInput(e.target.value)}
+                      onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addTag(); } }}
+                      placeholder="태그 입력 후 Enter"
+                      style={{ flex: 1, border: "1px solid #e5e7eb", borderRadius: 8, padding: "7px 12px", fontSize: 12, outline: "none", background: "#fff" }} />
+                    <button type="button" onClick={addTag}
+                      style={{ padding: "7px 14px", border: "1px solid #e5e7eb", borderRadius: 8, background: "#fff", fontSize: 12, cursor: "pointer" }}>추가</button>
+                  </div>
+                </div>
 
-              {/* ── 버전 메모 ── */}
-              <div style={{ padding: "10px 20px 14px", borderTop: "1px solid #f1f5f9", flexShrink: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", marginBottom: 4 }}>버전 메모</div>
-                <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 8 }}>현재 문서에 대한 버전 메모를 기록하실 수 있습니다.</div>
-                <input value={versionMemo} onChange={e => setVersionMemo(e.target.value)}
-                  placeholder="100자 이내로 입력해주세요."
-                  maxLength={100}
-                  style={{ width: "100%", border: "1px solid #e5e7eb", borderRadius: 8, padding: "9px 12px", fontSize: 12, outline: "none", background: "#fafafa", boxSizing: "border-box" }} />
+                {/* 관련 파일 */}
+                <div style={{ padding: "14px 16px", background: "#f9fafb", borderRadius: 10, border: "1px solid #f1f5f9" }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 8 }}>관련 파일 / 영상</div>
+                  <div style={{ display: "flex", gap: 0, marginBottom: 10, borderBottom: "1px solid #e5e7eb" }}>
+                    {(["file", "youtube"] as const).map(tab => (
+                      <button key={tab} type="button" onClick={() => setRelatedFileTab(tab)}
+                        style={{ padding: "5px 14px", fontSize: 12, border: "none", background: "none", cursor: "pointer", color: relatedFileTab === tab ? "#111827" : "#6b7280", fontWeight: relatedFileTab === tab ? 700 : 400, borderBottom: relatedFileTab === tab ? "2px solid #111827" : "2px solid transparent", marginBottom: -1 }}>
+                        {tab === "file" ? "파일" : "YouTube"}
+                      </button>
+                    ))}
+                  </div>
+                  {relatedFileTab === "file" ? (
+                    <div style={{ border: "1px dashed #d1d5db", borderRadius: 8, padding: "16px", textAlign: "center", background: "#fff", cursor: "pointer" }}
+                      onClick={() => document.getElementById(`file-input-${selectedChunk.id}`)?.click()}>
+                      <div style={{ fontSize: 12, color: "#6b7280" }}>클릭하여 파일 선택</div>
+                      <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 3 }}>PDF, 이미지, TXT, HWP, DOCX</div>
+                      <input id={`file-input-${selectedChunk.id}`} type="file" style={{ display: "none" }} accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.txt,.hwp,.docx" />
+                    </div>
+                  ) : (
+                    <input value={youtubeUrl} onChange={e => setYoutubeUrl(e.target.value)}
+                      placeholder="YouTube URL"
+                      style={{ width: "100%", border: "1px solid #e5e7eb", borderRadius: 8, padding: "8px 12px", fontSize: 12, outline: "none", background: "#fff", boxSizing: "border-box" }} />
+                  )}
+                </div>
+
+                {/* 버전 메모 */}
+                <div style={{ padding: "14px 16px", background: "#f9fafb", borderRadius: 10, border: "1px solid #f1f5f9" }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 8 }}>버전 메모</div>
+                  <input value={versionMemo} onChange={e => setVersionMemo(e.target.value)}
+                    placeholder="100자 이내로 입력해주세요."
+                    maxLength={100}
+                    style={{ width: "100%", border: "1px solid #e5e7eb", borderRadius: 8, padding: "8px 12px", fontSize: 12, outline: "none", background: "#fff", boxSizing: "border-box" }} />
+                </div>
+
               </div>
             </>
           ) : (
