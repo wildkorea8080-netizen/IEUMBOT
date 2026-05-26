@@ -126,7 +126,12 @@ def _upsert_admin(
     admin.role = role
     admin.status = "active"
     admin.organization_id = organization_id
+    admin.must_change_password = False
     # 기존 계정은 비밀번호를 초기화하지 않음 (배포마다 리셋 방지)
+    # 단, FORCE_SEED_PASSWORD=true 환경변수가 설정된 경우 강제 초기화
+    if os.getenv("FORCE_SEED_PASSWORD", "").strip().lower() == "true":
+        admin.password_hash = hash_password(validated_password)
+        return "password-reset"
     return "updated"
 
 
