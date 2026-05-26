@@ -203,10 +203,8 @@ type EditorState = {
   category: string;
   field: string;
   tags: string;
-  memo: string;
   effectiveDate: string;
   expirationDate: string;
-  department: string;
   crawlPageLimit: string;
   crawlAllPages: boolean;
   includeAttachments: boolean;
@@ -220,10 +218,8 @@ function toEditor(detail: KnowledgeDetail): EditorState {
     category: detail.category ?? "",
     field: detail.field ?? "",
     tags: detail.tags.join(", "),
-    memo: detail.memo ?? "",
     effectiveDate: detail.effectiveDate ?? "",
     expirationDate: detail.expirationDate ?? "",
-    department: detail.department ?? "",
     crawlPageLimit: detail.crawlPageLimit ? String(detail.crawlPageLimit) : "300",
     crawlAllPages: detail.crawlAllPages ?? true,
     includeAttachments: detail.includeAttachments ?? true,
@@ -276,9 +272,6 @@ export function KnowledgeManagement() {
   const [stableFileCnt, setStableFileCnt] = useState<number>(0);
   const [stableWebCnt, setStableWebCnt] = useState<number>(0);
   const [faqCount, setFaqCount] = useState<number>(0);
-  // 관련 파일 탭
-  const [relatedFileTab, setRelatedFileTab] = useState<"file" | "youtube">("file");
-  const [youtubeUrl, setYoutubeUrl] = useState("");
   // 전체 재색인
   const [isReindexingAll, setIsReindexingAll] = useState(false);
 
@@ -429,10 +422,8 @@ export function KnowledgeManagement() {
         category: editor.category || undefined,
         field: editor.field || undefined,
         tags: splitTags(editor.tags),
-        memo: editor.memo || undefined,
         effectiveDate: editor.effectiveDate || undefined,
         expirationDate: editor.expirationDate || undefined,
-        department: editor.department || undefined,
         crawlPageLimit:
           detail.sourceType === "website" && editor.crawlPageLimit
             ? Number(editor.crawlPageLimit)
@@ -996,16 +987,6 @@ export function KnowledgeManagement() {
                     />
                   </label>
                   <label className="space-y-2">
-                    <span className="text-sm font-medium text-slate-700">담당 부서</span>
-                    <input
-                      value={editor.department}
-                      onChange={(event) =>
-                        setEditor((current) => (current ? { ...current, department: event.target.value } : current))
-                      }
-                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                    />
-                  </label>
-                  <label className="space-y-2">
                     <span className="text-sm font-medium text-slate-700">시행일</span>
                     <input
                       type="date"
@@ -1034,46 +1015,6 @@ export function KnowledgeManagement() {
                       onChange={(event) =>
                         setEditor((current) => (current ? { ...current, tags: event.target.value } : current))
                       }
-                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                    />
-                  </label>
-                  {/* 관련 파일 */}
-                  <div className="space-y-2 md:col-span-2">
-                    <span className="text-sm font-medium text-slate-700">관련 파일</span>
-                    <div style={{ display: "flex", gap: 0, borderBottom: "1px solid #e5e7eb", marginBottom: 8 }}>
-                      {(["file", "youtube"] as const).map(tab => (
-                        <button key={tab} type="button"
-                          onClick={() => setRelatedFileTab(tab)}
-                          style={{ padding: "6px 14px", fontSize: 12, fontWeight: relatedFileTab === tab ? 600 : 400, color: relatedFileTab === tab ? "#2563eb" : "#6b7280", background: "none", border: "none", borderBottom: `2px solid ${relatedFileTab === tab ? "#2563eb" : "transparent"}`, cursor: "pointer", marginBottom: -1 }}>
-                          {tab === "file" ? "파일 업로드" : "YouTube 링크"}
-                        </button>
-                      ))}
-                    </div>
-                    {relatedFileTab === "file" ? (
-                      <div style={{ border: "2px dashed #e5e7eb", borderRadius: 8, padding: "20px 16px", textAlign: "center", background: "#fafafa" }}>
-                        <Upload style={{ width: 20, height: 20, color: "#9ca3af", margin: "0 auto 6px" }} />
-                        <div style={{ fontSize: 12, color: "#6b7280" }}>파일을 드래그하거나 클릭하여 업로드</div>
-                        <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 4 }}>PDF, DOCX, XLSX (최대 10MB)</div>
-                      </div>
-                    ) : (
-                      <input
-                        value={youtubeUrl}
-                        onChange={e => setYoutubeUrl(e.target.value)}
-                        placeholder="https://www.youtube.com/watch?v=..."
-                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                      />
-                    )}
-                  </div>
-
-                  <label className="space-y-2 md:col-span-2">
-                    <span className="text-sm font-medium text-slate-700">버전 메모</span>
-                    <textarea
-                      value={editor.memo}
-                      onChange={(event) =>
-                        setEditor((current) => (current ? { ...current, memo: event.target.value } : current))
-                      }
-                      rows={3}
-                      placeholder="이 버전에 대한 변경 내용 또는 메모를 입력하세요."
                       className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                     />
                   </label>

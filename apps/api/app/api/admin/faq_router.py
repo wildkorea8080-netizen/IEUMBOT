@@ -33,6 +33,8 @@ class FaqItemResponse(ApiSchema):
     tags: list[str]
     category: str | None
     field: str | None
+    memo: str | None
+    youtube_url: str | None
     is_active: bool
     sort_order: int
     source_staging_session_id: str | None
@@ -52,6 +54,8 @@ class FaqCreateRequest(ApiSchema):
     tags: list[str] = []
     category: str | None = None
     field: str | None = None
+    memo: str | None = None
+    youtube_url: str | None = None
 
 
 class FaqUpdateRequest(ApiSchema):
@@ -62,6 +66,8 @@ class FaqUpdateRequest(ApiSchema):
     sort_order: int | None = None
     category: str | None = None
     field: str | None = None
+    memo: str | None = None
+    youtube_url: str | None = None
 
 
 def _to_response(row: Any) -> FaqItemResponse:
@@ -73,6 +79,8 @@ def _to_response(row: Any) -> FaqItemResponse:
         tags=list(row.tags or []),
         category=row.category,
         field=row.field,
+        memo=row.memo,
+        youtube_url=row.youtube_url,
         is_active=row.is_active,
         sort_order=row.sort_order,
         source_staging_session_id=row.source_staging_session_id,
@@ -118,6 +126,8 @@ def create_faq(
         tags=body.tags,
         category=body.category,
         field=body.field,
+        memo=body.memo,
+        youtube_url=body.youtube_url,
     )
     return _to_response(row)
 
@@ -141,6 +151,8 @@ def update_faq(
         sort_order=body.sort_order,
         category=body.category,
         field=body.field,
+        memo=body.memo,
+        youtube_url=body.youtube_url,
     )
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="FAQ_NOT_FOUND")

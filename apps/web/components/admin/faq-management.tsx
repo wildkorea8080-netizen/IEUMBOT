@@ -117,6 +117,9 @@ function FaqEditModal({
   const [editField, setEditField] = useState(item?.field ?? "");
   const [editTags, setEditTags] = useState<string[]>(item?.tags ?? []);
   const [editActive, setEditActive] = useState(item?.isActive ?? true);
+  const [editMemo, setEditMemo] = useState(item?.memo ?? "");
+  const [editYoutubeUrl, setEditYoutubeUrl] = useState(item?.youtubeUrl ?? "");
+  const [relatedFileTab, setRelatedFileTab] = useState<"file" | "youtube">("file");
   const [tagInput, setTagInput] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -165,10 +168,12 @@ function FaqEditModal({
     try {
       const catVal = editCategory.trim() || null;
       const fieldVal = editField.trim() || null;
+      const memoVal = editMemo.trim() || null;
+      const youtubeVal = editYoutubeUrl.trim() || null;
       if (!item) {
-        await createFaqItem({ chatbotId, question: editQuestion.trim(), answer: answerHtml, tags: editTags, category: catVal, field: fieldVal });
+        await createFaqItem({ chatbotId, question: editQuestion.trim(), answer: answerHtml, tags: editTags, category: catVal, field: fieldVal, memo: memoVal, youtubeUrl: youtubeVal });
       } else {
-        await updateFaqItem(item.id, { question: editQuestion.trim(), answer: answerHtml, tags: editTags, isActive: editActive, category: catVal, field: fieldVal });
+        await updateFaqItem(item.id, { question: editQuestion.trim(), answer: answerHtml, tags: editTags, isActive: editActive, category: catVal, field: fieldVal, memo: memoVal, youtubeUrl: youtubeVal });
       }
       onSaved();
     } catch (e) {
@@ -280,7 +285,7 @@ function FaqEditModal({
           </div>
 
           {/* 태그 */}
-          <div style={{ padding: "10px 24px 20px", borderTop: "1px solid #f1f5f9", flexShrink: 0 }}>
+          <div style={{ padding: "10px 24px 16px", borderTop: "1px solid #f1f5f9", flexShrink: 0 }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: "#9ca3af", marginBottom: 8, display: "flex", alignItems: "center", gap: 4, textTransform: "uppercase", letterSpacing: 0.8 }}>
               <Tag style={{ width: 11, height: 11 }} />태그 관리
             </div>
@@ -305,6 +310,45 @@ function FaqEditModal({
                 추가
               </button>
             </div>
+          </div>
+
+          {/* 관련 파일 */}
+          <div style={{ padding: "10px 24px 16px", borderTop: "1px solid #f1f5f9", flexShrink: 0 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "#9ca3af", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.8 }}>관련 파일</div>
+            <div style={{ display: "flex", gap: 0, borderBottom: "1px solid #e5e7eb", marginBottom: 10 }}>
+              {(["file", "youtube"] as const).map(tab => (
+                <button key={tab} type="button"
+                  onClick={() => setRelatedFileTab(tab)}
+                  style={{ padding: "5px 14px", fontSize: 12, fontWeight: relatedFileTab === tab ? 600 : 400, color: relatedFileTab === tab ? "#2563eb" : "#6b7280", background: "none", border: "none", borderBottom: `2px solid ${relatedFileTab === tab ? "#2563eb" : "transparent"}`, cursor: "pointer", marginBottom: -1 }}>
+                  {tab === "file" ? "파일 업로드" : "YouTube 링크"}
+                </button>
+              ))}
+            </div>
+            {relatedFileTab === "file" ? (
+              <div style={{ border: "2px dashed #e5e7eb", borderRadius: 8, padding: "18px 16px", textAlign: "center", background: "#fafafa" }}>
+                <div style={{ fontSize: 12, color: "#6b7280" }}>파일을 드래그하거나 클릭하여 업로드</div>
+                <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 4 }}>PDF, DOCX, XLSX (최대 10MB)</div>
+              </div>
+            ) : (
+              <input
+                value={editYoutubeUrl}
+                onChange={e => { setEditYoutubeUrl(e.target.value); setIsDirty(true); }}
+                placeholder="https://www.youtube.com/watch?v=..."
+                style={{ width: "100%", border: "1px solid #e5e7eb", borderRadius: 8, padding: "7px 12px", fontSize: 12, outline: "none", background: "#fafafa", boxSizing: "border-box" }}
+              />
+            )}
+          </div>
+
+          {/* 버전 메모 */}
+          <div style={{ padding: "10px 24px 20px", borderTop: "1px solid #f1f5f9", flexShrink: 0 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "#9ca3af", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.8 }}>버전 메모</div>
+            <textarea
+              value={editMemo}
+              onChange={e => { setEditMemo(e.target.value); setIsDirty(true); }}
+              rows={3}
+              placeholder="이 FAQ에 대한 변경 내용 또는 메모를 입력하세요."
+              style={{ width: "100%", border: "1px solid #e5e7eb", borderRadius: 8, padding: "8px 12px", fontSize: 12, outline: "none", background: "#fafafa", resize: "vertical", boxSizing: "border-box" }}
+            />
           </div>
         </div>
 

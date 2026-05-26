@@ -31,6 +31,8 @@ def create_faq_item(
     source_staging_session_id: str | None = None,
     category: str | None = None,
     field: str | None = None,
+    memo: str | None = None,
+    youtube_url: str | None = None,
 ) -> FaqItem:
     """FAQ 항목 생성 (임베딩 자동 생성)."""
     embedding = _generate_faq_embedding(question)
@@ -43,6 +45,8 @@ def create_faq_item(
         tags=tags or [],
         category=category,
         field=field,
+        memo=memo,
+        youtube_url=youtube_url,
         source_staging_session_id=source_staging_session_id,
         embedding=embedding,
         is_active=True,
@@ -96,6 +100,8 @@ def update_faq_item(
     sort_order: int | None = None,
     category: str | None = None,
     field: str | None = None,
+    memo: str | None = None,
+    youtube_url: str | None = None,
 ) -> FaqItem | None:
     row = get_faq_item(db, faq_id=faq_id, organization_id=organization_id)
     if row is None:
@@ -116,6 +122,10 @@ def update_faq_item(
         row.category = category
     if field is not None:
         row.field = field
+    if memo is not None:
+        row.memo = memo
+    if youtube_url is not None:
+        row.youtube_url = youtube_url
 
     db.commit()
     db.refresh(row)
