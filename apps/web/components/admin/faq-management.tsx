@@ -407,6 +407,8 @@ export function FaqManagement({ onCountLoaded }: { onCountLoaded?: (count: numbe
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
 
   // null = 닫힘, "new" = 신규 추가, FaqManagementItem = 수정
   const [modalTarget, setModalTarget] = useState<FaqManagementItem | "new" | null>(null);
@@ -416,6 +418,7 @@ export function FaqManagement({ onCountLoaded }: { onCountLoaded?: (count: numbe
     if (!id) return;
     setIsLoading(true);
     setError(null);
+    setSelectedIds(new Set());
     try {
       const res = await listFaqItems(id, true);
       setItems(res.items);
@@ -454,12 +457,43 @@ export function FaqManagement({ onCountLoaded }: { onCountLoaded?: (count: numbe
     return () => clearTimeout(t);
   }, [notice]);
 
+  function toggleSelect(id: string, e: React.MouseEvent) {
+    e.stopPropagation();
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAll() {
+    setSelectedIds(prev =>
+      prev.size === items.length ? new Set() : new Set(items.map(i => i.id))
+    );
+  }
+
+  async function handleBulkDelete() {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`선택한 ${selectedIds.size}개 FAQ를 삭제하시겠습니까?`)) return;
+    setIsBulkDeleting(true);
+    setError(null);
+    const count = selectedIds.size;
+    try {
+      await Promise.all([...selectedIds].map(id => deleteFaqItem(id)));
+      setSelectedIds(new Set());
+      setNotice(`${count}개 FAQ가 삭제되었습니다.`);
+      await load();
+    } catch (e) {
+      setError(getErrorMessage(e));
+    } finally {
+      setIsBulkDeleting(false);
+    }
+  }
+
   const formatDate = (iso: string) => {
     const d = new Date(iso);
     return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")}`;
   };
-
-  const activeCount = items.filter(i => i.isActive).length;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -491,14 +525,41 @@ export function FaqManagement({ onCountLoaded }: { onCountLoaded?: (count: numbe
 
       {/* 헤더 */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <span style={{ fontSize: 14, fontWeight: 600, color: "#334155" }}>
-          {activeCount}개 활성 / {items.length}개 전체
-        </span>
-        <button type="button" onClick={() => setModalTarget("new")} disabled={!chatbotId}
-          style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 14px", border: "none", borderRadius: 8, background: "#111827", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-          <Plus style={{ width: 14, height: 14 }} />
-          FAQ 직접추가
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <span style={{ fontSize: 14, fontWeight: 700, color: "#111827" }}>
+            등록된 FAQ ({items.length})
+          </span>
+          {items.length > 0 && (
+            <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13, color: "#374151", userSelect: "none" }}>
+              <input
+                type="checkbox"
+                checked={selectedIds.size === items.length && items.length > 0}
+                ref={el => { if (el) el.indeterminate = selectedIds.size > 0 && selectedIds.size < items.length; }}
+                onChange={toggleAll}
+                style={{ width: 15, height: 15, cursor: "pointer" }}
+              />
+              전체 선택
+            </label>
+          )}
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {selectedIds.size > 0 && (
+            <button
+              type="button"
+              onClick={() => void handleBulkDelete()}
+              disabled={isBulkDeleting}
+              style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 14px", border: "1px solid #fca5a5", borderRadius: 8, background: "#fff", color: "#dc2626", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: isBulkDeleting ? 0.6 : 1 }}
+            >
+              <span style={{ fontSize: 14 }}>🗑</span>
+              {isBulkDeleting ? "삭제 중..." : `선택 삭제 (${selectedIds.size})`}
+            </button>
+          )}
+          <button type="button" onClick={() => setModalTarget("new")} disabled={!chatbotId}
+            style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 14px", border: "none", borderRadius: 8, background: "#111827", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+            <Plus style={{ width: 14, height: 14 }} />
+            FAQ 직접추가
+          </button>
+        </div>
       </div>
 
       {/* 목록 */}
@@ -516,7 +577,8 @@ export function FaqManagement({ onCountLoaded }: { onCountLoaded?: (count: numbe
       ) : (
         <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden" }}>
           {/* 테이블 헤더 */}
-          <div style={{ display: "grid", gridTemplateColumns: "100px 130px 1fr 160px 90px 72px", padding: "10px 16px", borderBottom: "1px solid #f1f5f9", background: "#f9fafb" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "44px 100px 130px 1fr 160px 90px 72px", padding: "10px 16px", borderBottom: "1px solid #f1f5f9", background: "#f9fafb", alignItems: "center" }}>
+            <div />
             {["구분", "분야", "제목", "태그", "생성일", "상태"].map(h => (
               <div key={h} style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", textTransform: "uppercase", letterSpacing: 0.6 }}>{h}</div>
             ))}
@@ -528,15 +590,30 @@ export function FaqManagement({ onCountLoaded }: { onCountLoaded?: (count: numbe
               key={item.id}
               onClick={() => setModalTarget(item)}
               style={{
-                display: "grid", gridTemplateColumns: "100px 130px 1fr 160px 90px 72px",
+                display: "grid", gridTemplateColumns: "44px 100px 130px 1fr 160px 90px 72px",
                 padding: "14px 16px",
                 borderBottom: idx < items.length - 1 ? "1px solid #f1f5f9" : "none",
                 cursor: "pointer", alignItems: "center",
+                background: selectedIds.has(item.id) ? "#eff6ff" : "transparent",
                 transition: "background .1s",
               }}
-              onMouseEnter={e => (e.currentTarget.style.background = "#f8fafc")}
-              onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+              onMouseEnter={e => { if (!selectedIds.has(item.id)) e.currentTarget.style.background = "#f8fafc"; }}
+              onMouseLeave={e => { if (!selectedIds.has(item.id)) e.currentTarget.style.background = "transparent"; }}
             >
+              {/* 체크박스 */}
+              <div onClick={e => toggleSelect(item.id, e)} style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <div style={{
+                  width: 16, height: 16, borderRadius: 4, flexShrink: 0,
+                  border: `2px solid ${selectedIds.has(item.id) ? "#2563eb" : "#d1d5db"}`,
+                  background: selectedIds.has(item.id) ? "#2563eb" : "#fff",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  cursor: "pointer",
+                }}>
+                  {selectedIds.has(item.id) && (
+                    <div style={{ width: 8, height: 5, borderLeft: "2px solid #fff", borderBottom: "2px solid #fff", transform: "rotate(-45deg) translate(1px,-1px)" }} />
+                  )}
+                </div>
+              </div>
               {/* 구분 — 대표 키워드 (category 또는 첫 태그) */}
               <div style={{ paddingRight: 8 }}>
                 <div style={{
