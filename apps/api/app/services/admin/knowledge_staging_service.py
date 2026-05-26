@@ -268,7 +268,7 @@ def _fetch_existing_knowledge_content(doc_id: str, db: Session) -> str | None:
         chunks = db.execute(
             select(DocumentChunk.text_content)
             .where(DocumentChunk.document_version_id == version.id)
-            .order_by(DocumentChunk.chunk_index)
+            .order_by(DocumentChunk.chunk_order)
             .limit(6)
         ).scalars().all()
         return "\n\n".join(c for c in chunks if c) or None

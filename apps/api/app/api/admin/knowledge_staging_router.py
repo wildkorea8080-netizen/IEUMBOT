@@ -128,31 +128,75 @@ def _get_session_with_chunks(
     )
 
 
-def _rag_ingest_background(
+def _process_file_staging_background(
+    session_id: str,
+    file_bytes: bytes,
+    filename: str,
+    content_type: str,
     chatbot_id: str,
     organization_id: str,
-    filename: str,
-    text: str,
+    is_duplicate: bool,
 ) -> None:
-    """파일 업로드 시 RAG 즉시 색인 (백그라운드 태스크)."""
+    """파일 텍스트 추출 → RAG 색인(신규만) → AI 분석을 모두 백그라운드에서 처리."""
+    import logging  # noqa: PLC0415
     from app.db import SessionLocal  # noqa: PLC0415
-    from app.services.admin.knowledge_service import create_text_knowledge_internal  # noqa: PLC0415
 
+    _log = logging.getLogger(__name__)
+
+    # 1. 텍스트 추출
+    try:
+        db_extract = SessionLocal()
+        try:
+            from app.services.admin.knowledge_service import _extract_document_text  # noqa: PLC0415
+            text, _, _ = _extract_document_text(filename, file_bytes, content_type, use_vision=False, db=db_extract)
+        except Exception:
+            text = file_bytes.decode("utf-8", errors="replace")
+        finally:
+            db_extract.close()
+    except Exception as exc:
+        _log.error("[STAGING] file extraction failed session=%s: %s", session_id, exc)
+        _mark_session_failed(session_id)
+        return
+
+    if not text.strip():
+        _log.warning("[STAGING] extracted text empty session=%s", session_id)
+        _mark_session_failed(session_id)
+        return
+
+    # 2. RAG 색인 (신규 파일만)
+    if not is_duplicate:
+        try:
+            db_rag = SessionLocal()
+            try:
+                from app.services.admin.knowledge_service import create_text_knowledge_internal  # noqa: PLC0415
+                create_text_knowledge_internal(
+                    db_rag, chatbot_id=chatbot_id, organization_id=organization_id,
+                    title=filename, content=text, tags=[],
+                )
+            finally:
+                db_rag.close()
+        except Exception as exc:
+            _log.warning("[STAGING] RAG ingest failed file=%s: %s (analysis continues)", filename, exc)
+
+    # 3. AI 분석
+    from app.services.admin.knowledge_staging_service import analyze_staging_session_background  # noqa: PLC0415
+    analyze_staging_session_background(session_id, text, chatbot_id, organization_id)
+
+
+def _mark_session_failed(session_id: str) -> None:
+    from app.db import SessionLocal  # noqa: PLC0415
     db = SessionLocal()
     try:
-        create_text_knowledge_internal(
-            db,
-            chatbot_id=chatbot_id,
-            organization_id=organization_id,
-            title=filename,
-            content=text,
-            tags=[],
-        )
-        import logging  # noqa: PLC0415
-        logging.getLogger(__name__).info("[STAGING] RAG background ingest done file=%s", filename)
-    except Exception as exc:
-        import logging  # noqa: PLC0415
-        logging.getLogger(__name__).warning("[STAGING] RAG background ingest failed file=%s: %s", filename, exc)
+        session_row = db.execute(
+            select(KnowledgeStagingSession).where(
+                KnowledgeStagingSession.id == uuid.UUID(session_id)
+            )
+        ).scalar_one_or_none()
+        if session_row:
+            session_row.status = "failed"
+            db.commit()
+    except Exception:
+        db.rollback()
     finally:
         db.close()
 
@@ -195,28 +239,15 @@ async def create_staging_from_file(
     principal: AdminPrincipal = Depends(require_institution_admin_auth),
     db: Session = Depends(get_db_session),
 ) -> StagingSessionResponse:
-    """파일 업로드 → 텍스트 추출(동기) → 즉시 세션 생성 → 분석은 백그라운드."""
+    """파일 업로드 → 세션 즉시 생성 → 텍스트 추출·RAG 색인·AI 분석 모두 백그라운드."""
     ensure_chatbot_in_scope(db, principal=principal, chatbot_id=chatbot_id)
     org_id = require_institution_organization_id(principal)
 
     file_bytes = await file.read()
     filename = file.filename or "unknown"
+    content_type = file.content_type or ""
 
-    # 텍스트 추출 (동기, 빠름)
-    try:
-        from app.services.admin.knowledge_service import _extract_document_text  # noqa: PLC0415
-        content_type = file.content_type or ""
-        text, _, _ = _extract_document_text(filename, file_bytes, content_type, use_vision=False, db=db)
-    except Exception:
-        try:
-            text = file_bytes.decode("utf-8", errors="replace")
-        except Exception as exc:
-            raise HTTPException(status_code=422, detail=f"FILE_TEXT_EXTRACTION_FAILED: {exc}") from exc
-
-    if not text.strip():
-        raise HTTPException(status_code=422, detail="FILE_EMPTY_OR_UNREADABLE")
-
-    # 중복 파일 감지 (동일 챗봇 내 같은 파일명의 활성 버전 존재 여부)
+    # 중복 파일 감지 (빠른 DB 조회만)
     from app.models.documents import Document  # noqa: PLC0415
     from app.models.document_versions import DocumentVersion as DocVersion  # noqa: PLC0415
 
@@ -233,7 +264,7 @@ async def create_staging_from_file(
     ).scalar_one_or_none()
     is_duplicate = existing is not None
 
-    # 세션 즉시 생성
+    # 세션 즉시 생성 후 바로 응답 (텍스트 추출·분석은 백그라운드)
     session_row = create_staging_session_immediate(
         db,
         chatbot_id=chatbot_id,
@@ -243,17 +274,10 @@ async def create_staging_from_file(
         is_duplicate_file=is_duplicate,
     )
 
-    # 중복 아닌 경우: RAG 색인 즉시 트리거 (백그라운드)
-    if not is_duplicate:
-        background_tasks.add_task(
-            _rag_ingest_background,
-            chatbot_id, org_id, filename, text,
-        )
-
-    # AI 분석은 백그라운드에서 수행 (타임아웃 방지)
     background_tasks.add_task(
-        analyze_staging_session_background,
-        str(session_row.id), text, chatbot_id, org_id,
+        _process_file_staging_background,
+        str(session_row.id), file_bytes, filename, content_type,
+        chatbot_id, org_id, is_duplicate,
     )
 
     return _get_session_with_chunks(db, str(session_row.id), org_id)
@@ -396,7 +420,7 @@ def create_staging_from_knowledge(
     chunk_texts = db.execute(
         select(DocumentChunk.text_content)
         .where(DocumentChunk.document_version_id == version.id)
-        .order_by(DocumentChunk.chunk_index)
+        .order_by(DocumentChunk.chunk_order)
         .limit(30)
     ).scalars().all()
 
