@@ -321,9 +321,9 @@ def _check_merge_candidate(
         from app.services.embedding_service import generate_embedding  # noqa: PLC0415
         from sqlalchemy import text as sa_text  # noqa: PLC0415
         import uuid as _uuid  # noqa: PLC0415
-        from app.models.document_chunk import DocumentChunk  # noqa: PLC0415
-        from app.models.document import Document  # noqa: PLC0415
-        from app.models.document_version import DocumentVersion  # noqa: PLC0415
+        from app.models.document_chunks import DocumentChunk  # noqa: PLC0415
+        from app.models.documents import Document  # noqa: PLC0415
+        from app.models.document_versions import DocumentVersion  # noqa: PLC0415
 
         embedding = generate_embedding(text[:600])
         if embedding is None:

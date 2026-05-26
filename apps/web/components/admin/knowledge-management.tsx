@@ -1,6 +1,7 @@
 "use client";
 
 import NextLink from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import {
   Search, RefreshCw, Trash2, ChevronDown, ChevronRight as ChevronRightIcon,
@@ -14,10 +15,10 @@ import { Link as TiptapLink } from "@tiptap/extension-link";
 import { Image } from "@tiptap/extension-image";
 import { Table, TableRow, TableCell, TableHeader } from "@tiptap/extension-table";
 
-import { FaqAnalyzeModal } from "./FaqAnalyzeModal";
 import { FaqManagement } from "./faq-management";
 import { ApiClientError } from "../../lib/api";
 import {
+  createStagingFromKnowledge,
   deleteKnowledge,
   getAdminChatbots,
   getKnowledgeContent,
@@ -235,6 +236,7 @@ function splitLines(value: string): string[] {
 }
 
 export function KnowledgeManagement() {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<"file_text" | "website" | "faq">("file_text");
   const sourceGroup: KnowledgeSourceGroup = activeTab === "faq" ? "file_text" : activeTab;
   const [items, setItems] = useState<KnowledgeItem[]>([]);
@@ -263,7 +265,6 @@ export function KnowledgeManagement() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [runtimeStatus, setRuntimeStatus] = useState<KnowledgeRuntimeStatus | null>(null);
-  const [faqAnalyzeItem, setFaqAnalyzeItem] = useState<KnowledgeItem | null>(null);
   const [settingsChatbotId, setSettingsChatbotId] = useState<string | null>(null);
   const [skipDuplicateReindex, setSkipDuplicateReindex] = useState(false);
   // 탭별 안정적인 카운트 (로딩 중에도 정확한 수 유지)
@@ -520,6 +521,19 @@ export function KnowledgeManagement() {
       return;
     }
     setSelectedIds(items.map((item) => item.id));
+  };
+
+  const handleFaqReanalyze = async (knowledgeId: string) => {
+    if (!settingsChatbotId) return;
+    setIsSaving(true);
+    setError(null);
+    try {
+      const session = await createStagingFromKnowledge({ knowledgeId, chatbotId: settingsChatbotId });
+      router.push(`/admin/knowledge/review?session=${session.sessionId}`);
+    } catch (e) {
+      setError(getErrorMessage(e));
+      setIsSaving(false);
+    }
   };
 
   const handleReindexAll = async () => {
@@ -1285,7 +1299,7 @@ export function KnowledgeManagement() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setFaqAnalyzeItem(detail)}
+                    onClick={() => void handleFaqReanalyze(detail.id)}
                     disabled={isSaving || !settingsChatbotId}
                     className="rounded-lg border border-violet-300 px-4 py-2 text-sm text-violet-700 disabled:opacity-50"
                     title="AI가 문서를 분석해 주제별 FAQ를 추천합니다. 검토·편집 후 FAQ 탭에 등록됩니다."
@@ -1327,21 +1341,6 @@ export function KnowledgeManagement() {
         .tiptap th { background: #f9fafb; font-weight: 600; }
         .tiptap a { color: #2563eb; text-decoration: underline; }
       `}</style>
-
-      {faqAnalyzeItem && settingsChatbotId ? (
-        <FaqAnalyzeModal
-          knowledgeId={faqAnalyzeItem.id}
-          knowledgeTitle={faqAnalyzeItem.title}
-          chatbotId={settingsChatbotId}
-          onClose={() => setFaqAnalyzeItem(null)}
-          onRegistered={(count) => {
-            setFaqAnalyzeItem(null);
-            setNotice(`${count}개 FAQ가 FAQ 탭에 등록되었습니다.`);
-            setActiveTab("faq");
-            setDetail(null);
-          }}
-        />
-      ) : null}
 
       {/* 자동 업데이트 설정 모달 */}
       {syncModalId && (

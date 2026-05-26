@@ -346,6 +346,78 @@ def register_staging(
     return StagingRegisterResponse(**result)
 
 
+class StagingFromKnowledgeRequest(ApiSchema):
+    chatbot_id: str
+
+
+@router.post(
+    "/knowledge/staging/from-knowledge/{knowledge_id}",
+    response_model=StagingSessionResponse,
+    status_code=201,
+)
+def create_staging_from_knowledge(
+    knowledge_id: str,
+    body: StagingFromKnowledgeRequest,
+    background_tasks: BackgroundTasks,
+    principal: AdminPrincipal = Depends(require_institution_admin_auth),
+    db: Session = Depends(get_db_session),
+) -> StagingSessionResponse:
+    """기존 지식 문서의 텍스트를 가져와 스테이징 세션을 생성 (FAQ 재분석용)."""
+    ensure_chatbot_in_scope(db, principal=principal, chatbot_id=body.chatbot_id)
+    org_id = require_institution_organization_id(principal)
+
+    from app.models.documents import Document  # noqa: PLC0415
+    from app.models.document_versions import DocumentVersion  # noqa: PLC0415
+    from app.models.document_chunks import DocumentChunk  # noqa: PLC0415
+
+    doc = db.execute(
+        select(Document).where(
+            Document.id == uuid.UUID(knowledge_id),
+            Document.chatbot_id == uuid.UUID(body.chatbot_id),
+            Document.status == "active",
+        )
+    ).scalar_one_or_none()
+    if doc is None:
+        raise HTTPException(status_code=404, detail="KNOWLEDGE_NOT_FOUND")
+
+    version = db.execute(
+        select(DocumentVersion)
+        .where(
+            DocumentVersion.document_id == doc.id,
+            DocumentVersion.is_active.is_(True),
+            DocumentVersion.status == "completed",
+        )
+        .order_by(DocumentVersion.created_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    if version is None:
+        raise HTTPException(status_code=422, detail="KNOWLEDGE_NOT_INDEXED")
+
+    chunk_texts = db.execute(
+        select(DocumentChunk.text_content)
+        .where(DocumentChunk.document_version_id == version.id)
+        .order_by(DocumentChunk.chunk_index)
+        .limit(30)
+    ).scalars().all()
+
+    text = "\n\n".join(c for c in chunk_texts if c)
+    if not text.strip():
+        raise HTTPException(status_code=422, detail="KNOWLEDGE_CONTENT_EMPTY")
+
+    session_row = create_staging_session_immediate(
+        db,
+        chatbot_id=body.chatbot_id,
+        organization_id=org_id,
+        source_type="knowledge",
+        source_name=doc.title,
+    )
+    background_tasks.add_task(
+        analyze_staging_session_background,
+        str(session_row.id), text, body.chatbot_id, org_id,
+    )
+    return _get_session_with_chunks(db, str(session_row.id), org_id)
+
+
 @router.delete("/knowledge/staging/{session_id}", status_code=204)
 def delete_staging_session(
     session_id: str,
