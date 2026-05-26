@@ -2317,6 +2317,75 @@ def _looks_like_mojibake_text(text: str) -> bool:
     return False
 
 
+# ── Docling 싱글톤 ─────────────────────────────────────────────────────────────
+_docling_converter: Any = None
+
+
+def _get_docling_converter() -> Any:
+    """DocumentConverter를 최초 1회 초기화 후 재사용 (모델 로드 비용 절감)."""
+    global _docling_converter
+    if _docling_converter is not None:
+        return _docling_converter
+    try:
+        from docling.datamodel.base_models import InputFormat  # type: ignore
+        from docling.datamodel.pipeline_options import (  # type: ignore
+            PdfPipelineOptions,
+            TableFormerMode,
+        )
+        from docling.document_converter import DocumentConverter, PdfFormatOption  # type: ignore
+
+        pipeline_options = PdfPipelineOptions(do_table_structure=True)
+        pipeline_options.table_structure_options.mode = TableFormerMode.ACCURATE
+        _docling_converter = DocumentConverter(
+            format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)}
+        )
+        logger.info("[DOCLING] DocumentConverter 초기화 완료")
+    except Exception as exc:
+        logger.warning("[DOCLING] 초기화 실패: %s", exc)
+        _docling_converter = None
+    return _docling_converter
+
+
+def _extract_pdf_text_via_docling(file_bytes: bytes, file_name: str) -> str | None:
+    """Docling으로 PDF → 마크다운 변환. 실패 시 None 반환."""
+    import tempfile
+
+    converter = _get_docling_converter()
+    if converter is None:
+        return None
+
+    tmp_path: str | None = None
+    try:
+        suffix = Path(file_name).suffix.lower() or ".pdf"
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp.write(file_bytes)
+            tmp_path = tmp.name
+
+        from docling.datamodel.base_models import ConversionStatus  # type: ignore
+
+        result = converter.convert(tmp_path)
+        if result.status != ConversionStatus.SUCCESS:
+            logger.warning("[DOCLING] 변환 실패 status=%s file=%s", result.status, file_name)
+            return None
+
+        text = result.document.export_to_markdown()
+        if not text or len(text.strip()) < 50:
+            return None
+
+        logger.info("[DOCLING] 추출 완료 file=%s chars=%d", file_name, len(text))
+        return text.strip()
+
+    except Exception as exc:
+        logger.warning("[DOCLING] 추출 예외 file=%s: %s", file_name, exc)
+        return None
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+
 def _extract_pdf_text_via_pypdf(file_bytes: bytes) -> str:
     parts: list[str] = []
     import pypdf  # type: ignore
@@ -2630,6 +2699,8 @@ def _extract_document_text(
     use_vision: bool = False,
     db=None,
 ) -> tuple[str, str, str]:
+    from app.core.config import settings  # noqa: PLC0415
+
     file_type = Path(file_name or "upload.bin").suffix.lower()
     normalized_content_type = content_type or ATTACHMENT_MIME_HINTS.get(file_type)
     if file_type in {".txt", ".md", ".csv", ".json", ".xml", ".html", ".htm"}:
@@ -2637,6 +2708,10 @@ def _extract_document_text(
     if normalized_content_type and normalized_content_type.startswith(TEXTISH_MIME_PREFIXES):
         return file_bytes.decode("utf-8", errors="ignore").strip(), file_type, "text"
     if file_type == ".pdf":
+        if settings.use_docling:
+            docling_text = _extract_pdf_text_via_docling(file_bytes, file_name)
+            if docling_text:
+                return docling_text, file_type, "docling"
         extracted_text, extraction_method = _extract_pdf_text_best_effort(
             file_bytes,
             use_vision=use_vision,
