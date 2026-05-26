@@ -97,6 +97,12 @@ async def lifespan(_: FastAPI):
             scheduler.shutdown(wait=False)
         except Exception:
             pass
+    try:
+        from app.services.monitoring import langfuse_service  # noqa: PLC0415
+
+        langfuse_service.flush()
+    except Exception:
+        pass
     logger.info("Shutting down IEUMBOT API")
 
 

@@ -300,6 +300,19 @@ def generate_grounded_answer(
                 "provider": runtime_api.provider,
                 "model": model_name,
             }
+        try:
+            from app.services.monitoring import langfuse_service  # noqa: PLC0415
+
+            langfuse_service.record_generation(
+                model=model_name,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                answer_preview=text or "",
+                latency_ms=latency_ms,
+            )
+        except Exception:
+            pass
+
         return {
             "executed": True,
             "errorCode": None,

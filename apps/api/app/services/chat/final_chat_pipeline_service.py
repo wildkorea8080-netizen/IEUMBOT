@@ -53,6 +53,7 @@ from app.services.escalations.runtime_escalation_service import (
 )
 from app.services.guardrails.runtime_guardrails_service import get_effective_guardrails_for_runtime
 from app.services.limits_service import check_conversation_limit
+from app.services.monitoring import langfuse_service
 from app.services.settings.answer_settings_service import get_effective_answer_settings_for_runtime
 
 logger = logging.getLogger(__name__)
@@ -1650,6 +1651,11 @@ def run_final_chat_pipeline(
 
     normalized_query = body.normalized_query or normalize_query(body.question)
     session_token = body.session_token or f"session_{uuid.uuid4().hex[:20]}"
+    langfuse_service.start_chat_trace(
+        question=body.question,
+        chatbot_id=str(chatbot.id),
+        session_token=session_token,
+    )
     privacy_result = detect_and_mask_privacy(body.question)
     if privacy_result.detected:
         session = get_chat_session_by_token(
@@ -1958,6 +1964,7 @@ def run_final_chat_pipeline(
     if not retrieval_output.get("retrievalLatencyMs"):
         retrieval_output["retrievalLatencyMs"] = retrieval_latency_ms
     prompt_candidates = list(retrieval_output.get("promptCandidates") or [])
+    langfuse_service.record_retrieval(candidates=prompt_candidates, latency_ms=retrieval_latency_ms)
 
     # ── Re-ranking (USE_RERANKING=true 일 때만 실행) ──────────────────────────
     # 전체 candidates(top-20 이내) 를 LLM 관련성 점수로 재정렬 → top_n 선별
@@ -2507,6 +2514,8 @@ def run_final_chat_pipeline(
                 reranked=bool(_c.get("_reranked", False)),
                 used_in_prompt=bool(_c.get("usedInPrompt", True)),
             ))
+
+    langfuse_service.end_chat_trace(outcome=outcome, answer_text=answer_text)
 
     return ChatRuntimeResponse(
         request_id=request_id,

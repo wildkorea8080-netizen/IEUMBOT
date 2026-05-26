@@ -23,6 +23,7 @@ dependencies = [
     "pypdf==5.4.0",
     "pytesseract==0.3.13",
     "docling>=2.0.0",
+    "langfuse>=2.0.0",
 ]
 
 [project.scripts]

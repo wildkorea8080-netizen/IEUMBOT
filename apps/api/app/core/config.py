@@ -61,6 +61,9 @@ class Settings(BaseSettings):
     contextual_retrieval_model: str = "gpt-4o-mini"
     contextual_retrieval_max_workers: int = 5
     use_docling: bool = False
+    langfuse_public_key: str = ""
+    langfuse_secret_key: str = ""
+    langfuse_host: str = "https://cloud.langfuse.com"
 
     model_config = SettingsConfigDict(
         env_file=".env",
