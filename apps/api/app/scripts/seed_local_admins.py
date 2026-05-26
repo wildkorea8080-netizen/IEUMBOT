@@ -126,9 +126,7 @@ def _upsert_admin(
     admin.role = role
     admin.status = "active"
     admin.organization_id = organization_id
-    admin.password_hash = hash_password(validated_password)
-    admin.must_change_password = False
-    admin.last_login_at = None
+    # 기존 계정은 비밀번호를 초기화하지 않음 (배포마다 리셋 방지)
     return "updated"
 
 
