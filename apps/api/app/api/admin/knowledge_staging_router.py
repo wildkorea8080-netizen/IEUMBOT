@@ -97,9 +97,14 @@ def _chunk_to_item(row: KnowledgeStagingChunk) -> StagingChunkItem:
     )
 
 
+_ANALYZING_STALE_SECONDS = 300  # 5분 이상 analyzing 상태면 stale 처리
+
+
 def _get_session_with_chunks(
     db: Session, session_id: str, organization_id: str
 ) -> StagingSessionResponse:
+    from datetime import datetime, timezone  # noqa: PLC0415
+
     session_row = db.execute(
         select(KnowledgeStagingSession).where(
             KnowledgeStagingSession.id == uuid.UUID(session_id),
@@ -108,6 +113,16 @@ def _get_session_with_chunks(
     ).scalar_one_or_none()
     if session_row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="STAGING_SESSION_NOT_FOUND")
+
+    # 백그라운드 태스크가 서버 재시작 등으로 유실된 경우 스테일 감지
+    if session_row.status == "analyzing":
+        created = session_row.created_at
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        elapsed = (datetime.now(timezone.utc) - created).total_seconds()
+        if elapsed > _ANALYZING_STALE_SECONDS:
+            session_row.status = "failed"
+            db.commit()
 
     chunks = list(
         db.execute(

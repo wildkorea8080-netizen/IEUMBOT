@@ -438,6 +438,7 @@ export default function KnowledgeReviewPage() {
   const [toast, setToast] = useState<{ tone: "success" | "error"; msg: string } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const pollingStartRef = useRef(Date.now());
   const [isDirty, setIsDirty] = useState(false);
   const [showDiff, setShowDiff] = useState(false);
   const [currentText, setCurrentText] = useState("");
@@ -522,6 +523,12 @@ export default function KnowledgeReviewPage() {
     try {
       const data = await apiClient.request<StagingSession>(`/admin/knowledge/staging/${sessionId}`);
       if (data.status === "analyzing") {
+        // 3분(180초) 이상 폴링 중이면 타임아웃 처리
+        if (Date.now() - pollingStartRef.current > 180_000) {
+          setLoadError("분석 시간이 너무 오래 걸립니다. 서버에 문제가 발생했을 수 있습니다. 파일을 다시 업로드해 주세요.");
+          setIsLoading(false);
+          return;
+        }
         setTimeout(() => void load(true), 3000);
         return;
       }
@@ -541,6 +548,8 @@ export default function KnowledgeReviewPage() {
       setLoadError(
         msg.includes("404") || msg.includes("NOT_FOUND")
           ? "분석 세션을 찾을 수 없습니다. 로그인 계정을 확인하거나 파일을 다시 업로드해 주세요."
+          : msg.includes("502") || msg.includes("503")
+          ? "서버가 일시적으로 응답하지 않습니다 (Render 재시작 중). 30초 후 다시 시도하거나 파일을 다시 업로드해 주세요."
           : `세션을 불러오지 못했습니다. (${msg.slice(0, 60)})`
       );
       setIsLoading(false);
@@ -644,18 +653,29 @@ export default function KnowledgeReviewPage() {
   }
 
   if (loadError || !session) {
+    const isServerError = loadError?.includes("502") || loadError?.includes("503") || loadError?.includes("재시작");
     return (
       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "60vh" }}>
-        <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16, padding: "36px 40px", textAlign: "center", maxWidth: 420 }}>
-          <div style={{ fontSize: 36, marginBottom: 12 }}>⚠️</div>
-          <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", marginBottom: 8 }}>분석 세션 오류</div>
+        <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16, padding: "36px 40px", textAlign: "center", maxWidth: 440 }}>
+          <div style={{ fontSize: 36, marginBottom: 12 }}>{isServerError ? "🔄" : "⚠️"}</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", marginBottom: 8 }}>
+            {isServerError ? "서버 재시작 중" : "분석 세션 오류"}
+          </div>
           <div style={{ fontSize: 13, color: "#6b7280", lineHeight: 1.6, marginBottom: 24 }}>
             {loadError ?? "세션 정보를 불러올 수 없습니다."}
           </div>
-          <button type="button" onClick={() => router.push("/admin/knowledge/register")}
-            style={{ padding: "10px 24px", border: "none", borderRadius: 8, background: "#2563eb", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-            파일 다시 업로드
-          </button>
+          <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
+            {isServerError && (
+              <button type="button" onClick={() => { setLoadError(null); setIsLoading(true); pollingStartRef.current = Date.now(); void load(); }}
+                style={{ padding: "10px 20px", border: "1px solid #2563eb", borderRadius: 8, background: "#fff", color: "#2563eb", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                다시 시도
+              </button>
+            )}
+            <button type="button" onClick={() => router.push("/admin/knowledge/register")}
+              style={{ padding: "10px 20px", border: "none", borderRadius: 8, background: "#2563eb", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+              파일 다시 업로드
+            </button>
+          </div>
         </div>
       </div>
     );
