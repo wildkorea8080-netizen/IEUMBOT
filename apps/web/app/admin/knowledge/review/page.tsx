@@ -316,10 +316,10 @@ function ChunkListItem({ chunk, isSelected, isChecked, onClick, onToggle }: {
 // ── AI 분석 화면 ──────────────────────────────────────────────────────────────
 
 // 각 단계가 활성화된 후 게이지가 꽉 차는 데 걸리는 예상 시간(ms)
-const STEP_DURATIONS = [5000, 15000, 35000, 35000];
+const STEP_DURATIONS = [8000, 32000, 60000, 60000];
 
 function AnalysisScreen() {
-  const [countdown, setCountdown] = useState(60);
+  const [countdown, setCountdown] = useState(120);
   const [step, setStep] = useState(0);
   const [fillPct, setFillPct] = useState(0);
   const stepStartRef = useRef(Date.now());
@@ -332,8 +332,8 @@ function AnalysisScreen() {
 
   // 단계 전환
   useEffect(() => {
-    const t1 = setTimeout(() => { setStep(1); stepStartRef.current = Date.now(); setFillPct(0); }, 5000);
-    const t2 = setTimeout(() => { setStep(2); stepStartRef.current = Date.now(); setFillPct(0); }, 20000);
+    const t1 = setTimeout(() => { setStep(1); stepStartRef.current = Date.now(); setFillPct(0); }, 8000);
+    const t2 = setTimeout(() => { setStep(2); stepStartRef.current = Date.now(); setFillPct(0); }, 40000);
     return () => { clearTimeout(t1); clearTimeout(t2); };
   }, []);
 
@@ -350,7 +350,7 @@ function AnalysisScreen() {
 
   const radius = 44;
   const circumference = 2 * Math.PI * radius;
-  const progress = (60 - countdown) / 60;
+  const progress = (120 - countdown) / 120;
   const dashOffset = circumference * (1 - progress);
 
   type StepStatus = "done" | "active" | "pending";
@@ -523,8 +523,8 @@ export default function KnowledgeReviewPage() {
     try {
       const data = await apiClient.request<StagingSession>(`/admin/knowledge/staging/${sessionId}`);
       if (data.status === "analyzing") {
-        // 3분(180초) 이상 폴링 중이면 타임아웃 처리
-        if (Date.now() - pollingStartRef.current > 180_000) {
+        // 6분(360초) 이상 폴링 중이면 타임아웃 처리 (백엔드 스테일 감지 3분보다 길게)
+        if (Date.now() - pollingStartRef.current > 360_000) {
           setLoadError("분석 시간이 너무 오래 걸립니다. 서버에 문제가 발생했을 수 있습니다. 파일을 다시 업로드해 주세요.");
           setIsLoading(false);
           return;

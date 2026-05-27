@@ -97,7 +97,7 @@ def _chunk_to_item(row: KnowledgeStagingChunk) -> StagingChunkItem:
     )
 
 
-_ANALYZING_STALE_SECONDS = 300  # 5분 이상 analyzing 상태면 stale 처리
+_ANALYZING_STALE_SECONDS = 180  # 3분 이상 analyzing 상태면 stale 처리
 
 
 def _get_session_with_chunks(
