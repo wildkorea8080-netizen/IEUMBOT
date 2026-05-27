@@ -315,22 +315,38 @@ function ChunkListItem({ chunk, isSelected, isChecked, onClick, onToggle }: {
 
 // ── AI 분석 화면 ──────────────────────────────────────────────────────────────
 
+// 각 단계가 활성화된 후 게이지가 꽉 차는 데 걸리는 예상 시간(ms)
+const STEP_DURATIONS = [5000, 15000, 35000, 35000];
+
 function AnalysisScreen() {
   const [countdown, setCountdown] = useState(60);
-  const [step, setStep] = useState(0); // 0: step1 진행, 1: step2 진행, 2: step3 진행
+  const [step, setStep] = useState(0);
+  const [fillPct, setFillPct] = useState(0);
+  const stepStartRef = useRef(Date.now());
 
+  // 카운트다운
   useEffect(() => {
-    const timer = setInterval(() => {
-      setCountdown(prev => (prev > 0 ? prev - 1 : 0));
-    }, 1000);
-    return () => clearInterval(timer);
+    const t = setInterval(() => setCountdown(prev => (prev > 0 ? prev - 1 : 0)), 1000);
+    return () => clearInterval(t);
   }, []);
 
+  // 단계 전환
   useEffect(() => {
-    const t1 = setTimeout(() => setStep(1), 5000);
-    const t2 = setTimeout(() => setStep(2), 20000);
+    const t1 = setTimeout(() => { setStep(1); stepStartRef.current = Date.now(); setFillPct(0); }, 5000);
+    const t2 = setTimeout(() => { setStep(2); stepStartRef.current = Date.now(); setFillPct(0); }, 20000);
     return () => { clearTimeout(t1); clearTimeout(t2); };
   }, []);
+
+  // 현재 활성 단계의 게이지를 점진적으로 채움
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const elapsed = Date.now() - stepStartRef.current;
+      // 최대 94%까지 채우고 완료 시 100%
+      const pct = Math.min(94, (elapsed / STEP_DURATIONS[step]) * 100);
+      setFillPct(pct);
+    }, 80);
+    return () => clearInterval(interval);
+  }, [step]);
 
   const radius = 44;
   const circumference = 2 * Math.PI * radius;
@@ -341,7 +357,7 @@ function AnalysisScreen() {
   const steps: { icon: string; label: string; status: StepStatus }[] = [
     { icon: "📄", label: step >= 1 ? "파일 분석 완료!" : "파일 분석 중...", status: step >= 1 ? "done" : "active" },
     { icon: "📋", label: step >= 2 ? "주제별 분류 완료!" : "주제별 분류 중...", status: step === 0 ? "pending" : step === 1 ? "active" : "done" },
-    { icon: "⚙️", label: "기존 지식과 통합 단계", status: step < 2 ? "pending" : "active" },
+    { icon: "⚙️", label: step >= 3 ? "기존 지식과 통합 완료!" : "기존 지식과 통합 단계", status: step < 2 ? "pending" : step === 2 ? "active" : "done" },
     { icon: "🔧", label: "컨텐츠 가공 단계", status: "pending" },
   ];
 
@@ -387,16 +403,17 @@ function AnalysisScreen() {
               <span style={{ fontSize: 13, fontWeight: 500, color: textColor[s.status], flex: 1, textAlign: "left" }}>{s.label}</span>
               {s.status === "done" && <span style={{ fontSize: 16, color: "#16a34a" }}>✓</span>}
               {s.status === "active" && <Loader2 style={{ width: 16, height: 16, color: "#2563eb", animation: "spin 1s linear infinite", flexShrink: 0 }} />}
+              {/* 완료된 단계: 게이지 100% */}
+              {s.status === "done" && (
+                <div style={{ position: "absolute", bottom: 0, left: 0, height: 3, width: "100%", background: "#86efac", borderRadius: "0 0 12px 12px" }} />
+              )}
+              {/* 진행 중 단계: 점진적으로 채워지는 게이지 */}
               {s.status === "active" && (
-                <div style={{ position: "absolute", bottom: 0, left: 0, height: 3, background: "#2563eb", borderRadius: "0 0 0 12px", animation: "progress-bar 2s ease-in-out infinite", width: "60%" }} />
+                <div style={{ position: "absolute", bottom: 0, left: 0, height: 3, width: `${fillPct}%`, background: "#2563eb", borderRadius: "0 2px 0 12px", transition: "width 0.08s linear" }} />
               )}
             </div>
           ))}
         </div>
-
-        <style>{`
-          @keyframes progress-bar { 0%{width:10%} 50%{width:80%} 100%{width:10%} }
-        `}</style>
       </div>
     </div>
   );
@@ -420,6 +437,7 @@ export default function KnowledgeReviewPage() {
   const [isRegistering, setIsRegistering] = useState(false);
   const [toast, setToast] = useState<{ tone: "success" | "error"; msg: string } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [isDirty, setIsDirty] = useState(false);
   const [showDiff, setShowDiff] = useState(false);
   const [currentText, setCurrentText] = useState("");
@@ -495,7 +513,11 @@ export default function KnowledgeReviewPage() {
   }
 
   const load = useCallback(async (polling = false) => {
-    if (!sessionId) return;
+    if (!sessionId) {
+      setLoadError("URL에 세션 ID가 없습니다. 파일을 다시 업로드해 주세요.");
+      setIsLoading(false);
+      return;
+    }
     if (!polling) setIsLoading(true);
     try {
       const data = await apiClient.request<StagingSession>(`/admin/knowledge/staging/${sessionId}`);
@@ -504,17 +526,23 @@ export default function KnowledgeReviewPage() {
         return;
       }
       if (data.status === "failed") {
-        showToast("error", "AI 분석에 실패했습니다.");
+        setLoadError("AI 분석에 실패했습니다. 파일을 다시 업로드하거나 잠시 후 재시도해 주세요.");
         setIsLoading(false);
         return;
       }
+      setLoadError(null);
       setSession(data);
       const pending = new Set(data.chunks.filter(c => c.status === "pending").map(c => c.id));
       setCheckedIds(pending);
       if (data.chunks[0]) loadChunkIntoEditor(data.chunks[0]);
       setIsLoading(false);
-    } catch {
-      showToast("error", "세션을 불러오지 못했습니다.");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setLoadError(
+        msg.includes("404") || msg.includes("NOT_FOUND")
+          ? "분석 세션을 찾을 수 없습니다. 로그인 계정을 확인하거나 파일을 다시 업로드해 주세요."
+          : `세션을 불러오지 못했습니다. (${msg.slice(0, 60)})`
+      );
       setIsLoading(false);
     }
   }, [sessionId, loadChunkIntoEditor]); // eslint-disable-line
@@ -615,8 +643,22 @@ export default function KnowledgeReviewPage() {
     return <AnalysisScreen />;
   }
 
-  if (!session) {
-    return <div style={{ padding: 40, textAlign: "center", color: "#9ca3af" }}>세션을 찾을 수 없습니다.</div>;
+  if (loadError || !session) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "60vh" }}>
+        <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16, padding: "36px 40px", textAlign: "center", maxWidth: 420 }}>
+          <div style={{ fontSize: 36, marginBottom: 12 }}>⚠️</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", marginBottom: 8 }}>분석 세션 오류</div>
+          <div style={{ fontSize: 13, color: "#6b7280", lineHeight: 1.6, marginBottom: 24 }}>
+            {loadError ?? "세션 정보를 불러올 수 없습니다."}
+          </div>
+          <button type="button" onClick={() => router.push("/admin/knowledge/register")}
+            style={{ padding: "10px 24px", border: "none", borderRadius: 8, background: "#2563eb", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+            파일 다시 업로드
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (
