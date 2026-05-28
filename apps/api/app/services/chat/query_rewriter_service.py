@@ -9,11 +9,8 @@
 - recent_messages 는 ORM 객체(role/content 속성) 또는 dict 모두 처리
 """
 
-import json
 import logging
 import re
-import urllib.error
-import urllib.request
 from typing import Any
 
 from app.core.config import settings
@@ -110,13 +107,17 @@ def rewrite_query(
     return rewritten.strip(), True
 
 
-# ── LLM 호출 헬퍼 (_generate_followup_with_llm 동일 패턴) ────────────────────
+# ── LLM 호출 헬퍼 — answer_generation_service 공유 ──────────────────────────
+
 
 def _call_llm(db: Any, *, system: str, user: str) -> str:
-    """
-    프로젝트 표준 LLM 호출 (OpenAI /v1/responses 또는 Anthropic /v1/messages).
-    응답 텍스트 반환. 실패 시 빈 문자열 반환.
-    """
+    """프로젝트 표준 LLM 호출. 응답 텍스트 반환. 실패 시 빈 문자열 반환."""
+    from app.services.chat.answer_generation_service import (  # noqa: PLC0415
+        _call_anthropic,
+        _call_openai_like,
+        _extract_output_text_anthropic,
+        _extract_output_text_openai,
+    )
     from app.services.llm_api_config_runtime_service import (  # noqa: PLC0415
         resolve_runtime_api_config as _resolve,
     )
@@ -129,82 +130,31 @@ def _call_llm(db: Any, *, system: str, user: str) -> str:
     model = runtime_api.speed_model()  # 쿼리 리라이팅: 속도 우선
 
     if runtime_api.provider == "anthropic":
-        url = (
-            f"{runtime_api.base_url.rstrip('/')}/v1/messages"
-            if runtime_api.base_url
-            else "https://api.anthropic.com/v1/messages"
+        response_json = _call_anthropic(
+            api_key=runtime_api.api_key,
+            base_url=runtime_api.base_url,
+            model=model,
+            temperature=0,
+            max_output_tokens=128,
+            top_p=None,
+            system_prompt=system,
+            user_prompt=user,
+            timeout_seconds=_REWRITE_TIMEOUT_SEC,
         )
-        payload: dict[str, Any] = {
-            "model": model,
-            "temperature": 0,
-            "max_tokens": 128,
-            "system": system,
-            "messages": [{"role": "user", "content": user}],
-        }
-        headers = {
-            "x-api-key": runtime_api.api_key,
-            "anthropic-version": "2023-06-01",
-            "Content-Type": "application/json",
-        }
-        result = _post(url, payload, headers)
-        for block in result.get("content") or []:
-            if isinstance(block, dict) and block.get("type") == "text":
-                return str(block.get("text") or "").strip()
-        return ""
+        return _extract_output_text_anthropic(response_json).strip()
 
-    # OpenAI / Azure OpenAI — Responses API
-    if runtime_api.provider == "azure_openai":
-        base = (runtime_api.base_url or "").rstrip("/")
-        url = (
-            base if "api-version" in base
-            else f"{base}/openai/responses?api-version=2025-03-01-preview"
-        ) if base else "https://example.invalid/openai/responses"
-        headers = {"api-key": runtime_api.api_key, "Content-Type": "application/json"}
-    else:
-        url = (
-            f"{runtime_api.base_url.rstrip('/')}/responses"
-            if runtime_api.base_url
-            else "https://api.openai.com/v1/responses"
-        )
-        headers = {"Authorization": f"Bearer {runtime_api.api_key}", "Content-Type": "application/json"}
-
-    payload = {
-        "model": model,
-        "temperature": 0,
-        "max_output_tokens": 128,
-        "input": [
-            {"role": "system", "content": [{"type": "input_text", "text": system}]},
-            {"role": "user",   "content": [{"type": "input_text", "text": user}]},
-        ],
-    }
-    result = _post(url, payload, headers)
-    raw = result.get("output_text") or ""
-    if not raw:
-        for item in result.get("output") or []:
-            if not isinstance(item, dict):
-                continue
-            for content in item.get("content") or []:
-                if isinstance(content, dict) and content.get("type") == "output_text":
-                    raw = str(content.get("text") or "")
-                    break
-            if raw:
-                break
-    return raw.strip()
-
-
-def _post(url: str, payload: dict[str, Any], headers: dict[str, str]) -> dict[str, Any]:
-    req = urllib.request.Request(
-        url=url,
-        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-        headers=headers,
-        method="POST",
+    response_json = _call_openai_like(
+        provider=runtime_api.provider,
+        api_key=runtime_api.api_key,
+        base_url=runtime_api.base_url,
+        model=model,
+        temperature=0,
+        max_output_tokens=128,
+        top_p=None,
+        frequency_penalty=None,
+        presence_penalty=None,
+        system_prompt=system,
+        user_prompt=user,
+        timeout_seconds=_REWRITE_TIMEOUT_SEC,
     )
-    try:
-        with urllib.request.urlopen(req, timeout=_REWRITE_TIMEOUT_SEC) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        logger.warning("[QUERY_REWRITE] HTTP오류: %s %s", e.code, e.read()[:200])
-        return {}
-    except Exception as e:
-        logger.warning("[QUERY_REWRITE] 네트워크 오류: %s", e)
-        return {}
+    return _extract_output_text_openai(response_json).strip()

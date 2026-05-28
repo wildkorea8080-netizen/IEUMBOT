@@ -318,13 +318,17 @@ def _generate_followup_with_llm(
     answer_text: str,
     db: Any,
 ) -> list[str]:
-    """LLM follow-up 질문 동적 생성 (sync, urllib). 실패 시 [] 반환."""
-    import sys
-    import json as _json
-    import re as _re
-    import urllib.error as _urlerr
-    import urllib.request as _urlreq
+    """LLM follow-up 질문 동적 생성. 실패 시 [] 반환."""
+    import json as _json  # noqa: PLC0415
+    import re as _re  # noqa: PLC0415
+    import sys  # noqa: PLC0415
 
+    from app.services.chat.answer_generation_service import (  # noqa: PLC0415
+        _call_anthropic,
+        _call_openai_like,
+        _extract_output_text_anthropic,
+        _extract_output_text_openai,
+    )
     from app.services.llm_api_config_runtime_service import (  # noqa: PLC0415
         resolve_runtime_api_config as _resolve,
     )
@@ -338,9 +342,6 @@ def _generate_followup_with_llm(
         sys.stderr.write(f"[FOLLOWUP] resolve_runtime_api 예외: {e}\n")
         sys.stderr.flush()
         return []
-
-    sys.stderr.write(f"[FOLLOWUP] runtime_api={runtime_api}\n")
-    sys.stderr.flush()
 
     if runtime_api is None:
         return []
@@ -360,117 +361,40 @@ def _generate_followup_with_llm(
         'JSON 배열로만 응답 예시: ["신청 마감일은 언제인가요?", "제출 서류는 어디서 받나요?", "합격 후 절차는 어떻게 되나요?"]'
     )
 
-    # ── Anthropic ────────────────────────────────────────────────────────────
-    if runtime_api.provider == "anthropic":
-        url = (
-            f"{runtime_api.base_url.rstrip('/')}/v1/messages"
-            if runtime_api.base_url
-            else "https://api.anthropic.com/v1/messages"
-        )
-        payload: dict[str, Any] = {
-            "model": model,
-            "temperature": 0.3,
-            "max_tokens": 200,
-            "system": system_prompt,
-            "messages": [{"role": "user", "content": user_prompt}],
-        }
-        headers = {
-            "x-api-key": runtime_api.api_key,
-            "anthropic-version": "2023-06-01",
-            "Content-Type": "application/json",
-        }
-        sys.stderr.write(f"[FOLLOWUP] API 호출: {url}\n")
-        sys.stderr.flush()
-        try:
-            req = _urlreq.Request(
-                url=url,
-                data=_json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-                headers=headers,
-                method="POST",
+    try:
+        if runtime_api.provider == "anthropic":
+            response_json = _call_anthropic(
+                api_key=runtime_api.api_key,
+                base_url=runtime_api.base_url,
+                model=model,
+                temperature=0.3,
+                max_output_tokens=200,
+                top_p=None,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                timeout_seconds=10,
             )
-            with _urlreq.urlopen(req, timeout=10) as resp:
-                sys.stderr.write(f"[FOLLOWUP] 응답 status={resp.status}\n")
-                sys.stderr.flush()
-                result = _json.loads(resp.read().decode("utf-8"))
-        except _urlerr.HTTPError as e:
-            sys.stderr.write(f"[FOLLOWUP] HTTP오류: {e.code} {e.read()[:200]}\n")
-            sys.stderr.flush()
-            return []
-        except Exception as e:
-            sys.stderr.write(f"[FOLLOWUP] 예외: {e}\n")
-            sys.stderr.flush()
-            return []
-        raw_text = ""
-        for block in result.get("content") or []:
-            if isinstance(block, dict) and block.get("type") == "text":
-                raw_text = str(block.get("text") or "")
-                break
-
-    # ── OpenAI / Azure OpenAI ────────────────────────────────────────────────
-    else:
-        if runtime_api.provider == "azure_openai":
-            base = (runtime_api.base_url or "").rstrip("/")
-            if base and "api-version" in base:
-                url = base
-            elif base:
-                url = f"{base}/openai/responses?api-version=2025-03-01-preview"
-            else:
-                url = "https://example.invalid/openai/responses?api-version=2025-03-01-preview"
-            headers = {
-                "api-key": runtime_api.api_key,
-                "Content-Type": "application/json",
-            }
+            raw_text = _extract_output_text_anthropic(response_json)
         else:
-            url = (
-                f"{runtime_api.base_url.rstrip('/')}/responses"
-                if runtime_api.base_url
-                else "https://api.openai.com/v1/responses"
+            response_json = _call_openai_like(
+                provider=runtime_api.provider,
+                api_key=runtime_api.api_key,
+                base_url=runtime_api.base_url,
+                model=model,
+                temperature=0.3,
+                max_output_tokens=200,
+                top_p=None,
+                frequency_penalty=None,
+                presence_penalty=None,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                timeout_seconds=10,
             )
-            headers = {
-                "Authorization": f"Bearer {runtime_api.api_key}",
-                "Content-Type": "application/json",
-            }
-        payload = {
-            "model": model,
-            "temperature": 0.3,
-            "max_output_tokens": 200,
-            "input": [
-                {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]},
-                {"role": "user",   "content": [{"type": "input_text", "text": user_prompt}]},
-            ],
-        }
-        sys.stderr.write(f"[FOLLOWUP] API 호출: {url}\n")
+            raw_text = _extract_output_text_openai(response_json)
+    except Exception as e:
+        sys.stderr.write(f"[FOLLOWUP] LLM 호출 예외: {e}\n")
         sys.stderr.flush()
-        try:
-            req = _urlreq.Request(
-                url=url,
-                data=_json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-                headers=headers,
-                method="POST",
-            )
-            with _urlreq.urlopen(req, timeout=10) as resp:
-                sys.stderr.write(f"[FOLLOWUP] 응답 status={resp.status}\n")
-                sys.stderr.flush()
-                result = _json.loads(resp.read().decode("utf-8"))
-        except _urlerr.HTTPError as e:
-            sys.stderr.write(f"[FOLLOWUP] HTTP오류: {e.code} {e.read()[:200]}\n")
-            sys.stderr.flush()
-            return []
-        except Exception as e:
-            sys.stderr.write(f"[FOLLOWUP] 예외: {e}\n")
-            sys.stderr.flush()
-            return []
-        raw_text = result.get("output_text") or ""
-        if not raw_text:
-            for item in result.get("output") or []:
-                if not isinstance(item, dict):
-                    continue
-                for content in item.get("content") or []:
-                    if isinstance(content, dict) and content.get("type") == "output_text":
-                        raw_text = str(content.get("text") or "")
-                        break
-                if raw_text:
-                    break
+        return []
 
     # ── JSON 파싱 ─────────────────────────────────────────────────────────────
     raw_text = (raw_text or "").strip()
@@ -676,9 +600,13 @@ def _llm_select_from_pool(
     """
     import json as _json
     import re as _re
-    import urllib.error as _urlerr
-    import urllib.request as _urlreq
 
+    from app.services.chat.answer_generation_service import (  # noqa: PLC0415
+        _call_anthropic,
+        _call_openai_like,
+        _extract_output_text_anthropic,
+        _extract_output_text_openai,
+    )
     from app.services.llm_api_config_runtime_service import resolve_runtime_api_config as _resolve  # noqa: PLC0415
 
     try:
@@ -689,6 +617,7 @@ def _llm_select_from_pool(
         return []
 
     pool_text = "\n".join(f"{i + 1}. {q}" for i, q in enumerate(pool[:30]))
+    system_prompt = "JSON 배열만 출력하세요. 설명 없이."
     user_prompt = (
         "현재 대화:\n"
         f"질문: {question}\n"
@@ -699,64 +628,44 @@ def _llm_select_from_pool(
     )
 
     model = runtime_api.speed_model()  # 풀 기반 질문 선택: 속도 우선
-    headers: dict[str, str] = {"Content-Type": "application/json"}
-
-    if runtime_api.provider == "anthropic":
-        url = (
-            f"{runtime_api.base_url.rstrip('/')}/v1/messages"
-            if runtime_api.base_url else "https://api.anthropic.com/v1/messages"
-        )
-        payload: dict[str, Any] = {
-            "model": model, "temperature": 0, "max_tokens": 60,
-            "system": "JSON 배열만 출력하세요. 설명 없이.",
-            "messages": [{"role": "user", "content": user_prompt}],
-        }
-        headers.update({"x-api-key": runtime_api.api_key, "anthropic-version": "2023-06-01"})
-    else:
-        url = (
-            f"{runtime_api.base_url.rstrip('/')}/responses"
-            if runtime_api.base_url else "https://api.openai.com/v1/responses"
-        )
-        payload = {
-            "model": model, "temperature": 0, "max_output_tokens": 60,
-            "input": [
-                {"role": "system", "content": [{"type": "input_text", "text": "JSON 배열만 출력하세요. 설명 없이."}]},
-                {"role": "user", "content": [{"type": "input_text", "text": user_prompt}]},
-            ],
-        }
-        headers["Authorization"] = f"Bearer {runtime_api.api_key}"
 
     try:
-        req = _urlreq.Request(
-            url=url,
-            data=_json.dumps(payload, ensure_ascii=False).encode(),
-            headers=headers,
-            method="POST",
-        )
-        with _urlreq.urlopen(req, timeout=5) as resp:
-            result = _json.loads(resp.read().decode())
-
         if runtime_api.provider == "anthropic":
-            raw = ""
-            for block in result.get("content") or []:
-                if isinstance(block, dict) and block.get("type") == "text":
-                    raw = str(block.get("text") or "")
-                    break
+            response_json = _call_anthropic(
+                api_key=runtime_api.api_key,
+                base_url=runtime_api.base_url,
+                model=model,
+                temperature=0,
+                max_output_tokens=60,
+                top_p=None,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                timeout_seconds=5,
+            )
+            raw = _extract_output_text_anthropic(response_json)
         else:
-            raw = result.get("output_text") or ""
-            if not raw:
-                for item in result.get("output") or []:
-                    for c in (item.get("content") or []):
-                        if isinstance(c, dict) and c.get("type") == "output_text":
-                            raw = str(c.get("text") or "")
-                            break
+            response_json = _call_openai_like(
+                provider=runtime_api.provider,
+                api_key=runtime_api.api_key,
+                base_url=runtime_api.base_url,
+                model=model,
+                temperature=0,
+                max_output_tokens=60,
+                top_p=None,
+                frequency_penalty=None,
+                presence_penalty=None,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                timeout_seconds=5,
+            )
+            raw = _extract_output_text_openai(response_json)
 
         m = _re.search(r"\[[\d,\s]+\]", raw)
         if not m:
             return []
         indices = _json.loads(m.group(0))
         return [pool[i - 1] for i in indices if isinstance(i, int) and 1 <= i <= len(pool)][:3]
-    except (_urlerr.HTTPError, Exception):
+    except Exception:
         return []
 
 

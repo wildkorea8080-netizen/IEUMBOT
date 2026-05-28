@@ -39,7 +39,7 @@ def create_faq_item(
 
     commit=False 로 호출하면 flush만 하고 커밋하지 않음 — 배치 등록 시 사용.
     """
-    embedding = _generate_faq_embedding(question)
+    embedding = _generate_faq_embedding(db, question)
 
     row = FaqItem(
         chatbot_id=uuid.UUID(chatbot_id),
@@ -117,7 +117,7 @@ def update_faq_item(
 
     if question is not None and question != row.question:
         row.question = question[:500]
-        row.embedding = _generate_faq_embedding(question)
+        row.embedding = _generate_faq_embedding(db, question)
     if answer is not None:
         row.answer = answer
     if tags is not None:
@@ -165,7 +165,7 @@ def search_faq_by_question(
     try:
         from app.services.embedding_service import generate_embedding  # noqa: PLC0415
 
-        query_embedding = generate_embedding(query)
+        query_embedding = generate_embedding(db, query)
         if query_embedding is None:
             return None
 
@@ -208,10 +208,10 @@ def search_faq_by_question(
 
 # ── 내부 헬퍼 ─────────────────────────────────────────────────────────────────
 
-def _generate_faq_embedding(text: str) -> list[float] | None:
+def _generate_faq_embedding(db: Session, text: str) -> list[float] | None:
     try:
         from app.services.embedding_service import generate_embedding  # noqa: PLC0415
-        return generate_embedding(text[:500])
+        return generate_embedding(db, text[:500])
     except Exception as exc:
         logger.warning("[FAQ] embedding generation failed: %s", exc)
         return None

@@ -1,20 +1,71 @@
-import json
+"""임베딩 서비스.
+
+OpenAI / Azure OpenAI 공식 SDK 기반. 클라이언트 싱글톤(LRU 캐시)으로 연결 풀링과
+자동 재시도(429/일시적 장애)를 확보한다.
+
+함수 시그니처는 sync 유지 — 기존 호출부 무수정. 추후 전면 async 전환 시
+`OpenAI` → `AsyncOpenAI`로 갈아끼우면 됨.
+"""
+
+import hashlib
 import logging
 import math
-import urllib.error
-import urllib.parse
-import urllib.request
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any
+from urllib.parse import urlparse
 
+import httpx
+from openai import (
+    APIConnectionError,
+    APIError,
+    APIStatusError,
+    APITimeoutError,
+    AzureOpenAI,
+    OpenAI,
+    RateLimitError,
+)
 from sqlalchemy.orm import Session
 
+from app.core import cache as _cache
 from app.services.llm_api_config_runtime_service import resolve_runtime_api_config
 
-OPENAI_EMBEDDINGS_URL = "https://api.openai.com/v1/embeddings"
 DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
 EMBEDDING_DIMENSIONS = 1536
+DEFAULT_AZURE_API_VERSION = "2024-02-01"
+
+# 임베딩 캐시 — Redis(있으면) 또는 in-memory. 키: sha256(model:text), TTL 7일.
+# 텍스트 내용은 사용자 질문 등 일반적인 PII가 아닌 검색어 위주이므로 공유 캐시 허용.
+_EMBED_CACHE_PREFIX = "embed:v1:"
+_EMBED_CACHE_TTL = 7 * 24 * 60 * 60  # 7d
+
+
+def _embed_cache_key(model: str, text: str) -> str:
+    digest = hashlib.sha256(f"{model}\x00{text}".encode()).hexdigest()
+    return f"{_EMBED_CACHE_PREFIX}{digest}"
+
+
+def _cache_lookup(model: str, text: str) -> list[float] | None:
+    cached = _cache.get(_embed_cache_key(model, text))
+    if isinstance(cached, list) and len(cached) == EMBEDDING_DIMENSIONS:
+        try:
+            return [float(v) for v in cached]
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _cache_store(model: str, text: str, embedding: list[float]) -> None:
+    if len(embedding) != EMBEDDING_DIMENSIONS:
+        return
+    _cache.set(_embed_cache_key(model, text), embedding, _EMBED_CACHE_TTL)
+
 logger = logging.getLogger(__name__)
+
+# 단건 임베딩은 read 12s, 배치는 30s까지 허용.
+# 모든 클라이언트는 동일 timeout 사용하되, 호출자가 `with_options(timeout=...)`로 오버라이드 가능.
+_DEFAULT_TIMEOUT = httpx.Timeout(connect=5.0, read=20.0, write=10.0, pool=5.0)
+_DEFAULT_MAX_RETRIES = 2
 
 
 @dataclass
@@ -27,17 +78,54 @@ class EmbeddingFailure(Exception):
         return f"{self.error_code}: {self.error_message}"
 
 
-def _embedding_url(provider: str, base_url: str | None) -> str:
+def _parse_azure_endpoint(base_url: str | None) -> tuple[str, str]:
+    """Azure OpenAI base_url에서 (azure_endpoint, api_version) 추출.
+
+    예: https://x.openai.azure.com/openai/deployments/embedding/embeddings?api-version=2024-02-01
+        → ('https://x.openai.azure.com', '2024-02-01')
+    """
+    if not base_url:
+        return "https://example.invalid", DEFAULT_AZURE_API_VERSION
+    parsed = urlparse(base_url)
+    endpoint = f"{parsed.scheme}://{parsed.netloc}" if parsed.netloc else "https://example.invalid"
+    api_version = DEFAULT_AZURE_API_VERSION
+    if parsed.query:
+        for pair in parsed.query.split("&"):
+            if pair.startswith("api-version="):
+                api_version = pair.split("=", 1)[1] or DEFAULT_AZURE_API_VERSION
+                break
+    return endpoint, api_version
+
+
+@lru_cache(maxsize=16)
+def _build_client(
+    provider: str,
+    api_key: str,
+    base_url: str | None,
+) -> OpenAI | AzureOpenAI:
+    """프로바이더별 SDK 클라이언트 싱글톤. (provider, api_key, base_url) 단위 LRU 캐시."""
     if provider == "azure_openai":
-        if not base_url:
-            return "https://example.invalid/openai/deployments/embedding/embeddings?api-version=2024-02-01"
-        parsed = urllib.parse.urlparse(base_url)
-        if parsed.query:
-            return base_url
-        return f"{base_url.rstrip('/')}/embeddings?api-version=2024-02-01"
+        endpoint, api_version = _parse_azure_endpoint(base_url)
+        return AzureOpenAI(
+            api_key=api_key,
+            azure_endpoint=endpoint,
+            api_version=api_version,
+            timeout=_DEFAULT_TIMEOUT,
+            max_retries=_DEFAULT_MAX_RETRIES,
+        )
+    kwargs: dict[str, Any] = {
+        "api_key": api_key,
+        "timeout": _DEFAULT_TIMEOUT,
+        "max_retries": _DEFAULT_MAX_RETRIES,
+    }
     if base_url:
-        return f"{base_url.rstrip('/')}/embeddings"
-    return OPENAI_EMBEDDINGS_URL
+        kwargs["base_url"] = base_url.rstrip("/")
+    return OpenAI(**kwargs)
+
+
+def reset_embedding_clients() -> None:
+    """런타임 설정 변경 시 캐시된 클라이언트 강제 폐기. 키 회전 등에 사용."""
+    _build_client.cache_clear()
 
 
 def coerce_embedding_vector(values: Any) -> list[float] | None:
@@ -60,7 +148,7 @@ def coerce_embedding_vector(values: Any) -> list[float] | None:
         return None
 
 
-def _normalize_embedding(values: list[Any]) -> list[float] | None:
+def _normalize_embedding(values: Any) -> list[float] | None:
     embedding = coerce_embedding_vector(values)
     if embedding is None:
         return None
@@ -72,11 +160,8 @@ def _normalize_embedding(values: list[Any]) -> list[float] | None:
     return embedding
 
 
-def generate_embedding_or_raise(db: Session, text: str) -> list[float]:
-    normalized = " ".join(text.strip().split())
-    if not normalized:
-        raise EmbeddingFailure("EMPTY_EMBEDDING_INPUT", "임베딩할 텍스트가 비어 있습니다.")
-
+def _resolve_client(db: Session) -> tuple[OpenAI | AzureOpenAI, str, str, str]:
+    """런타임 설정 → (client, provider, source, model). 실패 시 EmbeddingFailure raise."""
     runtime_api = resolve_runtime_api_config(db)
     if runtime_api is None or runtime_api.provider == "anthropic":
         raise EmbeddingFailure(
@@ -87,67 +172,101 @@ def generate_embedding_or_raise(db: Session, text: str) -> list[float]:
     if not runtime_api.api_key.strip():
         raise EmbeddingFailure("OPENAI_API_KEY_MISSING", "OpenAI 임베딩 API 키가 비어 있습니다.")
 
+    client = _build_client(runtime_api.provider, runtime_api.api_key, runtime_api.base_url)
     model = runtime_api.embedding_model or DEFAULT_EMBEDDING_MODEL
-    logger.info(
-        "[EMBEDDING] provider=%s source=%s model=%s api_key_configured=%s",
-        runtime_api.provider,
-        runtime_api.source,
-        model,
-        bool(runtime_api.api_key.strip()),
-    )
-    payload: dict[str, Any] = {
-        "model": model,
-        "input": normalized[:12000],
-    }
-    if model == DEFAULT_EMBEDDING_MODEL:
-        payload["dimensions"] = EMBEDDING_DIMENSIONS
+    return client, runtime_api.provider, runtime_api.source, model
 
-    headers = {"Content-Type": "application/json"}
-    if runtime_api.provider == "azure_openai":
-        headers["api-key"] = runtime_api.api_key
-    else:
-        headers["Authorization"] = f"Bearer {runtime_api.api_key}"
 
-    request = urllib.request.Request(
-        url=_embedding_url(runtime_api.provider, runtime_api.base_url),
-        data=json.dumps(payload).encode("utf-8"),
-        headers=headers,
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=6) as response:
-            body = response.read().decode("utf-8")
-        response_json = json.loads(body)
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")[:1000]
-        raise EmbeddingFailure(
+def _wrap_openai_exception(exc: Exception) -> EmbeddingFailure:
+    """openai SDK 예외 → EmbeddingFailure 매핑."""
+    if isinstance(exc, RateLimitError):
+        return EmbeddingFailure(
             "EMBEDDING_API_ERROR",
-            f"임베딩 API 호출 실패: HTTP {exc.code}",
-            detail,
-        ) from exc
-    except (urllib.error.URLError, TimeoutError) as exc:
-        raise EmbeddingFailure("EMBEDDING_API_ERROR", "임베딩 API 연결에 실패했습니다.", str(exc)) from exc
-    except json.JSONDecodeError as exc:
-        raise EmbeddingFailure("EMBEDDING_API_ERROR", "임베딩 API 응답을 해석하지 못했습니다.", str(exc)) from exc
+            "임베딩 API 호출 한도 초과 (rate limit).",
+            str(exc)[:1000],
+        )
+    if isinstance(exc, APITimeoutError):
+        return EmbeddingFailure(
+            "EMBEDDING_API_ERROR",
+            "임베딩 API 호출이 타임아웃되었습니다.",
+            str(exc)[:1000],
+        )
+    if isinstance(exc, APIConnectionError):
+        return EmbeddingFailure(
+            "EMBEDDING_API_ERROR",
+            "임베딩 API 연결에 실패했습니다.",
+            str(exc)[:1000],
+        )
+    if isinstance(exc, APIStatusError):
+        return EmbeddingFailure(
+            "EMBEDDING_API_ERROR",
+            f"임베딩 API 호출 실패: HTTP {exc.status_code}",
+            str(exc)[:1000],
+        )
+    if isinstance(exc, APIError):
+        return EmbeddingFailure(
+            "EMBEDDING_API_ERROR",
+            "임베딩 API 오류가 발생했습니다.",
+            str(exc)[:1000],
+        )
+    return EmbeddingFailure(
+        "EMBEDDING_API_ERROR",
+        "임베딩 API 호출 중 알 수 없는 오류가 발생했습니다.",
+        str(exc)[:1000],
+    )
 
-    data = response_json.get("data")
-    if not isinstance(data, list) or not data:
+
+def _build_kwargs(model: str, input_value: Any) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {"model": model, "input": input_value}
+    if model == DEFAULT_EMBEDDING_MODEL:
+        kwargs["dimensions"] = EMBEDDING_DIMENSIONS
+    return kwargs
+
+
+def generate_embedding_or_raise(db: Session, text: str) -> list[float]:
+    normalized = " ".join(text.strip().split())
+    if not normalized:
+        raise EmbeddingFailure("EMPTY_EMBEDDING_INPUT", "임베딩할 텍스트가 비어 있습니다.")
+
+    client, provider, source, model = _resolve_client(db)
+    truncated = normalized[:12000]
+
+    # 캐시 조회 — 히트 시 API 호출 생략
+    cached = _cache_lookup(model, truncated)
+    if cached is not None:
+        logger.info(
+            "[EMBEDDING_CACHE_HIT] model=%s text_len=%s",
+            model,
+            len(truncated),
+        )
+        return cached
+
+    logger.info(
+        "[EMBEDDING] provider=%s source=%s model=%s text_len=%s",
+        provider,
+        source,
+        model,
+        len(truncated),
+    )
+
+    try:
+        response = client.embeddings.create(**_build_kwargs(model, truncated))
+    except (APIError, APIConnectionError, APITimeoutError) as exc:
+        raise _wrap_openai_exception(exc) from exc
+
+    data = getattr(response, "data", None)
+    if not data:
         raise EmbeddingFailure("EMBEDDING_API_ERROR", "임베딩 API 응답에 data가 없습니다.")
-    first = data[0]
-    if not isinstance(first, dict) or not isinstance(first.get("embedding"), list):
-        raise EmbeddingFailure("EMBEDDING_API_ERROR", "임베딩 API 응답에 embedding이 없습니다.")
-    embedding = coerce_embedding_vector(first["embedding"])
+
+    embedding = _normalize_embedding(data[0].embedding)
     if embedding is None:
-        raise EmbeddingFailure("EMBEDDING_API_ERROR", "임베딩 벡터를 숫자 배열로 변환하지 못했습니다.")
-    if len(embedding) != EMBEDDING_DIMENSIONS:
+        actual_len = len(getattr(data[0], "embedding", []) or [])
         raise EmbeddingFailure(
             "EMBEDDING_DIMENSION_MISMATCH",
-            f"임베딩 차원이 DB vector 차원과 다릅니다. expected={EMBEDDING_DIMENSIONS} actual={len(embedding)}",
+            f"임베딩 차원이 DB vector 차원과 다릅니다. expected={EMBEDDING_DIMENSIONS} actual={actual_len}",
         )
-    normalized_embedding = _normalize_embedding(embedding)
-    if normalized_embedding is None:
-        raise EmbeddingFailure("EMBEDDING_API_ERROR", "임베딩 벡터가 비어 있거나 유효하지 않습니다.")
-    return normalized_embedding
+    _cache_store(model, truncated, embedding)
+    return embedding
 
 
 def generate_embeddings_batch(
@@ -158,11 +277,10 @@ def generate_embeddings_batch(
     texts: list[str],
     batch_size: int = 100,
 ) -> list[list[float] | None]:
-    """
-    텍스트 목록을 배치로 임베딩.
-    OpenAI Embeddings API는 input에 문자열 배열을 받을 수 있으므로 batch_size 단위로 호출한다.
+    """텍스트 목록을 배치로 임베딩. 실패 항목은 None.
 
-    반환: 입력과 동일한 길이의 리스트. 실패한 항목은 None으로 채운다.
+    OpenAI Embeddings API는 input에 문자열 배열 허용. batch_size 단위로 1회 호출.
+    배치 전체 실패 시 1건씩 fallback 시도.
     """
     if not texts:
         return []
@@ -173,99 +291,102 @@ def generate_embeddings_batch(
         effective_batch_size = 100
 
     results: list[list[float] | None] = [None] * len(texts)
-    runtime_api = resolve_runtime_api_config(db)
-    if runtime_api is None or runtime_api.provider == "anthropic" or not runtime_api.api_key.strip():
+
+    try:
+        client, provider, source, model = _resolve_client(db)
+    except EmbeddingFailure as exc:
         logger.warning(
             "[EMBEDDING_BATCH_ERROR] organization_id=%s chatbot_id=%s error_code=%s",
             organization_id,
             chatbot_id,
-            "OPENAI_API_KEY_MISSING",
+            exc.error_code,
         )
         return results
-
-    model = runtime_api.embedding_model or DEFAULT_EMBEDDING_MODEL
-    headers = {"Content-Type": "application/json"}
-    if runtime_api.provider == "azure_openai":
-        headers["api-key"] = runtime_api.api_key
-    else:
-        headers["Authorization"] = f"Bearer {runtime_api.api_key}"
 
     logger.info(
         "[EMBEDDING_BATCH] organization_id=%s chatbot_id=%s provider=%s source=%s model=%s text_count=%s batch_size=%s",
         organization_id,
         chatbot_id,
-        runtime_api.provider,
-        runtime_api.source,
+        provider,
+        source,
         model,
         len(texts),
         effective_batch_size,
     )
 
+    # 배치는 read timeout 더 길게.
+    batch_client = client.with_options(
+        timeout=httpx.Timeout(connect=5.0, read=40.0, write=20.0, pool=5.0),
+    )
+
     for batch_start in range(0, len(texts), effective_batch_size):
         batch_texts = texts[batch_start : batch_start + effective_batch_size]
-        normalized_batch_texts = [" ".join(str(text or "").strip().split())[:12000] for text in batch_texts]
-        non_empty_indices = [index for index, text in enumerate(normalized_batch_texts) if text]
-        non_empty_texts = [normalized_batch_texts[index] for index in non_empty_indices]
-        if not non_empty_texts:
+        normalized = [" ".join(str(text or "").strip().split())[:12000] for text in batch_texts]
+        non_empty_indices = [i for i, t in enumerate(normalized) if t]
+
+        # 캐시 조회 — 미스만 API 호출 대상으로 추림
+        api_call_indices: list[int] = []  # batch_texts 내 인덱스
+        api_call_texts: list[str] = []
+        cache_hits = 0
+        for local_idx in non_empty_indices:
+            text = normalized[local_idx]
+            cached = _cache_lookup(model, text)
+            if cached is not None:
+                results[batch_start + local_idx] = cached
+                cache_hits += 1
+            else:
+                api_call_indices.append(local_idx)
+                api_call_texts.append(text)
+
+        if cache_hits:
+            logger.info(
+                "[EMBEDDING_BATCH_CACHE] batch_start=%s hits=%s misses=%s",
+                batch_start, cache_hits, len(api_call_texts),
+            )
+        if not api_call_texts:
             continue
 
-        payload: dict[str, Any] = {
-            "model": model,
-            "input": non_empty_texts,
-        }
-        if model == DEFAULT_EMBEDDING_MODEL:
-            payload["dimensions"] = EMBEDDING_DIMENSIONS
-
-        request = urllib.request.Request(
-            url=_embedding_url(runtime_api.provider, runtime_api.base_url),
-            data=json.dumps(payload).encode("utf-8"),
-            headers=headers,
-            method="POST",
-        )
-
         try:
-            with urllib.request.urlopen(request, timeout=12) as response:
-                body = response.read().decode("utf-8")
-            response_json = json.loads(body)
-            data = response_json.get("data")
-            if not isinstance(data, list) or len(data) != len(non_empty_texts):
+            response = batch_client.embeddings.create(**_build_kwargs(model, api_call_texts))
+            data = getattr(response, "data", None) or []
+            if len(data) != len(api_call_texts):
                 raise EmbeddingFailure(
                     "EMBEDDING_API_ERROR",
                     "임베딩 API 배치 응답 개수가 요청 개수와 다릅니다.",
                 )
-            for index, embedding_obj in enumerate(data):
-                if not isinstance(embedding_obj, dict) or not isinstance(embedding_obj.get("embedding"), list):
-                    raise EmbeddingFailure("EMBEDDING_API_ERROR", "임베딩 API 배치 응답에 embedding이 없습니다.")
-                embedding = _normalize_embedding(embedding_obj["embedding"])
+            for i, item in enumerate(data):
+                embedding = _normalize_embedding(item.embedding)
                 if embedding is None:
                     raise EmbeddingFailure(
                         "EMBEDDING_DIMENSION_MISMATCH",
                         "임베딩 차원이 DB vector 차원과 다릅니다.",
                     )
-                global_index = batch_start + non_empty_indices[index]
-                results[global_index] = embedding
-        except Exception as exc:  # noqa: BLE001
+                local_idx = api_call_indices[i]
+                results[batch_start + local_idx] = embedding
+                _cache_store(model, api_call_texts[i], embedding)
+        except Exception as exc:  # noqa: BLE001 — fallback 시도 위한 broad catch
             logger.warning(
                 "[EMBEDDING_BATCH_ERROR] organization_id=%s chatbot_id=%s batch_start=%s batch_size=%s error=%s",
                 organization_id,
                 chatbot_id,
                 batch_start,
-                len(non_empty_texts),
+                len(api_call_texts),
                 exc,
             )
-            for local_index in non_empty_indices:
-                global_index = batch_start + local_index
+            # 캐시 미스로 API 호출 시도했던 항목만 1건씩 재시도
+            for local_idx in api_call_indices:
+                global_idx = batch_start + local_idx
                 try:
-                    results[global_index] = generate_embedding_or_raise(db, batch_texts[local_index])
-                except Exception as fallback_exc:  # noqa: BLE001
+                    results[global_idx] = generate_embedding_or_raise(db, batch_texts[local_idx])
+                except Exception as fb_exc:  # noqa: BLE001
                     logger.warning(
                         "[EMBEDDING_BATCH_FALLBACK_ERROR] organization_id=%s chatbot_id=%s index=%s error=%s",
                         organization_id,
                         chatbot_id,
-                        global_index,
-                        fallback_exc,
+                        global_idx,
+                        fb_exc,
                     )
-                    results[global_index] = None
+                    results[global_idx] = None
 
     return results
 
@@ -274,5 +395,9 @@ def generate_embedding(db: Session, text: str) -> list[float] | None:
     try:
         return generate_embedding_or_raise(db, text)
     except EmbeddingFailure as exc:
-        logger.warning("[EMBEDDING_ERROR] error_code=%s error=%s", exc.error_code, exc.detail or exc.error_message)
+        logger.warning(
+            "[EMBEDDING_ERROR] error_code=%s error=%s",
+            exc.error_code,
+            exc.detail or exc.error_message,
+        )
         return None

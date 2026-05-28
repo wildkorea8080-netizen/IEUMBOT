@@ -4,7 +4,6 @@ import os
 import random
 import re
 import shutil
-import ssl
 import time
 import uuid
 import zlib
@@ -17,8 +16,9 @@ from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, unquote, urldefrag, urljoin, urlparse
-from urllib.request import HTTPSHandler, ProxyHandler, Request, build_opener
 from xml.etree import ElementTree as ET
+
+import httpx
 from zipfile import BadZipFile, ZipFile
 
 from fastapi import HTTPException, UploadFile, status
@@ -82,7 +82,6 @@ def classify_knowledge_topic(
     실패 시 기본값 반환 — 메인 색인 흐름에 영향 없음.
     """
     import json as _json  # noqa: PLC0415
-    import urllib.request as _urlreq  # noqa: PLC0415
 
     _FALLBACK = {
         "topic": "미분류",
@@ -93,9 +92,16 @@ def classify_knowledge_topic(
     }
 
     try:
+        from app.services.chat.answer_generation_service import (  # noqa: PLC0415
+            _call_anthropic,
+            _call_openai_like,
+            _extract_output_text_anthropic,
+            _extract_output_text_openai,
+        )
         from app.services.llm_api_config_runtime_service import (  # noqa: PLC0415
             resolve_runtime_api_config as _resolve,
         )
+
         runtime_api = _resolve(db)
         if runtime_api is None:
             return _FALLBACK
@@ -113,56 +119,34 @@ def classify_knowledge_topic(
 
         model = runtime_api.speed_model()  # 토픽 분류: 속도 우선
         if runtime_api.provider == "anthropic":
-            url = (
-                f"{runtime_api.base_url.rstrip('/')}/v1/messages"
-                if runtime_api.base_url else "https://api.anthropic.com/v1/messages"
+            response_json = _call_anthropic(
+                api_key=runtime_api.api_key,
+                base_url=runtime_api.base_url,
+                model=model,
+                temperature=0,
+                max_output_tokens=200,
+                top_p=None,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                timeout_seconds=8,
             )
-            payload: dict[str, Any] = {
-                "model": model, "temperature": 0, "max_tokens": 200,
-                "system": system_prompt,
-                "messages": [{"role": "user", "content": user_prompt}],
-            }
-            headers = {
-                "x-api-key": runtime_api.api_key,
-                "anthropic-version": "2023-06-01",
-                "Content-Type": "application/json",
-            }
+            raw = _extract_output_text_anthropic(response_json)
         else:
-            url = (
-                f"{runtime_api.base_url.rstrip('/')}/responses"
-                if runtime_api.base_url else "https://api.openai.com/v1/responses"
+            response_json = _call_openai_like(
+                provider=runtime_api.provider,
+                api_key=runtime_api.api_key,
+                base_url=runtime_api.base_url,
+                model=model,
+                temperature=0,
+                max_output_tokens=200,
+                top_p=None,
+                frequency_penalty=None,
+                presence_penalty=None,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                timeout_seconds=8,
             )
-            payload = {
-                "model": model, "temperature": 0, "max_output_tokens": 200,
-                "input": [
-                    {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]},
-                    {"role": "user", "content": [{"type": "input_text", "text": user_prompt}]},
-                ],
-            }
-            headers = {"Authorization": f"Bearer {runtime_api.api_key}", "Content-Type": "application/json"}
-
-        req = _urlreq.Request(
-            url=url,
-            data=_json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-            headers=headers, method="POST",
-        )
-        with _urlreq.urlopen(req, timeout=8) as resp:
-            result = _json.loads(resp.read().decode("utf-8"))
-
-        if runtime_api.provider == "anthropic":
-            raw = ""
-            for block in result.get("content") or []:
-                if isinstance(block, dict) and block.get("type") == "text":
-                    raw = str(block.get("text") or "")
-                    break
-        else:
-            raw = result.get("output_text") or ""
-            if not raw:
-                for item in result.get("output") or []:
-                    for c in (item.get("content") or []):
-                        if isinstance(c, dict) and c.get("type") == "output_text":
-                            raw = str(c.get("text") or "")
-                            break
+            raw = _extract_output_text_openai(response_json)
 
         # JSON 추출
         import re as _re  # noqa: PLC0415
@@ -1389,34 +1373,38 @@ def _decode_website_payload(payload: bytes, *, content_type: str | None, content
     return payload.decode(charset or "utf-8", errors="replace")
 
 
-def _read_website_response(response) -> tuple[str, str, int | None]:
-    content_type = response.headers.get("Content-Type")
-    content_encoding = response.headers.get("Content-Encoding")
-    html = _decode_website_payload(
-        response.read(),
+def _read_website_response_bytes(
+    payload: bytes,
+    content_type: str | None,
+    content_encoding: str | None,
+) -> str:
+    return _decode_website_payload(
+        payload,
         content_type=content_type,
         content_encoding=content_encoding,
     )
-    final_url = response.geturl()
-    http_status_code = getattr(response, "status", None)
-    return html, final_url, http_status_code
 
 
 def _fetch_website_page_once(url: str) -> tuple[str, str, int | None]:
-    request = Request(
-        url,
-        headers=_website_request_headers("text/html,application/xhtml+xml,*/*;q=0.9"),
-    )
-    opener = build_opener(
-        ProxyHandler({}),
-        HTTPSHandler(context=ssl.create_default_context()),
-    )
+    """httpx 기반 단일 페이지 fetch. 외부 except 호환을 위해 urllib HTTPError/URLError로 변환 raise."""
+    from app.services.web_fetcher import get_client as _get_web_client  # noqa: PLC0415
+
+    headers = _website_request_headers("text/html,application/xhtml+xml,*/*;q=0.9")
+    client = _get_web_client()
+    timeout = httpx.Timeout(connect=5.0, read=WEBSITE_REQUEST_TIMEOUT_SECONDS, write=10.0, pool=5.0)
+
     for attempt in range(2):
         try:
-            with opener.open(request, timeout=WEBSITE_REQUEST_TIMEOUT_SECONDS) as response:
-                return _read_website_response(response)
-        except HTTPError as exc:
-            status_code = exc.code
+            response = client.get(url, headers=headers, timeout=timeout)
+            response.raise_for_status()
+            html = _read_website_response_bytes(
+                response.content,
+                content_type=response.headers.get("Content-Type"),
+                content_encoding=response.headers.get("Content-Encoding"),
+            )
+            return html, str(response.url), response.status_code
+        except httpx.HTTPStatusError as exc:
+            status_code = exc.response.status_code
             if status_code == 429 and attempt == 0:
                 logger.warning("[WEB_FETCH_RETRY] url=%s status=429 wait_seconds=3", url)
                 time.sleep(3)
@@ -1430,7 +1418,11 @@ def _fetch_website_page_once(url: str) -> tuple[str, str, int | None]:
             if 500 <= status_code <= 599:
                 logger.warning("[WEB_FETCH_SKIP] url=%s status=%s reason=server_error", url, status_code)
                 raise _WebsiteFetchSkipped(url, status_code, "server_error") from exc
-            raise
+            # 외부 except 호환을 위해 urllib HTTPError로 재포장
+            raise HTTPError(url, status_code, exc.response.reason_phrase, dict(exc.response.headers), None) from exc
+        except httpx.RequestError as exc:
+            # 연결/타임아웃 등 — URLError 호환
+            raise URLError(str(exc)) from exc
     raise _WebsiteFetchSkipped(url, 429, "rate_limited")
 
 
@@ -1461,18 +1453,26 @@ def _fetch_website_page(url: str) -> tuple[str, str, list[str], str, int | None,
 
 
 def _fetch_binary_resource(url: str) -> tuple[bytes, str | None]:
-    request = Request(
-        url,
-        headers=_website_request_headers("*/*"),
-    )
-    opener = build_opener(
-        ProxyHandler({}),
-        HTTPSHandler(context=ssl.create_default_context()),
-    )
-    with opener.open(request, timeout=WEBSITE_REQUEST_TIMEOUT_SECONDS) as response:
-        content_type = response.headers.get_content_type()
-        payload = response.read()
-    return payload, content_type
+    """httpx 기반 바이너리 fetch. 외부 except 호환을 위해 urllib HTTPError/URLError로 변환 raise."""
+    from app.services.web_fetcher import get_client as _get_web_client  # noqa: PLC0415
+
+    headers = _website_request_headers("*/*")
+    client = _get_web_client()
+    timeout = httpx.Timeout(connect=5.0, read=WEBSITE_REQUEST_TIMEOUT_SECONDS, write=10.0, pool=5.0)
+    try:
+        response = client.get(url, headers=headers, timeout=timeout)
+        response.raise_for_status()
+        content_type_full = response.headers.get("Content-Type", "")
+        # content-type 헤더에서 mime type만 추출 ("text/html; charset=utf-8" → "text/html")
+        content_type = content_type_full.split(";", 1)[0].strip() or None
+        return response.content, content_type
+    except httpx.HTTPStatusError as exc:
+        raise HTTPError(
+            url, exc.response.status_code, exc.response.reason_phrase,
+            dict(exc.response.headers), None,
+        ) from exc
+    except httpx.RequestError as exc:
+        raise URLError(str(exc)) from exc
 
 
 def _serialize_attachment_items(
@@ -2475,8 +2475,6 @@ def _extract_pdf_text_via_vision(
     """
     import base64
     import io as _io
-    import json as _json
-    import urllib.request as _urllib_req
 
     try:
         from pdf2image import convert_from_bytes  # type: ignore
@@ -2497,7 +2495,11 @@ def _extract_pdf_text_via_vision(
         logger.warning(f"pdf2image conversion failed for vision: {e}")
         return ""
 
-    from app.services.llm_api_config_runtime_service import resolve_runtime_api_config
+    from app.services.chat.answer_generation_service import (  # noqa: PLC0415
+        _build_anthropic_client,
+        _build_openai_client,
+    )
+    from app.services.llm_api_config_runtime_service import resolve_runtime_api_config  # noqa: PLC0415
 
     api_cfg = resolve_runtime_api_config(db)
     if api_cfg is None:
@@ -2506,7 +2508,6 @@ def _extract_pdf_text_via_vision(
 
     provider = (api_cfg.provider or "").lower()
     api_key = api_cfg.api_key or ""
-    base_url = (api_cfg.base_url or "").rstrip("/")
 
     if not api_key:
         logger.warning("No API key for vision extraction")
@@ -2519,6 +2520,23 @@ def _extract_pdf_text_via_vision(
         "추출된 텍스트만 출력하고 다른 설명은 하지 마세요."
     )
 
+    # Vision은 응답이 길 수 있어 read 90s 별도 timeout 클라이언트
+    vision_timeout = httpx.Timeout(connect=5.0, read=90.0, write=30.0, pool=5.0)
+    openai_client = None
+    anthropic_client = None
+    if provider in ("openai", "azure_openai", "azure"):
+        normalized_provider = "azure_openai" if provider in ("azure_openai", "azure") else "openai"
+        openai_client = _build_openai_client(normalized_provider, api_key, api_cfg.base_url).with_options(
+            timeout=vision_timeout,
+        )
+    elif provider == "anthropic":
+        anthropic_client = _build_anthropic_client(api_key, api_cfg.base_url).with_options(
+            timeout=vision_timeout,
+        )
+    else:
+        logger.warning(f"Vision not supported for provider: {provider}")
+        return ""
+
     extracted_pages: list[str] = []
 
     for i, img in enumerate(images):
@@ -2527,16 +2545,12 @@ def _extract_pdf_text_via_vision(
         img_b64 = base64.b64encode(buf.getvalue()).decode()
 
         try:
-            if provider in ("openai", "azure_openai", "azure"):
-                if provider in ("azure_openai", "azure"):
-                    endpoint = f"{base_url}/chat/completions"
-                else:
-                    endpoint = "https://api.openai.com/v1/chat/completions"
-
-                payload = {
-                    "model": "gpt-4o-mini",
-                    "max_tokens": 2000,
-                    "messages": [
+            page_text = ""
+            if openai_client is not None:
+                resp = openai_client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    max_tokens=2000,
+                    messages=[
                         {
                             "role": "user",
                             "content": [
@@ -2551,31 +2565,14 @@ def _extract_pdf_text_via_vision(
                             ],
                         }
                     ],
-                }
-                headers = {
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {api_key}",
-                }
-                req = _urllib_req.Request(
-                    endpoint,
-                    data=_json.dumps(payload).encode(),
-                    headers=headers,
-                    method="POST",
                 )
-                with _urllib_req.urlopen(req, timeout=60) as resp:
-                    result = _json.loads(resp.read())
-                page_text = (
-                    result.get("choices", [{}])[0]
-                    .get("message", {})
-                    .get("content", "")
-                    .strip()
-                )
-
-            elif provider == "anthropic":
-                payload = {
-                    "model": "claude-3-5-haiku-20241022",
-                    "max_tokens": 2000,
-                    "messages": [
+                if resp.choices and resp.choices[0].message.content:
+                    page_text = resp.choices[0].message.content.strip()
+            elif anthropic_client is not None:
+                resp = anthropic_client.messages.create(
+                    model="claude-3-5-haiku-20241022",
+                    max_tokens=2000,
+                    messages=[
                         {
                             "role": "user",
                             "content": [
@@ -2591,29 +2588,13 @@ def _extract_pdf_text_via_vision(
                             ],
                         }
                     ],
-                }
-                headers = {
-                    "Content-Type": "application/json",
-                    "x-api-key": api_key,
-                    "anthropic-version": "2023-06-01",
-                }
-                req = _urllib_req.Request(
-                    "https://api.anthropic.com/v1/messages",
-                    data=_json.dumps(payload).encode(),
-                    headers=headers,
-                    method="POST",
                 )
-                with _urllib_req.urlopen(req, timeout=60) as resp:
-                    result = _json.loads(resp.read())
-                page_text = (
-                    result.get("content", [{}])[0]
-                    .get("text", "")
-                    .strip()
-                )
-
-            else:
-                logger.warning(f"Vision not supported for provider: {provider}")
-                break
+                for block in resp.content:
+                    if getattr(block, "type", None) == "text":
+                        text_val = getattr(block, "text", None)
+                        if text_val:
+                            page_text = text_val.strip()
+                            break
 
             if page_text:
                 extracted_pages.append(f"[페이지 {i + 1}]\n{page_text}")
@@ -4664,6 +4645,31 @@ def _mark_reindex_failed(
             document.processed_at = now
 
 
+def _dispatch_reindex(
+    background_tasks,
+    principal: AdminPrincipal,
+    knowledge_id: str,
+    job_id: str,
+) -> str:
+    """재색인 디스패치 — Arq 워커 우선, 실패/비활성 시 BackgroundTasks fallback.
+
+    반환: 사용된 경로("arq" | "background_tasks" | "skipped").
+    background_tasks 가 None 이고 Arq 도 비활성이면 "skipped" — 호출자가 별도 처리 필요.
+    """
+    from app.workers.dispatch import enqueue_reindex, is_arq_enabled  # noqa: PLC0415
+
+    if is_arq_enabled() and enqueue_reindex(principal, knowledge_id, job_id):
+        return "arq"
+    if background_tasks is not None:
+        background_tasks.add_task(_process_reindex_job, principal, knowledge_id, job_id)
+        return "background_tasks"
+    logger.warning(
+        "[REINDEX_DISPATCH_SKIPPED] knowledge_id=%s job_id=%s — no worker, no bg tasks",
+        knowledge_id, job_id,
+    )
+    return "skipped"
+
+
 def _process_reindex_job(principal: AdminPrincipal, knowledge_id: str, job_id: str) -> None:
     db = SessionLocal()
     try:
@@ -4821,8 +4827,7 @@ def reindex_knowledge_service(
         db.add(job)
         db.commit()
         logger.info("[REINDEX] knowledge_id=%s queued job_id=%s", knowledge_id, job.id)
-        if background_tasks is not None:
-            background_tasks.add_task(_process_reindex_job, principal, knowledge_id, str(job.id))
+        _dispatch_reindex(background_tasks, principal, knowledge_id, str(job.id))
         return get_knowledge_service(db, principal=principal, knowledge_id=knowledge_id)
 
     web_source_row = get_web_source_knowledge_row(db, organization_id=organization_id, knowledge_id=knowledge_id)
@@ -4844,8 +4849,7 @@ def reindex_knowledge_service(
         db.add(job)
         db.commit()
         logger.info("[REINDEX] knowledge_id=%s queued job_id=%s", knowledge_id, job.id)
-        if background_tasks is not None:
-            background_tasks.add_task(_process_reindex_job, principal, knowledge_id, str(job.id))
+        _dispatch_reindex(background_tasks, principal, knowledge_id, str(job.id))
         return get_knowledge_service(db, principal=principal, knowledge_id=knowledge_id)
 
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="KNOWLEDGE_NOT_FOUND")
@@ -4897,8 +4901,7 @@ def reindex_all_knowledge_service(
         )
         db.add(job)
         db.flush()
-        if background_tasks is not None:
-            background_tasks.add_task(_process_reindex_job, principal, str(doc.id), str(job.id))
+        _dispatch_reindex(background_tasks, principal, str(doc.id), str(job.id))
         queued += 1
 
     # ── 웹 소스 항목 ──────────────────────────────────────────────────────────
@@ -4922,8 +4925,7 @@ def reindex_all_knowledge_service(
         )
         db.add(job)
         db.flush()
-        if background_tasks is not None:
-            background_tasks.add_task(_process_reindex_job, principal, str(web_source.id), str(job.id))
+        _dispatch_reindex(background_tasks, principal, str(web_source.id), str(job.id))
         queued += 1
 
     db.commit()
@@ -5311,6 +5313,5 @@ def create_website_knowledge_service(
     db.add(job)
     db.commit()  # 즉시 커밋 — 크롤링은 background task에서 처리
     logger.info("[WEBSITE_CREATE] web_source_id=%s queued job_id=%s", web_source.id, job.id)
-    if background_tasks is not None:
-        background_tasks.add_task(_process_reindex_job, principal, str(web_source.id), str(job.id))
+    _dispatch_reindex(background_tasks, principal, str(web_source.id), str(job.id))
     return get_knowledge_service(db, principal=principal, knowledge_id=str(web_source.id))

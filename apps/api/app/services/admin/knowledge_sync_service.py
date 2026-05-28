@@ -11,8 +11,6 @@ import hashlib
 import html
 import logging
 import re
-import ssl
-import urllib.request
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -21,14 +19,10 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from app.models.web_sources import WebSource
+from app.services.web_fetcher import fetch as web_fetch
 
 logger = logging.getLogger(__name__)
 
-_USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/120.0.0.0 Safari/537.36"
-)
 _REQUEST_TIMEOUT = 15
 _MAX_TEXT_BYTES = 500_000  # 최대 500KB
 
@@ -60,21 +54,8 @@ def crawl_url(url: str) -> tuple[str, str]:
     단일 URL 크롤링 → (텍스트 내용, SHA-256 해시).
     실패 시 예외를 raise.
     """
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-
-    req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
-    with urllib.request.urlopen(req, timeout=_REQUEST_TIMEOUT, context=ctx) as resp:
-        raw = resp.read(_MAX_TEXT_BYTES)
-
-    charset = "utf-8"
-    ct = resp.headers.get("Content-Type", "")
-    if "charset=" in ct:
-        charset = ct.split("charset=")[-1].split(";")[0].strip() or "utf-8"
-
-    html_content = raw.decode(charset, errors="replace")
-    text = _simple_html_to_text(html_content)
+    result = web_fetch(url, timeout_seconds=_REQUEST_TIMEOUT, max_bytes=_MAX_TEXT_BYTES)
+    text = _simple_html_to_text(result.text)
     content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
     return text, content_hash
 

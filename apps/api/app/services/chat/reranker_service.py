@@ -4,18 +4,23 @@ Re-ranking 서비스 (Sprint 1-C).
 USE_RERANKING=true 일 때, retrieve_for_precheck()의 전체 candidates 를
 LLM 관련성 점수로 재정렬해 top_n 청크를 반환한다.
 
-기존 urllib 기반 LLM 호출 패턴을 그대로 사용.
+LLM 호출은 OpenAI Chat Completions API(/v1/chat/completions) 또는
+Anthropic Messages API를 사용. 공유 클라이언트 빌더로 연결 풀링·재시도 확보.
+
 실패·예외·환경변수 off 시 원본 순서 top_n 으로 fallback.
 """
 
 import json
 import logging
-import urllib.request
-from typing import Any
 
+import httpx
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.services.chat.answer_generation_service import (
+    _build_anthropic_client,
+    _build_openai_client,
+)
 from app.services.llm_api_config_runtime_service import resolve_runtime_api_config
 
 logger = logging.getLogger(__name__)
@@ -26,19 +31,12 @@ _RERANK_MAX_CANDIDATES: int = 20
 _RERANK_CHUNK_TEXT_LIMIT: int = 300
 _RERANK_TIMEOUT_SEC: int = 10
 
+_RERANK_HTTP_TIMEOUT = httpx.Timeout(
+    connect=5.0, read=float(_RERANK_TIMEOUT_SEC), write=10.0, pool=5.0
+)
 
-# ── 내부 LLM 호출 헬퍼 (answer_generation_service 패턴 동일) ─────────────────
 
-
-def _post_json(url: str, payload: dict[str, Any], headers: dict[str, str]) -> dict[str, Any]:
-    req = urllib.request.Request(
-        url=url,
-        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-        headers=headers,
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=_RERANK_TIMEOUT_SEC) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+# ── 내부 LLM 호출 헬퍼 ─────────────────────────────────────────────────────
 
 
 def _call_openai_rerank(
@@ -50,33 +48,21 @@ def _call_openai_rerank(
     system_prompt: str,
     user_prompt: str,
 ) -> str:
-    """OpenAI / Azure OpenAI chat/completions 호출, 텍스트 반환."""
-    if provider == "azure_openai":
-        url = f"{(base_url or '').rstrip('/')}/openai/deployments/{model}/chat/completions?api-version=2024-05-01-preview"
-    elif base_url:
-        url = f"{base_url.rstrip('/')}/chat/completions"
-    else:
-        url = "https://api.openai.com/v1/chat/completions"
-
-    payload = {
-        "model": model,
-        "temperature": 0,
-        "max_tokens": 256,
-        "messages": [
+    """OpenAI / Azure OpenAI Chat Completions 호출, 텍스트 반환."""
+    client = _build_openai_client(provider, api_key, base_url).with_options(
+        timeout=_RERANK_HTTP_TIMEOUT,
+    )
+    response = client.chat.completions.create(
+        model=model,
+        temperature=0,
+        max_tokens=256,
+        messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
-    }
-    headers = {"Content-Type": "application/json"}
-    if provider == "azure_openai":
-        headers["api-key"] = api_key
-    else:
-        headers["Authorization"] = f"Bearer {api_key}"
-
-    result = _post_json(url, payload, headers)
-    choices = result.get("choices") or []
-    if choices:
-        return str(choices[0].get("message", {}).get("content", ""))
+    )
+    if response.choices and response.choices[0].message.content:
+        return response.choices[0].message.content
     return ""
 
 
@@ -89,27 +75,21 @@ def _call_anthropic_rerank(
     user_prompt: str,
 ) -> str:
     """Anthropic Messages API 호출, 텍스트 반환."""
-    url = (
-        f"{base_url.rstrip('/')}/v1/messages"
-        if base_url
-        else "https://api.anthropic.com/v1/messages"
+    client = _build_anthropic_client(api_key, base_url).with_options(
+        timeout=_RERANK_HTTP_TIMEOUT,
     )
-    payload = {
-        "model": model,
-        "temperature": 0,
-        "max_tokens": 256,
-        "system": system_prompt,
-        "messages": [{"role": "user", "content": user_prompt}],
-    }
-    headers = {
-        "x-api-key": api_key,
-        "anthropic-version": "2023-06-01",
-        "Content-Type": "application/json",
-    }
-    result = _post_json(url, payload, headers)
-    for block in result.get("content") or []:
-        if isinstance(block, dict) and block.get("type") == "text":
-            return str(block.get("text") or "")
+    response = client.messages.create(
+        model=model,
+        temperature=0,
+        max_tokens=256,
+        system=system_prompt,
+        messages=[{"role": "user", "content": user_prompt}],
+    )
+    for block in response.content:
+        if getattr(block, "type", None) == "text":
+            text_val = getattr(block, "text", None)
+            if text_val:
+                return text_val
     return ""
 
 
