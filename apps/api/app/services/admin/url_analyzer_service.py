@@ -6,17 +6,24 @@ URL에서 웹사이트 내용을 추출한 후 LLM으로 챗봇 기본 설정값
 import json
 import logging
 import re
-import ssl
-import urllib.request
 from html.parser import HTMLParser
 from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.services.chat.answer_generation_service import (
+    _call_anthropic,
+    _call_openai_like,
+    _extract_output_text_anthropic,
+    _extract_output_text_openai,
+)
+from app.services.web_fetcher import fetch as web_fetch
+
 logger = logging.getLogger(__name__)
 
 _TIMEOUT = 12
 _MAX_TEXT = 3000
+_LLM_TIMEOUT = 10
 
 
 # ── HTML → 텍스트 (JS 렌더링 사이트 대응) ────────────────────────────────────
@@ -60,43 +67,10 @@ class _TextExtractor(HTMLParser):
                 self.body_texts.append(text)
 
 
-def _detect_charset(content_type_header: str, raw_bytes: bytes) -> str:
-    """HTTP 헤더 또는 HTML meta 태그에서 인코딩 감지."""
-    # 1) Content-Type 헤더에서
-    if "charset=" in content_type_header.lower():
-        cs = content_type_header.lower().split("charset=")[-1].split(";")[0].strip()
-        if cs:
-            return cs
-    # 2) HTML <meta charset> 또는 <meta http-equiv="Content-Type"> 에서
-    head = raw_bytes[:4096]
-    m = re.search(rb'charset=["\']?\s*([A-Za-z0-9_\-]+)', head, re.IGNORECASE)
-    if m:
-        return m.group(1).decode("ascii", errors="ignore")
-    return "utf-8"
-
-
 def _fetch_text(url: str) -> str:
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-    req = urllib.request.Request(
-        url,
-        headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        },
-    )
-    with urllib.request.urlopen(req, timeout=_TIMEOUT, context=ctx) as resp:
-        content_type = resp.headers.get("Content-Type", "")
-        raw_bytes = resp.read(150_000)
-
-    # 인코딩 감지 (EUC-KR 등 한국 사이트 대응)
-    charset = _detect_charset(content_type, raw_bytes)
-    try:
-        raw = raw_bytes.decode(charset, errors="replace")
-    except (LookupError, ValueError):
-        raw = raw_bytes.decode("utf-8", errors="replace")
+    result = web_fetch(url, timeout_seconds=_TIMEOUT, max_bytes=150_000)
+    raw = result.text
+    raw_bytes = result.content  # fallback 정규식용
 
     parser = _TextExtractor()
     parser.feed(raw)
@@ -122,7 +96,6 @@ def _fetch_text(url: str) -> str:
 # ── LLM 호출 ─────────────────────────────────────────────────────────────────
 
 def _call_llm(db: Session, system: str, user: str) -> str:
-    import urllib.error as _urlerr  # noqa: PLC0415
     from app.services.llm_api_config_runtime_service import resolve_runtime_api_config  # noqa: PLC0415
 
     runtime_api = resolve_runtime_api_config(db)
@@ -130,61 +103,35 @@ def _call_llm(db: Session, system: str, user: str) -> str:
         return ""
 
     model = runtime_api.speed_model()  # URL 분석: 속도 우선
-    headers = {"Content-Type": "application/json"}
-
-    if runtime_api.provider == "anthropic":
-        url = (
-            f"{runtime_api.base_url.rstrip('/')}/v1/messages"
-            if runtime_api.base_url else "https://api.anthropic.com/v1/messages"
-        )
-        payload: dict[str, Any] = {
-            "model": model, "temperature": 0, "max_tokens": 400,
-            "system": system,
-            "messages": [{"role": "user", "content": user}],
-        }
-        headers["x-api-key"] = runtime_api.api_key
-        headers["anthropic-version"] = "2023-06-01"
-    else:
-        url = (
-            f"{runtime_api.base_url.rstrip('/')}/responses"
-            if runtime_api.base_url else "https://api.openai.com/v1/responses"
-        )
-        payload = {
-            "model": model, "temperature": 0, "max_output_tokens": 400,
-            "input": [
-                {"role": "system", "content": [{"type": "input_text", "text": system}]},
-                {"role": "user",   "content": [{"type": "input_text", "text": user}]},
-            ],
-        }
-        headers["Authorization"] = f"Bearer {runtime_api.api_key}"
-
     try:
-        req = urllib.request.Request(
-            url=url,
-            data=json.dumps(payload, ensure_ascii=False).encode(),
-            headers=headers,
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            result = json.loads(resp.read().decode())
-
         if runtime_api.provider == "anthropic":
-            for block in result.get("content") or []:
-                if isinstance(block, dict) and block.get("type") == "text":
-                    return str(block.get("text") or "")
-            return ""
-        else:
-            raw = result.get("output_text") or ""
-            if not raw:
-                for item in result.get("output") or []:
-                    for c in (item.get("content") or []):
-                        if isinstance(c, dict) and c.get("type") == "output_text":
-                            raw = str(c.get("text") or "")
-                            break
-            return raw.strip()
-    except _urlerr.HTTPError as exc:
-        logger.warning("[URL_ANALYZER] LLM HTTP 오류: %s", exc.code)
-        return ""
+            response_json = _call_anthropic(
+                api_key=runtime_api.api_key,
+                base_url=runtime_api.base_url,
+                model=model,
+                temperature=0,
+                max_output_tokens=400,
+                top_p=None,
+                system_prompt=system,
+                user_prompt=user,
+                timeout_seconds=_LLM_TIMEOUT,
+            )
+            return _extract_output_text_anthropic(response_json)
+        response_json = _call_openai_like(
+            provider=runtime_api.provider,
+            api_key=runtime_api.api_key,
+            base_url=runtime_api.base_url,
+            model=model,
+            temperature=0,
+            max_output_tokens=400,
+            top_p=None,
+            frequency_penalty=None,
+            presence_penalty=None,
+            system_prompt=system,
+            user_prompt=user,
+            timeout_seconds=_LLM_TIMEOUT,
+        )
+        return _extract_output_text_openai(response_json)
     except Exception as exc:
         logger.warning("[URL_ANALYZER] LLM 오류: %s", exc)
         return ""

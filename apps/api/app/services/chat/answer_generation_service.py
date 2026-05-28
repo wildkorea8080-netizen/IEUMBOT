@@ -1,10 +1,38 @@
-import json
-import time
-import urllib.error
-import urllib.parse
-import urllib.request
-from typing import Any
+"""답변 생성 서비스.
 
+OpenAI Responses API / Anthropic Messages API를 공식 SDK로 호출한다.
+클라이언트 싱글톤(LRU)으로 연결 풀링·자동 재시도(429/5xx)·표준화된 에러 클래스 확보.
+
+함수 시그니처는 sync 유지 — 내부 헬퍼(_call_openai_like, _call_anthropic, _extract_*,
+_*_usage, _estimate_cost)는 faq_generation_service / intent_classifier_service에서도
+import하므로 dict 입출력 계약을 그대로 보존한다(SDK 응답은 .model_dump()으로 변환).
+
+추후 전면 async 전환 시 OpenAI/Anthropic 모두 AsyncOpenAI / AsyncAnthropic 으로
+교체 + await 추가만 하면 된다.
+"""
+
+import logging
+import time
+from functools import lru_cache
+from typing import Any
+from urllib.parse import urlparse
+
+import httpx
+from anthropic import Anthropic
+from anthropic import APIConnectionError as AnthropicAPIConnectionError
+from anthropic import APIError as AnthropicAPIError
+from anthropic import APIStatusError as AnthropicAPIStatusError
+from anthropic import APITimeoutError as AnthropicAPITimeoutError
+from anthropic import RateLimitError as AnthropicRateLimitError
+from openai import (
+    APIConnectionError,
+    APIError,
+    APIStatusError,
+    APITimeoutError,
+    AzureOpenAI,
+    OpenAI,
+    RateLimitError,
+)
 from sqlalchemy.orm import Session
 
 from app.repositories.super_admin.api_configs_repository import create_llm_usage_log
@@ -13,8 +41,13 @@ from app.services.enforcement_service import evaluate_api_error_spike_for_chatbo
 from app.services.llm_api_config_runtime_service import resolve_runtime_api_config
 from app.services.notification_service import maybe_notify_api_error
 
-OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
-ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages"
+logger = logging.getLogger(__name__)
+
+DEFAULT_AZURE_RESPONSES_API_VERSION = "2025-03-01-preview"
+
+# LLM 응답은 길게 걸릴 수 있어 read 60s. connect 5s, max_retries 2회.
+_LLM_TIMEOUT = httpx.Timeout(connect=5.0, read=60.0, write=15.0, pool=5.0)
+_LLM_MAX_RETRIES = 2
 
 MODEL_PRICING_PER_1M_TOKENS: dict[str, tuple[float, float]] = {
     "gpt-4.1-mini": (0.4, 1.6),
@@ -22,6 +55,9 @@ MODEL_PRICING_PER_1M_TOKENS: dict[str, tuple[float, float]] = {
     "gpt-4o-mini": (0.15, 0.6),
     "claude-3-5-sonnet": (3.0, 15.0),
 }
+
+
+# ── Pricing / Usage ──────────────────────────────────────────────────────────
 
 
 def _price_for_model(model_name: str | None) -> tuple[float, float]:
@@ -40,16 +76,19 @@ def _estimate_cost(model_name: str | None, *, prompt_tokens: int, completion_tok
     return round(estimated, 6)
 
 
+# ── Response parsers (호환 유지: dict 입력) ─────────────────────────────────
+
+
 def _extract_output_text_openai(response_json: dict[str, Any]) -> str:
     output_text = response_json.get("output_text")
     if isinstance(output_text, str) and output_text.strip():
         return output_text.strip()
 
     chunks = []
-    for item in response_json.get("output", []):
+    for item in response_json.get("output", []) or []:
         if not isinstance(item, dict):
             continue
-        for content in item.get("content", []):
+        for content in item.get("content", []) or []:
             if isinstance(content, dict) and content.get("type") == "output_text":
                 text = content.get("text")
                 if isinstance(text, str):
@@ -59,7 +98,7 @@ def _extract_output_text_openai(response_json: dict[str, Any]) -> str:
 
 def _extract_output_text_anthropic(response_json: dict[str, Any]) -> str:
     chunks = []
-    for content in response_json.get("content", []):
+    for content in response_json.get("content", []) or []:
         if isinstance(content, dict) and content.get("type") == "text":
             text = content.get("text")
             if isinstance(text, str):
@@ -86,34 +125,67 @@ def _anthropic_usage(response_json: dict[str, Any]) -> tuple[int, int, int]:
     return (prompt_tokens, completion_tokens, prompt_tokens + completion_tokens)
 
 
-def _post_json(
-    *,
-    url: str,
-    payload: dict[str, Any],
-    headers: dict[str, str],
-) -> dict[str, Any]:
-    req = urllib.request.Request(
-        url=url,
-        data=json.dumps(payload).encode("utf-8"),
-        headers=headers,
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=18) as response:
-        body = response.read().decode("utf-8")
-    return json.loads(body)
+# ── Client builders (LRU singleton per credentials) ─────────────────────────
 
 
-def _build_openai_url(provider: str, base_url: str | None) -> str:
+def _parse_azure_endpoint(base_url: str | None) -> tuple[str, str]:
+    if not base_url:
+        return "https://example.invalid", DEFAULT_AZURE_RESPONSES_API_VERSION
+    parsed = urlparse(base_url)
+    endpoint = f"{parsed.scheme}://{parsed.netloc}" if parsed.netloc else "https://example.invalid"
+    api_version = DEFAULT_AZURE_RESPONSES_API_VERSION
+    if parsed.query:
+        for pair in parsed.query.split("&"):
+            if pair.startswith("api-version="):
+                api_version = pair.split("=", 1)[1] or DEFAULT_AZURE_RESPONSES_API_VERSION
+                break
+    return endpoint, api_version
+
+
+@lru_cache(maxsize=16)
+def _build_openai_client(
+    provider: str,
+    api_key: str,
+    base_url: str | None,
+) -> OpenAI | AzureOpenAI:
     if provider == "azure_openai":
-        if base_url:
-            parsed = urllib.parse.urlparse(base_url)
-            if parsed.query:
-                return base_url
-            return f"{base_url.rstrip('/')}/openai/responses?api-version=2025-03-01-preview"
-        return "https://example.invalid/openai/responses?api-version=2025-03-01-preview"
+        endpoint, api_version = _parse_azure_endpoint(base_url)
+        return AzureOpenAI(
+            api_key=api_key,
+            azure_endpoint=endpoint,
+            api_version=api_version,
+            timeout=_LLM_TIMEOUT,
+            max_retries=_LLM_MAX_RETRIES,
+        )
+    kwargs: dict[str, Any] = {
+        "api_key": api_key,
+        "timeout": _LLM_TIMEOUT,
+        "max_retries": _LLM_MAX_RETRIES,
+    }
     if base_url:
-        return f"{base_url.rstrip('/')}/responses"
-    return OPENAI_RESPONSES_URL
+        kwargs["base_url"] = base_url.rstrip("/")
+    return OpenAI(**kwargs)
+
+
+@lru_cache(maxsize=16)
+def _build_anthropic_client(api_key: str, base_url: str | None) -> Anthropic:
+    kwargs: dict[str, Any] = {
+        "api_key": api_key,
+        "timeout": _LLM_TIMEOUT,
+        "max_retries": _LLM_MAX_RETRIES,
+    }
+    if base_url:
+        kwargs["base_url"] = base_url.rstrip("/")
+    return Anthropic(**kwargs)
+
+
+def reset_llm_clients() -> None:
+    """런타임 설정 변경 시 캐시 강제 폐기."""
+    _build_openai_client.cache_clear()
+    _build_anthropic_client.cache_clear()
+
+
+# ── Low-level callers (dict in/out, faq/intent에서 import) ──────────────────
 
 
 def _call_openai_like(
@@ -129,8 +201,15 @@ def _call_openai_like(
     presence_penalty: float | None,
     system_prompt: str,
     user_prompt: str,
+    timeout_seconds: float | None = None,
 ) -> dict[str, Any]:
-    payload = {
+    client = _build_openai_client(provider, api_key, base_url)
+    if timeout_seconds is not None:
+        client = client.with_options(
+            timeout=httpx.Timeout(connect=5.0, read=timeout_seconds, write=15.0, pool=5.0),
+        )
+
+    kwargs: dict[str, Any] = {
         "model": model,
         "temperature": temperature,
         "max_output_tokens": max_output_tokens,
@@ -140,17 +219,20 @@ def _call_openai_like(
         ],
     }
     if top_p is not None:
-        payload["top_p"] = top_p
+        kwargs["top_p"] = top_p
+
+    # Responses API는 frequency/presence penalty를 정식 인자로 받지 않으므로 extra_body로 전달
+    # (이전 urllib 구현은 payload에 직접 포함했음 — 호환성 보존).
+    extra_body: dict[str, Any] = {}
     if frequency_penalty is not None:
-        payload["frequency_penalty"] = frequency_penalty
+        extra_body["frequency_penalty"] = frequency_penalty
     if presence_penalty is not None:
-        payload["presence_penalty"] = presence_penalty
-    headers = {"Content-Type": "application/json"}
-    if provider == "azure_openai":
-        headers["api-key"] = api_key
-    else:
-        headers["Authorization"] = f"Bearer {api_key}"
-    return _post_json(url=_build_openai_url(provider, base_url), payload=payload, headers=headers)
+        extra_body["presence_penalty"] = presence_penalty
+    if extra_body:
+        kwargs["extra_body"] = extra_body
+
+    response = client.responses.create(**kwargs)
+    return response.model_dump(exclude_none=False)
 
 
 def _call_anthropic(
@@ -163,26 +245,65 @@ def _call_anthropic(
     top_p: float | None,
     system_prompt: str,
     user_prompt: str,
+    timeout_seconds: float | None = None,
 ) -> dict[str, Any]:
-    payload = {
+    client = _build_anthropic_client(api_key, base_url)
+    if timeout_seconds is not None:
+        client = client.with_options(
+            timeout=httpx.Timeout(connect=5.0, read=timeout_seconds, write=15.0, pool=5.0),
+        )
+
+    kwargs: dict[str, Any] = {
         "model": model,
-        "temperature": temperature,
         "max_tokens": max_output_tokens,
+        "temperature": temperature,
         "system": system_prompt,
         "messages": [{"role": "user", "content": user_prompt}],
     }
     if top_p is not None:
-        payload["top_p"] = top_p
-    url = f"{(base_url or 'https://api.anthropic.com').rstrip('/')}/v1/messages" if base_url else ANTHROPIC_MESSAGES_URL
-    return _post_json(
-        url=url,
-        payload=payload,
-        headers={
-            "x-api-key": api_key,
-            "anthropic-version": "2023-06-01",
-            "Content-Type": "application/json",
-        },
-    )
+        kwargs["top_p"] = top_p
+
+    response = client.messages.create(**kwargs)
+    return response.model_dump(exclude_none=False)
+
+
+# ── Error classification ────────────────────────────────────────────────────
+
+
+def _classify_error_code(provider: str, exc: Exception) -> tuple[str, int | None]:
+    """(error_code, http_status) 반환. provider 접두사로 모니터링 호환성 유지."""
+    prefix = provider.upper()
+
+    # OpenAI SDK
+    if isinstance(exc, RateLimitError):
+        return f"{prefix}_HTTP_429", 429
+    if isinstance(exc, APITimeoutError):
+        return f"{prefix}_TIMEOUT", None
+    if isinstance(exc, APIConnectionError):
+        return f"{prefix}_CONNECTION_FAILED", None
+    if isinstance(exc, APIStatusError):
+        status = getattr(exc, "status_code", None)
+        return f"{prefix}_HTTP_{status or 'UNKNOWN'}", status
+    if isinstance(exc, APIError):
+        return f"{prefix}_API_ERROR", None
+
+    # Anthropic SDK
+    if isinstance(exc, AnthropicRateLimitError):
+        return f"{prefix}_HTTP_429", 429
+    if isinstance(exc, AnthropicAPITimeoutError):
+        return f"{prefix}_TIMEOUT", None
+    if isinstance(exc, AnthropicAPIConnectionError):
+        return f"{prefix}_CONNECTION_FAILED", None
+    if isinstance(exc, AnthropicAPIStatusError):
+        status = getattr(exc, "status_code", None)
+        return f"{prefix}_HTTP_{status or 'UNKNOWN'}", status
+    if isinstance(exc, AnthropicAPIError):
+        return f"{prefix}_API_ERROR", None
+
+    return f"{prefix}_CALL_FAILED", None
+
+
+# ── Public entrypoint ──────────────────────────────────────────────────────
 
 
 def generate_grounded_answer(
@@ -328,48 +449,9 @@ def generate_grounded_answer(
             "provider": runtime_api.provider,
             "model": model_name,
         }
-    except urllib.error.HTTPError as exc:
-        latency_ms = int((time.perf_counter() - start) * 1000)
-        error_code = f"{runtime_api.provider.upper()}_HTTP_{exc.code}"
-        exception_message = str(exc.reason or exc)
-        create_llm_usage_log(
-            db,
-            organization_id=organization_id,
-            chatbot_id=chatbot_id,
-            api_config_id=runtime_api.api_config_id,
-            provider=runtime_api.provider,
-            model=model_name,
-            operation_type="chat",
-            prompt_tokens=0,
-            completion_tokens=0,
-            total_tokens=0,
-            estimated_cost=0,
-            success=False,
-            error_code=error_code,
-            latency_ms=latency_ms,
-        )
-        maybe_notify_api_error(
-            db,
-            organization_id=organization_id,
-            chatbot_id=chatbot_id,
-            provider=runtime_api.provider,
-            error_code=error_code,
-        )
-        evaluate_api_error_spike_for_chatbot(db, organization_id=organization_id, chatbot_id=chatbot_id)
-        return {
-            "executed": True,
-            "errorCode": error_code,
-            "exceptionType": type(exc).__name__,
-            "exceptionMessage": exception_message,
-            "text": None,
-            "raw": None,
-            "usage": {"latencyMs": latency_ms},
-            "provider": runtime_api.provider,
-            "model": model_name,
-        }
     except Exception as exc:
         latency_ms = int((time.perf_counter() - start) * 1000)
-        error_code = f"{runtime_api.provider.upper()}_CALL_FAILED"
+        error_code, _http_status = _classify_error_code(runtime_api.provider, exc)
         create_llm_usage_log(
             db,
             organization_id=organization_id,

@@ -4,7 +4,7 @@
 키워드 기반으로 질문과 매칭된 외부 API를 호출하고
 RAG 답변에 병합할 실시간 텍스트 컨텍스트를 반환한다.
 
-- 파이프라인이 sync이므로 urllib.request 로 동기 구현
+- httpx.Client 싱글톤(web_fetcher) 으로 호출 — 연결 풀링, 재시도 없음(짧은 timeout)
 - 인메모리 캐시 (cache_seconds 기준, Redis 없이)
 - 실패해도 None 반환 — 메인 응답에 영향 없음
 """
@@ -12,17 +12,16 @@ RAG 답변에 병합할 실시간 텍스트 컨텍스트를 반환한다.
 import json
 import logging
 import re
-import urllib.error
-import urllib.parse
-import urllib.request
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import httpx
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
 from app.models.api_endpoint import ApiEndpoint
 from app.schemas.chat_runtime import ListItem, ListResponse, MoreLink, ViewResponse
+from app.services.web_fetcher import get_client as _get_web_client
 
 logger = logging.getLogger(__name__)
 
@@ -266,20 +265,20 @@ def call_api_endpoint(
                 params[k] = v.replace("{question}", question)
 
         method = (endpoint.method or "GET").upper()
+        client = _get_web_client()
+        timeout = httpx.Timeout(connect=3.0, read=float(_API_TIMEOUT), write=5.0, pool=3.0)
 
-        if method == "GET" and params:
-            qs = urllib.parse.urlencode(params)
-            url = f"{url}?{qs}" if "?" not in url else f"{url}&{qs}"
-            req = urllib.request.Request(url, headers=headers, method="GET")
+        if method == "GET":
+            response = client.get(url, params=params or None, headers=headers, timeout=timeout)
         elif method == "POST":
             body_data = json.dumps(params).encode("utf-8") if params else b"{}"
             headers.setdefault("Content-Type", "application/json")
-            req = urllib.request.Request(url, data=body_data, headers=headers, method="POST")
+            response = client.post(url, content=body_data, headers=headers, timeout=timeout)
         else:
-            req = urllib.request.Request(url, headers=headers, method=method)
+            response = client.request(method, url, headers=headers, timeout=timeout)
 
-        with urllib.request.urlopen(req, timeout=_API_TIMEOUT) as resp:
-            raw_body = resp.read().decode("utf-8", errors="replace")
+        response.raise_for_status()
+        raw_body = response.text
 
         try:
             data = json.loads(raw_body)
@@ -312,10 +311,10 @@ def call_api_endpoint(
         logger.info("[API_CONNECTOR] 성공 name=%s type=%s text_len=%d", endpoint.name, response_type, len(text))
         return text, structured
 
-    except urllib.error.HTTPError as exc:
-        logger.warning("[API_CONNECTOR] HTTP오류 name=%s status=%s", endpoint.name, exc.code)
+    except httpx.HTTPStatusError as exc:
+        logger.warning("[API_CONNECTOR] HTTP오류 name=%s status=%s", endpoint.name, exc.response.status_code)
         return None, None
-    except TimeoutError:
+    except (httpx.TimeoutException, TimeoutError):
         logger.warning("[API_CONNECTOR] 타임아웃 name=%s", endpoint.name)
         return None, None
     except Exception as exc:

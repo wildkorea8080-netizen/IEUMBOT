@@ -1,7 +1,5 @@
 import json
 import uuid
-import urllib.error
-import urllib.request
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -19,6 +17,7 @@ from app.schemas.notifications import (
     SystemIntegrationListResponse,
     SystemIntegrationUpsertRequest,
 )
+from app.services.web_fetcher import get_client as _get_web_client
 
 NOTIFICATION_TYPES = {"usage_warning", "usage_exceeded", "error", "system", "security"}
 NOTIFICATION_SEVERITIES = {"info", "warning", "critical"}
@@ -228,15 +227,15 @@ def send_slack(
         if mention:
             lines.append(f"Mention: {mention}")
         payload = {"text": "\n".join(lines)}
-        request = urllib.request.Request(
-            url=webhook_url,
-            data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
         try:
-            with urllib.request.urlopen(request, timeout=10):
-                pass
+            client = _get_web_client()
+            response = client.post(
+                webhook_url,
+                content=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                timeout=10.0,
+            )
+            response.raise_for_status()
             _create_notification_audit(
                 db,
                 organization_id=(str(notification.organization_id) if notification.organization_id else None),

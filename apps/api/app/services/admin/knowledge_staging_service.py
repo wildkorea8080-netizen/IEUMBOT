@@ -15,8 +15,6 @@
 import json
 import logging
 import re
-import urllib.error
-import urllib.request
 import uuid
 from typing import Any
 
@@ -25,6 +23,12 @@ from sqlalchemy.orm import Session
 
 from app.models.knowledge_staging import KnowledgeStagingChunk, KnowledgeStagingSession
 from app.services.admin.pii_detector_service import detect_pii
+from app.services.chat.answer_generation_service import (
+    _call_anthropic,
+    _call_openai_like,
+    _extract_output_text_anthropic,
+    _extract_output_text_openai,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -135,51 +139,36 @@ def _call_llm_raw(
 ) -> str:
     """LLM 공통 호출 헬퍼. 원시 텍스트 응답 반환."""
     model = runtime_api.quality_model()  # 지식 분석: 품질 우선 (gpt-4.1 / claude-sonnet)
-    headers: dict[str, str] = {"Content-Type": "application/json"}
 
     if runtime_api.provider == "anthropic":
-        url = (
-            f"{runtime_api.base_url.rstrip('/')}/v1/messages"
-            if runtime_api.base_url else "https://api.anthropic.com/v1/messages"
+        response_json = _call_anthropic(
+            api_key=runtime_api.api_key,
+            base_url=runtime_api.base_url,
+            model=model,
+            temperature=0.1,
+            max_output_tokens=max_tokens,
+            top_p=None,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            timeout_seconds=float(timeout),
         )
-        payload: dict[str, Any] = {
-            "model": model, "temperature": 0.1, "max_tokens": max_tokens,
-            "system": system_prompt,
-            "messages": [{"role": "user", "content": user_prompt}],
-        }
-        headers.update({"x-api-key": runtime_api.api_key, "anthropic-version": "2023-06-01"})
-    else:
-        url = (
-            f"{runtime_api.base_url.rstrip('/')}/responses"
-            if runtime_api.base_url else "https://api.openai.com/v1/responses"
-        )
-        payload = {
-            "model": model, "temperature": 0.1, "max_output_tokens": max_tokens,
-            "input": [
-                {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]},
-                {"role": "user",   "content": [{"type": "input_text", "text": user_prompt}]},
-            ],
-        }
-        headers["Authorization"] = f"Bearer {runtime_api.api_key}"
+        return _extract_output_text_anthropic(response_json)
 
-    req = urllib.request.Request(
-        url=url,
-        data=json.dumps(payload, ensure_ascii=False).encode(),
-        headers=headers, method="POST",
+    response_json = _call_openai_like(
+        provider=runtime_api.provider,
+        api_key=runtime_api.api_key,
+        base_url=runtime_api.base_url,
+        model=model,
+        temperature=0.1,
+        max_output_tokens=max_tokens,
+        top_p=None,
+        frequency_penalty=None,
+        presence_penalty=None,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        timeout_seconds=float(timeout),
     )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        result = json.loads(resp.read().decode())
-
-    if runtime_api.provider == "anthropic":
-        return next((b["text"] for b in (result.get("content") or []) if b.get("type") == "text"), "")
-    else:
-        raw = result.get("output_text") or ""
-        if not raw:
-            for item in result.get("output") or []:
-                for c in (item.get("content") or []):
-                    if isinstance(c, dict) and c.get("type") == "output_text":
-                        return str(c.get("text") or "")
-        return raw
+    return _extract_output_text_openai(response_json)
 
 
 def _llm_analyze_chunk(
@@ -203,29 +192,43 @@ def _llm_analyze_chunk(
         system_prompt = (
             "당신은 공공기관 챗봇 지식 데이터베이스 구축 전문가입니다.\n"
             "업로드된 문서의 섹션을 분석해 챗봇이 사용자 질문에 정확히 답할 수 있도록 정리합니다.\n"
-            "반드시 순수 JSON만 출력하세요. 코드블록(```)이나 설명 텍스트는 절대 포함하지 마세요."
+            "반드시 순수 JSON만 출력하세요. 코드블록(```) 마크업이나 설명 문장을 JSON 앞뒤에 절대 붙이지 마세요."
         )
         user_prompt = (
             "다음 문서 섹션을 분석해 JSON으로 응답하세요:\n\n"
-            f"[원본 텍스트]\n{text[:1800]}\n\n"
+            f"[원본 텍스트]\n{text[:2000]}\n\n"
             "응답 JSON 형식:\n"
             "{\n"
-            '  "title": "이 섹션의 고유 주제명 (25자 이내, 다른 섹션과 구별되는 구체적 제목)",\n'
-            '  "tags": ["핵심키워드1", "키워드2", "키워드3", "키워드4"],\n'
-            '  "content": "정리된 내용 (마크다운 형식)"\n'
+            '  "title": "이 섹션의 고유 주제명 (25자 이내)",\n'
+            '  "tags": ["키워드1", "키워드2", "키워드3"],\n'
+            '  "content": "정리된 내용 (마크다운)"\n'
             "}\n\n"
-            "규칙:\n"
-            "- title: 이 섹션만의 핵심 내용 반영. '지원/안내/정보'같은 모호한 단어만으로 구성 금지\n"
-            "- tags: 이 섹션에 직접 등장하는 명사/고유명사 위주 3-5개\n"
-            "- content 규칙:\n"
-            "  · PDF 변환 잔여물(페이지번호, 머리글/바닥글, 줄바꿈 오류) 제거\n"
-            "  · 원본 정보를 빠짐없이 보존하면서 마크다운으로 정리\n"
-            "  · 제목은 ## , 소제목은 ### , 항목은 - , 중요단어는 **굵게** 활용\n"
-            "  · 표 형식은 마크다운 테이블로 변환\n"
-            "  · 사용자가 질문할 때 도움이 되는 구체적 내용(날짜·금액·절차·조건 등) 반드시 보존"
+            "=== title 규칙 ===\n"
+            "- 이 섹션만의 핵심을 담은 구체적 제목 (예: '인턴십 지원자격 및 선발절차')\n"
+            "- '지원/안내/정보' 같은 모호한 단어만으로 구성 금지\n\n"
+            "=== tags 규칙 ===\n"
+            "- 원문에 직접 등장하는 명사·고유명사 위주 3~5개\n\n"
+            "=== content 규칙 (매우 중요) ===\n"
+            "1. PDF 변환 잔여물(페이지번호, 머리글/바닥글, 의미없는 줄바꿈) 제거\n"
+            "2. 원본의 모든 수치·날짜·금액·조건·절차를 빠짐없이 보존\n"
+            "3. 구조화 규칙:\n"
+            "   - 대제목: ## 제목\n"
+            "   - 소제목: ### 소제목\n"
+            "   - 나열 항목: - 항목 (들여쓰기 없이 사용)\n"
+            "   - 중요 단어: **굵게**\n"
+            "4. 표(테이블) 형식 규칙 (반드시 준수):\n"
+            "   - 원본에 표·격자·비교 데이터가 있으면 마크다운 테이블로 변환\n"
+            "   - 형식: 헤더행 | 구분행(---) | 데이터행 순서로 작성\n"
+            "   - 예시:\n"
+            "     | 구분 | 내용 | 비고 |\n"
+            "     |------|------|------|\n"
+            "     | A | 내용1 | 비고1 |\n"
+            "   - 셀 내용이 없으면 빈 문자열('')이 아닌 '-' 입력\n"
+            "   - 표 앞뒤에 빈 줄 추가\n"
+            "5. content 전체를 JSON 문자열로 직렬화할 때 줄바꿈은 \\n으로 이스케이프"
         )
 
-        raw = _call_llm_raw(runtime_api, system_prompt, user_prompt, max_tokens=1500, timeout=25)
+        raw = _call_llm_raw(runtime_api, system_prompt, user_prompt, max_tokens=2000, timeout=30)
 
         m = re.search(r"\{.*\}", raw, re.DOTALL)
         if not m:
@@ -238,7 +241,7 @@ def _llm_analyze_chunk(
         content = str(parsed.get("content") or "").strip()
         return title, tags, content
 
-    except (urllib.error.HTTPError, Exception) as exc:
+    except Exception as exc:
         logger.warning("[STAGING] LLM chunk analysis failed: %s", exc)
         return "", [], ""
 
@@ -325,7 +328,7 @@ def _check_merge_candidate(
         from app.models.documents import Document  # noqa: PLC0415
         from app.models.document_versions import DocumentVersion  # noqa: PLC0415
 
-        embedding = generate_embedding(text[:600])
+        embedding = generate_embedding(db, text[:600])
         if embedding is None:
             return None, None, None
 
