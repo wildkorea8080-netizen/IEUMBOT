@@ -61,6 +61,9 @@ class Settings(BaseSettings):
     contextual_retrieval_model: str = "gpt-4o-mini"
     contextual_retrieval_max_workers: int = 5
     use_docling: bool = False
+    # Arq 워커로 색인/재색인 디스패치. False면 FastAPI BackgroundTasks(동일 프로세스)로 fallback.
+    # 다중 인스턴스/Coolify 배포 시 반드시 True + Redis 가용 필수.
+    use_arq_worker: bool = False
     langfuse_public_key: str = ""
     langfuse_secret_key: str = ""
     langfuse_host: str = "https://cloud.langfuse.com"

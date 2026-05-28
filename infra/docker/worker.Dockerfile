@@ -15,4 +15,6 @@ COPY apps/api ./apps/api
 RUN pip install --no-cache-dir -e ./apps/api
 
 WORKDIR /app/apps/api
-CMD ["python", "-c", "print('Worker scaffold: no business logic yet')"]
+# Arq 워커 실행. USE_ARQ_WORKER=true + API_REDIS_URL이 가용해야 의미 있음.
+# 워커는 마이그레이션을 직접 실행하지 않음(API/배포 파이프라인이 alembic upgrade 처리).
+CMD ["arq", "app.workers.main.WorkerSettings"]
