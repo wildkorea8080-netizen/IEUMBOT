@@ -139,9 +139,19 @@ app/schemas/               # Pydantic 스키마 (ApiSchema 상속)
 ```bash
 # apps/api/.env
 API_DATABASE_URL=postgresql://...
+API_REDIS_URL=redis://...           # 선택 — Arq 워커 + 공유 캐시(미설정 시 in-memory fallback)
 API_OPENAI_API_KEY=sk-...
 API_SESSION_SECRET=...
 API_ALLOWED_ORIGINS=...
+
+# 성능/배포 플래그 (기본값 모두 안전한 false)
+USE_ARQ_WORKER=false                # true → 색인/재색인을 Arq 워커가 처리 (다중 인스턴스 안전)
+USE_ANSWER_CACHE=false              # true → 1턴 답변 캐시(~13s → ~50ms)
+ANSWER_CACHE_TTL_SECONDS=600
+
+# 관측성 (선택)
+SENTRY_DSN=                         # 미설정 시 SDK 초기화 skip (no-op)
+SENTRY_TRACES_SAMPLE_RATE=0.0
 
 # apps/web/.env.local
 NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
@@ -149,13 +159,29 @@ NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
 
 **임베딩·채팅 모두 OpenAI API 키 필요.** 키 없으면 지식 색인 실패 (`OPENAI_API_KEY_MISSING`).
 
+## 캐시 / 워커 / 관측성 레이어
+
+세 가지 모두 **활성화는 환경변수 1줄**, 미설정 시 안전한 폴백:
+
+| 레이어 | 활성화 | 미활성 시 동작 | 위치 |
+|---|---|---|---|
+| Redis 캐시 (임베딩 7d, runtime config 60s, 답변 10min) | `API_REDIS_URL` 가용 | in-memory dict (단일 인스턴스 OK) | `app/core/cache.py` |
+| Arq 워커 (색인/재색인 + 매시간 web sync cron) | `USE_ARQ_WORKER=true` + Redis | FastAPI BackgroundTasks + APScheduler | `app/workers/` |
+| Sentry 에러 트래킹 | `SENTRY_DSN=...` | no-op | `app/core/sentry.py` |
+
+답변 캐시(`USE_ANSWER_CACHE=true`)는 **FAQ/지식 변경 시 자동 무효화** (`answer_cache.invalidate_chatbot`).
+외부 LLM/HTTP 호출은 모두 공식 SDK(OpenAI/Anthropic) + httpx 싱글톤(`web_fetcher`) — 연결 풀, 자동 재시도, 표준 에러 클래스.
+
 ## 주의사항 (하지 말 것)
 
 - `alembic revision --autogenerate` 결과는 반드시 검토 후 커밋 (자동 생성 결과 그대로 push 금지)
+- **앱 시작 시 자동 마이그레이션 없음** — 배포 진입점(`apps/api/scripts/start.sh` 또는 Coolify pre-deploy)이 `alembic upgrade head` 책임. 시작 시점에는 `[SCHEMA] up-to-date|out of date` 경고 로그만.
 - `document_chunks` 직접 수동 삭제 금지 — 재색인 흐름을 통해 처리
 - 위젯 코드에 관리자 콘솔 전용 라이브러리 import 금지 (번들 크기 영향)
 - `packages/ui` 변경 시 web + widget 빌드 모두 확인
 - 비밀 값(API 키, DB URL, 세션 시크릿) 저장소 커밋 금지
+- 다중 인스턴스 배포 시 `USE_ARQ_WORKER=true` 필수 — 안 그러면 BackgroundTasks가 인스턴스마다 별개로 실행되어 작업 유실/중복 가능
+- `urllib.request` 직접 사용 금지 — 모든 외부 HTTP는 OpenAI/Anthropic SDK 또는 `app.services.web_fetcher` 사용
 
 ## 상세 문서 참조
 
@@ -169,4 +195,4 @@ NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
 | 배포/운영 | `docs/18_DEPLOYMENT_OPERATIONS.md` |
 | 보안/개인정보 | `docs/16_SECURITY_PRIVACY_SPEC.md` |
 
-각 앱별 상세는 해당 디렉터리의 `AGENTS.md` 참조.
+각 앱별 상세는 해당 디렉터리의 `CLAUDE.md` 참조.

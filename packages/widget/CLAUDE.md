@@ -76,6 +76,7 @@ POST /api/chat/messages                # 일반 채팅 (SSE 실패 fallback)
 - 내부 프롬프트/가드레일/디버그 스코어 UI 노출 금지
 - raw chunk 본문 노출 금지
 - SSE 실패 시 자동으로 non-stream fallback
+- 답변 텍스트에 HTML 태그가 감지되면 `utils/safeHtml.ts`의 `sanitizeHtml()`로 정화 후 `innerHTML` 렌더 (allowlist: p, ul/ol/li, h1-h6, a, table, code 등). plain text는 기존 `textContent` 경로.
 
 ## 빌드 산출물
 

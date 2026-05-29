@@ -43,6 +43,7 @@ apps/web/
 │  │  ├─ admin-operations.ts      # 관리자 API 함수
 │  │  ├─ admin-operations-types.ts  # 관리자 API 타입
 │  │  └─ ...
+│  ├─ safe-html.ts          # HTML sanitizer (FAQ 답변 렌더링용, allowlist)
 │  └─ auth/                 # 세션/인증 헬퍼
 └─ public/
    └─ widget.js             # 빌드된 위젯 번들 (자동 생성)
@@ -117,3 +118,4 @@ pnpm --filter @ieumbot/web typecheck
 - API 호출은 `lib/api/` 함수를 통해서만 — 컴포넌트에서 `fetch` 직접 호출 금지
 - 페이지 컴포넌트는 얇게 유지, 비즈니스 UI 로직은 `components/admin/`으로 분리
 - Tailwind 클래스 직접 사용 (별도 CSS 파일 최소화)
+- 신뢰할 수 없는 HTML(FAQ 답변, 사용자 입력 등)을 렌더링할 때는 `lib/safe-html.ts`의 `sanitizeHtml()` + `dangerouslySetInnerHTML` 사용. 자동 감지 헬퍼 `looksLikeHtml()`도 제공.
