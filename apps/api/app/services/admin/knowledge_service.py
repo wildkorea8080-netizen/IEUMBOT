@@ -4538,6 +4538,7 @@ def patch_knowledge_service(
         if body.is_active is not None:
             doc.status = "active" if body.is_active else "inactive"
         db.commit()
+        _invalidate_chatbot_answer_cache(str(doc.chatbot_id) if doc.chatbot_id else None)
         return get_knowledge_service(db, principal=principal, knowledge_id=knowledge_id)
 
     web_source_row = get_web_source_knowledge_row(db, organization_id=organization_id, knowledge_id=knowledge_id)
@@ -4555,6 +4556,7 @@ def patch_knowledge_service(
         if body.is_active is not None:
             web_source.status = "active" if body.is_active else "inactive"
         db.commit()
+        _invalidate_chatbot_answer_cache(str(web_source.chatbot_id) if web_source.chatbot_id else None)
         return get_knowledge_service(db, principal=principal, knowledge_id=knowledge_id)
 
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="KNOWLEDGE_NOT_FOUND")
@@ -4570,21 +4572,39 @@ def delete_knowledge_service(
     document_row = get_document_knowledge_row(db, organization_id=organization_id, knowledge_id=knowledge_id)
     if document_row is not None:
         doc = ensure_document_in_scope(db, principal=principal, document_id=knowledge_id)
+        chatbot_id = str(doc.chatbot_id) if doc.chatbot_id else None
         doc.deleted_at = datetime.now(UTC)
         doc.status = "deprecated"
         db.commit()
+        if chatbot_id:
+            _invalidate_chatbot_answer_cache(chatbot_id)
         return
 
     web_source_row = get_web_source_knowledge_row(db, organization_id=organization_id, knowledge_id=knowledge_id)
     if web_source_row is not None:
         web_source = ensure_web_source_in_scope(db, principal=principal, web_source_id=knowledge_id)
+        chatbot_id = str(web_source.chatbot_id) if web_source.chatbot_id else None
         web_source.is_deleted = True
         web_source.deleted_at = datetime.now(UTC)
         web_source.status = "inactive"
         db.commit()
+        if chatbot_id:
+            _invalidate_chatbot_answer_cache(chatbot_id)
         return
 
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="KNOWLEDGE_NOT_FOUND")
+
+
+def _invalidate_chatbot_answer_cache(chatbot_id: str | None) -> None:
+    """동기 경로(create/update/delete)에서 답변 캐시 즉시 무효화."""
+    if not chatbot_id:
+        return
+    try:
+        from app.services.chat.answer_cache import invalidate_chatbot  # noqa: PLC0415
+
+        invalidate_chatbot(str(chatbot_id))
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("[KNOWLEDGE_CACHE_INVALIDATE_FAILED] %s", exc)
 
 
 def _mark_reindex_failed(
@@ -4794,7 +4814,32 @@ def _process_reindex_job(principal: AdminPrincipal, knowledge_id: str, job_id: s
             _mark_reindex_failed(db, job_id=job_id, error_code="REINDEX_FAILED", error_message=str(exc))
             db.commit()
     finally:
+        # 색인 완료/실패와 무관하게 답변 캐시 무효화 — 컨텐츠가 바뀌었을 수 있음
+        _invalidate_answer_cache_from_knowledge(db, knowledge_id)
         db.close()
+
+
+def _invalidate_answer_cache_from_knowledge(db, knowledge_id: str) -> None:
+    """knowledge_id(Document.id 또는 WebSource.id)로부터 chatbot_id 조회 후 답변 캐시 무효화."""
+    try:
+        from app.services.chat.answer_cache import invalidate_chatbot  # noqa: PLC0415
+
+        chatbot_id: str | None = None
+        try:
+            kid = uuid.UUID(knowledge_id)
+        except (ValueError, TypeError):
+            return
+        doc = db.get(Document, kid)
+        if doc is not None and doc.chatbot_id is not None:
+            chatbot_id = str(doc.chatbot_id)
+        else:
+            ws = db.get(WebSource, kid)
+            if ws is not None and ws.chatbot_id is not None:
+                chatbot_id = str(ws.chatbot_id)
+        if chatbot_id:
+            invalidate_chatbot(chatbot_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("[KNOWLEDGE_CACHE_INVALIDATE_FAILED] %s", exc)
 
 
 def reindex_knowledge_service(
