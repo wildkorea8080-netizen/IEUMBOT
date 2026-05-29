@@ -5,6 +5,9 @@ node_modules/
 dist/
 coverage/
 
+# TypeScript build cache
+*.tsbuildinfo
+
 # Python
 __pycache__/
 .pytest_cache/
@@ -15,6 +18,12 @@ __pycache__/
 # Environment
 .env
 .env.local
+
+# Local dev/run logs (not for git)
+web-dev.err.log
+web-dev.out.log
+*-dev.log
+_tmp_*
 
 # OS
 .DS_Store

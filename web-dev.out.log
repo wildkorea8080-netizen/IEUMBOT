@@ -1,7 +1,0 @@
-
-> @ieumbot/web@0.1.0 dev D:\coding\IEUMBOT\apps\web
-> next dev
-
-D:\coding\IEUMBOT\apps\web:
- ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @ieumbot/web@0.1.0 dev: `next dev`
-Exit status 1
