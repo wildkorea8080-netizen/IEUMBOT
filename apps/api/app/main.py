@@ -144,6 +144,10 @@ async def lifespan(_: FastAPI):
 def create_app() -> FastAPI:
     setup_logging()
 
+    # Sentry는 FastAPI 인스턴스 생성 전에 초기화해야 미들웨어가 자동 등록됨
+    from app.core.sentry import init_sentry  # noqa: PLC0415
+    init_sentry()
+
     app = FastAPI(
         title=settings.api_name,
         version="0.1.0",
@@ -152,13 +156,25 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    # CORS — 실제 사용 메서드/헤더만 허용해 attack surface 축소.
+    # 채팅(POST), 관리자 CRUD(GET/POST/PATCH/PUT/DELETE), preflight(OPTIONS).
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.api_allowed_origins,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=[
+            "Authorization",
+            "Content-Type",
+            "X-Request-Id",
+            "X-Session-Token",
+            "Accept",
+            "Accept-Language",
+            "Origin",
+            "User-Agent",
+        ],
         expose_headers=["X-Request-Id"],
+        max_age=600,
     )
     app.add_middleware(MaintenanceModeMiddleware)
     app.add_middleware(RequestLoggingMiddleware)

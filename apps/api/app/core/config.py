@@ -65,9 +65,13 @@ class Settings(BaseSettings):
     # 다중 인스턴스/Coolify 배포 시 반드시 True + Redis 가용 필수.
     use_arq_worker: bool = False
     # 시맨틱 답변 캐시 — 동일 첫턴 질문 반복 시 LLM 우회. TTL 동안 캐시된 답변 즉시 반환.
-    # 무효화: TTL만 사용(지식/FAQ 변경 시 별도 invalidate 호출 X) — 단순함 우선.
     use_answer_cache: bool = False
     answer_cache_ttl_seconds: int = 600
+    # Sentry 에러/성능 트래킹 — DSN 미설정 시 SDK 초기화 skip (no-op).
+    # iwinv/Coolify 배포 시 Sentry 계정 발급 후 환경변수 주입 권장.
+    sentry_dsn: str = ""
+    sentry_environment: str = ""
+    sentry_traces_sample_rate: float = 0.0
     langfuse_public_key: str = ""
     langfuse_secret_key: str = ""
     langfuse_host: str = "https://cloud.langfuse.com"
