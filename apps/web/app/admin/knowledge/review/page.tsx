@@ -165,6 +165,8 @@ import StarterKit from "@tiptap/starter-kit";
 import Underline from "@tiptap/extension-underline";
 import Link from "@tiptap/extension-link";
 import Placeholder from "@tiptap/extension-placeholder";
+import { TableKit } from "@tiptap/extension-table";
+import Image from "@tiptap/extension-image";
 import { apiClient } from "../../../../lib/api/client";
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
@@ -244,6 +246,31 @@ function EditorToolbar({ editor }: { editor: Editor | null }) {
         style={{ padding: "4px 8px", fontSize: 12, border: "1px solid #e5e7eb", borderRadius: 5, background: "#fff", color: "#374151", cursor: "pointer" }}>
         ─
       </button>
+      <div style={{ width: 1, background: "#e5e7eb", margin: "0 2px" }} />
+      <button type="button" title="표 삽입" onMouseDown={e => { e.preventDefault(); editor.chain().focus().insertTable({ rows: 3, cols: 2, withHeaderRow: true }).run(); }}
+        style={{ padding: "4px 8px", fontSize: 12, border: "1px solid #e5e7eb", borderRadius: 5, background: "#fff", color: "#374151", cursor: "pointer" }}>
+        Table
+      </button>
+      <button type="button" title="링크" onMouseDown={e => {
+        e.preventDefault();
+        const prev = editor.getAttributes("link").href as string | undefined;
+        const url = prompt("URL을 입력하세요:", prev ?? "https://");
+        if (url === null) return;
+        if (url === "") { editor.chain().focus().unsetLink().run(); return; }
+        editor.chain().focus().toggleLink({ href: url }).run();
+      }}
+        style={{ padding: "4px 8px", fontSize: 12, border: `1px solid ${editor.isActive("link") ? "#2563eb" : "#e5e7eb"}`, borderRadius: 5, background: editor.isActive("link") ? "#eff6ff" : "#fff", color: editor.isActive("link") ? "#2563eb" : "#374151", cursor: "pointer" }}>
+        Link
+      </button>
+      <button type="button" title="이미지 URL 삽입" onMouseDown={e => {
+        e.preventDefault();
+        const url = prompt("이미지 URL을 입력하세요:");
+        if (url) editor.chain().focus().setImage({ src: url }).run();
+      }}
+        style={{ padding: "4px 8px", fontSize: 12, border: "1px solid #e5e7eb", borderRadius: 5, background: "#fff", color: "#374151", cursor: "pointer" }}>
+        Image
+      </button>
+      <div style={{ width: 1, background: "#e5e7eb", margin: "0 2px" }} />
       <button type="button" title="초기화" onMouseDown={e => { e.preventDefault(); editor.chain().focus().clearNodes().unsetAllMarks().run(); }}
         style={{ padding: "4px 8px", fontSize: 12, border: "1px solid #e5e7eb", borderRadius: 5, background: "#fff", color: "#6b7280", cursor: "pointer" }}>
         지우기
@@ -282,29 +309,32 @@ function ChunkListItem({ chunk, isSelected, isChecked, onClick, onToggle }: {
           </div>
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
+          {/* 상태 표시줄 */}
+          <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 4 }}>
+            {chunk.status === "registered" ? (
+              <><span style={{ width: 8, height: 8, borderRadius: "50%", background: "#16a34a", flexShrink: 0, display: "inline-block" }} /><span style={{ fontSize: 11, color: "#15803d", fontWeight: 600 }}>등록완료</span></>
+            ) : chunk.status === "skipped" ? (
+              <><span style={{ width: 8, height: 8, borderRadius: "50%", background: "#94a3b8", flexShrink: 0, display: "inline-block" }} /><span style={{ fontSize: 11, color: "#64748b", fontWeight: 600 }}>건너뜀</span></>
+            ) : (
+              <><span style={{ width: 8, height: 8, borderRadius: "50%", background: "#f97316", flexShrink: 0, display: "inline-block" }} /><span style={{ fontSize: 11, color: "#ea580c", fontWeight: 600 }}>작업중</span></>
+            )}
+            {chunk.piiDetected && (
+              <span style={{ fontSize: 10, background: "#fef2f2", color: "#dc2626", borderRadius: 4, padding: "1px 6px", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 2 }}>
+                <Shield style={{ width: 8, height: 8 }} />민감정보
+              </span>
+            )}
+          </div>
+          {/* 주제명 */}
           <div style={{ fontSize: 13, fontWeight: 600, color: "#111827", marginBottom: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {chunk.topicTitle}
           </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 4 }}>
-            {chunk.status === "registered" ? (
-              <span style={{ fontSize: 10, background: "#dcfce7", color: "#15803d", borderRadius: 4, padding: "1px 7px", fontWeight: 700 }}>등록완료</span>
-            ) : chunk.status === "skipped" ? (
-              <span style={{ fontSize: 10, background: "#f1f5f9", color: "#64748b", borderRadius: 4, padding: "1px 7px", fontWeight: 600 }}>건너뜀</span>
-            ) : chunk.registrationType === "merge" ? (
-              <span style={{ fontSize: 10, background: "#fef3c7", color: "#92400e", borderRadius: 4, padding: "1px 7px", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 2 }}>
-                <GitMerge style={{ width: 9, height: 9 }} />병합 저장
-              </span>
-            ) : (
-              <span style={{ fontSize: 10, background: "#eff6ff", color: "#1d4ed8", borderRadius: 4, padding: "1px 7px", fontWeight: 700 }}>신규 등록</span>
+          {/* 등록 유형 */}
+          <div style={{ fontSize: 11, color: "#9ca3af", textAlign: "right" }}>
+            {chunk.status === "pending" && (
+              chunk.registrationType === "merge"
+                ? <span style={{ color: "#92400e", display: "inline-flex", alignItems: "center", gap: 2 }}><GitMerge style={{ width: 9, height: 9 }} />병합저장</span>
+                : <span style={{ color: "#6b7280" }}>신규등록</span>
             )}
-            {chunk.piiDetected && (
-              <span style={{ fontSize: 10, background: "#fef2f2", color: "#dc2626", borderRadius: 4, padding: "1px 7px", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 2 }}>
-                <Shield style={{ width: 9, height: 9 }} />민감정보
-              </span>
-            )}
-          </div>
-          <div style={{ fontSize: 11, color: "#9ca3af", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {chunk.content.replace(/[#*_`>\-]/g, "").slice(0, 50)}
           </div>
         </div>
         <ChevronRight style={{ width: 13, height: 13, color: "#d1d5db", flexShrink: 0, marginTop: 2 }} />
@@ -457,6 +487,8 @@ export default function KnowledgeReviewPage() {
       Underline,
       Link.configure({ openOnClick: false }),
       Placeholder.configure({ placeholder: "내용을 편집하세요..." }),
+      TableKit,
+      Image,
     ],
     content: "",
     onUpdate: ({ editor: e }) => { setIsDirty(true); setCurrentText(e.getText()); },
@@ -498,19 +530,64 @@ export default function KnowledgeReviewPage() {
     }
   }, [editor]);
 
-  // 간단한 마크다운 → HTML 변환
-  function markdownToHtml(md: string): string {
-    return md
-      .replace(/^### (.+)$/gm, "<h3>$1</h3>")
-      .replace(/^## (.+)$/gm, "<h2>$1</h2>")
-      .replace(/^# (.+)$/gm, "<h1>$1</h1>")
+  function mdInline(text: string): string {
+    return text
       .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
       .replace(/\*(.+?)\*/g, "<em>$1</em>")
-      .replace(/^- (.+)$/gm, "<li>$1</li>")
-      .replace(/(<li>.*<\/li>\n?)+/g, m => `<ul>${m}</ul>`)
-      .replace(/\n{2,}/g, "</p><p>")
-      .replace(/\n/g, "<br>")
-      .replace(/^(?!<[h|u|l|p])(.+)$/gm, "<p>$1</p>");
+      .replace(/`(.+?)`/g, "<code>$1</code>");
+  }
+
+  // 마크다운 테이블 → HTML 변환
+  function markdownTableToHtml(tableStr: string): string {
+    const lines = tableStr.replace(/\r\n/g, "\n").replace(/\r/g, "\n")
+      .trim().split("\n").filter(l => l.trim());
+    if (lines.length < 3) return `<p>${tableStr}</p>`;
+    const parseRow = (line: string) =>
+      line.split("|").slice(1, -1).map(c => c.trim());
+    const headers = parseRow(lines[0]);
+    const rows = lines.slice(2).map(parseRow).filter(r => r.some(c => c));
+    let html = "<table><thead><tr>";
+    headers.forEach(h => { html += `<th>${mdInline(h) || "&nbsp;"}</th>`; });
+    html += "</tr></thead><tbody>";
+    rows.forEach(cells => {
+      html += "<tr>";
+      const cols = Math.max(headers.length, cells.length);
+      for (let i = 0; i < cols; i++) html += `<td>${mdInline(cells[i] ?? "")}</td>`;
+      html += "</tr>";
+    });
+    html += "</tbody></table>";
+    return html;
+  }
+
+  // 마크다운 → HTML 변환 — 블록 단위 처리로 표가 <p>에 감싸이는 버그 방지
+  function markdownToHtml(md: string): string {
+    const text = md.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+    const blocks = text.split(/\n{2,}/);
+
+    return blocks.map(block => {
+      const b = block.trim();
+      if (!b) return "";
+
+      // 마크다운 표: 첫 줄이 |로 시작하고 구분선(---|)이 있으면
+      if (/^\|/.test(b) && /\n\s*\|[\s|:-]+\|/.test(b)) return markdownTableToHtml(b);
+
+      // 제목
+      if (b.startsWith("### ")) return `<h3>${mdInline(b.slice(4))}</h3>`;
+      if (b.startsWith("## ")) return `<h2>${mdInline(b.slice(3))}</h2>`;
+      if (b.startsWith("# ")) return `<h1>${mdInline(b.slice(2))}</h1>`;
+
+      // 순서 없는 목록 — 모든 줄이 - 또는 * 로 시작
+      const listLines = b.split("\n");
+      if (listLines.some(l => /^[-*•] /.test(l.trim()))) {
+        const items = listLines.filter(l => /^[-*•] /.test(l.trim()));
+        if (items.length === listLines.filter(l => l.trim()).length) {
+          return "<ul>" + items.map(l => `<li>${mdInline(l.trim().replace(/^[-*•] /, ""))}</li>`).join("") + "</ul>";
+        }
+      }
+
+      // 일반 문단 (줄바꿈 → <br>)
+      return "<p>" + listLines.map(l => mdInline(l)).join("<br>") + "</p>";
+    }).filter(Boolean).join("");
   }
 
   const load = useCallback(async (polling = false) => {
@@ -785,84 +862,59 @@ export default function KnowledgeReviewPage() {
         <div style={{ flex: 1, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 14, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
           {selectedChunk ? (
             <>
-              {/* ── 제목 ── */}
-              <div style={{ padding: "16px 22px 12px", borderBottom: "1px solid #f1f5f9", flexShrink: 0, display: "flex", alignItems: "center", gap: 10 }}>
-                <span style={{ fontSize: 20 }}>📄</span>
-                <input value={editTitle} onChange={e => { setEditTitle(e.target.value); setIsDirty(true); }}
-                  placeholder="주제명을 입력하세요"
-                  style={{ flex: 1, fontSize: 18, fontWeight: 700, color: "#111827", border: "none", outline: "none", padding: 0, background: "transparent" }} />
-                <button type="button" onClick={() => void skipChunk(selectedChunk.id)} disabled={selectedChunk.status !== "pending"}
-                  style={{ padding: "6px 14px", border: "1px solid #e5e7eb", borderRadius: 6, background: "#f9fafb", fontSize: 12, cursor: "pointer", color: "#6b7280", opacity: selectedChunk.status !== "pending" ? 0.4 : 1, flexShrink: 0 }}>
-                  건너뛰기
-                </button>
-                <button type="button" onClick={() => void saveChunk()} disabled={isSavingChunk || !isDirty || showDiff}
-                  style={{ padding: "6px 18px", border: "none", borderRadius: 6, background: (isDirty && !showDiff) ? "#2563eb" : "#d1d5db", color: "#fff", fontSize: 12, fontWeight: 600, cursor: (isDirty && !showDiff) ? "pointer" : "default", flexShrink: 0 }}>
-                  {isSavingChunk ? "저장 중..." : "저장"}
-                </button>
-              </div>
-
-              {/* ── 민감한 정보 감지 결과 ── */}
-              <div style={{ padding: "10px 22px", borderBottom: "1px solid #f1f5f9", flexShrink: 0, background: "#fafafa" }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 7 }}>민감한 정보 감지 결과</div>
-                {selectedChunk.piiDetected && selectedChunk.piiRegions.length > 0 ? (() => {
-                  const counts: Record<string, number> = {};
-                  selectedChunk.piiRegions.forEach(r => { counts[r.type] = (counts[r.type] ?? 0) + 1; });
-                  const iconMap: Record<string, string> = { 성명: "👤", 주민번호: "🔒", 전화번호: "📞", 이메일: "@", 계좌번호: "🏦", 신용카드: "💳", 여권번호: "🛂", 주소: "📍" };
-                  return (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                      {Object.entries(counts).map(([type, cnt]) => (
-                        <span key={type} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "4px 12px", background: "#fff", border: "1px solid #fca5a5", borderRadius: 20, fontSize: 12, color: "#dc2626", fontWeight: 500 }}>
-                          <span style={{ fontSize: 13 }}>{iconMap[type] ?? "⚠️"}</span>{type} {cnt}건
-                        </span>
-                      ))}
-                    </div>
-                  );
-                })() : (
-                  <span style={{ fontSize: 12, color: "#6b7280" }}>감지된 민감 정보가 없습니다.</span>
+              {/* ── 제목 + 액션 ── */}
+              <div style={{ padding: "14px 18px 12px", borderBottom: "1px solid #f1f5f9", flexShrink: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 18, flexShrink: 0 }}>📄</span>
+                  <input value={editTitle} onChange={e => { setEditTitle(e.target.value); setIsDirty(true); }}
+                    placeholder="주제명을 입력하세요"
+                    style={{ flex: 1, fontSize: 16, fontWeight: 700, color: "#111827", border: "none", outline: "none", padding: 0, background: "transparent", minWidth: 0 }} />
+                  {selectedChunk.piiDetected && selectedChunk.piiRegions.length > 0 && (() => {
+                    const counts: Record<string, number> = {};
+                    selectedChunk.piiRegions.forEach(r => { counts[r.type] = (counts[r.type] ?? 0) + 1; });
+                    return (
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 10px", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 20, fontSize: 11, color: "#dc2626", fontWeight: 700, flexShrink: 0, whiteSpace: "nowrap" }}>
+                        <Shield style={{ width: 10, height: 10 }} />
+                        {Object.entries(counts).map(([t, n]) => `${t} ${n}건`).join(" · ")}
+                      </span>
+                    );
+                  })()}
+                  <button
+                    type="button"
+                    onClick={() => setShowDiff(d => !d)}
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: 3, flexShrink: 0,
+                      padding: "5px 12px", border: `1px solid ${showDiff ? "#2563eb" : "#e5e7eb"}`,
+                      borderRadius: 6, background: showDiff ? "#eff6ff" : "#f9fafb",
+                      color: showDiff ? "#2563eb" : "#6b7280", fontSize: 12, cursor: "pointer",
+                    }}
+                  >
+                    {showDiff
+                      ? <><PenLine style={{ width: 11, height: 11 }} />편집 모드</>
+                      : <><Eye style={{ width: 11, height: 11 }} />변경 확인{isDirty && <span style={{ marginLeft: 3, background: "#dc2626", borderRadius: 99, width: 6, height: 6, display: "inline-block" }} />}</>}
+                  </button>
+                  <button type="button" onClick={() => void skipChunk(selectedChunk.id)} disabled={selectedChunk.status !== "pending"}
+                    style={{ padding: "5px 12px", border: "1px solid #e5e7eb", borderRadius: 6, background: "#f9fafb", fontSize: 12, cursor: "pointer", color: "#6b7280", opacity: selectedChunk.status !== "pending" ? 0.4 : 1, flexShrink: 0 }}>
+                    건너뛰기
+                  </button>
+                  <button type="button" onClick={() => void saveChunk()} disabled={isSavingChunk || !isDirty || showDiff}
+                    style={{ padding: "5px 18px", border: "none", borderRadius: 6, background: (isDirty && !showDiff) ? "#2563eb" : "#d1d5db", color: "#fff", fontSize: 12, fontWeight: 600, cursor: (isDirty && !showDiff) ? "pointer" : "default", flexShrink: 0 }}>
+                    {isSavingChunk ? "저장 중..." : "저장"}
+                  </button>
+                </div>
+                {/* 병합 안내 */}
+                {selectedChunk.registrationType === "merge" && selectedChunk.mergeCandidateTitle && (
+                  <div style={{ marginTop: 8, padding: "7px 12px", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, fontSize: 12, color: "#92400e", display: "flex", alignItems: "center", gap: 6 }}>
+                    <GitMerge style={{ width: 11, height: 11, flexShrink: 0 }} />
+                    기존 지식 <strong>"{selectedChunk.mergeCandidateTitle}"</strong>과 {Math.round((selectedChunk.mergeScore ?? 0) * 100)}% 유사 — AI가 내용을 통합했습니다.
+                  </div>
                 )}
               </div>
 
-              {/* ── diff 범례 + 변경 보기 토글 ── */}
-              <div style={{ padding: "8px 22px", borderBottom: "1px solid #f1f5f9", display: "flex", alignItems: "center", gap: 16, flexShrink: 0, flexWrap: "wrap" }}>
-                {[
-                  { color: "#fef3c7", border: "#fcd34d", label: "수정된 내용" },
-                  { color: "#dcfce7", border: "#86efac", label: "새로 추가된 내용" },
-                  { color: "#fee2e2", border: "#fca5a5", label: "민감정보 감지" },
-                ].map(item => (
-                  <span key={item.label} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#6b7280" }}>
-                    <span style={{ width: 13, height: 13, background: item.color, border: `1px solid ${item.border}`, borderRadius: 3, display: "inline-block", flexShrink: 0 }} />
-                    {item.label}
-                  </span>
-                ))}
-                <div style={{ flex: 1 }} />
-                <button
-                  type="button"
-                  onClick={() => setShowDiff(d => !d)}
-                  style={{
-                    display: "inline-flex", alignItems: "center", gap: 4,
-                    padding: "5px 14px", border: `1px solid ${showDiff ? "#2563eb" : "#e5e7eb"}`,
-                    borderRadius: 6, background: showDiff ? "#eff6ff" : "#f9fafb",
-                    color: showDiff ? "#2563eb" : "#6b7280", fontSize: 12, cursor: "pointer",
-                  }}
-                >
-                  {showDiff
-                    ? <><PenLine style={{ width: 12, height: 12 }} />편집 모드</>
-                    : <><Eye style={{ width: 12, height: 12 }} />변경 확인{isDirty && <span style={{ marginLeft: 4, background: "#dc2626", color: "#fff", borderRadius: 99, width: 6, height: 6, display: "inline-block" }} />}</>}
-                </button>
-              </div>
-
-              {/* ── 병합 안내 ── */}
-              {selectedChunk.registrationType === "merge" && selectedChunk.mergeCandidateTitle && (
-                <div style={{ margin: "8px 22px 0", padding: "9px 14px", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, fontSize: 12, color: "#92400e", display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-                  <GitMerge style={{ width: 12, height: 12, flexShrink: 0 }} />
-                  기존 지식 <strong>"{selectedChunk.mergeCandidateTitle}"</strong>과 {Math.round((selectedChunk.mergeScore ?? 0) * 100)}% 유사 — AI가 내용을 통합했습니다.
-                </div>
-              )}
-
-              {/* ── TipTap 툴바 ── */}
-              <div style={{ flexShrink: 0, borderBottom: "1px solid #f1f5f9" }}>
+              {/* ── TipTap 툴바 (편집 모드에서만 표시) ── */}
+              {!showDiff && <div style={{ flexShrink: 0, borderBottom: "1px solid #f1f5f9" }}>
                 <EditorToolbar editor={editor} />
-              </div>
+              </div>}
 
               {/* ── 스크롤 영역: 에디터 + 하단 섹션 ── */}
               <div style={{ flex: 1, overflowY: "auto", padding: "16px 22px 20px", display: "flex", flexDirection: "column", gap: 16 }}>
@@ -871,6 +923,19 @@ export default function KnowledgeReviewPage() {
                 <div style={{ minHeight: 420 }}>
                   {showDiff ? (
                     <div style={{ border: "1px solid #e5e7eb", borderRadius: 10, background: "#fff", overflow: "hidden", minHeight: 420 }}>
+                      {/* diff 범례 — diff 모드일 때만 표시 */}
+                      <div style={{ display: "flex", gap: 14, padding: "8px 14px", background: "#f9fafb", borderBottom: "1px solid #f1f5f9", fontSize: 12, color: "#6b7280", flexWrap: "wrap" }}>
+                        {[
+                          { bg: "#fef3c7", bd: "#fcd34d", label: "수정된 내용" },
+                          { bg: "#dcfce7", bd: "#86efac", label: "새로 추가된 내용" },
+                          { bg: "#fee2e2", bd: "#fca5a5", label: "삭제/수정" },
+                        ].map(({ bg, bd, label }) => (
+                          <span key={label} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                            <span style={{ width: 12, height: 12, background: bg, border: `1px solid ${bd}`, borderRadius: 2, display: "inline-block" }} />
+                            {label}
+                          </span>
+                        ))}
+                      </div>
                       <DiffView
                         original={originalContentRef.current}
                         current={currentText || originalContentRef.current}
@@ -1007,6 +1072,13 @@ export default function KnowledgeReviewPage() {
         .tiptap s { text-decoration: line-through; }
         .tiptap hr { border: none; border-top: 1px solid #e5e7eb; margin: 1em 0; }
         .tiptap .is-editor-empty:first-child::before { content: attr(data-placeholder); color: #9ca3af; pointer-events: none; float: left; height: 0; }
+        .tiptap table { border-collapse: collapse; width: 100%; margin: 0.8em 0; font-size: 13px; }
+        .tiptap table th { background: #374151; color: #fff; padding: 8px 14px; text-align: left; font-weight: 600; border: 1px solid #4b5563; }
+        .tiptap table td { padding: 7px 14px; border: 1px solid #e5e7eb; vertical-align: top; color: #374151; }
+        .tiptap table tr:nth-child(even) td { background: #f9fafb; }
+        .tiptap table tr:hover td { background: #f1f5f9; }
+        .tiptap a { color: #2563eb; text-decoration: underline; cursor: pointer; }
+        .tiptap img { max-width: 100%; border-radius: 6px; margin: 0.5em 0; }
       `}</style>
     </div>
   );

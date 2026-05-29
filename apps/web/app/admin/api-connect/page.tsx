@@ -367,44 +367,46 @@ export default function ApiConnectPage() {
         </div>
 
         {/* 테이블 */}
-        {isLoading ? (
-          <div style={{ padding: "40px 0", textAlign: "center", fontSize: 13, color: "#94a3b8" }}>불러오는 중...</div>
-        ) : items.length === 0 ? (
-          <div style={{ padding: "40px 0", textAlign: "center", fontSize: 13, color: "#6b7280", fontWeight: 500 }}>
-            등록된 API 연동 규칙이 없습니다.
-          </div>
-        ) : (
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-            <thead>
-              <tr style={{ borderTop: "1px solid #f1f5f9", borderBottom: "1px solid #e5e7eb" }}>
-                {["API 이름", "트리거 질문", "API endpoint", "생성일", "관리"].map(col => (
-                  <th key={col} style={{ padding: "10px 16px", textAlign: "left", fontSize: 12, fontWeight: 600, color: "#6b7280", background: "#f9fafb" }}>{col}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {items.map(item => (
-                <tr key={item.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
-                  <td style={{ padding: "14px 16px", fontWeight: 500, color: "#111827" }}>{item.name}</td>
-                  <td style={{ padding: "14px 16px", color: "#6b7280", maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{triggerLabel(item)}</td>
-                  <td style={{ padding: "14px 16px" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ fontSize: 11, fontWeight: 700, background: "#f1f5f9", color: "#475569", borderRadius: 4, padding: "1px 6px" }}>{item.method}</span>
-                      <span style={{ fontSize: 12, color: "#6b7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 240 }}>{item.endpointUrl}</span>
-                    </div>
-                  </td>
-                  <td style={{ padding: "14px 16px", color: "#9ca3af", fontSize: 12 }}>{formatDate(item.createdAt)}</td>
-                  <td style={{ padding: "14px 16px" }}>
-                    <button type="button" onClick={() => void remove(item.id)}
-                      style={{ background: "none", border: "none", cursor: "pointer", color: "#d1d5db", padding: 4 }}>
-                      <Trash2 style={{ width: 15, height: 15 }} />
-                    </button>
-                  </td>
-                </tr>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <thead>
+            <tr style={{ borderTop: "1px solid #f1f5f9", borderBottom: "1px solid #e5e7eb" }}>
+              {["API 이름", "트리거 질문", "API endpoint", "생성일", "관리"].map(col => (
+                <th key={col} style={{ padding: "10px 16px", textAlign: "left", fontSize: 12, fontWeight: 600, color: "#6b7280", background: "#f9fafb" }}>{col}</th>
               ))}
-            </tbody>
-          </table>
-        )}
+            </tr>
+          </thead>
+          <tbody>
+            {isLoading ? (
+              <tr>
+                <td colSpan={5} style={{ padding: "40px 0", textAlign: "center", fontSize: 13, color: "#94a3b8" }}>불러오는 중...</td>
+              </tr>
+            ) : items.length === 0 ? (
+              <tr>
+                <td colSpan={5} style={{ padding: "40px 0", textAlign: "center", fontSize: 13, color: "#6b7280", fontWeight: 500 }}>
+                  등록된 API 연동 규칙이 없습니다.
+                </td>
+              </tr>
+            ) : items.map(item => (
+              <tr key={item.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                <td style={{ padding: "14px 16px", fontWeight: 500, color: "#111827" }}>{item.name}</td>
+                <td style={{ padding: "14px 16px", color: "#6b7280", maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{triggerLabel(item)}</td>
+                <td style={{ padding: "14px 16px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, background: "#f1f5f9", color: "#475569", borderRadius: 4, padding: "1px 6px" }}>{item.method}</span>
+                    <span style={{ fontSize: 12, color: "#6b7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 240 }}>{item.endpointUrl}</span>
+                  </div>
+                </td>
+                <td style={{ padding: "14px 16px", color: "#9ca3af", fontSize: 12 }}>{formatDate(item.createdAt)}</td>
+                <td style={{ padding: "14px 16px" }}>
+                  <button type="button" onClick={() => void remove(item.id)}
+                    style={{ background: "none", border: "none", cursor: "pointer", color: "#d1d5db", padding: 4 }}>
+                    <Trash2 style={{ width: 15, height: 15 }} />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
 
         {/* 푸터 */}
         <div style={{ padding: "10px 24px", borderTop: "1px solid #f1f5f9", fontSize: 13, color: "#9ca3af" }}>
