@@ -18,6 +18,18 @@ logger = logging.getLogger(__name__)
 FAQ_MATCH_THRESHOLD = 0.82  # 이 값 이상이면 FAQ로 답변
 
 
+def _invalidate_chatbot_answer_cache(chatbot_id: str | None) -> None:
+    """FAQ 변경 → 해당 챗봇 답변 캐시 즉시 무효화. 실패해도 메인 흐름 막지 않음."""
+    if not chatbot_id:
+        return
+    try:
+        from app.services.chat.answer_cache import invalidate_chatbot  # noqa: PLC0415
+
+        invalidate_chatbot(str(chatbot_id))
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("[FAQ_CACHE_INVALIDATE_FAILED] %s", exc)
+
+
 # ── CRUD ─────────────────────────────────────────────────────────────────────
 
 def create_faq_item(
@@ -64,6 +76,7 @@ def create_faq_item(
         db.flush()
         db.refresh(row)
     logger.info("[FAQ] created id=%s chatbot=%s", row.id, chatbot_id)
+    _invalidate_chatbot_answer_cache(chatbot_id)
     return row
 
 
@@ -137,6 +150,7 @@ def update_faq_item(
 
     db.commit()
     db.refresh(row)
+    _invalidate_chatbot_answer_cache(str(row.chatbot_id))
     return row
 
 
@@ -144,8 +158,10 @@ def delete_faq_item(db: Session, *, faq_id: str, organization_id: str) -> bool:
     row = get_faq_item(db, faq_id=faq_id, organization_id=organization_id)
     if row is None:
         return False
+    chatbot_id = str(row.chatbot_id)
     db.delete(row)
     db.commit()
+    _invalidate_chatbot_answer_cache(chatbot_id)
     return True
 
 
