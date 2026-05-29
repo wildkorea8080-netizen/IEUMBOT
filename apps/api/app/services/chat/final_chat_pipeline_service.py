@@ -29,6 +29,7 @@ from app.schemas.chat_runtime import (
     TextResponse,
     ViewResponse,
 )
+from app.services.chat import answer_cache as _answer_cache
 from app.services.chat.answer_generation_service import generate_grounded_answer
 from app.services.chat.entity_extraction_service import (
     extract_entities_from_turn,
@@ -1284,6 +1285,9 @@ def _persist_immediate_response(
     intent_confidence: float | None = 1.0,
     classifier_reason: str | None = None,
     model_name: str | None = None,
+    citations: list[Any] | None = None,
+    follow_up_questions: list[str] | None = None,
+    structured_response: Any = None,
 ) -> ChatRuntimeResponse:
     request_id = f"chat_run_{uuid.uuid4().hex[:16]}"
     if session is None:
@@ -1383,9 +1387,10 @@ def _persist_immediate_response(
         chatbot_id=str(chatbot.id),
         outcome=outcome,
         answer={"text": answer_text, "warnings": []},
-        citations=[],
-        follow_up_questions=[],
+        citations=list(citations or []),
+        follow_up_questions=list(follow_up_questions or []),
         policy_decision={},
+        structured_response=structured_response,
         trace=_build_public_runtime_trace(
             normalized_query=normalized_query,
             llm_executed=False,
@@ -1400,7 +1405,7 @@ def _persist_immediate_response(
             intent_confidence=intent_confidence,
             classifier_reason=classifier_reason,
             simple_response_applied=True,
-            follow_up_questions=[],
+            follow_up_questions=list(follow_up_questions or []),
             follow_up_source=None,
         ),
     )
@@ -1686,6 +1691,38 @@ def run_final_chat_pipeline(
     )
     user_turn_count = count_user_messages_in_session(db, session_id=str(session.id)) if session is not None else 0
     recent_messages = list_recent_session_messages(db, session_id=str(session.id), limit=8) if session is not None else []
+
+    # ── 시맨틱 답변 캐시 조회 (USE_ANSWER_CACHE=true 일 때만) ──────────────────
+    # 1턴 + outcome=answered 의 chatbot+question 조합만 캐시. TTL 내 동일 질문 재시도 시
+    # LLM/RAG 전체 우회 → ~13초 → ~50ms. 무효화는 TTL만 사용(지식/FAQ 변경 시 stale 가능).
+    _cache_skip, _cache_skip_reason = _answer_cache.should_skip(recent_messages=recent_messages)
+    if not _cache_skip:
+        _cached_answer = _answer_cache.get_cached(str(chatbot.id), body.question)
+        if _cached_answer is not None:
+            tone_summary = _conversation_tone_summary(question=body.question, recent_messages=recent_messages)
+            response = _persist_immediate_response(
+                db,
+                body=body,
+                chatbot=chatbot,
+                session=session,
+                session_token=session_token,
+                normalized_query=normalized_query,
+                stream_mode=stream_mode,
+                tone_summary=tone_summary,
+                outcome=_cached_answer.get("outcome", "answered"),
+                answer_text=_cached_answer.get("answerText", ""),
+                reason="answer_cache_hit",
+                detected_intent="business_question",
+                intent_routing_method="cache",
+                intent_confidence=1.0,
+                classifier_reason=None,
+                model_name=None,
+                citations=_cached_answer.get("citations") or [],
+                follow_up_questions=_cached_answer.get("followUpQuestions") or [],
+                structured_response=_cached_answer.get("structuredResponse"),
+            )
+            return response
+
     # 세션 엔티티 로드 (컬럼 미존재 시 안전하게 None으로 폴백)
     session_entities: dict | None = None
     if session is not None:
@@ -2425,6 +2462,29 @@ def run_final_chat_pipeline(
             ))
 
     langfuse_service.end_chat_trace(outcome=outcome, answer_text=answer_text)
+
+    # ── 시맨틱 답변 캐시 저장 (USE_ANSWER_CACHE=true + 조건 통과 시) ─────────
+    # 1턴 + outcome=answered 만 저장. citations/follow_ups 도 함께 직렬화.
+    try:
+        _store_skip, _ = _answer_cache.should_skip(
+            recent_messages=recent_messages,
+            outcome=outcome,
+            requires_cautious_wording=bool(guardrail_eval.get("requiresCautiousWording")) if isinstance(guardrail_eval, dict) else False,
+        )
+        if not _store_skip:
+            _answer_cache.store(
+                str(chatbot.id),
+                body.question,
+                answer_text=answer_text,
+                outcome=outcome,
+                citations=[c.model_dump(by_alias=True) for c in citations] if citations else [],
+                follow_up_questions=list(follow_up_questions or []),
+                structured_response=(
+                    structured_response.model_dump(by_alias=True) if structured_response is not None else None
+                ),
+            )
+    except Exception as _cache_exc:  # noqa: BLE001
+        logger.warning("[ANSWER_CACHE_STORE_SKIPPED] error=%s", _cache_exc)
 
     return ChatRuntimeResponse(
         request_id=request_id,
