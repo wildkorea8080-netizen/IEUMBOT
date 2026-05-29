@@ -1,4 +1,5 @@
 import { WidgetApiClient } from "../api/client";
+import { looksLikeHtml, sanitizeHtml } from "../utils/safeHtml";
 import type {
   ChatCitation,
   ChatResponse,
@@ -67,6 +68,22 @@ function createElement<K extends keyof HTMLElementTagNameMap>(
   const element = documentRef.createElement(tag);
   if (className) element.className = className;
   return element;
+}
+
+/**
+ * 메시지 텍스트를 채팅 버블에 렌더링.
+ * - HTML 태그가 감지되면 sanitize 후 innerHTML로 렌더
+ * - 그렇지 않으면 textContent로 plain text 렌더(개행 보존은 CSS white-space로 처리)
+ */
+function renderMessageText(bubble: HTMLElement, text: string): void {
+  const value = text || "";
+  if (looksLikeHtml(value)) {
+    bubble.classList.add("ieum-bubble-rich");
+    bubble.innerHTML = sanitizeHtml(value);
+  } else {
+    bubble.classList.remove("ieum-bubble-rich");
+    bubble.textContent = value;
+  }
 }
 
 function createIconSvg(name: LauncherIconName | "send" | "minimize" | "close", customIconUrl?: string | null): string {
@@ -461,6 +478,36 @@ function buildScopedStyles(primaryGradient: string): string {
   border-radius:18px 18px 4px 18px;
   box-shadow:0 2px 8px ${pcA28};
 }
+/* ── 리치 컨텐츠(FAQ HTML) ── */
+.ieum-bubble-rich { white-space:normal; }
+.ieum-bubble-rich p { margin:0 0 6px; }
+.ieum-bubble-rich p:last-child { margin-bottom:0; }
+.ieum-bubble-rich ul, .ieum-bubble-rich ol { margin:4px 0 6px; padding-left:20px; }
+.ieum-bubble-rich li { margin-bottom:3px; }
+.ieum-bubble-rich h1, .ieum-bubble-rich h2, .ieum-bubble-rich h3,
+.ieum-bubble-rich h4, .ieum-bubble-rich h5, .ieum-bubble-rich h6 {
+  margin:6px 0 4px; font-weight:600; font-size:1.05em;
+}
+.ieum-bubble-rich a { color:#2563eb; text-decoration:underline; }
+.ieum-bubble-rich strong, .ieum-bubble-rich b { font-weight:600; }
+.ieum-bubble-rich code {
+  background:#eef2f7; padding:1px 4px; border-radius:3px; font-size:0.92em;
+}
+.ieum-bubble-rich pre {
+  background:#f1f5f9; padding:8px; border-radius:6px; overflow-x:auto;
+  font-size:0.9em; margin:6px 0;
+}
+.ieum-bubble-rich table {
+  border-collapse:collapse; margin:6px 0; font-size:0.95em;
+}
+.ieum-bubble-rich th, .ieum-bubble-rich td {
+  border:1px solid #e5e7eb; padding:4px 8px; text-align:left;
+}
+.ieum-bubble-rich th { background:#f8fafc; font-weight:600; }
+.ieum-bubble-rich blockquote {
+  border-left:3px solid #cbd5e1; padding-left:10px; color:#475569; margin:6px 0;
+}
+.ieum-bubble-rich img { max-width:100%; height:auto; border-radius:4px; }
 /* ── outcome 노트 ── */
 .ieum-outcome-note { margin-top:6px; font-size:11.5px; color:#6b7280; }
 /* ── citations ── */
@@ -1081,10 +1128,10 @@ export class IeumWidgetApp {
             bubble.appendChild(a);
           }
         } else {
-          bubble.textContent = message.text;
+          renderMessageText(bubble, message.text);
         }
       } else {
-        bubble.textContent = message.text;
+        renderMessageText(bubble, message.text);
       }
 
       if (message.role === "assistant") {

@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
 import { RefreshCw, Send } from "lucide-react";
 
+import { looksLikeHtml, sanitizeHtml } from "../../../lib/safe-html";
+
 import { ApiClientError } from "../../../lib/api";
 import { getAdminChatbots } from "../../../lib/api/admin-operations";
 import { sendAdminTestChatMessage } from "../../../lib/api/runtime-chat";
@@ -53,11 +55,21 @@ function UserBubble({ question, time }: { question: string; time: string }) {
 }
 
 function AssistantBubble({ response, time }: { response: ChatRuntimeResponse; time: string }) {
+  const text = response.answer.text || "";
+  const isHtml = looksLikeHtml(text);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 20 }}>
-      <div style={{ fontSize: 14, color: "#111827", lineHeight: 1.8, whiteSpace: "pre-wrap" }}>
-        {response.answer.text}
-      </div>
+      {isHtml ? (
+        <div
+          className="ieum-rich-answer"
+          style={{ fontSize: 14, color: "#111827", lineHeight: 1.8 }}
+          dangerouslySetInnerHTML={{ __html: sanitizeHtml(text) }}
+        />
+      ) : (
+        <div style={{ fontSize: 14, color: "#111827", lineHeight: 1.8, whiteSpace: "pre-wrap" }}>
+          {text}
+        </div>
+      )}
       <span style={{ fontSize: 11, color: "#9ca3af" }}>{time}</span>
     </div>
   );

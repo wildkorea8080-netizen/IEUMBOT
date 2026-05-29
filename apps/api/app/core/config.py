@@ -64,6 +64,10 @@ class Settings(BaseSettings):
     # Arq 워커로 색인/재색인 디스패치. False면 FastAPI BackgroundTasks(동일 프로세스)로 fallback.
     # 다중 인스턴스/Coolify 배포 시 반드시 True + Redis 가용 필수.
     use_arq_worker: bool = False
+    # 시맨틱 답변 캐시 — 동일 첫턴 질문 반복 시 LLM 우회. TTL 동안 캐시된 답변 즉시 반환.
+    # 무효화: TTL만 사용(지식/FAQ 변경 시 별도 invalidate 호출 X) — 단순함 우선.
+    use_answer_cache: bool = False
+    answer_cache_ttl_seconds: int = 600
     langfuse_public_key: str = ""
     langfuse_secret_key: str = ""
     langfuse_host: str = "https://cloud.langfuse.com"
