@@ -917,12 +917,12 @@ export default function KnowledgeReviewPage() {
               </div>}
 
               {/* ── 스크롤 영역: 에디터 + 하단 섹션 ── */}
-              <div style={{ flex: 1, overflowY: "auto", padding: "16px 22px 20px", display: "flex", flexDirection: "column", gap: 16 }}>
+              <div style={{ flex: 1, overflowY: "auto", padding: "16px 22px 20px" }}>
 
                 {/* 에디터 or Diff */}
-                <div style={{ minHeight: 420 }}>
+                <div style={{ marginBottom: 16 }}>
                   {showDiff ? (
-                    <div style={{ border: "1px solid #e5e7eb", borderRadius: 10, background: "#fff", overflow: "hidden", minHeight: 420 }}>
+                    <div style={{ border: "1px solid #e5e7eb", borderRadius: 10, background: "#fff", overflow: "hidden", minHeight: 300 }}>
                       {/* diff 범례 — diff 모드일 때만 표시 */}
                       <div style={{ display: "flex", gap: 14, padding: "8px 14px", background: "#f9fafb", borderBottom: "1px solid #f1f5f9", fontSize: 12, color: "#6b7280", flexWrap: "wrap" }}>
                         {[
@@ -943,20 +943,20 @@ export default function KnowledgeReviewPage() {
                       />
                     </div>
                   ) : (
-                    <div style={{ border: "1px solid #e5e7eb", borderRadius: 10, background: "#fff", minHeight: 420 }}>
+                    <div style={{ border: "1px solid #e5e7eb", borderRadius: 10, background: "#fff", minHeight: 300 }}>
                       <EditorContent editor={editor} />
                     </div>
                   )}
                 </div>
 
                 {/* AI 개인정보 필터링 */}
-                <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13, color: "#374151", cursor: "pointer" }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13, color: "#374151", cursor: "pointer", marginBottom: 16 }}>
                   <input type="checkbox" checked={skipPiiFilter} onChange={e => setSkipPiiFilter(e.target.checked)} style={{ width: 14, height: 14 }} />
                   AI 개인정보 필터링을 건너뜁니다
                 </label>
 
                 {/* 태그 관리 */}
-                <div style={{ padding: "14px 16px", background: "#f9fafb", borderRadius: 10, border: "1px solid #f1f5f9" }}>
+                <div style={{ padding: "14px 16px", background: "#f9fafb", borderRadius: 10, border: "1px solid #f1f5f9", marginBottom: 16 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 8 }}>태그</div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
                     {editTags.map(tag => (
@@ -978,7 +978,7 @@ export default function KnowledgeReviewPage() {
                 </div>
 
                 {/* 관련 파일 */}
-                <div style={{ padding: "14px 16px", background: "#f9fafb", borderRadius: 10, border: "1px solid #f1f5f9" }}>
+                <div style={{ padding: "14px 16px", background: "#f9fafb", borderRadius: 10, border: "1px solid #f1f5f9", marginBottom: 16 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 8 }}>관련 파일 / 영상</div>
                   <div style={{ display: "flex", gap: 0, marginBottom: 10, borderBottom: "1px solid #e5e7eb" }}>
                     {(["file", "youtube"] as const).map(tab => (
@@ -1003,7 +1003,7 @@ export default function KnowledgeReviewPage() {
                 </div>
 
                 {/* 버전 메모 */}
-                <div style={{ padding: "14px 16px", background: "#f9fafb", borderRadius: 10, border: "1px solid #f1f5f9" }}>
+                <div style={{ padding: "14px 16px", background: "#f9fafb", borderRadius: 10, border: "1px solid #f1f5f9", marginBottom: 16 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 8 }}>버전 메모</div>
                   <input value={versionMemo} onChange={e => setVersionMemo(e.target.value)}
                     placeholder="100자 이내로 입력해주세요."
