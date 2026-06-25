@@ -19,8 +19,8 @@ def build_widget_install_script(
     launcher_icon: str | None = None,
     launcher_icon_url: str | None = None,
 ) -> str:
-    resolved_api_base_url = (api_base_url or settings.widget_public_api_base_url).strip()
-    web_base = settings.widget_public_web_base_url.strip()
+    resolved_api_base_url = (api_base_url or settings.api_widget_public_api_base_url).strip()
+    web_base = settings.api_widget_public_web_base_url.strip()
     src_url = _to_absolute("/widget.js", web_base) if web_base else "/widget.js"
 
     attrs: list[tuple[str, str]] = [
