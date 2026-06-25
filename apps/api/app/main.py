@@ -3,12 +3,11 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-
 from app.api.router import api_router
 from app.core.config import settings
 from app.core.logging import setup_logging
 from app.core.middleware import MaintenanceModeMiddleware, RequestLoggingMiddleware
+from app.core.middleware.cors import SplitCORSMiddleware
 
 
 def _log_schema_status() -> None:
@@ -156,26 +155,10 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # CORS — 실제 사용 메서드/헤더만 허용해 attack surface 축소.
-    # 채팅(POST), 관리자 CRUD(GET/POST/PATCH/PUT/DELETE), preflight(OPTIONS).
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.api_allowed_origins,
-        allow_credentials=True,
-        allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
-        allow_headers=[
-            "Authorization",
-            "Content-Type",
-            "X-Request-Id",
-            "X-Session-Token",
-            "Accept",
-            "Accept-Language",
-            "Origin",
-            "User-Agent",
-        ],
-        expose_headers=["X-Request-Id"],
-        max_age=600,
-    )
+    # CORS — 경로별 분기:
+    #   /api/widget/* /api/chat/* → allow_origins=* (기관 홈페이지 어디서나 위젯 로드 가능)
+    #   그 외                     → settings.api_allowed_origins 목록만 허용 (관리자 세션 쿠키)
+    app.add_middleware(SplitCORSMiddleware)
     app.add_middleware(MaintenanceModeMiddleware)
     app.add_middleware(RequestLoggingMiddleware)
     app.include_router(api_router, prefix="/api")
