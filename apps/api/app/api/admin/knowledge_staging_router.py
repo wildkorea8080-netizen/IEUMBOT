@@ -6,7 +6,7 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File, Form, status
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
 from app.api.dependencies.auth import AdminPrincipal, require_institution_admin_auth
@@ -270,13 +270,20 @@ async def create_staging_from_file(
     from app.models.documents import Document  # noqa: PLC0415
     from app.models.document_versions import DocumentVersion as DocVersion  # noqa: PLC0415
 
+    # 스테이징 원본 문서는 create_text_knowledge_internal로 생성되며
+    # file_name="<파일명>.txt", title="<파일명>"으로 저장된다.
+    # 따라서 원본 파일명 == file_name 만 비교하면 재업로드를 놓친다 → 세 형태 모두 매칭.
     existing = db.execute(
         select(DocVersion.id)
         .join(Document, DocVersion.document_id == Document.id)
         .where(
             Document.chatbot_id == uuid.UUID(chatbot_id),
             Document.status == "active",
-            DocVersion.file_name == filename,
+            or_(
+                DocVersion.file_name == filename,
+                DocVersion.file_name == f"{filename}.txt",
+                Document.title == filename,
+            ),
             DocVersion.is_active.is_(True),
         )
         .limit(1)
