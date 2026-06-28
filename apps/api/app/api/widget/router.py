@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.db import get_db_session
 from app.models import ChatbotSetting, QuickAction, WidgetDeployment
 from app.schemas.widget import (
@@ -19,6 +20,14 @@ from app.services.enforcement_service import ensure_runtime_access_for_widget
 router = APIRouter(tags=["widget"])
 
 _DAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+
+
+def _abs_url(url: str | None) -> str | None:
+    """상대경로(/ 시작)를 widget_public_web_base_url 기준 절대 URL로 변환한다."""
+    web_base = settings.api_widget_public_web_base_url.strip()
+    if url and url.startswith("/") and web_base:
+        return web_base.rstrip("/") + url
+    return url
 
 
 def _parse_hhmm_to_minutes(value: str | None) -> int | None:
@@ -145,7 +154,7 @@ def get_widget_public_config(
         if isinstance(chatbot_display_name, str) and chatbot_display_name.strip()
         else chatbot.name,
         institution_name=institution_name if isinstance(institution_name, str) else None,
-        logo_url=logo_url if isinstance(logo_url, str) else None,
+        logo_url=_abs_url(logo_url if isinstance(logo_url, str) else None),
         intro_message=resolved_intro_message,
         welcome_message=resolved_welcome_message,
         quick_reply_hints=[
@@ -162,7 +171,7 @@ def get_widget_public_config(
             background_color=background_color if isinstance(background_color, str) else None,
             preset=preset if isinstance(preset, str) else None,
             launcher_icon=launcher_icon if isinstance(launcher_icon, str) else None,
-            launcher_icon_url=launcher_icon_url if isinstance(launcher_icon_url, str) else None,
+            launcher_icon_url=_abs_url(launcher_icon_url if isinstance(launcher_icon_url, str) else None),
         ),
         banner=WidgetBanner(
             title=banner_title if isinstance(banner_title, str) else None,
