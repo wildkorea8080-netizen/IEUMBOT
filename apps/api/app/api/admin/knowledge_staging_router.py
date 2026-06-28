@@ -180,9 +180,9 @@ def _process_file_staging_background(
         _mark_session_failed(session_id)
         return
 
-    # 2. AI 분석 (RAG 색인보다 먼저 수행)
-    #    색인을 먼저 하면 병합 후보 검사(_check_merge_candidate)가 방금 올린 파일 자신을
-    #    찾아 "기존 지식과 94% 유사"로 오인식한다. 분석을 먼저 돌려 기존 지식하고만 비교한다.
+    # 2. AI 분석 (RAG 색인과 독립적으로 먼저 수행)
+    #    병합 후보 검사는 기존 등록 주제(FAQ)와 비교하므로 이 파일의 RAG 색인 여부와 무관.
+    #    분석을 먼저 돌려 색인 지연/실패가 분석에 영향을 주지 않게 한다.
     from app.services.admin.knowledge_staging_service import analyze_staging_session_background  # noqa: PLC0415
     analyze_staging_session_background(session_id, text, chatbot_id, organization_id)
 

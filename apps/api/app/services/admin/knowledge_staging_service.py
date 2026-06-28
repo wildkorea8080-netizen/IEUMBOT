@@ -6,7 +6,7 @@
     → _split_semantic_chunks()   : 단락 기반 청킹
     → _generate_topic_title()    : LLM 주제명 생성 (실패 시 규칙 기반 폴백)
     → detect_pii()               : 민감정보 감지
-    → _check_merge_candidate()   : 기존 지식 유사도 검사
+    → _find_faq_merge_candidate(): 기존 등록 주제(FAQ)와 유사도 검사 → 같으면 등록 시 갱신
     → KnowledgeStagingSession/Chunk 저장
   사용자 검토 후 register_chunks() 호출
     → createKnowledgeText() 내부 서비스로 각 청크를 지식으로 등록
@@ -255,39 +255,7 @@ def _llm_analyze_chunk(
         return "", [], ""
 
 
-# ── 기존 지식 내용 조회 + AI 병합 ────────────────────────────────────────────
-
-def _fetch_existing_knowledge_content(doc_id: str, db: Session) -> str | None:
-    """기존 지식 아이템(Document)의 text_content 청크를 합쳐 반환."""
-    try:
-        from app.models.document_versions import DocumentVersion  # noqa: PLC0415
-        from app.models.document_chunks import DocumentChunk  # noqa: PLC0415
-        import uuid as _uuid  # noqa: PLC0415
-
-        version = db.execute(
-            select(DocumentVersion)
-            .where(
-                DocumentVersion.document_id == _uuid.UUID(doc_id),
-                DocumentVersion.is_active.is_(True),
-                DocumentVersion.status == "completed",
-            )
-            .order_by(DocumentVersion.created_at.desc())
-            .limit(1)
-        ).scalar_one_or_none()
-        if not version:
-            return None
-
-        chunks = db.execute(
-            select(DocumentChunk.text_content)
-            .where(DocumentChunk.document_version_id == version.id)
-            .order_by(DocumentChunk.chunk_order)
-            .limit(6)
-        ).scalars().all()
-        return "\n\n".join(c for c in chunks if c) or None
-    except Exception as exc:
-        logger.debug("[STAGING] fetch existing content failed: %s", exc)
-        return None
-
+# ── AI 병합 ──────────────────────────────────────────────────────────────────
 
 def _llm_merge_content(original: str, new_content: str, db: Session) -> str | None:
     """기존 내용과 신규 내용을 AI로 병합해 최신화된 단일 문서로 반환."""
@@ -325,53 +293,37 @@ def _llm_merge_content(original: str, new_content: str, db: Session) -> str | No
         return None
 
 
-# ── 병합 후보 검사 ────────────────────────────────────────────────────────────
+# ── 병합 후보 검사 (기존 등록 주제 = FAQ 기준) ──────────────────────────────────
 
-def _check_merge_candidate(
-    text: str,
+_MERGE_THRESHOLD = 0.88  # 주제명 임베딩 유사도 — 이 값 이상이면 기존 FAQ를 갱신(upsert)
+
+
+def _find_faq_merge_candidate(
+    topic_title: str,
     chatbot_id: str,
     db: Session,
-) -> tuple[str | None, str | None, float | None]:
-    """기존 DocumentChunk와 벡터 유사도가 높으면 (title, doc_id, score) 반환."""
+) -> tuple[str | None, str | None, float | None, str | None]:
+    """새 주제가 기존 등록 주제(FAQ)와 같으면 (질문, faq_id, score, 기존답변) 반환.
+
+    기존엔 원본 RAG 문서(raw 전체텍스트)와 비교해 들쭉날쭉했으나,
+    이제 정리본끼리(주제명 ↔ FAQ 질문 임베딩) 비교 → 일관적.
+    매칭 시 등록 단계(register_staging_chunks)에서 새로 만들지 않고 해당 FAQ를 갱신한다.
+    """
     try:
-        from app.services.embedding_service import generate_embedding  # noqa: PLC0415
-        from sqlalchemy import text as sa_text  # noqa: PLC0415
-        import uuid as _uuid  # noqa: PLC0415
-        from app.models.document_chunks import DocumentChunk  # noqa: PLC0415
-        from app.models.documents import Document  # noqa: PLC0415
-        from app.models.document_versions import DocumentVersion  # noqa: PLC0415
+        from app.services.admin.faq_service import search_faq_by_question  # noqa: PLC0415
 
-        embedding = generate_embedding(db, text[:600])
-        if embedding is None:
-            return None, None, None
+        if not topic_title.strip():
+            return None, None, None, None
 
-        # 코사인 유사도 상위 1개
-        stmt = (
-            select(
-                DocumentChunk.id,
-                Document.id.label("doc_id"),
-                Document.title,
-                (1 - DocumentChunk.embedding.cosine_distance(embedding)).label("score"),
-            )
-            .join(DocumentVersion, DocumentChunk.document_version_id == DocumentVersion.id)
-            .join(Document, DocumentVersion.document_id == Document.id)
-            .where(
-                Document.chatbot_id == _uuid.UUID(chatbot_id),
-                Document.status == "active",
-                DocumentVersion.status == "completed",
-                DocumentVersion.is_active.is_(True),
-            )
-            .order_by(sa_text("score DESC"))
-            .limit(1)
+        match = search_faq_by_question(
+            db, chatbot_id=chatbot_id, query=topic_title, threshold=_MERGE_THRESHOLD
         )
-        row = db.execute(stmt).first()
-        if row and float(row.score) >= 0.88:
-            return str(row.title), str(row.doc_id), float(row.score)
-
+        if match:
+            return match["question"], match["id"], match["score"], match["answer"]
     except Exception as exc:
-        logger.debug("[STAGING] merge check skipped: %s", exc)
+        logger.debug("[STAGING] FAQ merge check skipped: %s", exc)
 
-    return None, None, None
+    return None, None, None, None
 
 
 # ── 세션 생성 ─────────────────────────────────────────────────────────────────
@@ -442,18 +394,19 @@ def analyze_staging_session_background(
 
             pii_found, pii_regions = detect_pii(final_content)
 
-            merge_title, merge_id, merge_score = _check_merge_candidate(chunk_text, chatbot_id, db)
-            registration_type = "merge" if merge_title else "new"
+            # 기존 등록 주제(FAQ)와 비교 — 같은 주제면 새로 만들지 않고 등록 시 갱신(upsert)
+            merge_title, merge_id, merge_score, existing_answer = _find_faq_merge_candidate(
+                topic_title, chatbot_id, db
+            )
+            registration_type = "merge" if merge_id else "new"
             merge_original_content: str | None = None
 
-            if registration_type == "merge" and merge_id:
-                existing_text = _fetch_existing_knowledge_content(merge_id, db)
-                if existing_text:
-                    merge_original_content = existing_text
-                    merged = _llm_merge_content(existing_text, final_content, db)
-                    if merged:
-                        final_content = merged
-                        pii_found, pii_regions = detect_pii(final_content)
+            if registration_type == "merge" and existing_answer:
+                merge_original_content = existing_answer
+                merged = _llm_merge_content(existing_answer, final_content, db)
+                if merged:
+                    final_content = merged
+                    pii_found, pii_regions = detect_pii(final_content)
 
             chunk_row = KnowledgeStagingChunk(
                 session_id=session_row.id,
@@ -538,7 +491,7 @@ def register_staging_chunks(
     chunk_ids=None 이면 pending 상태 전체 등록.
     """
     from app.services.admin.knowledge_service import create_text_knowledge_internal  # noqa: PLC0415
-    from app.services.admin.faq_service import create_faq_item  # noqa: PLC0415
+    from app.services.admin.faq_service import create_faq_item, update_faq_item  # noqa: PLC0415
 
     session_row = db.execute(
         select(KnowledgeStagingSession).where(
@@ -571,28 +524,44 @@ def register_staging_chunks(
     for chunk in chunks:
         chunk_id_str = str(chunk.id)
         chunk_tags = list(chunk.tags or [])
-        # ① FAQ 등록 — 별도 세션으로 격리 (각 FAQ 커밋이 메인 세션에 영향 없음)
+        # 병합 후보(기존 FAQ와 동일 주제)면 새로 만들지 않고 기존 FAQ를 갱신(upsert)
+        is_merge = chunk.registration_type == "merge" and bool(chunk.merge_candidate_id)
+        # ① FAQ 등록/갱신 — 별도 세션으로 격리 (각 커밋이 메인 세션에 영향 없음)
         faq_ok = False
         try:
             from app.db import SessionLocal  # noqa: PLC0415
             with SessionLocal() as faq_db:
-                create_faq_item(
-                    faq_db,
-                    chatbot_id=str(session_row.chatbot_id),
-                    organization_id=str(session_row.organization_id),
-                    question=chunk.topic_title,
-                    answer=chunk.content,
-                    tags=chunk_tags,
-                    source_staging_session_id=session_id,
-                    category=chunk_tags[0] if chunk_tags else None,
-                    field=chunk_tags[1] if len(chunk_tags) > 1 else None,
-                )
+                updated = None
+                if is_merge:
+                    updated = update_faq_item(
+                        faq_db,
+                        faq_id=chunk.merge_candidate_id,
+                        organization_id=str(session_row.organization_id),
+                        answer=chunk.content,
+                        tags=chunk_tags or None,
+                    )
+                    if updated is not None:
+                        logger.info("[STAGING] FAQ updated (merge) faq=%s chunk=%s", chunk.merge_candidate_id, chunk_id_str)
+                # 신규이거나, 갱신 대상 FAQ가 사라진 경우 → 새로 생성
+                if updated is None:
+                    create_faq_item(
+                        faq_db,
+                        chatbot_id=str(session_row.chatbot_id),
+                        organization_id=str(session_row.organization_id),
+                        question=chunk.topic_title,
+                        answer=chunk.content,
+                        tags=chunk_tags,
+                        source_staging_session_id=session_id,
+                        category=chunk_tags[0] if chunk_tags else None,
+                        field=chunk_tags[1] if len(chunk_tags) > 1 else None,
+                    )
             faq_ok = True
         except Exception as exc:
-            logger.warning("[STAGING] FAQ create failed chunk=%s: %s", chunk_id_str, exc)
+            logger.warning("[STAGING] FAQ register failed chunk=%s: %s", chunk_id_str, exc)
 
-        # ② RAG 색인 — 텍스트 입력 세션에서만 수행 (파일은 업로드 시점에 이미 처리)
-        if faq_ok and not skip_rag:
+        # ② RAG 색인 — 텍스트 입력 세션 + 신규 주제에서만 수행
+        #    (파일은 업로드 시점에 이미 처리, merge는 기존 지식이 이미 색인돼 있어 중복 방지)
+        if faq_ok and not skip_rag and not is_merge:
             try:
                 create_text_knowledge_internal(
                     db,
