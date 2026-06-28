@@ -197,6 +197,7 @@ def rerank_chunks(
             seen_indices.add(idx)
             chunk = dict(candidates[idx])
             chunk["_reranked"] = True
+            chunk["score"] = float(item.get("score") or 0)  # LLM 관련성 점수(1-10) → 인용 rerank_score
             result.append(chunk)
             if len(result) >= top_n:
                 break

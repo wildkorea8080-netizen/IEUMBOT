@@ -1837,10 +1837,17 @@ def run_final_chat_pipeline(
     try:
         from app.services.chat.reranker_service import rerank_chunks  # noqa: PLC0415
         all_candidates = list(retrieval_output.get("candidates") or prompt_candidates)
+        _rerank_start = time.perf_counter()
         reranked = rerank_chunks(db, query=body.question, chunks=all_candidates)
-        if reranked is not prompt_candidates:  # 실제로 재정렬된 경우만 교체
+        # 실제로 재정렬된 경우(_reranked 마커가 붙은 결과)에만 교체한다.
+        # 비활성(USE_RERANKING=false)·실패·후보부족 시 rerank_chunks는 마커 없는
+        # 슬라이스를 반환하므로, 큐레이션된 promptCandidates(threshold·다양성 선별)를
+        # 그대로 유지한다. (이전 `is not` 비교는 항상 참이라 기본 경로에서도 선별을
+        # 우회하던 버그였음)
+        if reranked and reranked[0].get("_reranked"):
             retrieval_output["promptCandidates"] = reranked
             prompt_candidates = reranked
+            _perf_rerank_ms = int((time.perf_counter() - _rerank_start) * 1000)
     except Exception as _rerank_exc:
         logger.warning("[PIPELINE] reranker skipped: %s", _rerank_exc)
 
