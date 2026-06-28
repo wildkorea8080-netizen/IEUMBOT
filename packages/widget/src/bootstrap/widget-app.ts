@@ -853,23 +853,12 @@ export class IeumWidgetApp {
   }
 
   private readLauncherTipDismissed() {
-    if (!this.launcherTipStorageKey) return false;
-    try {
-      return window.sessionStorage.getItem(this.launcherTipStorageKey) === "1";
-    } catch {
-      return false;
-    }
+    return false;
   }
 
   private dismissLauncherTip() {
     this.launcherTipDismissed = true;
     this.hideLauncherTip();
-    if (!this.launcherTipStorageKey) return;
-    try {
-      window.sessionStorage.setItem(this.launcherTipStorageKey, "1");
-    } catch {
-      // ignore storage failures
-    }
   }
 
   private showLauncherTip(options: { respectDismissed?: boolean } = {}) {
