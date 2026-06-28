@@ -576,7 +576,7 @@ export function KnowledgeManagement() {
     const ds = effectiveStatus(item);
     if (ds === "completed" || ds === "ready") return <span className="badge-success flex items-center gap-1"><CheckCircle style={{ width: 11, height: 11 }} />학습완료</span>;
     if (ds === "processing") return <span className="badge-warning flex items-center gap-1"><Loader2 style={{ width: 11, height: 11, animation: "spin 1s linear infinite" }} />학습중</span>;
-    if (ds === "failed") return <span className="badge-danger flex items-center gap-1"><XCircle style={{ width: 11, height: 11 }} />실패</span>;
+    if (ds === "failed") return <span className="badge-danger flex items-center gap-1" title={item.errorMessage ?? "실패 원인은 항목을 열어 확인하세요."}><XCircle style={{ width: 11, height: 11 }} />실패</span>;
     if (ds === "queued") return <span className="badge-neutral flex items-center gap-1"><Clock style={{ width: 11, height: 11 }} />대기중</span>;
     if (ds === "needs_reindex") return <span className="badge-warning flex items-center gap-1">재학습필요</span>;
     return <span className="badge-neutral">{statusLabel(ds)}</span>;

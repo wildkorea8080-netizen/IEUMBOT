@@ -1308,12 +1308,22 @@ class _WebsiteFetchSkipped(Exception):
 
 
 def _website_request_headers(accept: str) -> dict[str, str]:
+    # 실제 Chrome 내비게이션과 동일한 헤더 셋 — WAF/봇 차단(특히 보안기업 사이트)
+    # 통과율을 높인다. Accept-Encoding은 디코더가 지원하는 gzip/deflate만(브로틀리 제외).
     return {
         "User-Agent": USER_AGENT,
         "Accept": accept,
         "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
         "Accept-Encoding": "gzip, deflate",
         "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "sec-ch-ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"Windows"',
     }
 
 
