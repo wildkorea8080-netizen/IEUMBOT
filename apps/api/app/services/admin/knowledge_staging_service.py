@@ -16,6 +16,7 @@ import json
 import logging
 import re
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 from sqlalchemy import select
@@ -35,6 +36,7 @@ logger = logging.getLogger(__name__)
 _CHUNK_SIZE = 1200
 _CHUNK_OVERLAP = 150
 _MAX_CHUNKS_PER_SESSION = 20
+_ANALYZE_CONCURRENCY = 4  # 청크 LLM 분석 병렬도 (DB 풀·LLM rate limit 고려한 보수적 값)
 
 # 섹션 헤딩으로 인식할 패턴 (짧은 줄 + 특정 접두사)
 _HEADING_RE = re.compile(
@@ -357,6 +359,70 @@ def create_staging_session_immediate(
     return session_row
 
 
+def _analyze_one_chunk(sort_order: int, chunk_text: str, chatbot_id: str) -> dict:
+    """단일 청크 분석(LLM 주제/태그/정리 + PII + FAQ 병합 검사).
+
+    스레드 풀에서 병렬 실행되며 **스레드별 독립 DB 세션**을 쓴다(SQLAlchemy 세션은
+    스레드 안전하지 않음). DB 쓰기는 하지 않고 결과 dict만 반환 → 호출자가 메인
+    세션에서 순서대로 저장. 실패해도 규칙기반 폴백 dict 반환(한 청크 실패가 전체를
+    막지 않음).
+    """
+    from app.db import SessionLocal  # noqa: PLC0415
+
+    tdb = SessionLocal()
+    try:
+        llm_title, llm_tags, llm_content = _llm_analyze_chunk(chunk_text, tdb)
+        topic_title = llm_title or _rule_based_title(chunk_text)
+        final_content = llm_content if llm_content else chunk_text
+        pii_found, pii_regions = detect_pii(final_content)
+
+        merge_title, merge_id, merge_score, existing_answer = _find_faq_merge_candidate(
+            topic_title, chatbot_id, tdb
+        )
+        registration_type = "merge" if merge_id else "new"
+        merge_original_content: str | None = None
+        if registration_type == "merge" and existing_answer:
+            merge_original_content = existing_answer
+            merged = _llm_merge_content(existing_answer, final_content, tdb)
+            if merged:
+                final_content = merged
+                pii_found, pii_regions = detect_pii(final_content)
+
+        return {
+            "topic_title": topic_title,
+            "content": final_content,
+            "tags": llm_tags,
+            "pii_detected": pii_found,
+            "pii_regions": pii_regions,
+            "merge_candidate_title": merge_title,
+            "merge_candidate_id": merge_id,
+            "merge_score": merge_score,
+            "merge_original_content": merge_original_content,
+            "registration_type": registration_type,
+            "sort_order": sort_order,
+        }
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "[STAGING] chunk analysis failed order=%d: %s (rule-based fallback)", sort_order, exc
+        )
+        pii_found, pii_regions = detect_pii(chunk_text)
+        return {
+            "topic_title": _rule_based_title(chunk_text),
+            "content": chunk_text,
+            "tags": [],
+            "pii_detected": pii_found,
+            "pii_regions": pii_regions,
+            "merge_candidate_title": None,
+            "merge_candidate_id": None,
+            "merge_score": None,
+            "merge_original_content": None,
+            "registration_type": "new",
+            "sort_order": sort_order,
+        }
+    finally:
+        tdb.close()
+
+
 def analyze_staging_session_background(
     session_id: str,
     text: str,
@@ -364,8 +430,9 @@ def analyze_staging_session_background(
     organization_id: str,
 ) -> None:
     """
-    백그라운드 태스크로 실행: 청킹 → LLM 주제명 → PII 감지 → 병합 검사.
+    백그라운드 태스크로 실행: 청킹 → (병렬) LLM 주제명·PII·병합 검사 → 순차 저장.
     독립 DB 세션 사용 (FastAPI BackgroundTasks는 요청 세션과 분리).
+    청크별 LLM 분석은 ThreadPoolExecutor로 병렬화(각 스레드 독립 세션), 저장은 메인 세션.
     """
     from app.db import SessionLocal  # noqa: PLC0415
 
@@ -386,48 +453,46 @@ def analyze_staging_session_background(
         session_row.total_chunks = len(raw_chunks)
         db.flush()
 
-        for i, chunk_text in enumerate(raw_chunks):
-            # quality_model로 주제명 + 태그 + 내용 정리 한 번에 처리
-            llm_title, llm_tags, llm_content = _llm_analyze_chunk(chunk_text, db)
-            topic_title = llm_title or _rule_based_title(chunk_text)
-            final_content = llm_content if llm_content else chunk_text
+        # 청크별 LLM 분석을 병렬 처리 (각 스레드 독립 세션). 결과는 sort_order로 정렬해 저장.
+        results: list[dict | None] = [None] * len(raw_chunks)
+        if raw_chunks:
+            max_workers = min(_ANALYZE_CONCURRENCY, len(raw_chunks))
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {
+                    executor.submit(_analyze_one_chunk, i, chunk_text, chatbot_id): i
+                    for i, chunk_text in enumerate(raw_chunks)
+                }
+                for fut in as_completed(futures):
+                    idx = futures[fut]
+                    results[idx] = fut.result()
 
-            pii_found, pii_regions = detect_pii(final_content)
-
-            # 기존 등록 주제(FAQ)와 비교 — 같은 주제면 새로 만들지 않고 등록 시 갱신(upsert)
-            merge_title, merge_id, merge_score, existing_answer = _find_faq_merge_candidate(
-                topic_title, chatbot_id, db
+        for res in results:
+            if res is None:
+                continue
+            db.add(
+                KnowledgeStagingChunk(
+                    session_id=session_row.id,
+                    topic_title=res["topic_title"],
+                    content=res["content"],
+                    tags=res["tags"],
+                    pii_detected=res["pii_detected"],
+                    pii_regions=res["pii_regions"],
+                    merge_candidate_title=res["merge_candidate_title"],
+                    merge_candidate_id=res["merge_candidate_id"],
+                    merge_score=res["merge_score"],
+                    merge_original_content=res["merge_original_content"],
+                    registration_type=res["registration_type"],
+                    status="pending",
+                    sort_order=res["sort_order"],
+                )
             )
-            registration_type = "merge" if merge_id else "new"
-            merge_original_content: str | None = None
-
-            if registration_type == "merge" and existing_answer:
-                merge_original_content = existing_answer
-                merged = _llm_merge_content(existing_answer, final_content, db)
-                if merged:
-                    final_content = merged
-                    pii_found, pii_regions = detect_pii(final_content)
-
-            chunk_row = KnowledgeStagingChunk(
-                session_id=session_row.id,
-                topic_title=topic_title,
-                content=final_content,
-                tags=llm_tags,
-                pii_detected=pii_found,
-                pii_regions=pii_regions,
-                merge_candidate_title=merge_title,
-                merge_candidate_id=merge_id,
-                merge_score=merge_score,
-                merge_original_content=merge_original_content,
-                registration_type=registration_type,
-                status="pending",
-                sort_order=i,
-            )
-            db.add(chunk_row)
 
         session_row.status = "ready"
         db.commit()
-        logger.info("[STAGING] analysis done id=%s chunks=%d", session_id, len(raw_chunks))
+        logger.info(
+            "[STAGING] analysis done id=%s chunks=%d workers=%d",
+            session_id, len(raw_chunks), min(_ANALYZE_CONCURRENCY, max(1, len(raw_chunks))),
+        )
 
     except Exception as exc:
         logger.error("[STAGING] analysis failed id=%s: %s", session_id, exc)
