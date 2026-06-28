@@ -804,7 +804,9 @@ export class IeumWidgetApp {
     this.floatingButton.addEventListener("focus", () => this.showLauncherTip());
     this.floatingButton.addEventListener("blur", () => this.hideLauncherTip());
     this.launcherTip.addEventListener("mouseenter", () => this.showLauncherTip());
-    this.launcherWrap.addEventListener("mouseleave", () => this.hideLauncherTip());
+    this.launcherWrap.addEventListener("mouseleave", () => {
+      if (this.launcherTipDismissed) this.hideLauncherTip();
+    });
     this.launcherTipClose.addEventListener("click", (event) => {
       event.stopPropagation();
       this.dismissLauncherTip();
