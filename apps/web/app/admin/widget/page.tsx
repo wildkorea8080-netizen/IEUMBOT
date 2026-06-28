@@ -728,7 +728,7 @@ export default function WidgetPage() {
                 </label>
                 <label className="space-y-1">
                   <span className="text-xs font-medium text-slate-600">기관명</span>
-                  <input value={institutionName} onChange={(event) => setInstitutionName(event.target.value)} placeholder="해외농업길라잡이" className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
+                  <input value={institutionName} onChange={(event) => setInstitutionName(event.target.value)} placeholder="예: 서울노동권익센터" className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
                 </label>
                 <label className="space-y-1">
                   <span className="text-xs font-medium text-slate-600">챗봇명</span>
@@ -831,7 +831,7 @@ export default function WidgetPage() {
                     value={launcherHoverMessage}
                     onChange={(event) => setLauncherHoverMessage(event.target.value)}
                     rows={2}
-                    placeholder="AI챗봇 해외농업길라잡이예요. 무엇을 도와드릴까요?"
+                    placeholder="예: AI 상담 챗봇이에요. 무엇을 도와드릴까요?"
                     className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
                   />
                 </label>
@@ -867,7 +867,7 @@ export default function WidgetPage() {
                 </label>
                 <label className="space-y-1 md:col-span-2">
                   <span className="text-xs font-medium text-slate-600">상단 안내 배너 제목</span>
-                  <input value={bannerTitle} onChange={(event) => setBannerTitle(event.target.value)} placeholder="해외농업 관련 문의를 도와드립니다" className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
+                  <input value={bannerTitle} onChange={(event) => setBannerTitle(event.target.value)} placeholder="예: 관련 문의를 도와드립니다" className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
                 </label>
                 <label className="space-y-1 md:col-span-2">
                   <span className="text-xs font-medium text-slate-600">상단 안내 배너 설명</span>

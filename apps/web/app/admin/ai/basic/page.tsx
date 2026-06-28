@@ -226,14 +226,14 @@ export default function AdminAiBasicPage() {
               <div>
                 <label style={labelStyle}>AI 대화 에이전트 이름</label>
                 <input value={form.chatbotName} onChange={e => upd("chatbotName", e.target.value)}
-                  placeholder="예: 해외농업길잡이" style={inputStyle} />
+                  placeholder="예: AI 상담 챗봇" style={inputStyle} />
                 <p style={hintStyle}>사용자가 대화하는 AI 에이전트의 이름입니다.</p>
               </div>
               <div>
                 <label style={labelStyle}>AI 지침설정</label>
                 <textarea value={form.aiInstructions} onChange={e => upd("aiInstructions", e.target.value)}
                   rows={5}
-                  placeholder={"AI가 수행할 역할과 답변 방식을 작성합니다.\n예: 해외농업 관련 정책 안내 전문가로서, 농림부 공식 자료를 기반으로 정확하고 친절하게 안내합니다."}
+                  placeholder={"AI가 수행할 역할과 답변 방식을 작성합니다.\n예: 기관 업무 관련 전문가로서, 공식 자료를 기반으로 정확하고 친절하게 안내합니다."}
                   style={{ ...inputStyle, resize: "vertical", lineHeight: 1.7 }} />
                 <p style={hintStyle}>입력한 내용이 AI의 system prompt에 추가 지시사항으로 삽입되어 실제 답변에 반영됩니다.</p>
               </div>
