@@ -902,9 +902,7 @@ export class IeumWidgetApp {
       this.launcherTipText.textContent = this.launcherHoverMessage;
       this.launcherTipStorageKey = `ieumbot_launcher_tip_dismissed:${this.options.chatbotId}`;
       this.launcherTipDismissed = this.readLauncherTipDismissed();
-      if (window.matchMedia("(max-width: 640px)").matches && !this.launcherTipDismissed) {
-        this.showLauncherTip({ respectDismissed: true });
-      }
+      this.showLauncherTip({ respectDismissed: true });
       this.renderBanner();
       this.renderStarterQuestions();
       this.footerNotice.textContent = this.config.privacyNotice?.trim() || DEFAULT_TRUST_NOTICE;
