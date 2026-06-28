@@ -1808,6 +1808,20 @@ def _ingest_document_version_content(
         )
         return
 
+    # ── 페이지 출처(page_number) 주석 + 스캔본 페이지 이미지 저장 (B2 기반) ──
+    #   검색/청킹은 불변 — page_number만 사후 표기하고, 스캔본은 페이지 이미지를 보관한다.
+    _page_image_keys: list[str] = []
+    if detected_file_type == ".pdf":
+        try:
+            _assign_page_numbers_to_chunks(chunks, _extract_pdf_pages_via_pypdf(file_bytes))
+        except Exception as _pg_exc:  # noqa: BLE001
+            logger.debug("[PAGE_NUMBER] annotation skipped: %s", _pg_exc)
+        if extraction_method in ("vision", "ocr"):
+            try:
+                _page_image_keys = _render_and_store_pdf_page_images(file_bytes, str(version.id))
+            except Exception as _img_exc:  # noqa: BLE001
+                logger.debug("[PAGE_IMAGES] storage skipped: %s", _img_exc)
+
     merged_metadata = {
         **dict(document.metadata_json or {}),
         **(metadata_updates or {}),
@@ -1816,6 +1830,7 @@ def _ingest_document_version_content(
         "sensitive_detected": _detect_sensitive(extracted_text),
         "extracted_text_storage_key": str(extracted_text_storage_path),
         "extraction_method": extraction_method,
+        **({"page_image_keys": _page_image_keys} if _page_image_keys else {}),
     }
     document.metadata_json = merged_metadata
     document.description = _truncate_preview(extracted_text, 220)
@@ -1885,7 +1900,7 @@ def _ingest_document_version_content(
                 chatbot_id=uuid.UUID(chatbot_id),
                 document_version_id=version.id,
                 chunk_order=index,
-                page_number=None,
+                page_number=chunk_item.get("page_number"),
                 section_title=section_title,
                 corpus_domain=version.corpus_domain,
                 text_content=chunk_text,
@@ -1916,7 +1931,7 @@ def _ingest_document_version_content(
                     chatbot_id=uuid.UUID(chatbot_id),
                     document_version_id=version.id,
                     chunk_order=index,
-                    page_number=None,
+                    page_number=chunk_item.get("page_number"),
                     section_title=section_title,
                     corpus_domain=version.corpus_domain,
                     text_content=chunk_text,
@@ -2634,6 +2649,90 @@ def _extract_pdf_text_best_effort(
             return vision_text, "vision"
 
     return "", "failed"
+
+
+# ── 페이지 출처(page_number) 주석 + 페이지 이미지 저장 (B2 기반) ────────────────
+
+def _extract_pdf_pages_via_pypdf(file_bytes: bytes) -> list[str]:
+    """페이지별 텍스트 리스트 반환 (pypdf). 실패 시 빈 리스트.
+
+    검색용 추출과 별개로 page_number 주석 전용. 실패해도 색인 흐름에 영향 없음.
+    """
+    try:
+        import pypdf  # type: ignore
+
+        reader = pypdf.PdfReader(BytesIO(file_bytes))
+        pages: list[str] = []
+        for page in reader.pages:
+            try:
+                pages.append(page.extract_text() or "")
+            except Exception:  # noqa: BLE001
+                pages.append("")
+        return pages
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _assign_page_numbers_to_chunks(chunks: list[dict], pages: list[str]) -> None:
+    """각 청크 시작부가 어느 페이지 텍스트에 포함되는지로 page_number(1-base) 주석.
+
+    청킹 자체는 바꾸지 않고 사후 주석만 단다 → 검색/품질 영향 없음.
+    매칭 실패 시 page_number는 None 유지. 청크는 순서대로이므로 직전 매칭 페이지부터 탐색.
+    """
+    if not pages:
+        return
+    norm_pages = [re.sub(r"\s+", "", p or "") for p in pages]
+    cursor = 0
+    for chunk in chunks:
+        probe = re.sub(r"\s+", "", str(chunk.get("text") or ""))[:40]
+        if len(probe) < 10:
+            continue
+        matched: int | None = None
+        for idx in range(cursor, len(norm_pages)):
+            if probe in norm_pages[idx]:
+                matched = idx
+                break
+        if matched is None:
+            for idx in range(0, cursor):
+                if probe in norm_pages[idx]:
+                    matched = idx
+                    break
+        if matched is not None:
+            chunk["page_number"] = matched + 1
+            cursor = matched
+
+
+def _render_and_store_pdf_page_images(
+    file_bytes: bytes, version_id: str, *, max_pages: int = 20
+) -> list[str]:
+    """스캔본 PDF 페이지를 PNG로 저장하고 저장 경로 리스트 반환. 실패 시 [].
+
+    답변 시 출처 페이지 이미지를 LLM에 동봉하는 후속(B2) 단계의 기반.
+    """
+    try:
+        from pdf2image import convert_from_bytes  # type: ignore
+    except ImportError:
+        return []
+    try:
+        images = convert_from_bytes(
+            file_bytes, dpi=120, fmt="png", first_page=1, last_page=max_pages, thread_count=1
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[PAGE_IMAGES] render failed version=%s: %s", version_id, exc)
+        return []
+
+    out_dir = KNOWLEDGE_STORAGE_DIR / "page_images" / str(version_id)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    keys: list[str] = []
+    for i, img in enumerate(images, start=1):
+        try:
+            path = out_dir / f"p{i}.png"
+            img.save(path, format="PNG")
+            keys.append(str(path))
+        except Exception:  # noqa: BLE001
+            continue
+    logger.info("[PAGE_IMAGES] stored version=%s pages=%d", version_id, len(keys))
+    return keys
 
 
 def _extract_hwp_text_best_effort(file_bytes: bytes) -> str:
