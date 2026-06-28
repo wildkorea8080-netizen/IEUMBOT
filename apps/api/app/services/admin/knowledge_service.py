@@ -2595,11 +2595,13 @@ def _extract_pdf_text_best_effort(
     use_vision: bool = False,
     db=None,
 ) -> tuple[str, str]:
+    # 명시적 강제 비전 → 비전 우선 (표/다단 레이아웃이 복잡한 텍스트 PDF용)
     if use_vision and db is not None:
         vision_text = _extract_pdf_text_via_vision(file_bytes, db)
         if vision_text and len(vision_text.strip()) > 50:
             return vision_text, "vision"
 
+    # 1. 무료·고속 텍스트 추출 (텍스트형 PDF)
     try:
         extracted = _extract_pdf_text_via_pypdf(file_bytes)
         if _is_viable_pdf_text(extracted):
@@ -2612,9 +2614,24 @@ def _extract_pdf_text_best_effort(
     if _is_viable_pdf_text(combined):
         return combined, "text"
 
+    # 2. 텍스트 추출이 빈약 = 스캔본/이미지 PDF → OCR 시도
     ocr_text = _extract_pdf_text_via_ocr(file_bytes)
     if _is_viable_pdf_text(ocr_text):
         return _normalize_text_blocks([ocr_text]), "ocr"
+
+    # 3. OCR도 부족 → Vision 자동 폴백 (스캔본 자동 감지).
+    #    use_vision을 켜지 않아도 텍스트가 안 나오면 자동 시도하며, 표/도표·복잡한
+    #    레이아웃을 이미지로 읽어 구조를 보존한다. (위에서 이미 비전을 시도한 경우는 제외)
+    if not use_vision and db is not None:
+        logger.info(
+            "[INGEST_FLOW] phase=vision_fallback reason=text_ocr_insufficient "
+            "text_len=%s ocr_len=%s",
+            len(combined.strip()),
+            len((ocr_text or "").strip()),
+        )
+        vision_text = _extract_pdf_text_via_vision(file_bytes, db)
+        if vision_text and len(vision_text.strip()) > 50:
+            return vision_text, "vision"
 
     return "", "failed"
 
