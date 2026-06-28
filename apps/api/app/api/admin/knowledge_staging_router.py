@@ -180,7 +180,13 @@ def _process_file_staging_background(
         _mark_session_failed(session_id)
         return
 
-    # 2. RAG 색인 (신규 파일만)
+    # 2. AI 분석 (RAG 색인보다 먼저 수행)
+    #    색인을 먼저 하면 병합 후보 검사(_check_merge_candidate)가 방금 올린 파일 자신을
+    #    찾아 "기존 지식과 94% 유사"로 오인식한다. 분석을 먼저 돌려 기존 지식하고만 비교한다.
+    from app.services.admin.knowledge_staging_service import analyze_staging_session_background  # noqa: PLC0415
+    analyze_staging_session_background(session_id, text, chatbot_id, organization_id)
+
+    # 3. RAG 색인 (신규 파일만)
     if not is_duplicate:
         try:
             db_rag = SessionLocal()
@@ -194,10 +200,6 @@ def _process_file_staging_background(
                 db_rag.close()
         except Exception as exc:
             _log.warning("[STAGING] RAG ingest failed file=%s: %s (analysis continues)", filename, exc)
-
-    # 3. AI 분석
-    from app.services.admin.knowledge_staging_service import analyze_staging_session_background  # noqa: PLC0415
-    analyze_staging_session_background(session_id, text, chatbot_id, organization_id)
 
 
 def _mark_session_failed(session_id: str) -> None:

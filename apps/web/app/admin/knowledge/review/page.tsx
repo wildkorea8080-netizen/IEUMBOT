@@ -81,11 +81,40 @@ function DiffView({ original, current, piiRegions }: {
 
   const changed = tokens.some(t => t.type !== "equal");
 
+  // 변경 비율 — 기존본(PDF raw 추출)과 통합본(AI 정리)의 형식 차이가 너무 크면
+  // 단어 단위 diff가 거의 전부 빨강/초록이 되어 오히려 혼란스럽다.
+  // 이 경우 diff 대신 통합된 최종 내용만 표시한다.
+  const totalChars = tokens.reduce((s, t) => s + t.text.length, 0);
+  const changedChars = tokens.reduce((s, t) => (t.type === "equal" ? s : s + t.text.length), 0);
+  const tooDifferent = totalChars > 0 && changedChars / totalChars > 0.65;
+
   if (!changed) {
     return (
       <div style={{ padding: "20px 16px", textAlign: "center", color: "#6b7280", fontSize: 13 }}>
         <div style={{ fontSize: 22, marginBottom: 8 }}>✅</div>
         변경된 내용이 없습니다. 원본과 동일합니다.
+      </div>
+    );
+  }
+
+  if (tooDifferent) {
+    return (
+      <div>
+        <div style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: "10px 14px", background: "#fffbeb", borderBottom: "1px solid #fde68a", fontSize: 12, color: "#92400e", lineHeight: 1.5 }}>
+          <span>ℹ️</span>
+          <span>기존 자료와 형식 차이가 커 단어별 비교가 어렵습니다. <strong>통합된 최종 내용</strong>만 표시합니다.</span>
+        </div>
+        <div style={{ padding: "14px 16px", fontSize: 13, lineHeight: 1.9, whiteSpace: "pre-wrap", wordBreak: "break-word", fontFamily: "inherit", color: "#111827" }}>
+          {current}
+        </div>
+        {piiRegions.length > 0 && (
+          <div style={{ margin: "0 14px 12px", padding: "8px 12px", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, fontSize: 12, color: "#92400e" }}>
+            <span style={{ fontWeight: 600 }}>민감정보 위치: </span>
+            {piiRegions.map((r, i) => (
+              <span key={i} style={{ marginRight: 8 }}>{r.type}({r.preview})</span>
+            ))}
+          </div>
+        )}
       </div>
     );
   }
@@ -963,19 +992,7 @@ export default function KnowledgeReviewPage() {
                 <div style={{ marginBottom: 16 }}>
                   {showDiff ? (
                     <div style={{ border: "1px solid #e5e7eb", borderRadius: 10, background: "#fff", overflow: "hidden", minHeight: 300 }}>
-                      {/* diff 범례 — diff 모드일 때만 표시 */}
-                      <div style={{ display: "flex", gap: 14, padding: "8px 14px", background: "#f9fafb", borderBottom: "1px solid #f1f5f9", fontSize: 12, color: "#6b7280", flexWrap: "wrap" }}>
-                        {[
-                          { bg: "#fef3c7", bd: "#fcd34d", label: "수정된 내용" },
-                          { bg: "#dcfce7", bd: "#86efac", label: "새로 추가된 내용" },
-                          { bg: "#fee2e2", bd: "#fca5a5", label: "삭제/수정" },
-                        ].map(({ bg, bd, label }) => (
-                          <span key={label} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                            <span style={{ width: 12, height: 12, background: bg, border: `1px solid ${bd}`, borderRadius: 2, display: "inline-block" }} />
-                            {label}
-                          </span>
-                        ))}
-                      </div>
+                      {/* 범례는 DiffView 내부에서 상황별(일반 diff / 통합본만 표시)로 렌더링 */}
                       <DiffView
                         original={originalContentRef.current}
                         current={currentText || originalContentRef.current}

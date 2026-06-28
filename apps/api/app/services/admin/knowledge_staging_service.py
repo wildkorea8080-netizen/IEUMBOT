@@ -315,7 +315,11 @@ def _llm_merge_content(original: str, new_content: str, db: Session) -> str | No
             "- 마크다운 형식으로 정리 (## 제목, ### 소제목, - 항목)\n"
             "- 통합된 최종 문서만 출력"
         )
-        return _call_llm_raw(runtime_api, system_prompt, user_prompt, max_tokens=1800, timeout=30) or None
+        # 병합도 대량 반복 가능 → 속도 우선 모델로 지연 최소화
+        return _call_llm_raw(
+            runtime_api, system_prompt, user_prompt,
+            max_tokens=1800, timeout=30, model=runtime_api.speed_model(),
+        ) or None
     except Exception as exc:
         logger.debug("[STAGING] merge content failed: %s", exc)
         return None
