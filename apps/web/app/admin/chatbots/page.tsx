@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Plus, Power, PowerOff, TestTube2 } from "lucide-react";
 
@@ -38,6 +39,7 @@ function statusLabel(status: string) {
 }
 
 export default function AdminChatbotsPage() {
+  const router = useRouter();
   const [items, setItems] = useState<AdminChatbotItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -91,14 +93,20 @@ export default function AdminChatbotsPage() {
     setIsCreating(true);
     setError(null);
     try {
+      const wasFirstChatbot = items.length === 0;
       const created = await createAdminChatbot({
         name: createForm.name.trim(),
         descriptionText: createForm.description.trim() || null,
       });
       setIsCreateModalOpen(false);
       setCreateForm({ name: "", description: "" });
-      setToast("챗봇이 생성되었습니다. 기본 설정에서 세부 사항을 구성해 주세요.");
-      await load(created.id);
+      await load(created.id);  // 생성된 챗봇을 활성 챗봇으로 선택
+      if (wasFirstChatbot) {
+        // 첫 챗봇이면 곧바로 AI 기본설정으로 안내 (이름·환영 메시지 → 지식등록 순서)
+        router.push("/admin/ai/basic");
+      } else {
+        setToast("챗봇이 생성되었습니다. 기본 설정에서 세부 사항을 구성해 주세요.");
+      }
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
