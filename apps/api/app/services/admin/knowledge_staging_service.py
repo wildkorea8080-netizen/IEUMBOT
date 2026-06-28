@@ -136,9 +136,14 @@ def _call_llm_raw(
     user_prompt: str,
     max_tokens: int = 800,
     timeout: int = 20,
+    model: str | None = None,
 ) -> str:
-    """LLM 공통 호출 헬퍼. 원시 텍스트 응답 반환."""
-    model = runtime_api.quality_model()  # 지식 분석: 품질 우선 (gpt-4.1 / claude-sonnet)
+    """LLM 공통 호출 헬퍼. 원시 텍스트 응답 반환.
+
+    model 미지정 시 품질 우선 모델(quality_model) 사용.
+    청크 분석처럼 대량·반복 호출에는 호출자가 speed_model()을 넘겨 지연을 줄인다.
+    """
+    model = model or runtime_api.quality_model()
 
     if runtime_api.provider == "anthropic":
         response_json = _call_anthropic(
@@ -228,7 +233,11 @@ def _llm_analyze_chunk(
             "5. content 전체를 JSON 문자열로 직렬화할 때 줄바꿈은 \\n으로 이스케이프"
         )
 
-        raw = _call_llm_raw(runtime_api, system_prompt, user_prompt, max_tokens=2000, timeout=30)
+        # 청크 분석은 대량 반복 호출 → 속도 우선 모델로 지연 최소화 (gpt-4o-mini / haiku)
+        raw = _call_llm_raw(
+            runtime_api, system_prompt, user_prompt,
+            max_tokens=2000, timeout=30, model=runtime_api.speed_model(),
+        )
 
         m = re.search(r"\{.*\}", raw, re.DOTALL)
         if not m:
@@ -415,6 +424,8 @@ def analyze_staging_session_background(
             logger.warning("[STAGING] session not found id=%s", session_id)
             return
 
+        # 재분석(reanalyze)에서 재사용하도록 원본 텍스트 보관
+        session_row.extracted_text = text
         raw_chunks = _split_semantic_chunks(text)
         session_row.total_chunks = len(raw_chunks)
         db.flush()

@@ -27,6 +27,10 @@ class KnowledgeStagingSession(Base):
         comment="ready | partial | completed",
     )
     total_chunks: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    extracted_text: Mapped[str | None] = mapped_column(
+        Text, nullable=True,
+        comment="추출된 원본 텍스트 — 분석 실패 시 재분석(reanalyze)에 재사용",
+    )
     is_duplicate_file: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false",
         comment="True이면 동일 파일명 기존 문서 존재 → RAG 재등록 없이 FAQ만 생성",

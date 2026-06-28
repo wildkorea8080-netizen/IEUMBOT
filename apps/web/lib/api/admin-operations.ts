@@ -368,6 +368,15 @@ export async function createKnowledgeTextToStaging(body: {
   });
 }
 
+export async function reanalyzeStagingSession(
+  sessionId: string,
+): Promise<StagingSessionResponse> {
+  return apiClient.request<StagingSessionResponse>(
+    `/admin/knowledge/staging/${sessionId}/reanalyze`,
+    { method: "POST" },
+  );
+}
+
 export async function createStagingFromKnowledge(body: {
   knowledgeId: string;
   chatbotId: string;

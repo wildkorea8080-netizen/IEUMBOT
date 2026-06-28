@@ -6,7 +6,7 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File, Form, status
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.api.dependencies.auth import AdminPrincipal, require_institution_admin_auth
@@ -97,7 +97,9 @@ def _chunk_to_item(row: KnowledgeStagingChunk) -> StagingChunkItem:
     )
 
 
-_ANALYZING_STALE_SECONDS = 180  # 3분 이상 analyzing 상태면 stale 처리
+# 프론트 폴링 타임아웃(360s)보다 길게 둬서, 정상 진행 중인 세션을
+# 백엔드가 먼저 "failed"로 뒤집는 오탐을 방지한다. 진짜 유실(서버 재시작 등)만 stale 처리.
+_ANALYZING_STALE_SECONDS = 420  # 7분
 
 
 def _get_session_with_chunks(
@@ -305,6 +307,55 @@ def get_staging_session(
     db: Session = Depends(get_db_session),
 ) -> StagingSessionResponse:
     org_id = require_institution_organization_id(principal)
+    return _get_session_with_chunks(db, session_id, org_id)
+
+
+@router.post("/knowledge/staging/{session_id}/reanalyze", response_model=StagingSessionResponse)
+def reanalyze_staging_session(
+    session_id: str,
+    background_tasks: BackgroundTasks,
+    principal: AdminPrincipal = Depends(require_institution_admin_auth),
+    db: Session = Depends(get_db_session),
+) -> StagingSessionResponse:
+    """분석 실패/타임아웃 세션을 보관된 원본 텍스트로 재분석.
+
+    RAG 색인은 최초 업로드 시 이미 완료됐으므로 재색인하지 않고
+    FAQ 주제 분석만 다시 수행한다.
+    """
+    import logging as _log  # noqa: PLC0415
+    _logger = _log.getLogger(__name__)
+
+    org_id = require_institution_organization_id(principal)
+
+    session_row = db.execute(
+        select(KnowledgeStagingSession).where(
+            KnowledgeStagingSession.id == uuid.UUID(session_id),
+            KnowledgeStagingSession.organization_id == uuid.UUID(org_id),
+        )
+    ).scalar_one_or_none()
+    if session_row is None:
+        raise HTTPException(status_code=404, detail="STAGING_SESSION_NOT_FOUND")
+
+    text = session_row.extracted_text
+    if not text or not text.strip():
+        # 구버전 세션(텍스트 미보관) 또는 추출 실패 → 재업로드 안내
+        raise HTTPException(status_code=409, detail="STAGING_TEXT_UNAVAILABLE")
+
+    # 이전 분석 청크 제거 후 analyzing 으로 리셋
+    db.execute(
+        delete(KnowledgeStagingChunk).where(
+            KnowledgeStagingChunk.session_id == session_row.id
+        )
+    )
+    session_row.status = "analyzing"
+    session_row.total_chunks = 0
+    db.commit()
+
+    _logger.info("[STAGING] reanalyze requested session=%s text_len=%d", session_id, len(text))
+    background_tasks.add_task(
+        analyze_staging_session_background,
+        session_id, text, str(session_row.chatbot_id), org_id,
+    )
     return _get_session_with_chunks(db, session_id, org_id)
 
 

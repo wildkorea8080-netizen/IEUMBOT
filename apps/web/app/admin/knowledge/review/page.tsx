@@ -468,6 +468,8 @@ export default function KnowledgeReviewPage() {
   const [toast, setToast] = useState<{ tone: "success" | "error"; msg: string } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [canReanalyze, setCanReanalyze] = useState(false);
+  const [isReanalyzing, setIsReanalyzing] = useState(false);
   const pollingStartRef = useRef(Date.now());
   const [isDirty, setIsDirty] = useState(false);
   const [showDiff, setShowDiff] = useState(false);
@@ -600,9 +602,10 @@ export default function KnowledgeReviewPage() {
     try {
       const data = await apiClient.request<StagingSession>(`/admin/knowledge/staging/${sessionId}`);
       if (data.status === "analyzing") {
-        // 6분(360초) 이상 폴링 중이면 타임아웃 처리 (백엔드 스테일 감지 3분보다 길게)
+        // 6분(360초) 이상 폴링 중이면 타임아웃 처리 (백엔드 스테일 감지 7분보다 짧게 → 프론트가 먼저 안내)
         if (Date.now() - pollingStartRef.current > 360_000) {
-          setLoadError("분석 시간이 너무 오래 걸립니다. 서버에 문제가 발생했을 수 있습니다. 파일을 다시 업로드해 주세요.");
+          setCanReanalyze(true);
+          setLoadError("AI 주제 분석이 예상보다 오래 걸립니다. 업로드한 자료는 이미 검색에 색인되어 있습니다. 아래 ‘재분석’을 눌러 다시 시도해 주세요.");
           setIsLoading(false);
           return;
         }
@@ -610,10 +613,12 @@ export default function KnowledgeReviewPage() {
         return;
       }
       if (data.status === "failed") {
-        setLoadError("AI 분석에 실패했습니다. 파일을 다시 업로드하거나 잠시 후 재시도해 주세요.");
+        setCanReanalyze(true);
+        setLoadError("AI 주제 분석에 실패했습니다. 업로드한 자료는 이미 검색에 색인되어 있습니다. 아래 ‘재분석’을 눌러 다시 시도해 주세요.");
         setIsLoading(false);
         return;
       }
+      setCanReanalyze(false);
       setLoadError(null);
       setSession(data);
       const pending = new Set(data.chunks.filter(c => c.status === "pending").map(c => c.id));
@@ -634,6 +639,29 @@ export default function KnowledgeReviewPage() {
   }, [sessionId, loadChunkIntoEditor]); // eslint-disable-line
 
   useEffect(() => { void load(); }, [load]);
+
+  const handleReanalyze = useCallback(async () => {
+    if (!sessionId || isReanalyzing) return;
+    setIsReanalyzing(true);
+    try {
+      await apiClient.request(`/admin/knowledge/staging/${sessionId}/reanalyze`, { method: "POST" });
+      setCanReanalyze(false);
+      setLoadError(null);
+      pollingStartRef.current = Date.now();
+      setIsLoading(true);
+      void load();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // 원본 텍스트 미보관(구버전 세션) → 재업로드 안내
+      setLoadError(
+        msg.includes("409") || msg.includes("TEXT_UNAVAILABLE")
+          ? "이 세션은 재분석에 필요한 원본을 보관하고 있지 않습니다. 파일을 다시 업로드해 주세요."
+          : `재분석 요청에 실패했습니다. (${msg.slice(0, 60)})`
+      );
+    } finally {
+      setIsReanalyzing(false);
+    }
+  }, [sessionId, isReanalyzing, load]);
 
   useEffect(() => {
     if (!toast) return;
@@ -748,8 +776,20 @@ export default function KnowledgeReviewPage() {
                 다시 시도
               </button>
             )}
+            {canReanalyze && (
+              <button type="button" onClick={() => void handleReanalyze()} disabled={isReanalyzing}
+                style={{ padding: "10px 20px", border: "none", borderRadius: 8, background: isReanalyzing ? "#93c5fd" : "#2563eb", color: "#fff", fontSize: 13, fontWeight: 600, cursor: isReanalyzing ? "default" : "pointer" }}>
+                {isReanalyzing ? "재분석 중…" : "재분석"}
+              </button>
+            )}
+            {canReanalyze && (
+              <button type="button" onClick={() => router.push("/admin/knowledge/list")}
+                style={{ padding: "10px 20px", border: "1px solid #d1d5db", borderRadius: 8, background: "#fff", color: "#374151", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                목록으로
+              </button>
+            )}
             <button type="button" onClick={() => router.push("/admin/knowledge/register")}
-              style={{ padding: "10px 20px", border: "none", borderRadius: 8, background: "#2563eb", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+              style={{ padding: "10px 20px", border: canReanalyze ? "1px solid #d1d5db" : "none", borderRadius: 8, background: canReanalyze ? "#fff" : "#2563eb", color: canReanalyze ? "#374151" : "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
               파일 다시 업로드
             </button>
           </div>
@@ -781,7 +821,7 @@ export default function KnowledgeReviewPage() {
             <span style={{ fontSize: 11, fontWeight: 700, background: "linear-gradient(135deg,#06b6d4,#2563eb)", color: "#fff", borderRadius: 6, padding: "2px 8px" }}>도움말</span>
           </div>
           <p style={{ fontSize: 13, color: "#6b7280" }}>
-            GPT-4.1이 <strong style={{ color: "#374151" }}>{session.sourceName}</strong>을
+            AI가 <strong style={{ color: "#374151" }}>{session.sourceName}</strong>을
             <strong style={{ color: "#2563eb" }}> {session.totalChunks}개</strong> 주제로 분류했습니다.
             {piiCount > 0 && <span style={{ marginLeft: 8, color: "#dc2626", fontWeight: 600 }}>⚠ 민감정보 {piiCount}건 포함</span>}
           </p>
