@@ -855,7 +855,7 @@ export class IeumWidgetApp {
   private readLauncherTipDismissed() {
     if (!this.launcherTipStorageKey) return false;
     try {
-      return window.localStorage.getItem(this.launcherTipStorageKey) === "1";
+      return window.sessionStorage.getItem(this.launcherTipStorageKey) === "1";
     } catch {
       return false;
     }
@@ -866,7 +866,7 @@ export class IeumWidgetApp {
     this.hideLauncherTip();
     if (!this.launcherTipStorageKey) return;
     try {
-      window.localStorage.setItem(this.launcherTipStorageKey, "1");
+      window.sessionStorage.setItem(this.launcherTipStorageKey, "1");
     } catch {
       // ignore storage failures
     }
