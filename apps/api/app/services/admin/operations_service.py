@@ -503,14 +503,14 @@ def _recommend_knowledge_topic(question: str) -> str:
     if has_loan:
         return "융자지원 안내"
     if any(term in text for term in ["사업신고", "신고", "변경신고"]):
-        return "해외농업자원개발 사업신고 절차"
-    if any(term in text for term in ["국내반입", "반입"]):
-        return "해외농산물 국내반입 안내"
+        return "사업신고 절차 안내"
+    if any(term in text for term in ["반입", "수입", "통관"]):
+        return "반입·수입 관련 안내"
     if any(term in text for term in ["투자촉진", "투자"]):
-        return "해외농업 투자촉진 지원"
-    if any(term in text for term in ["해외인턴", "인턴"]):
-        return "해외인턴 지원 자격 및 신청"
-    if any(term in text for term in ["교육", "국제곡물", "전문가"]):
+        return "투자지원 안내"
+    if any(term in text for term in ["인턴"]):
+        return "인턴십 지원 자격 및 신청"
+    if any(term in text for term in ["교육", "전문가"]):
         return "교육 프로그램 신청 안내"
     if any(term in text for term in ["문의", "연락처", "전화", "담당"]):
         return "사업별 문의처 및 담당부서"
