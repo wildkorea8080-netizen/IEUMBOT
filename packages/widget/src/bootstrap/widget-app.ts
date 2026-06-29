@@ -381,8 +381,8 @@ function buildScopedStyles(primaryGradient: string): string {
 /* ── 패널 ── */
 .ieum-panel {
   position:absolute; right:0; bottom:0;
-  width:min(380px, calc(100vw - 16px));
-  height:min(600px, calc(100vh - 16px));
+  width:min(420px, calc(100vw - 16px));
+  height:min(680px, calc(100vh - 16px));
   border-radius:20px;
   border:2px solid ${pc};
   background:#fff;
@@ -408,7 +408,7 @@ function buildScopedStyles(primaryGradient: string): string {
   background:rgba(255,255,255,.2);
   display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto;
 }
-.ieum-title { font-size:15px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ieum-title { font-size:16.5px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .ieum-header-actions { display:flex; align-items:center; gap:4px; }
 .ieum-header-button {
   width:32px; height:32px; border:none; border-radius:9999px;
@@ -477,6 +477,11 @@ function buildScopedStyles(primaryGradient: string): string {
   background:#2563eb; color:#fff;
   border-radius:18px 18px 4px 18px;
   box-shadow:0 2px 8px ${pcA28};
+}
+/* ── 첫 인사말(환영 메시지) — 더 크고 또렷하게 ── */
+.ieum-bubble-welcome {
+  font-size:16px; line-height:1.6; font-weight:500; color:#0f172a;
+  max-width:92%; padding:13px 16px;
 }
 /* ── 리치 컨텐츠(FAQ HTML) ── */
 .ieum-bubble-rich { white-space:normal; }
@@ -618,11 +623,21 @@ function buildScopedStyles(primaryGradient: string): string {
 .ieum-floating:disabled { opacity:.5; cursor:default; }
 /* ── 면책 푸터 ── */
 .ieum-footer {
-  padding:7px 14px 9px;
+  padding:7px 14px 5px;
   background:#fff; font-size:11px; color:#9ca3af; line-height:1.5;
   border-top:1px solid #f3f4f6; text-align:center; flex-shrink:0;
 }
 .ieum-footer a { color:#6b7280; }
+/* ── 제작사 표시(Powered by DeepSecu) — 작고 비방해적 ── */
+.ieum-brand {
+  padding:0 14px 8px; background:#fff; text-align:center; flex-shrink:0;
+}
+.ieum-brand-inner {
+  display:inline-flex; align-items:center; gap:4px;
+  font-size:10.5px; color:#b8bdc7; line-height:1; letter-spacing:.1px;
+}
+.ieum-brand-logo { flex:0 0 auto; display:block; }
+.ieum-brand-name { font-weight:700; font-size:11px; }
 /* ── 애니메이션 ── */
 @keyframes ieum-dot {
   0%,80%,100% { transform:translateY(0); opacity:.35; }
@@ -670,6 +685,7 @@ export class IeumWidgetApp {
   private readonly input: HTMLInputElement;
   private readonly sendButton: HTMLButtonElement;
   private readonly footerNotice: HTMLDivElement;
+  private readonly brandMark: HTMLDivElement;
 
   private initialized = false;
   private open = false;
@@ -709,6 +725,7 @@ export class IeumWidgetApp {
     this.input = createElement(document, "input", "ieum-input");
     this.sendButton = createElement(document, "button", "ieum-send");
     this.footerNotice = createElement(document, "div", "ieum-footer");
+    this.brandMark = createElement(document, "div", "ieum-brand");
 
     this.launcherTipClose.type = "button";
     this.launcherTipClose.setAttribute("aria-label", "안내 닫기");
@@ -745,6 +762,15 @@ export class IeumWidgetApp {
     this.sendButton.setAttribute("aria-label", "메시지 전송");
     this.sendButton.innerHTML = createIconSvg("send");
     this.footerNotice.textContent = DEFAULT_TRUST_NOTICE;
+    // "Powered by DeepSecu" — 제작사 표시(작고 비방해적). 인라인 SVG라 외부 자산 불필요.
+    this.brandMark.innerHTML =
+      '<span class="ieum-brand-inner">Powered by ' +
+      '<svg class="ieum-brand-logo" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true">' +
+      '<path d="M12 2.2 19.5 5 V11 C19.5 15.8 16.2 19.2 12 21.6 C7.8 19.2 4.5 15.8 4.5 11 V5 Z" fill="#2f6df6"/>' +
+      '<path d="M8.3 11.9 11 14.6 15.8 9.4" stroke="#fff" stroke-width="1.9" ' +
+      'stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>' +
+      '<b class="ieum-brand-name"><span style="color:#1f2937">Deep</span>' +
+      '<span style="color:#2f6df6">Secu</span></b></span>';
   }
 
   async mount() {
@@ -791,6 +817,7 @@ export class IeumWidgetApp {
     this.panel.appendChild(this.loadingRow);
     this.panel.appendChild(inputWrap);
     this.panel.appendChild(this.footerNotice);
+    this.panel.appendChild(this.brandMark);
 
     this.launcherWrap.appendChild(this.launcherTip);
     this.launcherWrap.appendChild(this.floatingButton);
@@ -1050,6 +1077,10 @@ export class IeumWidgetApp {
     for (const message of this.messages) {
       const row = createElement(document, "div", `ieum-message ${message.role}`);
       const bubble = createElement(document, "div", "ieum-bubble");
+      // 첫 인사말은 더 크고 또렷한 스타일로 표시
+      if (message.id.startsWith("assistant_welcome_")) {
+        bubble.classList.add("ieum-bubble-welcome");
+      }
 
       // ── 구조화 응답 렌더링 (Sprint 3-F) ──────────────────────────────────
       const sr = message.structuredResponse;
