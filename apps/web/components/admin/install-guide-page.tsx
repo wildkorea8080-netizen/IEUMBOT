@@ -260,7 +260,7 @@ export function InstallGuidePage() {
           <div style={{ display: "flex", gap: 8 }}>
             <button type="button"
               onClick={() => {
-                const text = `설치 안내\n\n1. 아래 코드를 </body> 직전에 삽입하세요.\n2. 허용 도메인에 실제 홈페이지 도메인을 등록하세요.\n3. HTTPS 환경에서 테스트하세요.\n\n${installCode}`;
+                const text = `설치 안내\n\n1. 아래 코드를 </body> 직전에 삽입하세요.\n   ★ 모든 페이지에 위젯이 보이려면, 페이지마다 넣지 말고 '모든 페이지가 공유하는 공통 푸터/전체 레이아웃' 한 곳에 넣으세요.\n     (CMS의 공통 푸터/전역 스크립트 설정란, 또는 Google Tag Manager의 All Pages 태그 권장)\n2. 허용 도메인에 실제 홈페이지 도메인을 등록하세요.\n3. HTTPS 환경에서 테스트하세요.\n\n${installCode}`;
                 const blob = new Blob([text], { type: "text/plain" });
                 const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "install-guide.txt"; a.click();
               }}
@@ -290,8 +290,8 @@ export function InstallGuidePage() {
             },
             {
               num: 2,
-              title: "웹사이트에 코드 붙여넣기",
-              desc: "AI 대화 에이전트를 적용할 웹사이트의 HTML 파일을 열고, </body> 태그 바로 윗줄에 복사한 코드를 붙여넣습니다.",
+              title: "웹사이트에 코드 붙여넣기 (모든 페이지 공통 영역)",
+              desc: "AI 대화 에이전트를 적용할 웹사이트의 </body> 태그 바로 윗줄에 복사한 코드를 붙여넣습니다.\n※ 모든 페이지에 위젯이 보이려면, 페이지마다 넣지 말고 '모든 페이지가 공유하는 공통 푸터/전체 레이아웃' 한 곳에 넣으세요. (아래 안내 참고)",
             },
             {
               num: 3,
@@ -309,6 +309,28 @@ export function InstallGuidePage() {
               </div>
             </div>
           ))}
+        </div>
+
+        {/* 📌 모든 페이지 설치 안내 */}
+        <div style={{ marginTop: 16, background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 10, padding: "14px 18px" }}>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+            <span style={{ fontSize: 16, flexShrink: 0, marginTop: 1 }}>📌</span>
+            <div>
+              <p style={{ fontSize: 13, fontWeight: 700, color: "#1e40af", marginBottom: 6 }}>모든 페이지에 위젯을 표시하려면 (중요)</p>
+              <p style={{ fontSize: 13, color: "#1e3a8a", lineHeight: 1.7, margin: 0 }}>
+                위젯은 <strong>설치 코드가 들어간 페이지에만</strong> 나타납니다. 메인 페이지에만 넣으면 하위 페이지로 이동했을 때 사라집니다.<br />
+                페이지마다 일일이 넣지 말고, <strong>모든 페이지가 공유하는 공통 영역에 한 번만</strong> 넣으면 전체 페이지에 자동으로 표시됩니다:
+              </p>
+              <ul style={{ fontSize: 13, color: "#1e3a8a", lineHeight: 1.8, margin: "8px 0 0", paddingLeft: 18 }}>
+                <li><strong>CMS·홈페이지 관리시스템</strong>: &lsquo;공통 푸터 / 전체 하단 HTML / 전역 스크립트&rsquo; 설정란에 한 번 삽입</li>
+                <li><strong>직접 제작한 사이트</strong>: 공통 템플릿·인클루드 파일(footer 등) <code>&lt;/body&gt;</code> 직전에 삽입</li>
+                <li><strong>Google Tag Manager 사용 시</strong>: &lsquo;맞춤 HTML&rsquo; 태그 + &lsquo;All Pages(모든 페이지)&rsquo; 트리거 (사이트 코드 수정 불필요)</li>
+              </ul>
+              <p style={{ fontSize: 12.5, color: "#3b82f6", lineHeight: 1.7, margin: "8px 0 0" }}>
+                ※ 하위 페이지가 별도 시스템이거나 iframe이면 그쪽에도 동일하게 넣어야 합니다.
+              </p>
+            </div>
+          </div>
         </div>
       </Section>
 
