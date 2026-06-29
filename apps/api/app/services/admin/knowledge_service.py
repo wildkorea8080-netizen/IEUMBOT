@@ -1332,13 +1332,22 @@ def _website_request_headers(accept: str) -> dict[str, str]:
 
 def _decode_website_payload(payload: bytes, *, content_type: str | None, content_encoding: str | None) -> str:
     encoding = (content_encoding or "").lower()
+    # 주의: httpx/curl_cffi 등은 응답을 이미 자동 압축해제하지만 Content-Encoding 헤더는
+    # 그대로 남는다. 그 상태에서 다시 decompress하면 "Not a gzipped file" 에러가 난다.
+    # → 해제 실패 시 (이미 해제됨) 원본 bytes를 그대로 사용한다.
     if "gzip" in encoding:
-        payload = gzip.decompress(payload)
+        try:
+            payload = gzip.decompress(payload)
+        except Exception:  # noqa: BLE001 — 이미 해제된 경우 원본 유지
+            pass
     elif "deflate" in encoding:
         try:
             payload = zlib.decompress(payload)
         except zlib.error:
-            payload = zlib.decompress(payload, -zlib.MAX_WBITS)
+            try:
+                payload = zlib.decompress(payload, -zlib.MAX_WBITS)
+            except zlib.error:
+                pass  # 이미 해제됨 → 원본 유지
 
     charset = None
     if content_type:
