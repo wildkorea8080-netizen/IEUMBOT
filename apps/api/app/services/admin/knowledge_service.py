@@ -186,6 +186,9 @@ WEBSITE_REQUEST_TIMEOUT_SECONDS = 15
 CRAWL_DELAY_MIN = float(os.getenv("CRAWL_DELAY_MIN", "0.5"))
 CRAWL_DELAY_MAX = float(os.getenv("CRAWL_DELAY_MAX", "1.5"))
 MAX_CONSECUTIVE_CRAWL_FAILURES = int(os.getenv("CRAWL_MAX_CONSECUTIVE_FAILURES", "5"))
+# 크롤 총 소요 시간 상한 — 초과 시 수집된 페이지만으로 색인(무한 "학습중" 방지).
+# curl_cffi 우회 재시도로 페이지당 시간이 늘 수 있어 안전망으로 둔다.
+CRAWL_TIME_BUDGET_SECONDS = int(os.getenv("CRAWL_TIME_BUDGET_SECONDS", "240"))
 DEFAULT_CRAWL_PAGE_LIMIT = 12
 DEFAULT_FULL_SITE_CRAWL_PAGE_LIMIT = 300
 MAX_CRAWL_PAGE_LIMIT = 1000
@@ -3020,7 +3023,15 @@ def _crawl_website(
         if progress_callback is not None:
             progress_callback(len(crawled_urls), page_limit)
 
+    crawl_started_at = time.monotonic()
     while queue and len(crawled_urls) < page_limit:
+        # 시간 예산 초과 시 수집된 페이지만으로 마무리 (무한 "학습중" 방지)
+        if time.monotonic() - crawl_started_at > CRAWL_TIME_BUDGET_SECONDS:
+            logger.warning(
+                "[CRAWL_STOP] reason=time_budget elapsed=%.0fs crawled=%s page_limit=%s",
+                time.monotonic() - crawl_started_at, len(crawled_urls), page_limit,
+            )
+            break
         current_url, depth = queue.pop(0)
         queued.discard(current_url)
         if current_url in visited:
@@ -3368,7 +3379,7 @@ def _ingest_web_source_content(
         def crawl_progress(done: int, total: int) -> None:
             job.current_step = "fetching"
             job.progress_percent = min(34, 10 + int((done / max(total, 1)) * 24))
-            db.flush()
+            db.commit()  # 진행률 즉시 반영 — 목록에서 5% 고정으로 보이는 문제 방지
 
         (
             html,
@@ -3422,7 +3433,7 @@ def _ingest_web_source_content(
     def attachment_progress(done: int, total: int) -> None:
         job.current_step = "fetching_attachments"
         job.progress_percent = min(50, 35 + int((done / max(total, 1)) * 15))
-        db.flush()
+        db.commit()  # 진행률 즉시 반영
 
     attachment_files, attachment_text_blocks = (
         _collect_attachment_contents(attachment_urls, progress_callback=attachment_progress)
