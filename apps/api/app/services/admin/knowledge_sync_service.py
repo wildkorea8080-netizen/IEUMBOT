@@ -19,7 +19,6 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from app.models.web_sources import WebSource
-from app.services.web_fetcher import fetch as web_fetch
 
 logger = logging.getLogger(__name__)
 
@@ -51,11 +50,17 @@ def _simple_html_to_text(html_content: str) -> str:
 
 def crawl_url(url: str) -> tuple[str, str]:
     """
-    단일 URL 크롤링 → (텍스트 내용, SHA-256 해시).
-    실패 시 예외를 raise.
+    단일 URL 크롤링 → (텍스트 내용, SHA-256 해시). 실패 시 예외를 raise.
+
+    재색인 경로와 동일한 견고한 fetch(_fetch_website_page)를 사용 — WAF/봇 차단
+    TLS 우회(curl_cffi)와 다국어 본문 추출(trafilatura)이 '지금 업데이트(동기화)'에도
+    적용된다. 본문 추출이 비면 단순 변환으로 폴백(해시 비교용).
     """
-    result = web_fetch(url, timeout_seconds=_REQUEST_TIMEOUT, max_bytes=_MAX_TEXT_BYTES)
-    text = _simple_html_to_text(result.text)
+    from app.services.admin.knowledge_service import _fetch_website_page  # noqa: PLC0415
+
+    html_content, text, *_rest = _fetch_website_page(url)
+    if not text or not text.strip():
+        text = _simple_html_to_text(html_content or "")
     content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
     return text, content_hash
 
