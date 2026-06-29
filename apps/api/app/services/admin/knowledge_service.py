@@ -1464,6 +1464,36 @@ def _fetch_website_page_once(url: str) -> tuple[str, str, int | None]:
     raise _WebsiteFetchSkipped(url, 429, "rate_limited")
 
 
+def _extract_text_via_trafilatura(html: str, *, url: str | None = None) -> str | None:
+    """다국어 본문 추출(trafilatura). 커스텀 추출기가 빈약할 때 폴백.
+
+    `_HTMLTextExtractor`는 한국어·공공기관 키워드 편향이라 영문/기업/비표준 레이아웃에서
+    본문을 놓칠 수 있다. trafilatura는 다국어 본문 추출 전용이라 그런 사이트를 보완한다.
+    미설치·실패 시 None → 호출자는 기존 추출 결과 유지(무회귀).
+    """
+    try:
+        import trafilatura  # noqa: PLC0415
+    except Exception:  # noqa: BLE001
+        return None
+    try:
+        extracted = trafilatura.extract(
+            html,
+            url=url,
+            include_comments=False,
+            include_tables=True,
+            favor_recall=True,
+        )
+        if extracted and extracted.strip():
+            return extracted.strip()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[WEB_EXTRACT_TRAFILATURA_FAILED] url=%s err=%s", url, str(exc)[:200])
+    return None
+
+
+# 커스텀 추출기 결과가 이 길이 미만이면 trafilatura 폴백을 시도
+_TRAFILATURA_FALLBACK_THRESHOLD = 200
+
+
 def _fetch_website_page(url: str) -> tuple[str, str, list[str], str, int | None, str | None, str, bool, int]:
     html, final_url, http_status_code = _fetch_website_page_once(url)
     extractor = _HTMLTextExtractor()
@@ -1477,6 +1507,19 @@ def _fetch_website_page(url: str) -> tuple[str, str, list[str], str, int | None,
         extractor = _HTMLTextExtractor()
         extractor.feed(html)
         text = extractor.get_text()
+
+    # 커스텀 추출기가 본문을 충분히 못 잡으면(영문/기업/비표준 레이아웃) trafilatura 폴백
+    extraction_method = extractor.extraction_method
+    if len(text.strip()) < _TRAFILATURA_FALLBACK_THRESHOLD:
+        traf_text = _extract_text_via_trafilatura(html, url=final_url or url)
+        if traf_text and len(traf_text.strip()) > len(text.strip()):
+            logger.info(
+                "[WEB_EXTRACT] url=%s method=trafilatura custom_chars=%s traf_chars=%s",
+                final_url or url, len(text.strip()), len(traf_text.strip()),
+            )
+            text = traf_text
+            extraction_method = "trafilatura"
+
     return (
         html,
         text,
@@ -1484,7 +1527,7 @@ def _fetch_website_page(url: str) -> tuple[str, str, list[str], str, int | None,
         final_url,
         http_status_code,
         extractor.get_title(),
-        extractor.extraction_method,
+        extraction_method,
         extractor.navigation_removed,
         extractor.removed_navigation_lines,
     )
