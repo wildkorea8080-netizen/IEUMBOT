@@ -315,8 +315,8 @@ export function KnowledgeManagement() {
     return map;
   }, [items]);
 
-  const load = async () => {
-    setIsLoading(true);
+  const load = async (silent = false) => {
+    if (!silent) setIsLoading(true);
     setError(null);
     const otherGroup = sourceGroup === "file_text" ? "website" : "file_text";
     try {
@@ -351,15 +351,27 @@ export function KnowledgeManagement() {
       }
       setSelectedIds((current) => current.filter((id) => response.items.some((item) => item.id === id)));
     } catch (loadError) {
-      setError(getErrorMessage(loadError));
+      if (!silent) setError(getErrorMessage(loadError));
     } finally {
-      setIsLoading(false);
+      if (!silent) setIsLoading(false);
     }
   };
 
   useEffect(() => {
     if (activeTab !== "faq") void load();
   }, [activeTab]);
+
+  // 처리 중(학습중/대기) 항목이 있으면 자동 폴링 — 새로고침 없이 학습완료로 갱신
+  useEffect(() => {
+    if (activeTab === "faq") return;
+    const hasProcessing = items.some((it) => {
+      const ds = effectiveStatus(it);
+      return ds === "processing" || ds === "queued";
+    });
+    if (!hasProcessing) return;
+    const timer = setInterval(() => { void load(true); }, 4000);
+    return () => clearInterval(timer);
+  }, [items, activeTab]);
 
   const openDetail = async (knowledgeId: string) => {
     setIsDetailLoading(true);
