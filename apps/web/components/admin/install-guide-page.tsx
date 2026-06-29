@@ -311,27 +311,58 @@ export function InstallGuidePage() {
           ))}
         </div>
 
-        {/* 📌 모든 페이지 설치 안내 */}
+        {/* 📌 핵심 원칙: 공통 영역 1회 = 모든 페이지 */}
         <div style={{ marginTop: 16, background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 10, padding: "14px 18px" }}>
           <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
             <span style={{ fontSize: 16, flexShrink: 0, marginTop: 1 }}>📌</span>
             <div>
-              <p style={{ fontSize: 13, fontWeight: 700, color: "#1e40af", marginBottom: 6 }}>모든 페이지에 위젯을 표시하려면 (중요)</p>
+              <p style={{ fontSize: 13, fontWeight: 700, color: "#1e40af", marginBottom: 6 }}>핵심 — 모든 페이지에 표시하려면 &lsquo;공통 영역&rsquo;에 한 번만 넣으세요</p>
               <p style={{ fontSize: 13, color: "#1e3a8a", lineHeight: 1.7, margin: 0 }}>
-                위젯은 <strong>설치 코드가 들어간 페이지에만</strong> 나타납니다. 메인 페이지에만 넣으면 하위 페이지로 이동했을 때 사라집니다.<br />
-                페이지마다 일일이 넣지 말고, <strong>모든 페이지가 공유하는 공통 영역에 한 번만</strong> 넣으면 전체 페이지에 자동으로 표시됩니다:
-              </p>
-              <ul style={{ fontSize: 13, color: "#1e3a8a", lineHeight: 1.8, margin: "8px 0 0", paddingLeft: 18 }}>
-                <li><strong>CMS·홈페이지 관리시스템</strong>: &lsquo;공통 푸터 / 전체 하단 HTML / 전역 스크립트&rsquo; 설정란에 한 번 삽입</li>
-                <li><strong>직접 제작한 사이트</strong>: 공통 템플릿·인클루드 파일(footer 등) <code>&lt;/body&gt;</code> 직전에 삽입</li>
-                <li><strong>Google Tag Manager 사용 시</strong>: &lsquo;맞춤 HTML&rsquo; 태그 + &lsquo;All Pages(모든 페이지)&rsquo; 트리거 (사이트 코드 수정 불필요)</li>
-              </ul>
-              <p style={{ fontSize: 12.5, color: "#3b82f6", lineHeight: 1.7, margin: "8px 0 0" }}>
-                ※ 하위 페이지가 별도 시스템이거나 iframe이면 그쪽에도 동일하게 넣어야 합니다.
+                위젯은 <strong>코드가 들어간 페이지에만</strong> 나타납니다. 메인에만 넣으면 하위 페이지에서 사라집니다.
+                페이지마다 넣지 말고, <strong>모든 페이지가 공유하는 공통 영역(공통 푸터·전체 레이아웃)에 한 번만</strong> 넣으면 전체 페이지에 자동으로 표시됩니다. 구체적 위치는 아래 표를 참고하세요.
               </p>
             </div>
           </div>
         </div>
+      </Section>
+
+      {/* ── 섹션 2-2: 홈페이지 종류별 코드 위치 ──────────────────────────────── */}
+      <Section
+        title="어디에 코드를 넣나요? (홈페이지 종류별)"
+        description="홈페이지를 만든 방식에 따라 '공통 영역'의 위치가 다릅니다. 한 곳에만 넣으면 모든 페이지에 적용됩니다."
+      >
+        <div style={{ border: "1px solid #e5e7eb", borderRadius: 10, overflow: "hidden" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <thead>
+              <tr style={{ background: "#f9fafb", borderBottom: "1px solid #e5e7eb" }}>
+                <th style={{ padding: "10px 14px", textAlign: "left", fontSize: 12, fontWeight: 600, color: "#6b7280", width: 190 }}>홈페이지 종류</th>
+                <th style={{ padding: "10px 14px", textAlign: "left", fontSize: 12, fontWeight: 600, color: "#6b7280" }}>코드 넣는 위치 (공통 영역에 1회)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[
+                { type: "직접 제작 (HTML)", where: "공통으로 불러오는 푸터 파일(footer.html, footer.php 등)의 </body> 직전 — 한 번 넣으면 전체 페이지 적용" },
+                { type: "워드프레스 (WordPress)", where: "테마 편집 → footer.php의 </body> 직전, 또는 'WPCode'·'헤더/푸터 삽입' 플러그인의 Footer 영역" },
+                { type: "그누보드·영카트 (국내)", where: "스킨 공통 꼬리말 tail.php(또는 tail.skin.php)의 </body> 직전" },
+                { type: "카페24", where: "관리자 → 디자인(스마트디자인) → 공통 레이아웃/푸터의 </body> 직전, 또는 '외부 스크립트 관리'" },
+                { type: "아임웹 (imweb)", where: "관리자 → 환경설정 → 코드 삽입 → Body 하단(footer) 영역" },
+                { type: "윅스 (Wix)", where: "설정 → 사용자 정의 코드 → 위치 'Body - end' + 적용 범위 '모든 페이지(All pages)'" },
+                { type: "정부·공공기관 CMS", where: "'공통 푸터 / 전체 하단 HTML / 전역 스크립트' 설정란에 삽입" },
+                { type: "React·Next.js (SPA)", where: "index.html 또는 공통 레이아웃(_app, layout)의 body 하단에 1회" },
+                { type: "Google Tag Manager (만능)", where: "'맞춤 HTML' 태그 + 'All Pages(모든 페이지)' 트리거 — 사이트 코드 수정 없이 전체 적용 (가장 쉬움)" },
+              ].map((row, i, arr) => (
+                <tr key={row.type} style={{ borderBottom: i < arr.length - 1 ? "1px solid #f1f5f9" : "none" }}>
+                  <td style={{ padding: "12px 14px", fontWeight: 600, color: "#111827", verticalAlign: "top" }}>{row.type}</td>
+                  <td style={{ padding: "12px 14px", color: "#6b7280", lineHeight: 1.6 }}>{row.where}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p style={{ fontSize: 12.5, color: "#6b7280", lineHeight: 1.7, marginTop: 12, marginBottom: 0 }}>
+          ※ 어디에 넣을지 모르겠으면 <strong>Google Tag Manager의 All Pages 태그</strong>가 가장 쉽고 안전합니다(사이트 코드 수정 없이 모든 페이지 적용).
+          하위 페이지가 별도 시스템·iframe이면 그쪽에도 동일하게 넣어야 합니다.
+        </p>
       </Section>
 
       {/* ── 섹션 3: 공유 링크 만들기 ──────────────────────────────────────── */}
