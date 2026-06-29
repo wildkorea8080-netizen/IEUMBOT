@@ -1418,6 +1418,47 @@ def _try_impersonated_fetch(url: str) -> tuple[str, str, int | None] | None:
     return None
 
 
+def _try_scraper_api_fetch(url: str) -> tuple[str, str, int | None] | None:
+    """관리형 스크래핑 API(Firecrawl 등) 폴백 — JS 챌린지·강력한 WAF·IP 차단 우회.
+
+    실제 브라우저 + 프록시를 외부 서비스가 처리해 렌더링된 HTML을 돌려준다.
+    httpx·curl_cffi로 못 뚫을 때 최종 수단으로 호출. SCRAPER_API_KEY 미설정 시 None
+    → 호출자는 기존 차단 처리 유지(무회귀).
+    """
+    from app.core.config import settings  # noqa: PLC0415
+
+    api_key = (settings.scraper_api_key or "").strip()
+    if not api_key:
+        return None
+    api_url = (settings.scraper_api_url or "").strip()
+    if not api_url:
+        return None
+    try:
+        from app.services.web_fetcher import get_client as _get_web_client  # noqa: PLC0415
+
+        client = _get_web_client()
+        resp = client.post(
+            api_url,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={"url": url, "formats": ["html"]},  # Firecrawl /v1/scrape 형식
+            timeout=httpx.Timeout(connect=5.0, read=60.0, write=10.0, pool=5.0),  # 렌더링은 느릴 수 있음
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+        data = payload.get("data") if isinstance(payload, dict) else None
+        data = data if isinstance(data, dict) else {}
+        html = str(data.get("html") or data.get("rawHtml") or "")
+        if html.strip():
+            metadata = data.get("metadata") if isinstance(data.get("metadata"), dict) else {}
+            final_url = str(metadata.get("sourceURL") or metadata.get("url") or url)
+            logger.info("[WEB_FETCH_SCRAPER_API] url=%s html_bytes=%s ok", url, len(html))
+            return html, final_url, 200
+        logger.warning("[WEB_FETCH_SCRAPER_API] url=%s no_html", url)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[WEB_FETCH_SCRAPER_API_FAILED] url=%s err=%s", url, str(exc)[:200])
+    return None
+
+
 def _fetch_website_page_once(url: str) -> tuple[str, str, int | None]:
     """httpx 기반 단일 페이지 fetch. 외부 except 호환을 위해 urllib HTTPError/URLError로 변환 raise."""
     from app.services.web_fetcher import get_client as _get_web_client  # noqa: PLC0415
@@ -1446,20 +1487,26 @@ def _fetch_website_page_once(url: str) -> tuple[str, str, int | None]:
                 logger.info("[WEB_FETCH_SKIP] url=%s status=404 reason=not_found", url)
                 raise _WebsiteFetchSkipped(url, status_code, "not_found") from exc
             if status_code in {401, 403} or 500 <= status_code <= 599:
-                # WAF/봇 차단 의심 → 실제 브라우저 TLS 지문으로 1회 우회 시도
+                # WAF/봇 차단 의심 → ① TLS 지문 우회(curl_cffi) → ② 관리형 스크래핑 API(브라우저+프록시)
                 impersonated = _try_impersonated_fetch(url)
                 if impersonated is not None:
                     return impersonated
+                scraped = _try_scraper_api_fetch(url)
+                if scraped is not None:
+                    return scraped
                 reason = "access_denied" if status_code in {401, 403} else "server_error"
                 logger.warning("[WEB_FETCH_SKIP] url=%s status=%s reason=%s", url, status_code, reason)
                 raise _WebsiteFetchSkipped(url, status_code, reason) from exc
             # 외부 except 호환을 위해 urllib HTTPError로 재포장
             raise HTTPError(url, status_code, exc.response.reason_phrase, dict(exc.response.headers), None) from exc
         except httpx.RequestError as exc:
-            # 연결/TLS 차단 가능 → 임퍼소네이션 우회 시도 후, 실패 시 URLError
+            # 연결/TLS 차단 가능 → ① 임퍼소네이션 → ② 관리형 스크래핑 API → 실패 시 URLError
             impersonated = _try_impersonated_fetch(url)
             if impersonated is not None:
                 return impersonated
+            scraped = _try_scraper_api_fetch(url)
+            if scraped is not None:
+                return scraped
             raise URLError(str(exc)) from exc
     raise _WebsiteFetchSkipped(url, 429, "rate_limited")
 
@@ -1508,8 +1555,13 @@ def _fetch_website_page(url: str) -> tuple[str, str, list[str], str, int | None,
         extractor.feed(html)
         text = extractor.get_text()
 
-    # 커스텀 추출기가 본문을 충분히 못 잡으면(영문/기업/비표준 레이아웃) trafilatura 폴백
     extraction_method = extractor.extraction_method
+    links = extractor.get_links()
+    title = extractor.get_title()
+    nav_removed = extractor.navigation_removed
+    nav_lines = extractor.removed_navigation_lines
+
+    # 커스텀 추출기가 본문을 충분히 못 잡으면(영문/기업/비표준 레이아웃) trafilatura 폴백
     if len(text.strip()) < _TRAFILATURA_FALLBACK_THRESHOLD:
         traf_text = _extract_text_via_trafilatura(html, url=final_url or url)
         if traf_text and len(traf_text.strip()) > len(text.strip()):
@@ -1520,16 +1572,39 @@ def _fetch_website_page(url: str) -> tuple[str, str, list[str], str, int | None,
             text = traf_text
             extraction_method = "trafilatura"
 
+    # 200이지만 본문이 비면(JS 챌린지·JS 렌더링) 관리형 스크래핑 API로 최종 시도
+    if len(text.strip()) < _TRAFILATURA_FALLBACK_THRESHOLD:
+        scraped = _try_scraper_api_fetch(final_url or url)
+        if scraped is not None:
+            s_html, s_final, _s_status = scraped
+            s_ext = _HTMLTextExtractor()
+            s_ext.feed(s_html)
+            s_text = s_ext.get_text()
+            if len(s_text.strip()) < _TRAFILATURA_FALLBACK_THRESHOLD:
+                s_traf = _extract_text_via_trafilatura(s_html, url=s_final)
+                if s_traf and len(s_traf.strip()) > len(s_text.strip()):
+                    s_text = s_traf
+            if len(s_text.strip()) > len(text.strip()):
+                logger.info(
+                    "[WEB_EXTRACT] url=%s method=scraper_api chars=%s", s_final, len(s_text.strip()),
+                )
+                html, text, final_url = s_html, s_text, s_final
+                links = s_ext.get_links()
+                title = s_ext.get_title()
+                nav_removed = s_ext.navigation_removed
+                nav_lines = s_ext.removed_navigation_lines
+                extraction_method = "scraper_api"
+
     return (
         html,
         text,
-        extractor.get_links(),
+        links,
         final_url,
         http_status_code,
-        extractor.get_title(),
+        title,
         extraction_method,
-        extractor.navigation_removed,
-        extractor.removed_navigation_lines,
+        nav_removed,
+        nav_lines,
     )
 
 

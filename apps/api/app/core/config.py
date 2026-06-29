@@ -62,6 +62,11 @@ class Settings(BaseSettings):
     contextual_retrieval_model: str = "gpt-4o-mini"
     contextual_retrieval_max_workers: int = 5
     use_docling: bool = False
+    # 관리형 스크래핑 API (Firecrawl 등) — WAF/봇 차단·JS 챌린지·IP 차단 사이트의
+    # 최종 fetch 폴백. httpx·curl_cffi로 못 뚫을 때만 호출. 키 미설정 시 비활성(no-op).
+    # Firecrawl 기준: SCRAPER_API_URL=https://api.firecrawl.dev/v1/scrape, SCRAPER_API_KEY=fc-...
+    scraper_api_key: str = ""
+    scraper_api_url: str = "https://api.firecrawl.dev/v1/scrape"
     # Arq 워커로 색인/재색인 디스패치. False면 FastAPI BackgroundTasks(동일 프로세스)로 fallback.
     # 다중 인스턴스/Coolify 배포 시 반드시 True + Redis 가용 필수.
     use_arq_worker: bool = False
