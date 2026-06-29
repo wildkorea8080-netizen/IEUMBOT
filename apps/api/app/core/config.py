@@ -67,6 +67,10 @@ class Settings(BaseSettings):
     # Firecrawl 기준: SCRAPER_API_URL=https://api.firecrawl.dev/v1/scrape, SCRAPER_API_KEY=fc-...
     scraper_api_key: str = ""
     scraper_api_url: str = "https://api.firecrawl.dev/v1/scrape"
+    # 자체 호스팅 헤드리스 브라우저(Playwright) fetch — JS 챌린지·JS 렌더링 사이트 무료 해결.
+    # 워커/컨테이너에 Chromium이 설치돼 있어야 함(빌드에서 playwright install). 미설치·실패 시 no-op.
+    use_playwright_fetch: bool = False
+    playwright_timeout_ms: int = 45000
     # Arq 워커로 색인/재색인 디스패치. False면 FastAPI BackgroundTasks(동일 프로세스)로 fallback.
     # 다중 인스턴스/Coolify 배포 시 반드시 True + Redis 가용 필수.
     use_arq_worker: bool = False

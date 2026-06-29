@@ -1459,6 +1459,62 @@ def _try_scraper_api_fetch(url: str) -> tuple[str, str, int | None] | None:
     return None
 
 
+def _try_playwright_fetch(url: str) -> tuple[str, str, int | None] | None:
+    """자체 호스팅 헤드리스 브라우저(Playwright) 폴백 — JS 챌린지·JS 렌더링 무료 해결.
+
+    실제 Chromium으로 렌더링해 최종 HTML 반환. USE_PLAYWRIGHT_FETCH=false 또는
+    playwright 미설치·브라우저 미설치·실패 시 None → 호출자는 다음 폴백/차단 처리(무회귀).
+    매 호출마다 브라우저를 띄우고 닫아 메모리를 한정한다.
+    """
+    from app.core.config import settings  # noqa: PLC0415
+
+    if not settings.use_playwright_fetch:
+        return None
+    try:
+        from playwright.sync_api import sync_playwright  # noqa: PLC0415
+    except Exception:  # noqa: BLE001
+        return None
+
+    timeout_ms = max(10000, int(settings.playwright_timeout_ms or 45000))
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                headless=True,
+                args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
+            )
+            try:
+                context = browser.new_context(
+                    user_agent=USER_AGENT,
+                    locale="ko-KR",
+                    ignore_https_errors=True,
+                )
+                page = context.new_page()
+                page.goto(url, wait_until="networkidle", timeout=timeout_ms)
+                page.wait_for_timeout(1500)  # JS 챌린지 통과 대기
+                html = page.content()
+                final_url = page.url or url
+            finally:
+                browser.close()
+        if html and html.strip():
+            logger.info("[WEB_FETCH_PLAYWRIGHT] url=%s html_bytes=%s ok", url, len(html))
+            return html, final_url, 200
+        logger.warning("[WEB_FETCH_PLAYWRIGHT] url=%s empty", url)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[WEB_FETCH_PLAYWRIGHT_FAILED] url=%s err=%s", url, str(exc)[:200])
+    return None
+
+
+def _try_browser_fallback(url: str) -> tuple[str, str, int | None] | None:
+    """헤드리스 브라우저 폴백: ① 자체 Playwright(무료) → ② 관리형 스크래핑 API(유료).
+
+    둘 다 비활성/실패 시 None.
+    """
+    rendered = _try_playwright_fetch(url)
+    if rendered is not None:
+        return rendered
+    return _try_scraper_api_fetch(url)
+
+
 def _fetch_website_page_once(url: str) -> tuple[str, str, int | None]:
     """httpx 기반 단일 페이지 fetch. 외부 except 호환을 위해 urllib HTTPError/URLError로 변환 raise."""
     from app.services.web_fetcher import get_client as _get_web_client  # noqa: PLC0415
@@ -1487,26 +1543,26 @@ def _fetch_website_page_once(url: str) -> tuple[str, str, int | None]:
                 logger.info("[WEB_FETCH_SKIP] url=%s status=404 reason=not_found", url)
                 raise _WebsiteFetchSkipped(url, status_code, "not_found") from exc
             if status_code in {401, 403} or 500 <= status_code <= 599:
-                # WAF/봇 차단 의심 → ① TLS 지문 우회(curl_cffi) → ② 관리형 스크래핑 API(브라우저+프록시)
+                # WAF/봇 차단 의심 → ① TLS 우회(curl_cffi) → ② 헤드리스 브라우저(Playwright/관리형 API)
                 impersonated = _try_impersonated_fetch(url)
                 if impersonated is not None:
                     return impersonated
-                scraped = _try_scraper_api_fetch(url)
-                if scraped is not None:
-                    return scraped
+                rendered = _try_browser_fallback(url)
+                if rendered is not None:
+                    return rendered
                 reason = "access_denied" if status_code in {401, 403} else "server_error"
                 logger.warning("[WEB_FETCH_SKIP] url=%s status=%s reason=%s", url, status_code, reason)
                 raise _WebsiteFetchSkipped(url, status_code, reason) from exc
             # 외부 except 호환을 위해 urllib HTTPError로 재포장
             raise HTTPError(url, status_code, exc.response.reason_phrase, dict(exc.response.headers), None) from exc
         except httpx.RequestError as exc:
-            # 연결/TLS 차단 가능 → ① 임퍼소네이션 → ② 관리형 스크래핑 API → 실패 시 URLError
+            # 연결/TLS 차단 가능 → ① 임퍼소네이션 → ② 헤드리스 브라우저(Playwright/관리형) → 실패 시 URLError
             impersonated = _try_impersonated_fetch(url)
             if impersonated is not None:
                 return impersonated
-            scraped = _try_scraper_api_fetch(url)
-            if scraped is not None:
-                return scraped
+            rendered = _try_browser_fallback(url)
+            if rendered is not None:
+                return rendered
             raise URLError(str(exc)) from exc
     raise _WebsiteFetchSkipped(url, 429, "rate_limited")
 
@@ -1572,9 +1628,9 @@ def _fetch_website_page(url: str) -> tuple[str, str, list[str], str, int | None,
             text = traf_text
             extraction_method = "trafilatura"
 
-    # 200이지만 본문이 비면(JS 챌린지·JS 렌더링) 관리형 스크래핑 API로 최종 시도
+    # 200이지만 본문이 비면(JS 챌린지·JS 렌더링) 헤드리스 브라우저(Playwright/관리형 API)로 최종 시도
     if len(text.strip()) < _TRAFILATURA_FALLBACK_THRESHOLD:
-        scraped = _try_scraper_api_fetch(final_url or url)
+        scraped = _try_browser_fallback(final_url or url)
         if scraped is not None:
             s_html, s_final, _s_status = scraped
             s_ext = _HTMLTextExtractor()
