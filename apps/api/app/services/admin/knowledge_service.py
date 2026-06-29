@@ -1378,6 +1378,43 @@ def _read_website_response_bytes(
     )
 
 
+def _try_impersonated_fetch(url: str) -> tuple[str, str, int | None] | None:
+    """WAF/봇 차단(403 등) 우회 — 실제 브라우저 TLS 지문(JA3)으로 재시도.
+
+    httpx의 TLS 지문은 비브라우저로 식별돼 일부 WAF가 차단한다. curl_cffi의
+    impersonate로 Chrome TLS/헤더를 흉내내면 통과하는 경우가 많다(헤드리스 브라우저
+    없이 가벼움). 미설치·실패·비200 시 None → 호출자는 기존 차단 처리 유지(무회귀).
+    """
+    try:
+        from curl_cffi import requests as _cffi  # noqa: PLC0415
+    except Exception:  # noqa: BLE001
+        return None
+    try:
+        resp = _cffi.get(
+            url,
+            impersonate="chrome",
+            timeout=WEBSITE_REQUEST_TIMEOUT_SECONDS,
+            headers={"Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8"},
+            verify=False,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[WEB_FETCH_IMPERSONATE_FAILED] url=%s err=%s", url, str(exc)[:200])
+        return None
+    if resp.status_code == 200 and resp.content:
+        try:
+            html = _read_website_response_bytes(
+                resp.content,
+                content_type=resp.headers.get("Content-Type"),
+                content_encoding=None,  # curl_cffi가 압축을 이미 해제
+            )
+        except Exception:  # noqa: BLE001
+            html = resp.content.decode("utf-8", errors="replace")
+        logger.info("[WEB_FETCH_IMPERSONATE] url=%s status=200 html_bytes=%s ok", url, len(html))
+        return html, str(getattr(resp, "url", url) or url), resp.status_code
+    logger.warning("[WEB_FETCH_IMPERSONATE] url=%s status=%s no_content", url, resp.status_code)
+    return None
+
+
 def _fetch_website_page_once(url: str) -> tuple[str, str, int | None]:
     """httpx 기반 단일 페이지 fetch. 외부 except 호환을 위해 urllib HTTPError/URLError로 변환 raise."""
     from app.services.web_fetcher import get_client as _get_web_client  # noqa: PLC0415
@@ -1405,16 +1442,21 @@ def _fetch_website_page_once(url: str) -> tuple[str, str, int | None]:
             if status_code == 404:
                 logger.info("[WEB_FETCH_SKIP] url=%s status=404 reason=not_found", url)
                 raise _WebsiteFetchSkipped(url, status_code, "not_found") from exc
-            if status_code in {401, 403}:
-                logger.warning("[WEB_FETCH_SKIP] url=%s status=%s reason=access_denied", url, status_code)
-                raise _WebsiteFetchSkipped(url, status_code, "access_denied") from exc
-            if 500 <= status_code <= 599:
-                logger.warning("[WEB_FETCH_SKIP] url=%s status=%s reason=server_error", url, status_code)
-                raise _WebsiteFetchSkipped(url, status_code, "server_error") from exc
+            if status_code in {401, 403} or 500 <= status_code <= 599:
+                # WAF/봇 차단 의심 → 실제 브라우저 TLS 지문으로 1회 우회 시도
+                impersonated = _try_impersonated_fetch(url)
+                if impersonated is not None:
+                    return impersonated
+                reason = "access_denied" if status_code in {401, 403} else "server_error"
+                logger.warning("[WEB_FETCH_SKIP] url=%s status=%s reason=%s", url, status_code, reason)
+                raise _WebsiteFetchSkipped(url, status_code, reason) from exc
             # 외부 except 호환을 위해 urllib HTTPError로 재포장
             raise HTTPError(url, status_code, exc.response.reason_phrase, dict(exc.response.headers), None) from exc
         except httpx.RequestError as exc:
-            # 연결/타임아웃 등 — URLError 호환
+            # 연결/TLS 차단 가능 → 임퍼소네이션 우회 시도 후, 실패 시 URLError
+            impersonated = _try_impersonated_fetch(url)
+            if impersonated is not None:
+                return impersonated
             raise URLError(str(exc)) from exc
     raise _WebsiteFetchSkipped(url, 429, "rate_limited")
 
