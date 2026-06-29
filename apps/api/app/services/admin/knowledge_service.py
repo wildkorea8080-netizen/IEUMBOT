@@ -3419,11 +3419,23 @@ def _ingest_web_source_content(
         combined_text = "\n\n".join([combined_text, *attachment_text_blocks]).strip()
 
     if not combined_text.strip():
+        # 진단: 서버가 실제로 받은 HTML 양·상태·스니펫을 메시지에 담아
+        # (외부에선 본문이 보이는데 서버는 0자인 경우 — 봇 챌린지/파서 실패 구분).
+        _html_len = len(html or "")
+        _snippet = re.sub(r"\s+", " ", (html or "")).strip()[:180]
+        logger.warning(
+            "[WEB_CRAWL] url=%s status=%s html_bytes=%s extracted_chars=%s pages=%s reason=EMPTY_WEBSITE_CONTENT",
+            web_source.base_url, http_status_code, _html_len, len(extracted_text or ""), len(crawled_urls),
+        )
         _set_job_failed(
             web_source=web_source,
             job=job,
             error_code="EMPTY_WEBSITE_CONTENT",
-            error_message="웹사이트 본문과 첨부파일 텍스트를 추출하지 못했습니다.",
+            error_message=(
+                f"본문 추출 실패 — 받은 HTML {_html_len}자 / 본문후보 {len(extracted_text or '')}자 / "
+                f"status={http_status_code} / pages={len(crawled_urls)} / final={final_url or '-'} / "
+                f"HTML앞부분: {_snippet}"
+            ),
         )
         return
 
