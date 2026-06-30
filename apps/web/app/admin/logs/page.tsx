@@ -37,6 +37,17 @@ function citationLabel(citations: unknown[] | undefined) {
   return `참조 지식 ${citations.length}건`;
 }
 
+function citationName(c: Record<string, unknown>) {
+  return (
+    (c.documentName as string) ||
+    (c.title as string) ||
+    (c.sourceTitle as string) ||
+    (c.fileName as string) ||
+    (typeof c.sourceUrl === "string" ? c.sourceUrl : "") ||
+    "(제목 없음)"
+  );
+}
+
 function latencyLabel(meta: Record<string, unknown>) {
   const ms = meta.latencyMs ?? meta.latency_ms;
   if (typeof ms === "number") return `${(ms / 1000).toFixed(2)}초`;
@@ -70,6 +81,9 @@ function DetailModal({ item, onClose }: { item: AdminChatLogItem; onClose: () =>
   const meta = item.metadataJson as Record<string, unknown>;
   const question = String(meta.question ?? "");
   const answer = String(meta.answer ?? "");
+  const citations = Array.isArray(meta.citationSummary)
+    ? (meta.citationSummary.filter(c => c && typeof c === "object") as Record<string, unknown>[])
+    : [];
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 9000, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
@@ -105,6 +119,36 @@ function DetailModal({ item, onClose }: { item: AdminChatLogItem; onClose: () =>
             </div>
             <span style={{ fontSize: 11, color: "#9ca3af" }}>{fmtTime(item.createdAt)}</span>
           </div>
+
+          {/* 참조 지식 (출처) — 답변이 어떤 문서/섹션을 근거로 했는지 */}
+          {citations.length > 0 && (
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", marginBottom: 8 }}>
+                참조 지식 ({citations.length}건)
+              </div>
+              <div style={{ border: "1px solid #e5e7eb", borderRadius: 10, overflow: "hidden" }}>
+                {citations.map((c, i) => {
+                  const name = citationName(c);
+                  const section = c.sectionTitle ? String(c.sectionTitle) : "";
+                  const page = c.pageNumber != null ? `p.${c.pageNumber}` : "";
+                  const url = typeof c.sourceUrl === "string" ? c.sourceUrl : "";
+                  const sub = [section, page].filter(Boolean).join(" · ");
+                  return (
+                    <div key={i} style={{ display: "flex", gap: 10, padding: "10px 14px", borderBottom: i < citations.length - 1 ? "1px solid #f1f5f9" : "none" }}>
+                      <span style={{ flexShrink: 0, fontSize: 11, fontWeight: 700, color: "#475569", background: "#f1f5f9", borderRadius: 6, padding: "2px 7px", height: "fit-content" }}>{i + 1}</span>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 13, color: "#111827", fontWeight: 500, wordBreak: "break-word" }}>{name}</div>
+                        {sub && <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 2 }}>{sub}</div>}
+                        {url && (
+                          <a href={url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#2563eb", wordBreak: "break-all" }}>{url}</a>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* 피드백 */}
           <div style={{ display: "flex", gap: 12, paddingTop: 8, borderTop: "1px solid #f1f5f9" }}>
