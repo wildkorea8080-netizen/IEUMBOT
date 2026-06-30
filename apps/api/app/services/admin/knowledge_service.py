@@ -201,6 +201,10 @@ PDF_OCR_DPI = 220
 PDF_TEXT_MIN_LETTER_RATIO = 0.55
 PDF_TEXT_MIN_WORDS = 12
 PDF_TEXT_ALLOWED_CHAR_REGEX = re.compile(r"[0-9A-Za-z가-힣\s\.,:/()%\-·&]")
+# 추출 텍스트 '읽힘 품질'(0~1) 임계값. OCR/Vision 복구 + 깨진 PDF 색인 거부에 사용.
+# 환경변수로 운영 중 튜닝 가능 (로그 [INGEST_FLOW] *_score 관찰 후 조정).
+PDF_EXTRACTION_CLEAN_QUALITY = float(os.getenv("PDF_EXTRACTION_CLEAN_QUALITY", "0.78"))
+PDF_EXTRACTION_MIN_QUALITY = float(os.getenv("PDF_EXTRACTION_MIN_QUALITY", "0.62"))
 MOJIBAKE_MARKER_REGEX = re.compile(r"(?:�|ì|ë|í|ê|ä|å|æ|媛|蹂|諛|쒖|섏|덈|듬)")
 
 # ── BM25 한국어 bigram 색인 ────────────────────────────────────────────────────
@@ -1943,9 +1947,10 @@ def _ingest_document_version_content(
         version.embedding_count = 0
         version.processed_at = now
         version.error_message = (
-            "PDF 텍스트가 깨져 색인하지 않았습니다. OCR 환경 또는 원본 PDF를 확인해 주세요."
+            "PDF 텍스트가 깨져(폰트 인코딩 손상) 정상 색인할 수 없습니다. "
+            "원본 웹페이지 URL이나 텍스트로 등록해 주세요."
             if version.error_code == "MOJIBAKE_TEXT_DETECTED"
-            else "문서에서 색인 가능한 텍스트를 추출하지 못했습니다."
+            else "문서에서 색인 가능한 텍스트를 추출하지 못했습니다. 원본 URL이나 텍스트로 등록해 주세요."
         )
         document.status = "failed"
         if job is not None:
@@ -2537,6 +2542,36 @@ def _is_viable_pdf_text(text: str) -> bool:
     return letter_ratio >= PDF_TEXT_MIN_LETTER_RATIO and word_count >= PDF_TEXT_MIN_WORDS
 
 
+def _pdf_extraction_quality(text: str) -> float:
+    """추출 텍스트가 '읽히는 정도'를 0~1로 평가. 깨진 글리프/OCR 노이즈는 낮게 평가한다.
+
+    letter_ratio(허용문자 비율)는 깨진 글리프도 '글자처럼 보여' 높게 나오므로 부족하다.
+    여기서는 토큰 단위로 '의미 있는 토큰' 비율을 본다:
+    - 한글이 포함된 토큰
+    - 길이 3+ 의 영문 토큰 (정상 단어 추정)
+    - 2자리 이상 숫자
+    깨진 추출은 고립된 1~2자 영문 조각이 많아 점수가 낮다.
+    """
+    cleaned = _strip_binary_noise(text or "")
+    if len(cleaned) < 20:
+        return 0.0
+    tokens = [t for t in cleaned.split() if t]
+    if not tokens:
+        return 0.0
+    meaningful = 0
+    for tok in tokens:
+        core = re.sub(r"[^0-9A-Za-z가-힣]", "", tok)
+        if not core:
+            continue
+        if (
+            re.search(r"[가-힣]", core)
+            or (len(core) >= 3 and re.search(r"[A-Za-z]", core))
+            or (core.isdigit() and len(core) >= 2)
+        ):
+            meaningful += 1
+    return meaningful / len(tokens)
+
+
 def _looks_like_mojibake_text(text: str) -> bool:
     cleaned = _strip_binary_noise(text)
     if not cleaned:
@@ -2855,37 +2890,55 @@ def _extract_pdf_text_best_effort(
             return vision_text, "vision"
 
     # 1. 무료·고속 텍스트 추출 (텍스트형 PDF)
+    #    letter_ratio뿐 아니라 품질 점수도 함께 본다 — 깨진 글리프는 '글자처럼 보여'
+    #    letter_ratio를 통과하므로, 품질 미달이면 OCR/Vision 복구 경로로 넘긴다.
     try:
         extracted = _extract_pdf_text_via_pypdf(file_bytes)
-        if _is_viable_pdf_text(extracted):
+        if _is_viable_pdf_text(extracted) and _pdf_extraction_quality(extracted) >= PDF_EXTRACTION_CLEAN_QUALITY:
             return extracted, "text"
     except Exception:  # noqa: BLE001
         extracted = ""
 
     stream_text = _extract_pdf_text_via_streams(file_bytes)
     combined = _normalize_text_blocks([extracted, stream_text])
-    if _is_viable_pdf_text(combined):
+    if _is_viable_pdf_text(combined) and _pdf_extraction_quality(combined) >= PDF_EXTRACTION_CLEAN_QUALITY:
         return combined, "text"
 
-    # 2. 텍스트 추출이 빈약 = 스캔본/이미지 PDF → OCR 시도
+    # 2. 텍스트형 실패 = 스캔본/이미지/깨진-텍스트레이어 PDF → OCR 시도
     ocr_text = _extract_pdf_text_via_ocr(file_bytes)
-    if _is_viable_pdf_text(ocr_text):
+    ocr_score = _pdf_extraction_quality(ocr_text)
+    # OCR이 충분히 깨끗하면 바로 채택 (정상 스캔본 — 무료·고속, Vision 비용 절감)
+    if _is_viable_pdf_text(ocr_text) and ocr_score >= PDF_EXTRACTION_CLEAN_QUALITY:
         return _normalize_text_blocks([ocr_text]), "ocr"
 
-    # 3. OCR도 부족 → Vision 자동 폴백 (스캔본 자동 감지).
-    #    use_vision을 켜지 않아도 텍스트가 안 나오면 자동 시도하며, 표/도표·복잡한
-    #    레이아웃을 이미지로 읽어 구조를 보존한다. (위에서 이미 비전을 시도한 경우는 제외)
+    # 3. OCR이 부족하거나 깨짐 → Vision(LLM)으로 복구 후 더 정확한 쪽 채택.
+    #    깨진 텍스트레이어 PDF는 OCR이 글리프를 오인식해 반쯤 깨지므로(진짜 한글 + "Ske Ke"류
+    #    노이즈 혼재) Vision이 더 정확하다. (use_vision=True면 위에서 이미 비전 시도했으므로 제외)
+    best_text, best_method, best_score = ocr_text, "ocr", ocr_score
     if not use_vision and db is not None:
         logger.info(
-            "[INGEST_FLOW] phase=vision_fallback reason=text_ocr_insufficient "
-            "text_len=%s ocr_len=%s",
-            len(combined.strip()),
+            "[INGEST_FLOW] phase=vision_fallback reason=ocr_quality_low "
+            "ocr_len=%s ocr_score=%.2f",
             len((ocr_text or "").strip()),
+            ocr_score,
         )
-        vision_text = _extract_pdf_text_via_vision(file_bytes, db)
-        if vision_text and len(vision_text.strip()) > 50:
-            return vision_text, "vision"
+        vision_text = _extract_pdf_text_via_vision(file_bytes, db) or ""
+        vision_score = _pdf_extraction_quality(vision_text)
+        if vision_score > best_score:
+            best_text, best_method, best_score = vision_text, "vision", vision_score
 
+    # 4. 품질 게이트: 최선의 결과도 깨졌으면(점수 미달) 색인하지 않는다 → 쓰레기 색인 방지.
+    #    호출부가 status=failed 로 처리하고 'URL/텍스트로 등록' 안내를 띄운다.
+    if _is_viable_pdf_text(best_text) and best_score >= PDF_EXTRACTION_MIN_QUALITY:
+        return _normalize_text_blocks([best_text]), best_method
+
+    logger.warning(
+        "[INGEST_FLOW] phase=extraction_rejected reason=low_quality "
+        "best_method=%s best_score=%.2f len=%s",
+        best_method,
+        best_score,
+        len((best_text or "").strip()),
+    )
     return "", "failed"
 
 
