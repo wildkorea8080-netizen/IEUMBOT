@@ -107,6 +107,84 @@ def rewrite_query(
     return rewritten.strip(), True
 
 
+# ── 긍정 답변("네") → 직전 제안 이어받기 ──────────────────────────────────────
+_AFFIRMATION_COMPACT = {
+    "네", "넹", "넵", "예", "엡", "응", "웅", "ㅇㅇ", "ㅇㅋ", "그래", "그래요", "그러죠",
+    "그럼", "좋아", "좋아요", "좋습니다", "좋네요", "예스", "yes", "yep", "yeah", "ok",
+    "okay", "오케이", "콜", "알려줘", "알려주세요", "알려줘요", "설명해줘", "설명해주세요",
+    "부탁해", "부탁해요", "부탁드려요", "부탁드립니다", "해줘", "해주세요", "계속",
+    "계속해줘", "계속해주세요", "이어서", "이어서알려줘", "네알려줘", "네알려주세요",
+    "네부탁해요", "응알려줘", "그래알려줘", "네좋아요", "응응", "넵부탁드려요",
+}
+
+_OFFER_PATTERN = re.compile(
+    r"(안내|설명|소개|정리|알려)\s*해?\s*(드릴까요|드릴게요|드리겠습니다|줄까요|줄게요)"
+    r"|이어서|원하시면|더 알려드릴|추가(로)?\s*안내"
+)
+
+
+def _compact_affirm(text: str) -> str:
+    return re.sub(r"[\s.!?。！？~^]+", "", text.strip().lower())
+
+
+def is_affirmation(query: str) -> bool:
+    """짧은 긍정/동의 표현인지 판별 ("네", "응 알려줘" 등)."""
+    compact = _compact_affirm(query)
+    return bool(compact) and len(compact) <= 12 and compact in _AFFIRMATION_COMPACT
+
+
+def resolve_affirmation_followup(
+    current_query: str,
+    recent_messages: list[Any],
+    db: Any,
+) -> tuple[str, bool]:
+    """
+    "네/응/알려줘" 같은 긍정 답변이 직전 AI의 '…안내해 드릴까요?' 제안을 가리키면,
+    그 제안 주제를 사용자가 직접 묻는 독립 질문으로 복원한다.
+
+    반환: (복원된 질문 또는 원본, 복원 여부)
+    - use_query_rewriting=False → 비활성
+    - 긍정어 아님 / 직전 AI 제안 없음 / LLM 실패 → (current_query, False)
+    """
+    if not settings.use_query_rewriting:
+        return current_query, False
+    if not is_affirmation(current_query) or not recent_messages:
+        return current_query, False
+
+    last_assistant = ""
+    for msg in reversed(recent_messages):
+        if _field(msg, "role") == "assistant":
+            last_assistant = _field(msg, "content")
+            break
+    # 직전 AI가 '이어서 안내할까요?'식 제안을 했을 때만 동작 (오발동 방지)
+    if not last_assistant or not _OFFER_PATTERN.search(last_assistant):
+        return current_query, False
+
+    system = "질문 생성기입니다. 질문 하나만 출력하세요. 설명 없이."
+    user = (
+        "직전 AI 답변이 사용자에게 '이어서 안내해 드릴까요?'라고 제안했고,\n"
+        "사용자가 동의했습니다. 그 제안한 주제를 사용자가 직접 묻는 것처럼\n"
+        "독립적인 한국어 질문 하나로 만들어주세요. 질문 하나만 출력하세요.\n\n"
+        f"직전 AI 답변:\n{last_assistant[:600]}\n\n"
+        f"사용자 동의: {current_query}"
+    )
+
+    try:
+        rewritten = _call_llm(db, system=system, user=user)
+    except Exception as exc:
+        logger.warning("[AFFIRM_REWRITE] LLM 호출 실패: %s", exc)
+        return current_query, False
+
+    if not rewritten:
+        return current_query, False
+    rewritten = rewritten.strip().strip('"').strip()
+    if len(rewritten) < 4 or len(rewritten) > 100:
+        return current_query, False
+
+    logger.info("[AFFIRM_REWRITE] '%s' → '%s'", current_query, rewritten[:50])
+    return rewritten, True
+
+
 # ── LLM 호출 헬퍼 — answer_generation_service 공유 ──────────────────────────
 
 

@@ -1612,6 +1612,25 @@ def run_final_chat_pipeline(
     user_turn_count = count_user_messages_in_session(db, session_id=str(session.id)) if session is not None else 0
     recent_messages = list_recent_session_messages(db, session_id=str(session.id), limit=8) if session is not None else []
 
+    # ── 긍정 답변("네") → 직전 AI 제안 이어받기 ──────────────────────────────
+    # "네/응/알려줘" 같은 동의가 직전 '…안내해 드릴까요?' 제안을 가리키면, 그 제안 주제를
+    # 독립 질문으로 복원해 body.question을 치환한다. 이후 분류기·검색·프롬프트가
+    # 실제 질문을 보고 정상 답변하게 된다 (일반 질문엔 영향 없음).
+    if recent_messages:
+        try:
+            from app.services.chat.query_rewriter_service import resolve_affirmation_followup  # noqa: PLC0415
+            _affirm_q, _affirmed = resolve_affirmation_followup(
+                current_query=body.question,
+                recent_messages=recent_messages,
+                db=db,
+            )
+            if _affirmed:
+                print(f"[AFFIRM_REWRITE] '{body.question}' → '{_affirm_q[:40]}'", flush=True)
+                body.question = _affirm_q
+                normalized_query = normalize_query(_affirm_q)
+        except Exception as _af_exc:
+            logger.warning("[AFFIRM_REWRITE] skipped: %s", _af_exc)
+
     # ── 시맨틱 답변 캐시 조회 (USE_ANSWER_CACHE=true 일 때만) ──────────────────
     # 1턴 + outcome=answered 의 chatbot+question 조합만 캐시. TTL 내 동일 질문 재시도 시
     # LLM/RAG 전체 우회 → ~13초 → ~50ms. 무효화는 TTL만 사용(지식/FAQ 변경 시 stale 가능).
