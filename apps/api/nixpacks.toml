@@ -1,8 +1,10 @@
 [phases.setup]
 aptPkgs = ["poppler-utils", "tesseract-ocr", "tesseract-ocr-eng", "tesseract-ocr-kor"]
 
-# Playwright용 Chromium + 시스템 라이브러리 설치 (install 단계 이후 자동 실행).
-# USE_PLAYWRIGHT_FETCH=true 일 때 JS 챌린지·렌더링 사이트 크롤에 사용.
-# 실패해도 배포가 깨지지 않게 '|| true' — 미설치 시 Playwright tier만 비활성(무회귀).
-[phases.build]
-cmds = ["python -m playwright install --with-deps chromium || true"]
+# Playwright Chromium 브라우저는 이미지에 굽지 않는다 (의도적).
+# 브라우저 바이너리(Chromium ~177MB + Headless Shell ~114MB) + X11/mesa apt 의존성(~300MB)이
+# 이미지를 ~600MB 키워, 단일 서버에서 'exporting layers' 단계 디스크 풀로 배포가 실패했음.
+# USE_PLAYWRIGHT_FETCH 기본값이 false라 평시엔 사용되지 않으므로 이미지에서 제외.
+# 파이썬 playwright 패키지(pyproject)와 _try_playwright_fetch 코드는 유지 —
+# 브라우저 미설치 시 launch 실패→None 반환으로 무회귀.
+# 진짜 JS차단 사이트가 필요해지면 별도 워커 이미지에서만 'playwright install chromium' 실행.
