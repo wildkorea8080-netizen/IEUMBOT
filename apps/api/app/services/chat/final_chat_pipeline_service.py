@@ -429,8 +429,10 @@ def _rule_based_follow_up(
     """기존 키워드 규칙 기반 follow-up 생성. LLM fallback 시 사용."""
     normalized = _normalize_text(question)
     answer_context = _normalize_text(answer_text)
-    source_context = _candidate_text(candidates)
-    context_text = f"{normalized} {answer_context} {source_context}"
+    # 추천 질문 주제 판단은 질문+답변 기준만 사용한다.
+    # 검색된 청크 텍스트(source)를 섞으면 "교육" 같은 흔한 단어 하나가
+    # 전혀 다른 주제(예: 퇴직연금 질문 → 교육 신청 추천)를 유발하므로 제외.
+    context_text = f"{normalized} {answer_context}"
 
     if "융자" in context_text:
         return _dedupe_three(
