@@ -1189,7 +1189,19 @@ export class IeumWidgetApp {
             }
           };
 
-          thumbUp.addEventListener("click", () => { void handleFeedback(1); });
+          thumbUp.addEventListener("click", () => {
+            // 👍 = "네, 이어서 안내해줘": 직전 답변에 이어갈 제안(추천 질문)이 있으면
+            // "네"를 전송해 백엔드가 제안한 주제를 이어서 답변하게 한다(타이핑 "네"와 동일).
+            // 긍정 피드백도 함께 기록한다. 제안이 없으면 기존 피드백 동작만 수행.
+            const hasFollowUp = !!(message.followUpQuestions && message.followUpQuestions.length > 0);
+            if (hasFollowUp) {
+              if (message.id) void this.api.sendFeedback(message.id, 1).catch(() => {});
+              this.input.value = "네";
+              void this.sendCurrentInput();
+            } else {
+              void handleFeedback(1);
+            }
+          });
           thumbDown.addEventListener("click", () => { void handleFeedback(-1); });
 
           feedbackRow.appendChild(thumbUp);
