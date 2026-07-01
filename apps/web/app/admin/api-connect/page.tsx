@@ -27,6 +27,13 @@ type ApiEndpointItem = {
 
 type ListResponse = { items: ApiEndpointItem[]; total: number };
 
+type ApiTestResult = {
+  success: boolean;
+  resultText: string | null;
+  error: string | null;
+  rawPreview: string | null;
+};
+
 type ActiveTab = "header" | "param" | "ai" | null;
 
 const DEFAULT_FORM = {
@@ -53,15 +60,33 @@ function formatDate(iso: string) {
 
 // ── 모달 ──────────────────────────────────────────────────────────────────────
 
-function AddModal({ open, onClose, chatbotId, onSaved }: {
-  open: boolean; onClose: () => void; chatbotId: string; onSaved: () => void;
+function AddModal({ open, onClose, chatbotId, editItem, onSaved }: {
+  open: boolean; onClose: () => void; chatbotId: string; editItem: ApiEndpointItem | null; onSaved: () => void;
 }) {
   const [form, setForm] = useState(DEFAULT_FORM);
   const [activeTab, setActiveTab] = useState<ActiveTab>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => { if (open) { setForm(DEFAULT_FORM); setActiveTab(null); setError(null); } }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    if (editItem) {
+      setForm({
+        ...DEFAULT_FORM,
+        name: editItem.name,
+        triggerQuestion: editItem.intentKeywords[0] ?? "",
+        endpointUrl: editItem.endpointUrl,
+        method: editItem.method === "POST" ? "POST" : "GET",
+        headers: { ...editItem.headers },
+        params: { ...editItem.params },
+        aiGuidance: editItem.responseTemplate ?? "",
+      });
+    } else {
+      setForm(DEFAULT_FORM);
+    }
+    setActiveTab(null);
+    setError(null);
+  }, [open, editItem]);
 
   const addHeader = () => {
     if (!form.headerKey.trim()) return;
@@ -78,22 +103,27 @@ function AddModal({ open, onClose, chatbotId, onSaved }: {
     }
     setIsSaving(true); setError(null);
     try {
-      await apiClient.request<ApiEndpointItem>("/admin/api-endpoints", {
-        method: "POST",
-        body: {
-          chatbotId,
-          name: form.name.trim(),
-          endpointUrl: form.endpointUrl.trim(),
-          method: form.method,
-          headers: form.headers,
-          params: form.params,
-          intentKeywords: [form.triggerQuestion.trim()],
-          responseType: "text",
-          responseTemplate: form.aiGuidance.trim() || null,
-          cacheSeconds: 60,
-          isEnabled: true,
-        },
-      });
+      const payload = {
+        name: form.name.trim(),
+        endpointUrl: form.endpointUrl.trim(),
+        method: form.method,
+        headers: form.headers,
+        params: form.params,
+        intentKeywords: [form.triggerQuestion.trim()],
+        responseType: "text",
+        responseTemplate: form.aiGuidance.trim() || null,
+      };
+      if (editItem) {
+        await apiClient.request<ApiEndpointItem>(`/admin/api-endpoints/${editItem.id}`, {
+          method: "PATCH",
+          body: payload,
+        });
+      } else {
+        await apiClient.request<ApiEndpointItem>("/admin/api-endpoints", {
+          method: "POST",
+          body: { chatbotId, ...payload, cacheSeconds: 60, isEnabled: true },
+        });
+      }
       onSaved(); onClose();
     } catch (e) { setError(errMsg(e)); }
     finally { setIsSaving(false); }
@@ -106,7 +136,7 @@ function AddModal({ open, onClose, chatbotId, onSaved }: {
       <div style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: 560, padding: "32px", boxShadow: "0 20px 60px rgba(0,0,0,.18)", maxHeight: "90vh", overflowY: "auto" }}>
         {/* 헤더 */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28 }}>
-          <h2 style={{ fontSize: 20, fontWeight: 700, color: "#111827" }}>새 연동 규칙 추가</h2>
+          <h2 style={{ fontSize: 20, fontWeight: 700, color: "#111827" }}>{editItem ? "연동 규칙 수정" : "새 연동 규칙 추가"}</h2>
           <button type="button" onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#9ca3af" }}>
             <X style={{ width: 20, height: 20 }} />
           </button>
@@ -263,7 +293,7 @@ function AddModal({ open, onClose, chatbotId, onSaved }: {
               cursor: (isSaving || !form.name.trim() || !form.endpointUrl.trim() || !form.triggerQuestion.trim()) ? "not-allowed" : "pointer",
               display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
             }}>
-            {isSaving ? <><Loader2 style={{ width: 14, height: 14, animation: "spin 1s linear infinite" }} />저장 중...</> : "규칙 저장"}
+            {isSaving ? <><Loader2 style={{ width: 14, height: 14, animation: "spin 1s linear infinite" }} />저장 중...</> : (editItem ? "수정 저장" : "규칙 저장")}
           </button>
         </div>
       </div>
@@ -279,6 +309,9 @@ export default function ApiConnectPage() {
   const [items, setItems] = useState<ApiEndpointItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editItem, setEditItem] = useState<ApiEndpointItem | null>(null);
+  const [testingId, setTestingId] = useState<string | null>(null);
+  const [testResult, setTestResult] = useState<{ name: string; ok: boolean; msg: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -318,6 +351,27 @@ export default function ApiConnectPage() {
     } catch (e) { setError(errMsg(e)); }
   }
 
+  async function testEndpoint(item: ApiEndpointItem) {
+    setTestingId(item.id);
+    setTestResult(null);
+    setError(null);
+    try {
+      const res = await apiClient.request<ApiTestResult>(`/admin/api-endpoints/${item.id}/test`, { method: "POST" });
+      if (res.success) {
+        setTestResult({ name: item.name, ok: true, msg: res.rawPreview?.trim() || res.resultText?.trim() || "정상 응답을 받았습니다." });
+      } else {
+        setTestResult({ name: item.name, ok: false, msg: res.error || "API 호출 실패 또는 빈 응답입니다." });
+      }
+    } catch (e) {
+      setTestResult({ name: item.name, ok: false, msg: errMsg(e) });
+    } finally {
+      setTestingId(null);
+    }
+  }
+
+  function openCreate() { setEditItem(null); setError(null); setIsModalOpen(true); }
+  function openEdit(item: ApiEndpointItem) { setEditItem(item); setError(null); setIsModalOpen(true); }
+
   const triggerLabel = (item: ApiEndpointItem) =>
     item.intentKeywords[0] ?? "-";
 
@@ -343,6 +397,26 @@ export default function ApiConnectPage() {
         <p style={{ fontSize: 13, color: "#dc2626", padding: "8px 12px", background: "#fef2f2", borderRadius: 8, border: "1px solid #fecaca" }}>{error}</p>
       )}
 
+      {testResult && (
+        <div style={{
+          fontSize: 13, padding: "10px 14px", borderRadius: 8,
+          background: testResult.ok ? "#f0fdf4" : "#fef2f2",
+          border: `1px solid ${testResult.ok ? "#bbf7d0" : "#fecaca"}`,
+          color: testResult.ok ? "#166534" : "#dc2626",
+          display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12,
+        }}>
+          <div style={{ minWidth: 0 }}>
+            <strong>[{testResult.name}] 테스트 {testResult.ok ? "성공" : "실패"}</strong>
+            <div style={{ marginTop: 4, whiteSpace: "pre-wrap", wordBreak: "break-all", fontFamily: testResult.ok ? "monospace" : "inherit", color: testResult.ok ? "#334155" : "#dc2626" }}>
+              {testResult.ok ? `응답 미리보기: ${testResult.msg}` : testResult.msg}
+            </div>
+          </div>
+          <button type="button" onClick={() => setTestResult(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "#9ca3af", flexShrink: 0 }}>
+            <X style={{ width: 16, height: 16 }} />
+          </button>
+        </div>
+      )}
+
       {/* API 연결 카드 */}
       <div className="bg-white rounded-xl border border-neutral-200" style={{ overflow: "hidden" }}>
         {/* 카드 헤더 */}
@@ -355,7 +429,7 @@ export default function ApiConnectPage() {
           </div>
           <button
             type="button"
-            onClick={() => { setError(null); setIsModalOpen(true); }}
+            onClick={openCreate}
             style={{
               display: "inline-flex", alignItems: "center", gap: 6,
               padding: "8px 16px", border: "1px solid #e5e7eb", borderRadius: 8,
@@ -398,10 +472,21 @@ export default function ApiConnectPage() {
                 </td>
                 <td style={{ padding: "14px 16px", color: "#9ca3af", fontSize: 12 }}>{formatDate(item.createdAt)}</td>
                 <td style={{ padding: "14px 16px" }}>
-                  <button type="button" onClick={() => void remove(item.id)}
-                    style={{ background: "none", border: "none", cursor: "pointer", color: "#d1d5db", padding: 4 }}>
-                    <Trash2 style={{ width: 15, height: 15 }} />
-                  </button>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <button type="button" onClick={() => void testEndpoint(item)} disabled={testingId === item.id}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "5px 10px", border: "1px solid #e5e7eb", borderRadius: 6, background: "#fff", fontSize: 12, color: "#374151", cursor: testingId === item.id ? "wait" : "pointer" }}>
+                      {testingId === item.id ? <Loader2 style={{ width: 12, height: 12, animation: "spin 1s linear infinite" }} /> : null}
+                      테스트
+                    </button>
+                    <button type="button" onClick={() => openEdit(item)}
+                      style={{ padding: "5px 10px", border: "1px solid #e5e7eb", borderRadius: 6, background: "#fff", fontSize: 12, color: "#374151", cursor: "pointer" }}>
+                      수정
+                    </button>
+                    <button type="button" onClick={() => void remove(item.id)} title="삭제"
+                      style={{ background: "none", border: "none", cursor: "pointer", color: "#d1d5db", padding: 4 }}>
+                      <Trash2 style={{ width: 15, height: 15 }} />
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -437,9 +522,10 @@ export default function ApiConnectPage() {
       {/* 추가 모달 */}
       <AddModal
         open={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
+        onClose={() => { setIsModalOpen(false); setEditItem(null); }}
         chatbotId={chatbotId}
-        onSaved={() => { setToast("API 연동이 추가되었습니다."); void load(); }}
+        editItem={editItem}
+        onSaved={() => { setToast(editItem ? "API 연동이 수정되었습니다." : "API 연동이 추가되었습니다."); void load(); }}
       />
     </div>
   );
