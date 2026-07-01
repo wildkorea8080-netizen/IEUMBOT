@@ -45,8 +45,6 @@ def _build_policy_instruction(settings: AnswerSettings) -> list[str]:
         "근거가 일부만 있으면 확인 가능한 범위와 추가 확인이 필요한 범위를 분리해 말하세요.",
         "답변 끝에는 '원하시면 신청 방법도 이어서 안내해 드릴까요?'처럼 사용자가 다음으로 물어볼 만한 한 가지 선택지를 자연스럽게 제안하세요.",
     ]
-    if settings.answer_policy.require_citations:
-        lines.append("주요 사실 뒤에는 [S1], [S2] 형식으로 출처를 표시하세요.")
     if settings.answer_policy.disallow_definitive_claims:
         lines.append("'무조건', '반드시', '100%' 같은 단정 표현은 피하고, 조건과 예외를 함께 안내하세요.")
     if settings.answer_policy.disallow_outcome_prediction:
@@ -284,9 +282,9 @@ def build_answer_prompt(
         "교육 일정, 자격요건, 신청 기간처럼 근거에 정확한 값이 없으면 임의로 만들지 말고 공식 공지 확인이 필요하다고 말하세요.\n"
         "근거 본문에 의미를 알 수 없는 깨진 문자·기호 조각(한글과 무관한 영문·숫자·기호가 어지럽게 뒤섞인 부분 등)이 있으면 "
         "그대로 옮기지 말고, 명확히 읽히는 정보(전화번호·이메일·날짜·자격요건 등)만 정제해 제시하세요. 근거 원문을 통째로 복사하지 마세요.\n"
-        "답변은 한 문단으로 늘어놓지 말고, 항목마다 줄바꿈으로 구분해 읽기 쉽게 작성하세요.\n\n"
+        "답변은 한 문단으로 늘어놓지 말고, 항목마다 줄바꿈으로 구분해 읽기 쉽게 작성하세요.\n"
+        "본문에 [S1], [S2] 같은 출처 번호 표기는 넣지 마세요 — 출처는 답변과 별도로 화면에 자동 표시됩니다.\n\n"
         + "\n".join(source_lines)
-        + "\n출처 표시는 [S번호] 형식을 사용하세요."
     )
 
     return {"systemPrompt": system_prompt, "userPrompt": user_prompt}

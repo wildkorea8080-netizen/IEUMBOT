@@ -1052,7 +1052,6 @@ def _extract_contact_answer_from_candidates(
     *,
     question: str,
     candidates: list[dict[str, Any]],
-    citation_display_mode: str,
 ) -> str | None:
     if not _is_contact_question(question):
         return None
@@ -1086,9 +1085,8 @@ def _extract_contact_answer_from_candidates(
             break
 
     result_lines: list[str] = []
-    for source_index, line in unique_items:
-        citation = "" if citation_display_mode == "hidden" else f" [S{source_index}]"
-        result_lines.append(f"- {line}{citation}")
+    for _source_index, line in unique_items:
+        result_lines.append(f"- {line}")
 
     return "담당자 연락처는 다음 근거에서 확인됩니다.\n" + "\n".join(result_lines)
 
@@ -1920,7 +1918,6 @@ def run_final_chat_pipeline(
     direct_contact_answer = _extract_contact_answer_from_candidates(
         question=body.question,
         candidates=prompt_candidates,
-        citation_display_mode=answer_settings.answer_format.citation_display_mode,
     )
 
     answer_text = ""
