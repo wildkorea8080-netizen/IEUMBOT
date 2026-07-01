@@ -175,6 +175,10 @@ function asCitationArray(value: unknown): ChatCitation[] {
   return Array.isArray(value) ? (value as ChatCitation[]) : [];
 }
 
+function asConditionalActionArray(value: unknown): ConditionalAction[] {
+  return Array.isArray(value) ? (value as ConditionalAction[]) : [];
+}
+
 function asStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
@@ -1402,6 +1406,7 @@ export class IeumWidgetApp {
     let finalOutcome = "answered";
     let finalCitations: ChatCitation[] = [];
     let finalFollowUps: string[] = [];
+    let finalConditionalActions: ConditionalAction[] = [];
     let finalText = "";
     let receivedVisiblePayload = false;
 
@@ -1444,6 +1449,11 @@ export class IeumWidgetApp {
         this.updateMessage(draftMessageId, { followUpQuestions: finalFollowUps });
         return;
       }
+      if (event.event === "conditional_actions") {
+        finalConditionalActions = asConditionalActionArray(data.items);
+        this.updateMessage(draftMessageId, { conditionalActions: finalConditionalActions });
+        return;
+      }
       if (event.event === "structured_response") {
         this.updateMessage(draftMessageId, { structuredResponse: data as unknown as StructuredResponse });
         return;
@@ -1483,6 +1493,7 @@ export class IeumWidgetApp {
           outcome: finalOutcome,
           citations: finalCitations,
           followUpQuestions: finalFollowUps,
+          conditionalActions: finalConditionalActions,
         });
       }
       return true;
@@ -1493,6 +1504,7 @@ export class IeumWidgetApp {
           outcome: finalOutcome,
           citations: finalCitations,
           followUpQuestions: finalFollowUps,
+          conditionalActions: finalConditionalActions,
         });
         this.lastFailedQuestion = question;
         return true;
