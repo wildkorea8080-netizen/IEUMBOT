@@ -421,6 +421,12 @@ function buildScopedStyles(primaryGradient: string): string {
   transition:background .15s;
 }
 .ieum-header-button:hover { background:rgba(255,255,255,.28); }
+/* ── 데스크탑 드래그 이동 (헤더를 잡고 창을 옮길 수 있음) ── */
+.ieum-panel.dragging { transition:none; }
+@media (min-width: 641px) {
+  .ieum-header { cursor: move; }
+  .ieum-header-actions { cursor: default; }
+}
 /* ── 메시지 영역 ── */
 .ieum-messages {
   flex:1; padding:16px 14px; background:#fff;
@@ -844,6 +850,7 @@ export class IeumWidgetApp {
     });
     minimizeButton.addEventListener("click", () => this.setOpen(false));
     closeButton.addEventListener("click", () => this.setOpen(false));
+    this.bindPanelDrag(header);
     this.sendButton.addEventListener("click", () => void this.sendCurrentInput());
     this.input.addEventListener("keydown", (event: KeyboardEvent) => {
       if (event.key === "Enter" && !event.shiftKey) {
@@ -855,6 +862,66 @@ export class IeumWidgetApp {
     this.ensureInitialMessage();
     void this.loadConfig();
     if (this.options.openOnLoad) this.setOpen(true);
+  }
+
+  // 헤더를 드래그해 패널을 옮길 수 있게 한다 (데스크탑 전용, 640px 이하 모바일 레이아웃은 제외).
+  // transform은 열림/닫힘 애니메이션 전용으로 남겨두고, 위치는 left/top(position:fixed)로만 다뤄
+  // 두 가지가 서로 간섭하지 않게 한다.
+  private bindPanelDrag(header: HTMLElement) {
+    let dragging = false;
+    let startX = 0;
+    let startY = 0;
+    let startLeft = 0;
+    let startTop = 0;
+
+    const onMouseMove = (event: MouseEvent) => {
+      if (!dragging) return;
+      const rect = this.panel.getBoundingClientRect();
+      const margin = 40;
+      const nextLeft = Math.min(
+        Math.max(startLeft + (event.clientX - startX), margin - rect.width),
+        window.innerWidth - margin,
+      );
+      const nextTop = Math.min(
+        Math.max(startTop + (event.clientY - startY), 0),
+        window.innerHeight - margin,
+      );
+      this.panel.style.left = `${nextLeft}px`;
+      this.panel.style.top = `${nextTop}px`;
+    };
+
+    const onMouseUp = () => {
+      if (!dragging) return;
+      dragging = false;
+      this.panel.classList.remove("dragging");
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+    };
+
+    header.addEventListener("mousedown", (event: MouseEvent) => {
+      if (event.button !== 0) return;
+      if (window.innerWidth <= 640) return; // 모바일: 전체화면 레이아웃 유지
+      if ((event.target as HTMLElement).closest(".ieum-header-button")) return;
+
+      const rect = this.panel.getBoundingClientRect();
+      dragging = true;
+      startX = event.clientX;
+      startY = event.clientY;
+      startLeft = rect.left;
+      startTop = rect.top;
+
+      // right/bottom 기반 배치를 left/top(뷰포트 고정)으로 전환 — 현재 렌더 위치 그대로 이어받음.
+      this.panel.style.position = "fixed";
+      this.panel.style.right = "auto";
+      this.panel.style.bottom = "auto";
+      this.panel.style.left = `${startLeft}px`;
+      this.panel.style.top = `${startTop}px`;
+      this.panel.classList.add("dragging");
+
+      document.addEventListener("mousemove", onMouseMove);
+      document.addEventListener("mouseup", onMouseUp);
+      event.preventDefault();
+    });
   }
 
   private ensureInitialMessage() {
