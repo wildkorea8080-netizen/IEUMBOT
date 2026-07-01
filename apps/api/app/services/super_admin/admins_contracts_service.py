@@ -383,6 +383,40 @@ def disable_admin_service(
     return _to_admin_response(row)
 
 
+def delete_admin_service(
+    db: Session,
+    *,
+    principal: AdminPrincipal,
+    admin_id: str,
+) -> None:
+    admin_id = _validate_uuid_or_404(admin_id, "ADMIN_NOT_FOUND")
+    row = get_admin_by_id(db, admin_id=admin_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="ADMIN_NOT_FOUND")
+    if row.role == SUPER_ADMIN_ROLE:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="SUPER_ADMIN_DELETE_FORBIDDEN")
+    if str(row.id) == principal.admin_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="CANNOT_DELETE_SELF")
+    if row.organization_id is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="ADMIN_ORGANIZATION_SCOPE_REQUIRED")
+
+    organization_id = str(row.organization_id)
+    target_id = str(row.id)
+    create_audit_log(
+        db,
+        organization_id=organization_id,
+        admin_id=principal.admin_id,
+        action="super_admin.admin.delete",
+        target_type="admin",
+        target_id=target_id,
+        result="success",
+        request_id=None,
+        metadata_json={"email": row.email, "name": row.name},
+    )
+    db.delete(row)
+    db.commit()
+
+
 def list_org_contracts_service(
     db: Session,
     *,

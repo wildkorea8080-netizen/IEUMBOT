@@ -52,6 +52,12 @@ export async function disableSuperAdminAdmin(adminId: string): Promise<SuperAdmi
   });
 }
 
+export async function deleteSuperAdminAdmin(adminId: string): Promise<void> {
+  return apiClient.request<void>(`/super-admin/admins/${adminId}`, {
+    method: "DELETE",
+  });
+}
+
 export async function listSuperAdminOrgContracts(
   organizationId: string,
 ): Promise<SuperAdminContractListResponse> {

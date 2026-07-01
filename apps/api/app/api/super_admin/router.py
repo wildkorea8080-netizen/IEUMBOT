@@ -106,6 +106,7 @@ from app.services.notification_service import (
 from app.services.super_admin.admins_contracts_service import (
     create_contract_service,
     create_org_admin_service,
+    delete_admin_service,
     disable_admin_service,
     list_org_admins_service,
     list_org_contracts_service,
@@ -394,6 +395,19 @@ def super_admin_disable_admin(
     db: Session = Depends(get_db_session),
 ) -> SuperAdminOrgAdminResponse:
     return disable_admin_service(
+        db,
+        principal=principal,
+        admin_id=admin_id,
+    )
+
+
+@router.delete("/admins/{admin_id}", status_code=204)
+def super_admin_delete_admin(
+    admin_id: str,
+    principal: AdminPrincipal = Depends(require_super_admin_auth),
+    db: Session = Depends(get_db_session),
+) -> None:
+    delete_admin_service(
         db,
         principal=principal,
         admin_id=admin_id,

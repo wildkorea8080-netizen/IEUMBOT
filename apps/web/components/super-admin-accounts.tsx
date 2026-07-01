@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ApiClientError } from "../lib/api";
 import {
   createSuperAdminOrgAdmin,
+  deleteSuperAdminAdmin,
   disableSuperAdminAdmin,
   listSuperAdminOrgAdmins,
   patchSuperAdminAdmin,
@@ -270,6 +271,17 @@ export function SuperAdminAccounts() {
     }
   }
 
+  async function deleteAccount(row: AccountRow) {
+    if (!window.confirm(`${row.name} (${row.email}) 계정을 완전히 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`)) return;
+    try {
+      await deleteSuperAdminAdmin(row.id);
+      setRows((current) => current.filter((item) => item.id !== row.id));
+      setMessage("계정이 삭제되었습니다.");
+    } catch (deleteError) {
+      setError(getErrorMessage(deleteError));
+    }
+  }
+
   return (
     <div className="space-y-6">
       <PagePanel title="계정 관리" description="기관 관리자 계정을 조회하고 관리합니다.">
@@ -349,6 +361,9 @@ export function SuperAdminAccounts() {
                         </button>
                         <button type="button" onClick={() => void disableAccount(row)} className="rounded-lg border border-rose-300 px-3 py-2 text-xs text-rose-700">
                           비활성화
+                        </button>
+                        <button type="button" onClick={() => void deleteAccount(row)} className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700">
+                          삭제
                         </button>
                       </div>
                     </td>
