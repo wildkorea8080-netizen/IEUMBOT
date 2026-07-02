@@ -32,6 +32,7 @@ export type WidgetPublicConfig = {
     description?: string | null;
   };
   starterQuestions: string[];
+  starterQuestionStyle?: string | null;
   launcherHoverMessage?: string | null;
   quickActions: WidgetQuickAction[];
   operatingHours: {

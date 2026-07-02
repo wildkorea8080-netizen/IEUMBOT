@@ -179,6 +179,20 @@ function asConditionalActionArray(value: unknown): ConditionalAction[] {
   return Array.isArray(value) ? (value as ConditionalAction[]) : [];
 }
 
+// 빠른질문 문자열에서 선행 이모지(아이콘)를 분리한다. 예: "📞 고객센터 안내" → {icon:"📞", label:"고객센터 안내"}
+// 첫 토큰에 영문/숫자/한글이 없고 이모지류 문자가 있으면 아이콘으로 간주.
+function splitStarterEmoji(text: string): { icon: string; label: string; raw: string } {
+  const raw = text.trim();
+  const spaceIdx = raw.search(/\s/);
+  if (spaceIdx > 0) {
+    const first = raw.slice(0, spaceIdx);
+    if (!/[0-9A-Za-z가-힣]/.test(first) && /[←-⯿️‍]|[\u{1F000}-\u{1FAFF}]/u.test(first)) {
+      return { icon: first, label: raw.slice(spaceIdx + 1).trim(), raw };
+    }
+  }
+  return { icon: "", label: raw, raw };
+}
+
 function asStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
@@ -455,6 +469,16 @@ function buildScopedStyles(primaryGradient: string): string {
   display:block;
 }
 .ieum-starter-question:hover { border-color:#93c5fd; background:#f0f7ff; }
+/* ── 배너형 빠른질문 그리드 (이모지 아이콘 카드) ── */
+.ieum-starter-questions.ieum-starter-banner { display:grid; gap:8px; flex-direction:unset; }
+.ieum-starter-question.ieum-starter-card {
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:6px; text-align:center; padding:16px 10px; min-height:76px; width:auto;
+  border-radius:14px; background:#f8fafc; border:1px solid #e5e7eb;
+}
+.ieum-starter-question.ieum-starter-card:hover { border-color:${pc}; background:${pcA08}; }
+.ieum-starter-card-icon { font-size:24px; line-height:1; }
+.ieum-starter-card-label { font-size:12.5px; font-weight:600; color:#1f2937; line-height:1.35; word-break:keep-all; }
 .ieum-quick-action {
   border:1px solid #dbeafe; border-radius:9999px;
   background:#eff6ff; color:#1d4ed8; padding:7px 14px;
@@ -1039,18 +1063,50 @@ export class IeumWidgetApp {
 
   private renderStarterQuestions() {
     this.starterQuestionsWrap.innerHTML = "";
-    const items = this.config?.starterQuestions?.filter((item) => item.trim()).slice(0, 4) ?? [];
+    const items = this.config?.starterQuestions?.filter((item) => item.trim()).slice(0, 6) ?? [];
     if (items.length === 0) {
       this.starterQuestionsWrap.style.display = "none";
       return;
     }
-    this.starterQuestionsWrap.style.display = "flex";
-    for (const question of items) {
+
+    const parsed = items.map((q) => splitStarterEmoji(q));
+    // 스타일 결정: config.starterQuestionStyle("banner"/"list")가 있으면 우선,
+    // 없으면 이모지가 하나라도 있으면 배너 그리드로 자동 전환.
+    const configuredStyle = this.config?.starterQuestionStyle;
+    const useBanner =
+      configuredStyle === "banner" ||
+      (configuredStyle !== "list" && parsed.some((p) => p.icon));
+
+    this.starterQuestionsWrap.classList.toggle("ieum-starter-banner", useBanner);
+    if (useBanner) {
+      const n = parsed.length;
+      const cols = n <= 3 ? n : n === 4 ? 2 : 3; // 4개=2x2, 5~6개=3열
+      this.starterQuestionsWrap.style.display = "grid";
+      this.starterQuestionsWrap.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+    } else {
+      this.starterQuestionsWrap.style.display = "flex";
+      this.starterQuestionsWrap.style.gridTemplateColumns = "";
+    }
+
+    for (const { icon, label, raw } of parsed) {
       const button = createElement(document, "button", "ieum-starter-question");
       button.type = "button";
-      button.textContent = question;
+      const sendText = label || raw;
+      if (useBanner) {
+        button.classList.add("ieum-starter-card");
+        if (icon) {
+          const iconSpan = createElement(document, "span", "ieum-starter-card-icon");
+          iconSpan.textContent = icon;
+          button.appendChild(iconSpan);
+        }
+        const labelSpan = createElement(document, "span", "ieum-starter-card-label");
+        labelSpan.textContent = label;
+        button.appendChild(labelSpan);
+      } else {
+        button.textContent = raw;
+      }
       button.addEventListener("click", () => {
-        this.input.value = question;
+        this.input.value = sendText;
         void this.sendCurrentInput();
       });
       this.starterQuestionsWrap.appendChild(button);
