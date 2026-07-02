@@ -1681,9 +1681,21 @@ def run_final_chat_pipeline(
     classifier_model_provider: str | None = None
     classifier_model_name: str | None = None
 
+    # API 연동 트리거 우선: 관리자가 명시 등록한 API 트리거가 질문과 매칭되면
+    # 의도분류기(out_of_scope/자연어 조기반환)와 FAQ 조기반환을 건너뛰고 RAG+API 경로로
+    # 진행한다. 분류기가 "범위 밖"으로 판단해도 관리자 설정 트리거는 항상 발동되게 함.
+    force_api = False
+    try:
+        from app.services.chat.api_connector_service import should_use_api as _should_use_api  # noqa: PLC0415
+        if _should_use_api(body.question, str(chatbot.id), db):
+            force_api = True
+            logger.info("[API_CONNECTOR] 트리거 매칭 → 분류기/FAQ 조기반환 우회")
+    except Exception as _fa_exc:
+        logger.warning("[API_CONNECTOR] 트리거 우선 판정 실패: %s", _fa_exc)
+
     business_signal_detected = _has_business_signal(_normalize_text(body.question))
     _t0 = time.perf_counter()
-    if not business_signal_detected:
+    if not business_signal_detected and not force_api:
         classification: IntentClassification = classify_intent(
             db,
             organization_id=str(chatbot.organization_id),
@@ -1811,7 +1823,7 @@ def run_final_chat_pipeline(
     except Exception as _faq_exc:
         logger.warning("[FAQ] search skipped: %s", _faq_exc)
 
-    if faq_match is not None:
+    if faq_match is not None and not force_api:
         logger.info("[FAQ] matched score=%.3f → early return", faq_match["score"])
         return _persist_immediate_response(
             db,

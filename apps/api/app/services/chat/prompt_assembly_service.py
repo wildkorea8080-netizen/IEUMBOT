@@ -272,13 +272,21 @@ def build_answer_prompt(
     history_block = _build_history_block(recent_messages)
     entity_block = format_entities_for_prompt(session_entities)
 
+    # 실시간 API 데이터가 있으면 그것도 유효 근거로 명시 (그렇지 않으면 "아래 근거만 사용"
+    # 지시 때문에 시스템의 [실시간 데이터]를 LLM이 무시할 수 있음).
+    evidence_instruction = (
+        "위 [실시간 데이터]와 아래 근거를 사용해 질문에 직접 답하세요. "
+        "실시간 데이터가 질문과 직접 관련되면 그 내용을 우선 활용하세요.\n"
+        if api_context and api_context.strip()
+        else "아래 근거만 사용해 질문에 직접 답하세요.\n"
+    )
     user_prompt = (
         history_block
         + entity_block
         + f"사용자 질문: {question}\n"
         f"정규화 질문: {normalized_query}\n\n"
-        "아래 근거만 사용해 질문에 직접 답하세요.\n"
-        "기관 소개나 사업 안내 질문이면 확인되는 사업명, 대상, 제공 내용, 참여/문의 방법을 구체적으로 정리하세요.\n"
+        + evidence_instruction
+        + "기관 소개나 사업 안내 질문이면 확인되는 사업명, 대상, 제공 내용, 참여/문의 방법을 구체적으로 정리하세요.\n"
         "교육 일정, 자격요건, 신청 기간처럼 근거에 정확한 값이 없으면 임의로 만들지 말고 공식 공지 확인이 필요하다고 말하세요.\n"
         "근거 본문에 의미를 알 수 없는 깨진 문자·기호 조각(한글과 무관한 영문·숫자·기호가 어지럽게 뒤섞인 부분 등)이 있으면 "
         "그대로 옮기지 말고, 명확히 읽히는 정보(전화번호·이메일·날짜·자격요건 등)만 정제해 제시하세요. 근거 원문을 통째로 복사하지 마세요.\n"
