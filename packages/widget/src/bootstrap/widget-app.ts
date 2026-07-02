@@ -1,4 +1,5 @@
 import { WidgetApiClient } from "../api/client";
+import { looksLikeMarkdown, markdownToHtml } from "../utils/markdown";
 import { looksLikeHtml, sanitizeHtml } from "../utils/safeHtml";
 import type {
   ChatCitation,
@@ -80,6 +81,10 @@ function renderMessageText(bubble: HTMLElement, text: string): void {
   if (looksLikeHtml(value)) {
     bubble.classList.add("ieum-bubble-rich");
     bubble.innerHTML = sanitizeHtml(value);
+  } else if (looksLikeMarkdown(value)) {
+    // 마크다운(표·목록·링크·굵게 등) → HTML 변환 후 sanitize
+    bubble.classList.add("ieum-bubble-rich");
+    bubble.innerHTML = sanitizeHtml(markdownToHtml(value));
   } else {
     bubble.classList.remove("ieum-bubble-rich");
     bubble.textContent = value;
