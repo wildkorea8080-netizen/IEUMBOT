@@ -12,6 +12,7 @@ AnswerTemplateMode = Literal["fixed_public_service", "standard_structured"]
 MaxAnswerLengthMode = Literal["short", "medium", "long"]
 CitationDisplayMode = Literal["visible", "compact", "hidden"]
 AfterHoursBehaviorMode = Literal["show_notice", "escalate_only", "allow_limited_answer"]
+PrivacyInputMode = Literal["block", "mask"]
 
 DEFAULT_LOW_EVIDENCE_MESSAGE = (
     "현재 등록된 자료에서는 해당 내용을 확인하기 어렵습니다. "
@@ -38,6 +39,9 @@ class AnswerPolicySettings(ApiSchema):
     require_latest_source_check_warning_when_relevant: bool = True
     fallback_message_when_insufficient_evidence: str = DEFAULT_LOW_EVIDENCE_MESSAGE
     clarification_strategy_mode: ClarificationStrategyMode = "ask_one_question"
+    # 질의 내 개인정보 처리: "mask"=자동 마스킹 후 답변 계속(권장, 공공 특화),
+    # "block"=개인정보 포함 시 답변 차단(기존 동작)
+    privacy_input_mode: PrivacyInputMode = "mask"
 
 
 class AnswerFormatSettings(ApiSchema):

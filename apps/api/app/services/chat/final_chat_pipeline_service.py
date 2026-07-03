@@ -1481,31 +1481,42 @@ def run_final_chat_pipeline(
         logger.exception("[PIPELINE] FAILED early-stage chatbot_id=%s", body.chatbot_id)
         raise
 
-    normalized_query = body.normalized_query or normalize_query(body.question)
     session_token = body.session_token or f"session_{uuid.uuid4().hex[:20]}"
+    # 답변 설정 조기 로드 (개인정보 처리 모드 등 결정에 필요) — 이후 재사용
+    answer_settings = get_effective_answer_settings_for_runtime(
+        db,
+        organization_id=str(chatbot.organization_id),
+        chatbot_id=str(chatbot.id),
+    )
+    # ── 개인정보(PII) 자동 처리 — LLM 전송·트레이스·로그 저장 전에 비식별화 ──
+    privacy_result = detect_and_mask_privacy(body.question)
+    if privacy_result.detected:
+        if answer_settings.answer_policy.privacy_input_mode == "block":
+            session = get_chat_session_by_token(
+                db,
+                organization_id=str(chatbot.organization_id),
+                chatbot_id=str(chatbot.id),
+                session_token=session_token,
+            )
+            return _persist_privacy_block_response(
+                db,
+                body=body,
+                chatbot=chatbot,
+                session=session,
+                session_token=session_token,
+                normalized_query=body.normalized_query or normalize_query(body.question),
+                stream_mode=stream_mode,
+                privacy_result=privacy_result,
+            )
+        # mask 모드: 개인정보를 가린 질의로 이후 전 과정(RAG·LLM·로그) 진행
+        body.question = privacy_result.masked_text
+        body.normalized_query = None
+    normalized_query = body.normalized_query or normalize_query(body.question)
     langfuse_service.start_chat_trace(
         question=body.question,
         chatbot_id=str(chatbot.id),
         session_token=session_token,
     )
-    privacy_result = detect_and_mask_privacy(body.question)
-    if privacy_result.detected:
-        session = get_chat_session_by_token(
-            db,
-            organization_id=str(chatbot.organization_id),
-            chatbot_id=str(chatbot.id),
-            session_token=session_token,
-        )
-        return _persist_privacy_block_response(
-            db,
-            body=body,
-            chatbot=chatbot,
-            session=session,
-            session_token=session_token,
-            normalized_query=normalized_query,
-            stream_mode=stream_mode,
-            privacy_result=privacy_result,
-        )
 
     # ── 보안 분석 (Sprint 3-B) ────────────────────────────────────────────────
     # privacy 체크 통과 후 → 비정상 접근/부적절 발언/부정 감정 탐지
@@ -1668,11 +1679,7 @@ def run_final_chat_pipeline(
         except Exception:
             db.rollback()
     tone_summary = _conversation_tone_summary(question=body.question, recent_messages=recent_messages)
-    answer_settings = get_effective_answer_settings_for_runtime(
-        db,
-        organization_id=str(chatbot.organization_id),
-        chatbot_id=str(chatbot.id),
-    )
+    # answer_settings는 파이프라인 초입(개인정보 처리 전)에서 이미 로드됨 — 재사용
     intent_routing_method = "rag_default"
     detected_intent: str | None = None
     intent_confidence: float | None = None
