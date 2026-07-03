@@ -14,20 +14,34 @@ import {
   uploadAdminWidgetIcon,
 } from "../../../lib/api/admin-operations";
 import type { AdminChatbotItem, AdminWidgetIconAsset, AdminWidgetResponse } from "../../../lib/api/admin-operations-types";
-import { STARTER_ICON_NAMES, StarterIconPreview, starterIconLabel } from "../../../lib/widget/starter-icons";
+import {
+  CURATED_STARTER_EMOJIS,
+  STARTER_ICON_NAMES,
+  StarterIconPreview,
+  starterIconLabel,
+} from "../../../lib/widget/starter-icons";
 
-// 추천 질문 줄 ↔ {아이콘, 텍스트} 파싱/직렬화.
-// 저장 포맷: 아이콘 선택 시 "[name] 질문", 없으면 "질문"(레거시 이모지 접두사도 그대로 통과).
-type StarterRow = { icon: string; text: string };
+// 추천 질문 줄 ↔ {아이콘, 이모지, 텍스트} 파싱/직렬화.
+// 저장 포맷: 아이콘 → "[name] 질문", 이모지 → "🙂 질문", 둘 다 없으면 "질문".
+type StarterRow = { icon: string; emoji: string; text: string };
 function parseStarterRow(line: string): StarterRow {
-  const match = line.match(/^\[([a-zA-Z0-9_-]+)\]\s*(.*)$/);
-  if (match && STARTER_ICON_NAMES.includes(match[1].toLowerCase())) {
-    return { icon: match[1].toLowerCase(), text: match[2] };
+  const token = line.match(/^\[([a-zA-Z0-9_-]+)\]\s*(.*)$/);
+  if (token && STARTER_ICON_NAMES.includes(token[1].toLowerCase())) {
+    return { icon: token[1].toLowerCase(), emoji: "", text: token[2] };
   }
-  return { icon: "", text: line };
+  const spaceIdx = line.search(/\s/);
+  if (spaceIdx > 0) {
+    const first = line.slice(0, spaceIdx);
+    if (!/[0-9A-Za-z가-힣]/.test(first) && /[\u{1F000}-\u{1FAFF}←-⯿☀-➿]/u.test(first)) {
+      return { icon: "", emoji: first, text: line.slice(spaceIdx + 1) };
+    }
+  }
+  return { icon: "", emoji: "", text: line };
 }
 function serializeStarterRow(row: StarterRow): string {
-  return row.icon ? `[${row.icon}] ${row.text}` : row.text;
+  if (row.icon) return `[${row.icon}] ${row.text}`;
+  if (row.emoji) return `${row.emoji} ${row.text}`;
+  return row.text;
 }
 
 const COLOR_PRESETS = [
@@ -239,7 +253,7 @@ export default function WidgetPage() {
     () =>
       starterRows
         .filter((row) => row.text.trim() !== "")
-        .map((row) => serializeStarterRow({ icon: row.icon, text: row.text.trim() })),
+        .map((row) => serializeStarterRow({ ...row, text: row.text.trim() })),
     [starterRows],
   );
   const updateStarterRow = (index: number, patch: Partial<StarterRow>) =>
@@ -910,28 +924,50 @@ export default function WidgetPage() {
                             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-slate-300 text-slate-500 hover:border-blue-400"
                             title="아이콘 선택"
                           >
-                            {row.icon ? <StarterIconPreview name={row.icon} /> : <span className="text-lg leading-none">＋</span>}
+                            {row.icon ? (
+                              <StarterIconPreview name={row.icon} />
+                            ) : row.emoji ? (
+                              <span className="text-lg leading-none">{row.emoji}</span>
+                            ) : (
+                              <span className="text-lg leading-none text-slate-400">＋</span>
+                            )}
                           </button>
                           {openIconPickerRow === index && (
-                            <div className="absolute left-0 top-10 z-20 w-[236px] rounded-lg border border-slate-200 bg-white p-2 shadow-lg">
-                              <div className="grid grid-cols-5 gap-1">
+                            <div className="absolute left-0 top-10 z-20 max-h-[280px] w-[248px] overflow-y-auto rounded-lg border border-slate-200 bg-white p-2 shadow-lg">
+                              <div className="mb-1 flex items-center justify-between px-0.5">
+                                <span className="text-[11px] font-medium text-slate-500">아이콘</span>
                                 <button
                                   type="button"
-                                  onClick={() => { updateStarterRow(index, { icon: "" }); setOpenIconPickerRow(null); }}
-                                  className="flex h-9 w-9 items-center justify-center rounded text-slate-400 hover:bg-slate-100"
-                                  title="아이콘 없음"
+                                  onClick={() => { updateStarterRow(index, { icon: "", emoji: "" }); setOpenIconPickerRow(null); }}
+                                  className="text-[11px] text-slate-400 hover:text-slate-600"
                                 >
-                                  ✕
+                                  없음
                                 </button>
+                              </div>
+                              <div className="grid grid-cols-5 gap-1">
                                 {STARTER_ICON_NAMES.map((name) => (
                                   <button
                                     key={name}
                                     type="button"
-                                    onClick={() => { updateStarterRow(index, { icon: name }); setOpenIconPickerRow(null); }}
+                                    onClick={() => { updateStarterRow(index, { icon: name, emoji: "" }); setOpenIconPickerRow(null); }}
                                     className={`flex h-9 w-9 items-center justify-center rounded hover:bg-blue-50 ${row.icon === name ? "bg-blue-100 text-blue-600" : "text-slate-600"}`}
                                     title={starterIconLabel(name)}
                                   >
                                     <StarterIconPreview name={name} />
+                                  </button>
+                                ))}
+                              </div>
+                              <div className="mb-1 mt-2 px-0.5 text-[11px] font-medium text-slate-500">이모지</div>
+                              <div className="grid grid-cols-8 gap-1">
+                                {CURATED_STARTER_EMOJIS.map((item) => (
+                                  <button
+                                    key={item.emoji}
+                                    type="button"
+                                    onClick={() => { updateStarterRow(index, { icon: "", emoji: item.emoji }); setOpenIconPickerRow(null); }}
+                                    className={`flex h-7 w-7 items-center justify-center rounded text-base hover:bg-blue-50 ${row.emoji === item.emoji ? "bg-blue-100" : ""}`}
+                                    title={item.label}
+                                  >
+                                    {item.emoji}
                                   </button>
                                 ))}
                               </div>
@@ -958,7 +994,7 @@ export default function WidgetPage() {
                   {starterRows.length < 6 && (
                     <button
                       type="button"
-                      onClick={() => setStarterRows((rows) => [...rows, { icon: "", text: "" }])}
+                      onClick={() => setStarterRows((rows) => [...rows, { icon: "", emoji: "", text: "" }])}
                       className="text-xs font-medium text-blue-600 hover:text-blue-700"
                     >
                       + 질문 추가
@@ -1044,7 +1080,7 @@ export default function WidgetPage() {
                       {(() => {
                         const visible = starterRows.filter((row) => row.text.trim() !== "").slice(0, 6);
                         if (visible.length === 0) return null;
-                        if (visible.some((row) => row.icon)) {
+                        if (visible.some((row) => row.icon || row.emoji)) {
                           return (
                             <div className="grid grid-cols-2 gap-2">
                               {visible.map((row, index) => (
@@ -1053,6 +1089,8 @@ export default function WidgetPage() {
                                     <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
                                       <StarterIconPreview name={row.icon} />
                                     </span>
+                                  ) : row.emoji ? (
+                                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-50 text-base">{row.emoji}</span>
                                   ) : null}
                                   <span className="leading-snug">{row.text}</span>
                                 </button>

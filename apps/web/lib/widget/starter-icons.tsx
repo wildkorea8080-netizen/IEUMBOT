@@ -136,6 +136,30 @@ export function starterIconLabel(name: string): string {
   return ICON_LABELS[name] ?? name;
 }
 
+/**
+ * 큐레이션한 무료 이모지 세트(상황별). 유니코드 문자라 저작권 없음 — 사용자 OS
+ * 이모지 폰트(Apple/Segoe/Noto)로 렌더되며 서비스가 폰트를 배포하지 않음.
+ * 위젯은 질문 앞의 이모지 접두사를 그대로 아이콘으로 인식한다.
+ */
+export const CURATED_STARTER_EMOJIS: { emoji: string; label: string }[] = [
+  { emoji: "📋", label: "안내/양식" },
+  { emoji: "📞", label: "전화/상담" },
+  { emoji: "💬", label: "문의/채팅" },
+  { emoji: "🏢", label: "기관/센터" },
+  { emoji: "🔍", label: "검색/조회" },
+  { emoji: "✅", label: "완료/확인" },
+  { emoji: "💡", label: "정보/팁" },
+  { emoji: "💰", label: "비용/요금" },
+  { emoji: "📅", label: "일정/기간" },
+  { emoji: "🙋", label: "신청/문의" },
+  { emoji: "📝", label: "작성/접수" },
+  { emoji: "🔒", label: "보안/개인정보" },
+  { emoji: "📄", label: "문서/자료" },
+  { emoji: "🎓", label: "교육/과정" },
+  { emoji: "🧭", label: "이용안내" },
+  { emoji: "📮", label: "접수/신청" },
+];
+
 export function StarterIconPreview({ name }: { name: string }): ReactElement | null {
   return ICONS[name] ?? null;
 }
