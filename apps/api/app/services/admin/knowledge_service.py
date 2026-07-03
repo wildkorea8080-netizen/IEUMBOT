@@ -3460,6 +3460,70 @@ def _list_web_source_attachment_documents(
     return list(db.execute(stmt).scalars().all())
 
 
+def _deprecate_web_source_documents(
+    db: Session,
+    *,
+    organization_id: str,
+    chatbot_id: str,
+    web_source_id: str,
+) -> int:
+    """웹소스가 크롤로 만든 Document(본문 + 첨부)를 폐기(검색 제외)한다.
+    검색 게이트는 WebSource.status를 보지 않으므로, 웹소스만 비활성화하면
+    청크가 계속 검색·인용된다. 따라서 삭제 시 Document도 함께 폐기해야 한다."""
+    now = datetime.now(UTC)
+    docs: list[Document] = []
+    main_doc = _find_web_source_document(
+        db, organization_id=organization_id, chatbot_id=chatbot_id, web_source_id=web_source_id
+    )
+    if main_doc is not None:
+        docs.append(main_doc)
+    docs.extend(
+        _list_web_source_attachment_documents(
+            db, organization_id=organization_id, chatbot_id=chatbot_id, web_source_id=web_source_id
+        )
+    )
+    for doc in docs:
+        doc.deleted_at = now
+        doc.status = "deprecated"
+    return len(docs)
+
+
+def _reconcile_orphaned_web_documents(db: Session, *, organization_id: str) -> int:
+    """이미 삭제된 웹소스의 잔존 Document를 폐기(검색 제외)한다. idempotent.
+    과거에 삭제된 웹소스의 Document가 active로 남아 계속 인용되던 문제를 자가치유."""
+    deleted_ids = {
+        str(row)
+        for row in db.execute(
+            select(WebSource.id).where(
+                WebSource.organization_id == uuid.UUID(organization_id),
+                WebSource.is_deleted.is_(True),
+            )
+        ).scalars().all()
+    }
+    if not deleted_ids:
+        return 0
+    docs = list(
+        db.execute(
+            select(Document).where(
+                Document.organization_id == uuid.UUID(organization_id),
+                Document.deleted_at.is_(None),
+                Document.metadata_json["web_source_id"].astext.in_(deleted_ids),
+            )
+        ).scalars().all()
+    )
+    now = datetime.now(UTC)
+    for doc in docs:
+        doc.deleted_at = now
+        doc.status = "deprecated"
+    if docs:
+        logger.info(
+            "[WEB_ORPHAN_CLEANUP] organization_id=%s deprecated_docs=%s",
+            organization_id,
+            len(docs),
+        )
+    return len(docs)
+
+
 def _set_job_failed(
     *,
     web_source: WebSource,
@@ -4708,6 +4772,8 @@ def list_knowledge_service(
     organization_id = require_institution_organization_id(principal)
     items: list[KnowledgeItem] = []
     recovered = False
+    # 삭제된 웹소스의 잔존 Document 자가치유(검색·인용에서 즉시 제외)
+    recovered = _reconcile_orphaned_web_documents(db, organization_id=organization_id) > 0 or recovered
     if source_group in {None, "", "file_text"}:
         for doc, version, job in list_document_knowledge_rows(db, organization_id=organization_id):
             recovered = _recover_document_ingest_state(doc, version, job) or recovered
@@ -4997,6 +5063,14 @@ def delete_knowledge_service(
         web_source.is_deleted = True
         web_source.deleted_at = datetime.now(UTC)
         web_source.status = "inactive"
+        # 크롤로 만든 Document(본문 + 첨부)도 폐기 — 안 그러면 삭제 후에도 검색·인용됨.
+        if chatbot_id:
+            _deprecate_web_source_documents(
+                db,
+                organization_id=organization_id,
+                chatbot_id=chatbot_id,
+                web_source_id=str(web_source.id),
+            )
         db.commit()
         if chatbot_id:
             _invalidate_chatbot_answer_cache(chatbot_id)
