@@ -21,27 +21,43 @@ import {
   starterIconLabel,
 } from "../../../lib/widget/starter-icons";
 
-// 추천 질문 줄 ↔ {아이콘, 이모지, 텍스트} 파싱/직렬화.
-// 저장 포맷: 아이콘 → "[name] 질문", 이모지 → "🙂 질문", 둘 다 없으면 "질문".
-type StarterRow = { icon: string; emoji: string; text: string };
+// 추천 질문 줄 ↔ {아이콘, 이모지, 텍스트, 링크} 파싱/직렬화.
+// 저장 포맷: "[name] 질문" / "🙂 질문" / "질문", 링크가 있으면 끝에 " | URL" 추가.
+const STARTER_LINK_RE = /^(https?:\/\/|tel:|mailto:|\/)/i;
+type StarterRow = { icon: string; emoji: string; text: string; link: string };
 function parseStarterRow(line: string): StarterRow {
+  let icon = "";
+  let emoji = "";
+  let text = line;
   const token = line.match(/^\[([a-zA-Z0-9_-]+)\]\s*(.*)$/);
   if (token && STARTER_ICON_NAMES.includes(token[1].toLowerCase())) {
-    return { icon: token[1].toLowerCase(), emoji: "", text: token[2] };
-  }
-  const spaceIdx = line.search(/\s/);
-  if (spaceIdx > 0) {
-    const first = line.slice(0, spaceIdx);
-    if (!/[0-9A-Za-z가-힣]/.test(first) && /[\u{1F000}-\u{1FAFF}←-⯿☀-➿]/u.test(first)) {
-      return { icon: "", emoji: first, text: line.slice(spaceIdx + 1) };
+    icon = token[1].toLowerCase();
+    text = token[2];
+  } else {
+    const spaceIdx = line.search(/\s/);
+    if (spaceIdx > 0) {
+      const first = line.slice(0, spaceIdx);
+      if (!/[0-9A-Za-z가-힣]/.test(first) && /[\u{1F000}-\u{1FAFF}←-⯿☀-➿]/u.test(first)) {
+        emoji = first;
+        text = line.slice(spaceIdx + 1);
+      }
     }
   }
-  return { icon: "", emoji: "", text: line };
+  let link = "";
+  const sepIdx = text.lastIndexOf(" | ");
+  if (sepIdx > 0) {
+    const tail = text.slice(sepIdx + 3).trim();
+    if (STARTER_LINK_RE.test(tail)) {
+      link = tail;
+      text = text.slice(0, sepIdx).trim();
+    }
+  }
+  return { icon, emoji, text, link };
 }
 function serializeStarterRow(row: StarterRow): string {
-  if (row.icon) return `[${row.icon}] ${row.text}`;
-  if (row.emoji) return `${row.emoji} ${row.text}`;
-  return row.text;
+  const prefix = row.icon ? `[${row.icon}] ` : row.emoji ? `${row.emoji} ` : "";
+  const base = `${prefix}${row.text}`;
+  return row.link.trim() ? `${base} | ${row.link.trim()}` : base;
 }
 
 const COLOR_PRESETS = [
@@ -943,7 +959,8 @@ export default function WidgetPage() {
                   </p>
                   <div className="space-y-2">
                     {starterRows.map((row, index) => (
-                      <div key={index} className="flex items-center gap-2">
+                      <div key={index} className="space-y-1.5 rounded-md border border-slate-200 bg-white p-2">
+                        <div className="flex items-center gap-2">
                         <div className="relative">
                           <button
                             type="button"
@@ -1015,13 +1032,20 @@ export default function WidgetPage() {
                         >
                           ✕
                         </button>
+                        </div>
+                        <input
+                          value={row.link}
+                          onChange={(event) => updateStarterRow(index, { link: event.target.value })}
+                          placeholder="🔗 링크 URL (선택) — 예: https://… , tel:1661-2020"
+                          className="w-full rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-700 placeholder:text-slate-400"
+                        />
                       </div>
                     ))}
                   </div>
                   {starterRows.length < 6 && (
                     <button
                       type="button"
-                      onClick={() => setStarterRows((rows) => [...rows, { icon: "", emoji: "", text: "" }])}
+                      onClick={() => setStarterRows((rows) => [...rows, { icon: "", emoji: "", text: "", link: "" }])}
                       className="text-xs font-medium text-blue-600 hover:text-blue-700"
                     >
                       + 질문 추가
@@ -1122,7 +1146,7 @@ export default function WidgetPage() {
                                   ) : row.emoji ? (
                                     <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-50 text-base">{row.emoji}</span>
                                   ) : null}
-                                  <span className="leading-snug">{row.text}</span>
+                                  <span className="leading-snug">{row.text}{row.link ? " ↗" : ""}</span>
                                 </button>
                               ))}
                             </div>
@@ -1132,7 +1156,7 @@ export default function WidgetPage() {
                           <div className="grid gap-2">
                             {visible.slice(0, 4).map((row, index) => (
                               <button key={index} type="button" className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-left text-xs font-medium text-slate-700 shadow-sm">
-                                {row.text}
+                                {row.text}{row.link ? " ↗" : ""}
                               </button>
                             ))}
                           </div>

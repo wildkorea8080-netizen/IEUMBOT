@@ -209,31 +209,47 @@ const STARTER_ICONS: Record<string, string> = {
 };
 
 type StarterIconType = "svg" | "emoji" | "none";
-// 질문 문자열에서 아이콘 접두사 분리: [name] 토큰(내장 SVG) 우선, 없으면 선행 이모지.
+const STARTER_LINK_RE = /^(https?:\/\/|tel:|mailto:|\/)/i;
+// 질문 문자열 파싱: [name] 토큰(내장 SVG) 또는 선행 이모지 → 아이콘, 끝의 " | URL" → 링크.
 function parseStarterItem(text: string): {
   iconType: StarterIconType;
   icon: string;
   label: string;
+  link: string;
   raw: string;
 } {
   const raw = text.trim();
+  let iconType: StarterIconType = "none";
+  let icon = "";
+  let label = raw;
   const tokenMatch = raw.match(/^\[([a-z0-9_-]+)\]\s*(.*)$/i);
   if (tokenMatch && STARTER_ICONS[tokenMatch[1].toLowerCase()]) {
-    return {
-      iconType: "svg",
-      icon: tokenMatch[1].toLowerCase(),
-      label: tokenMatch[2].trim() || raw,
-      raw,
-    };
-  }
-  const spaceIdx = raw.search(/\s/);
-  if (spaceIdx > 0) {
-    const first = raw.slice(0, spaceIdx);
-    if (!/[0-9A-Za-z가-힣]/.test(first) && /[←-⯿️‍]|[\u{1F000}-\u{1FAFF}]/u.test(first)) {
-      return { iconType: "emoji", icon: first, label: raw.slice(spaceIdx + 1).trim(), raw };
+    iconType = "svg";
+    icon = tokenMatch[1].toLowerCase();
+    label = tokenMatch[2].trim();
+  } else {
+    const spaceIdx = raw.search(/\s/);
+    if (spaceIdx > 0) {
+      const first = raw.slice(0, spaceIdx);
+      if (!/[0-9A-Za-z가-힣]/.test(first) && /[←-⯿️‍]|[\u{1F000}-\u{1FAFF}]/u.test(first)) {
+        iconType = "emoji";
+        icon = first;
+        label = raw.slice(spaceIdx + 1).trim();
+      }
     }
   }
-  return { iconType: "none", icon: "", label: raw, raw };
+  // 끝의 " | URL" 분리 (URL처럼 보일 때만)
+  let link = "";
+  const sepIdx = label.lastIndexOf(" | ");
+  if (sepIdx > 0) {
+    const tail = label.slice(sepIdx + 3).trim();
+    if (STARTER_LINK_RE.test(tail)) {
+      link = tail;
+      label = label.slice(0, sepIdx).trim();
+    }
+  }
+  if (!label) label = raw;
+  return { iconType, icon, label, link, raw };
 }
 
 function asStringArray(value: unknown): string[] {
@@ -515,11 +531,18 @@ function buildScopedStyles(primaryGradient: string): string {
 /* ── 배너형 빠른질문 그리드 (이모지 아이콘 카드) ── */
 .ieum-starter-questions.ieum-starter-banner { display:grid; gap:10px; flex-direction:unset; }
 .ieum-starter-question.ieum-starter-card {
+  position:relative;
   display:flex; flex-direction:column; align-items:center; justify-content:flex-start;
   gap:9px; text-align:center; padding:16px 10px 14px; min-height:94px; width:auto;
   border-radius:16px; background:#fff; border:1px solid #eef0f4;
   box-shadow:0 1px 2px rgba(16,24,40,.04);
   transition:border-color .15s, box-shadow .15s, transform .12s;
+}
+.ieum-starter-card.ieum-starter-link::after {
+  content:"↗"; position:absolute; top:7px; right:9px; font-size:11px; color:#94a3b8;
+}
+.ieum-starter-question.ieum-starter-link:not(.ieum-starter-card)::after {
+  content:" ↗"; color:#94a3b8; font-size:12px;
 }
 .ieum-starter-question.ieum-starter-card:hover {
   border-color:${pc}; box-shadow:0 6px 16px rgba(16,24,40,.10); transform:translateY(-1px); background:#fff;
@@ -1143,10 +1166,11 @@ export class IeumWidgetApp {
       this.starterQuestionsWrap.style.gridTemplateColumns = "";
     }
 
-    for (const { iconType, icon, label, raw } of parsed) {
+    for (const { iconType, icon, label, link, raw } of parsed) {
       const button = createElement(document, "button", "ieum-starter-question");
       button.type = "button";
       const sendText = label || raw;
+      if (link) button.classList.add("ieum-starter-link");
       if (useBanner) {
         button.classList.add("ieum-starter-card");
         if (iconType !== "none") {
@@ -1164,9 +1188,18 @@ export class IeumWidgetApp {
         labelSpan.textContent = label;
         button.appendChild(labelSpan);
       } else {
-        button.textContent = raw;
+        button.textContent = label;
       }
       button.addEventListener("click", () => {
+        if (link) {
+          // tel:/mailto:는 같은 창, 그 외는 새 탭
+          if (/^(tel:|mailto:)/i.test(link)) {
+            window.location.href = link;
+          } else {
+            window.open(link, "_blank", "noopener,noreferrer");
+          }
+          return;
+        }
         this.input.value = sendText;
         void this.sendCurrentInput();
       });
