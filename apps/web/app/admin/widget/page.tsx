@@ -14,6 +14,21 @@ import {
   uploadAdminWidgetIcon,
 } from "../../../lib/api/admin-operations";
 import type { AdminChatbotItem, AdminWidgetIconAsset, AdminWidgetResponse } from "../../../lib/api/admin-operations-types";
+import { STARTER_ICON_NAMES, StarterIconPreview, starterIconLabel } from "../../../lib/widget/starter-icons";
+
+// 추천 질문 줄 ↔ {아이콘, 텍스트} 파싱/직렬화.
+// 저장 포맷: 아이콘 선택 시 "[name] 질문", 없으면 "질문"(레거시 이모지 접두사도 그대로 통과).
+type StarterRow = { icon: string; text: string };
+function parseStarterRow(line: string): StarterRow {
+  const match = line.match(/^\[([a-zA-Z0-9_-]+)\]\s*(.*)$/);
+  if (match && STARTER_ICON_NAMES.includes(match[1].toLowerCase())) {
+    return { icon: match[1].toLowerCase(), text: match[2] };
+  }
+  return { icon: "", text: line };
+}
+function serializeStarterRow(row: StarterRow): string {
+  return row.icon ? `[${row.icon}] ${row.text}` : row.text;
+}
 
 const COLOR_PRESETS = [
   { value: "default", label: "기본 공공기관", preview: "from-blue-600 to-green-500" },
@@ -185,7 +200,8 @@ export default function WidgetPage() {
   const [welcomeMessage, setWelcomeMessage] = useState("");
   const [bannerTitle, setBannerTitle] = useState("");
   const [bannerDescription, setBannerDescription] = useState("");
-  const [starterQuestionsInput, setStarterQuestionsInput] = useState("");
+  const [starterRows, setStarterRows] = useState<StarterRow[]>([]);
+  const [openIconPickerRow, setOpenIconPickerRow] = useState<number | null>(null);
   const [launcherImageIcons, setLauncherImageIcons] = useState<AdminWidgetIconAsset[]>([]);
   const [launcherIconFile, setLauncherIconFile] = useState<File | null>(null);
   const [launcherIconInputKey, setLauncherIconInputKey] = useState(0);
@@ -218,10 +234,16 @@ export default function WidgetPage() {
     starterQuestions: [] as string[],
   });
 
+  // 저장/미리보기용: 텍스트 있는 행만 "[icon] text" 직렬화.
   const starterQuestions = useMemo(
-    () => starterQuestionsInput.split("\n").map((item) => item.trim()).filter(Boolean),
-    [starterQuestionsInput],
+    () =>
+      starterRows
+        .filter((row) => row.text.trim() !== "")
+        .map((row) => serializeStarterRow({ icon: row.icon, text: row.text.trim() })),
+    [starterRows],
   );
+  const updateStarterRow = (index: number, patch: Partial<StarterRow>) =>
+    setStarterRows((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
 
   const selectedChatbot = useMemo(
     () => chatbots.find((item) => item.id === selectedChatbotId) ?? null,
@@ -435,7 +457,7 @@ export default function WidgetPage() {
     setWelcomeMessage(res.welcomeMessage ?? "");
     setBannerTitle(res.bannerTitle ?? "");
     setBannerDescription(res.bannerDescription ?? "");
-    setStarterQuestionsInput((res.starterQuestions ?? []).join("\n"));
+    setStarterRows((res.starterQuestions ?? []).map(parseStarterRow));
   }
 
   useEffect(() => {
@@ -873,11 +895,79 @@ export default function WidgetPage() {
                   <span className="text-xs font-medium text-slate-600">상단 안내 배너 설명</span>
                   <textarea value={bannerDescription} onChange={(event) => setBannerDescription(event.target.value)} rows={3} placeholder="운영시간, 상담 범위, 응답 안내 등을 입력하세요." className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
                 </label>
-                <label className="space-y-1 md:col-span-2">
-                  <span className="text-xs font-medium text-slate-600">대화 시작 추천 질문 카드</span>
-                  <textarea value={starterQuestionsInput} onChange={(event) => setStarterQuestionsInput(event.target.value)} rows={5} placeholder={`주요 사업이 궁금해요\n지원 대상이 누구인가요?\n신청 절차를 알려주세요`} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
-                  <p className="text-xs text-slate-500">한 줄에 하나씩 입력하면 시작 질문 카드로 노출됩니다.</p>
-                </label>
+                <div className="space-y-2 md:col-span-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-slate-600">대화 시작 추천 질문 카드</span>
+                    <span className="text-[11px] text-slate-400">최대 6개 · 아이콘 선택 시 배너형</span>
+                  </div>
+                  <div className="space-y-2">
+                    {starterRows.map((row, index) => (
+                      <div key={index} className="flex items-center gap-2">
+                        <div className="relative">
+                          <button
+                            type="button"
+                            onClick={() => setOpenIconPickerRow(openIconPickerRow === index ? null : index)}
+                            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-slate-300 text-slate-500 hover:border-blue-400"
+                            title="아이콘 선택"
+                          >
+                            {row.icon ? <StarterIconPreview name={row.icon} /> : <span className="text-lg leading-none">＋</span>}
+                          </button>
+                          {openIconPickerRow === index && (
+                            <div className="absolute left-0 top-10 z-20 w-[236px] rounded-lg border border-slate-200 bg-white p-2 shadow-lg">
+                              <div className="grid grid-cols-5 gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => { updateStarterRow(index, { icon: "" }); setOpenIconPickerRow(null); }}
+                                  className="flex h-9 w-9 items-center justify-center rounded text-slate-400 hover:bg-slate-100"
+                                  title="아이콘 없음"
+                                >
+                                  ✕
+                                </button>
+                                {STARTER_ICON_NAMES.map((name) => (
+                                  <button
+                                    key={name}
+                                    type="button"
+                                    onClick={() => { updateStarterRow(index, { icon: name }); setOpenIconPickerRow(null); }}
+                                    className={`flex h-9 w-9 items-center justify-center rounded hover:bg-blue-50 ${row.icon === name ? "bg-blue-100 text-blue-600" : "text-slate-600"}`}
+                                    title={starterIconLabel(name)}
+                                  >
+                                    <StarterIconPreview name={name} />
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                        <input
+                          value={row.text}
+                          onChange={(event) => updateStarterRow(index, { text: event.target.value })}
+                          placeholder="추천 질문을 입력하세요"
+                          className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setStarterRows((rows) => rows.filter((_, i) => i !== index))}
+                          className="flex h-9 w-7 shrink-0 items-center justify-center rounded text-slate-400 hover:text-red-500"
+                          title="삭제"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  {starterRows.length < 6 && (
+                    <button
+                      type="button"
+                      onClick={() => setStarterRows((rows) => [...rows, { icon: "", text: "" }])}
+                      className="text-xs font-medium text-blue-600 hover:text-blue-700"
+                    >
+                      + 질문 추가
+                    </button>
+                  )}
+                  <p className="text-xs text-slate-500">
+                    아이콘을 선택하면 배너형 카드, 선택하지 않으면 목록형으로 노출됩니다.
+                  </p>
+                </div>
                 <label className="space-y-1 md:col-span-2">
                   <span className="text-xs font-medium text-slate-600">기본 환영 메시지</span>
                   <textarea value={welcomeMessage} onChange={(event) => setWelcomeMessage(event.target.value)} rows={3} placeholder="공개 위젯 config의 기본 welcome 메시지" className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
@@ -951,15 +1041,35 @@ export default function WidgetPage() {
                       <div className="rounded-2xl bg-white px-4 py-3 text-[13px] leading-6 text-slate-900 shadow-sm">
                         <div className="whitespace-pre-wrap">{previewIntro}</div>
                       </div>
-                      {starterQuestions.length > 0 ? (
-                        <div className="grid gap-2">
-                          {starterQuestions.slice(0, 4).map((question) => (
-                            <button key={question} type="button" className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-left text-xs font-medium text-slate-700 shadow-sm">
-                              {question}
-                            </button>
-                          ))}
-                        </div>
-                      ) : null}
+                      {(() => {
+                        const visible = starterRows.filter((row) => row.text.trim() !== "").slice(0, 6);
+                        if (visible.length === 0) return null;
+                        if (visible.some((row) => row.icon)) {
+                          return (
+                            <div className="grid grid-cols-2 gap-2">
+                              {visible.map((row, index) => (
+                                <button key={index} type="button" className="flex flex-col items-center gap-1.5 rounded-2xl border border-slate-200 bg-white px-2 py-3 text-center text-[11px] font-medium text-slate-700 shadow-sm">
+                                  {row.icon ? (
+                                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                                      <StarterIconPreview name={row.icon} />
+                                    </span>
+                                  ) : null}
+                                  <span className="leading-snug">{row.text}</span>
+                                </button>
+                              ))}
+                            </div>
+                          );
+                        }
+                        return (
+                          <div className="grid gap-2">
+                            {visible.slice(0, 4).map((row, index) => (
+                              <button key={index} type="button" className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-left text-xs font-medium text-slate-700 shadow-sm">
+                                {row.text}
+                              </button>
+                            ))}
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     <div className="flex min-h-16 items-center gap-2 border-t border-slate-200 bg-white px-3 py-2">

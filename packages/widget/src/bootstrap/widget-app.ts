@@ -186,16 +186,54 @@ function asConditionalActionArray(value: unknown): ConditionalAction[] {
 
 // 빠른질문 문자열에서 선행 이모지(아이콘)를 분리한다. 예: "📞 고객센터 안내" → {icon:"📞", label:"고객센터 안내"}
 // 첫 토큰에 영문/숫자/한글이 없고 이모지류 문자가 있으면 아이콘으로 간주.
-function splitStarterEmoji(text: string): { icon: string; label: string; raw: string } {
+// 배너 카드용 내장 아이콘 세트. 관리자가 질문 앞에 [name] 토큰으로 지정.
+// 선(line) 스타일 + currentColor 상속(카드에서 primary 색으로 렌더).
+// ⚠️ 관리자 콘솔(apps/web/lib/widget/starter-icons.tsx)의 동일 name 세트와 동기화 유지할 것.
+const STARTER_ICON_SVG =
+  'fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"';
+const STARTER_ICONS: Record<string, string> = {
+  doc: `<svg viewBox="0 0 24 24" ${STARTER_ICON_SVG}><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/><path d="M9 12h6M9 16h6"/></svg>`,
+  shield: `<svg viewBox="0 0 24 24" ${STARTER_ICON_SVG}><path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/><path d="M9 12l2 2 4-4"/></svg>`,
+  member: `<svg viewBox="0 0 24 24" ${STARTER_ICON_SVG}><circle cx="10" cy="8" r="3.2"/><path d="M4 20c0-3.3 2.7-5.6 6-5.6 1.2 0 2.3.3 3.2.8"/><path d="M18 14v6M15 17h6"/></svg>`,
+  cert: `<svg viewBox="0 0 24 24" ${STARTER_ICON_SVG}><circle cx="12" cy="9" r="5.2"/><path d="M9.7 9l1.6 1.6 3-3.2"/><path d="M8.5 13.2 7 20l5-2.6L17 20l-1.5-6.8"/></svg>`,
+  search: `<svg viewBox="0 0 24 24" ${STARTER_ICON_SVG}><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.3-4.3"/></svg>`,
+  phone: `<svg viewBox="0 0 24 24" ${STARTER_ICON_SVG}><path d="M6.6 10.8a12 12 0 0 0 5.6 5.6l1.9-1.9a1 1 0 0 1 1-.24 11 11 0 0 0 3.4.55 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A16 16 0 0 1 3 5a1 1 0 0 1 1-1h3.3a1 1 0 0 1 1 1 11 11 0 0 0 .55 3.4 1 1 0 0 1-.24 1z"/></svg>`,
+  apply: `<svg viewBox="0 0 24 24" ${STARTER_ICON_SVG}><path d="M5 4h9l4 4v6"/><path d="M14 4v4h4"/><path d="M13 21l-4 1 1-4 6.5-6.5a1.4 1.4 0 0 1 2 2z"/></svg>`,
+  check: `<svg viewBox="0 0 24 24" ${STARTER_ICON_SVG}><circle cx="12" cy="12" r="8.5"/><path d="M8.5 12.5l2.5 2.5 4.5-5"/></svg>`,
+  info: `<svg viewBox="0 0 24 24" ${STARTER_ICON_SVG}><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg>`,
+  won: `<svg viewBox="0 0 24 24" ${STARTER_ICON_SVG}><circle cx="12" cy="12" r="8.5"/><path d="M8 9l1.6 6L12 10l2.4 5L16 9"/><path d="M7.4 11.5h9.2"/></svg>`,
+  grid: `<svg viewBox="0 0 24 24" ${STARTER_ICON_SVG}><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>`,
+  chat: `<svg viewBox="0 0 24 24" ${STARTER_ICON_SVG}><path d="M4 5h16v11H9l-4 3v-3H4z"/><path d="M8 9h8M8 12h5"/></svg>`,
+  calendar: `<svg viewBox="0 0 24 24" ${STARTER_ICON_SVG}><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 9h16M8 3v4M16 3v4"/></svg>`,
+  building: `<svg viewBox="0 0 24 24" ${STARTER_ICON_SVG}><path d="M5 21V5a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v16"/><path d="M15 9h3a1 1 0 0 1 1 1v11"/><path d="M8 8h4M8 12h4M8 16h4"/></svg>`,
+};
+
+type StarterIconType = "svg" | "emoji" | "none";
+// 질문 문자열에서 아이콘 접두사 분리: [name] 토큰(내장 SVG) 우선, 없으면 선행 이모지.
+function parseStarterItem(text: string): {
+  iconType: StarterIconType;
+  icon: string;
+  label: string;
+  raw: string;
+} {
   const raw = text.trim();
+  const tokenMatch = raw.match(/^\[([a-z0-9_-]+)\]\s*(.*)$/i);
+  if (tokenMatch && STARTER_ICONS[tokenMatch[1].toLowerCase()]) {
+    return {
+      iconType: "svg",
+      icon: tokenMatch[1].toLowerCase(),
+      label: tokenMatch[2].trim() || raw,
+      raw,
+    };
+  }
   const spaceIdx = raw.search(/\s/);
   if (spaceIdx > 0) {
     const first = raw.slice(0, spaceIdx);
     if (!/[0-9A-Za-z가-힣]/.test(first) && /[←-⯿️‍]|[\u{1F000}-\u{1FAFF}]/u.test(first)) {
-      return { icon: first, label: raw.slice(spaceIdx + 1).trim(), raw };
+      return { iconType: "emoji", icon: first, label: raw.slice(spaceIdx + 1).trim(), raw };
     }
   }
-  return { icon: "", label: raw, raw };
+  return { iconType: "none", icon: "", label: raw, raw };
 }
 
 function asStringArray(value: unknown): string[] {
@@ -475,14 +513,24 @@ function buildScopedStyles(primaryGradient: string): string {
 }
 .ieum-starter-question:hover { border-color:#93c5fd; background:#f0f7ff; }
 /* ── 배너형 빠른질문 그리드 (이모지 아이콘 카드) ── */
-.ieum-starter-questions.ieum-starter-banner { display:grid; gap:8px; flex-direction:unset; }
+.ieum-starter-questions.ieum-starter-banner { display:grid; gap:10px; flex-direction:unset; }
 .ieum-starter-question.ieum-starter-card {
-  display:flex; flex-direction:column; align-items:center; justify-content:center;
-  gap:6px; text-align:center; padding:16px 10px; min-height:76px; width:auto;
-  border-radius:14px; background:#f8fafc; border:1px solid #e5e7eb;
+  display:flex; flex-direction:column; align-items:center; justify-content:flex-start;
+  gap:9px; text-align:center; padding:16px 10px 14px; min-height:94px; width:auto;
+  border-radius:16px; background:#fff; border:1px solid #eef0f4;
+  box-shadow:0 1px 2px rgba(16,24,40,.04);
+  transition:border-color .15s, box-shadow .15s, transform .12s;
 }
-.ieum-starter-question.ieum-starter-card:hover { border-color:${pc}; background:${pcA08}; }
-.ieum-starter-card-icon { font-size:24px; line-height:1; }
+.ieum-starter-question.ieum-starter-card:hover {
+  border-color:${pc}; box-shadow:0 6px 16px rgba(16,24,40,.10); transform:translateY(-1px); background:#fff;
+}
+.ieum-starter-card-icon {
+  display:flex; align-items:center; justify-content:center;
+  width:42px; height:42px; border-radius:12px;
+  background:${pcA08}; color:${pc}; font-size:22px; line-height:1; flex:0 0 auto;
+}
+.ieum-starter-card-icon svg { width:23px; height:23px; display:block; }
+.ieum-starter-card-icon-emoji { background:transparent; }
 .ieum-starter-card-label { font-size:12.5px; font-weight:600; color:#1f2937; line-height:1.35; word-break:keep-all; }
 .ieum-quick-action {
   border:1px solid #dbeafe; border-radius:9999px;
@@ -739,6 +787,8 @@ export class IeumWidgetApp {
   private sseEnabled = false;
   private messages: Message[] = [];
   private lastFailedQuestion: string | null = null;
+  // 설정 시: 렌더 후 해당 메시지(새 답변)의 첫 줄을 스크롤 영역 최상단에 정렬(아래로 내리며 읽기).
+  private pinMessageIdToTop: string | null = null;
 
   constructor(options: WidgetInitOptions) {
     this.options = options;
@@ -1074,13 +1124,13 @@ export class IeumWidgetApp {
       return;
     }
 
-    const parsed = items.map((q) => splitStarterEmoji(q));
+    const parsed = items.map((q) => parseStarterItem(q));
     // 스타일 결정: config.starterQuestionStyle("banner"/"list")가 있으면 우선,
-    // 없으면 이모지가 하나라도 있으면 배너 그리드로 자동 전환.
+    // 없으면 아이콘(이모지 또는 [name])이 하나라도 있으면 배너 그리드로 자동 전환.
     const configuredStyle = this.config?.starterQuestionStyle;
     const useBanner =
       configuredStyle === "banner" ||
-      (configuredStyle !== "list" && parsed.some((p) => p.icon));
+      (configuredStyle !== "list" && parsed.some((p) => p.iconType !== "none"));
 
     this.starterQuestionsWrap.classList.toggle("ieum-starter-banner", useBanner);
     if (useBanner) {
@@ -1093,15 +1143,21 @@ export class IeumWidgetApp {
       this.starterQuestionsWrap.style.gridTemplateColumns = "";
     }
 
-    for (const { icon, label, raw } of parsed) {
+    for (const { iconType, icon, label, raw } of parsed) {
       const button = createElement(document, "button", "ieum-starter-question");
       button.type = "button";
       const sendText = label || raw;
       if (useBanner) {
         button.classList.add("ieum-starter-card");
-        if (icon) {
+        if (iconType !== "none") {
           const iconSpan = createElement(document, "span", "ieum-starter-card-icon");
-          iconSpan.textContent = icon;
+          if (iconType === "svg") {
+            // STARTER_ICONS는 내장 상수 SVG(신뢰 가능) — 사용자 입력 아님.
+            iconSpan.innerHTML = STARTER_ICONS[icon] ?? "";
+          } else {
+            iconSpan.classList.add("ieum-starter-card-icon-emoji");
+            iconSpan.textContent = icon;
+          }
           button.appendChild(iconSpan);
         }
         const labelSpan = createElement(document, "span", "ieum-starter-card-label");
@@ -1208,6 +1264,7 @@ export class IeumWidgetApp {
     this.starterQuestionsWrap.style.display = this.messages.length <= 1 ? this.starterQuestionsWrap.style.display : "none";
     for (const message of this.messages) {
       const row = createElement(document, "div", `ieum-message ${message.role}`);
+      row.dataset["messageId"] = message.id;
       const bubble = createElement(document, "div", "ieum-bubble");
       // 첫 인사말은 더 크고 또렷한 스타일로 표시
       if (message.id.startsWith("assistant_welcome_")) {
@@ -1446,11 +1503,37 @@ export class IeumWidgetApp {
       this.messagesWrap.appendChild(retryRow);
     }
 
-    this.scrollMessagesToBottom();
+    this.scrollAfterRender();
   }
 
   private scrollMessagesToBottom() {
     requestAnimationFrame(() => {
+      this.messagesWrap.scrollTop = this.messagesWrap.scrollHeight;
+    });
+  }
+
+  // 새 답변이 있으면 그 메시지의 첫 줄을 최상단에 정렬(길어도 위에서부터 읽기).
+  // 그 외에는 기존처럼 맨 아래로.
+  private scrollAfterRender() {
+    const pinId = this.pinMessageIdToTop;
+    requestAnimationFrame(() => {
+      if (pinId) {
+        let row: HTMLElement | null = null;
+        const children = this.messagesWrap.children;
+        for (let i = 0; i < children.length; i += 1) {
+          const el = children[i] as HTMLElement;
+          if (el.dataset && el.dataset["messageId"] === pinId) {
+            row = el;
+            break;
+          }
+        }
+        if (row) {
+          const containerTop = this.messagesWrap.getBoundingClientRect().top;
+          const rowTop = row.getBoundingClientRect().top;
+          this.messagesWrap.scrollTop += rowTop - containerTop - 10;
+          return;
+        }
+      }
       this.messagesWrap.scrollTop = this.messagesWrap.scrollHeight;
     });
   }
@@ -1466,6 +1549,8 @@ export class IeumWidgetApp {
     if (this.sending) return;
     const question = this.input.value.trim();
     if (!question) return;
+    // 새 질문 전송 시작 — 이전 답변 핀 해제(질문은 맨 아래로 보임). 답변 생성 시 다시 설정.
+    this.pinMessageIdToTop = null;
     if (hasPrivacyInput(question)) {
       this.clearInitialWelcomeForDirectQuestion();
       this.lastFailedQuestion = null;
@@ -1538,6 +1623,8 @@ export class IeumWidgetApp {
     let finalText = "";
     let receivedVisiblePayload = false;
 
+    // 새 답변의 첫 줄을 화면 최상단에 고정(스트리밍 중에도 유지).
+    this.pinMessageIdToTop = draftMessageId;
     this.pushMessage({
       id: draftMessageId,
       role: "assistant",
@@ -1652,8 +1739,11 @@ export class IeumWidgetApp {
       this.sessionToken = nextSessionToken;
     }
     const answerText = response.answer?.text?.trim() || "안내 가능한 답변을 생성하지 못했습니다.";
+    const assistantId = `assistant_${response.requestId}`;
+    // 새 답변의 첫 줄을 화면 최상단에 고정.
+    this.pinMessageIdToTop = assistantId;
     this.pushMessage({
-      id: `assistant_${response.requestId}`,
+      id: assistantId,
       role: "assistant",
       text: answerText,
       outcome: response.outcome,
