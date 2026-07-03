@@ -10,6 +10,7 @@ export type AnswerTemplateMode = "fixed_public_service" | "standard_structured";
 export type MaxAnswerLengthMode = "short" | "medium" | "long";
 export type CitationDisplayMode = "visible" | "compact" | "hidden";
 export type AfterHoursBehaviorMode = "show_notice" | "escalate_only" | "allow_limited_answer";
+export type PrivacyInputMode = "mask" | "block";
 
 export type PromptInstructionSettings = {
   systemPrompt: string;
@@ -28,6 +29,7 @@ export type AnswerPolicySettings = {
   requireLatestSourceCheckWarningWhenRelevant: boolean;
   fallbackMessageWhenInsufficientEvidence: string;
   clarificationStrategyMode: ClarificationStrategyMode;
+  privacyInputMode: PrivacyInputMode;
 };
 
 export type AnswerFormatSettings = {

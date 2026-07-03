@@ -13,7 +13,7 @@ import {
 import { getAdminChatbot, getAdminChatbots, patchAdminChatbot } from "../../../../lib/api/admin-operations";
 import { getAnswerSettings, patchAnswerSettings } from "../../../../lib/api/answer-settings";
 import { markSetupDone } from "../../../../lib/admin-ui/setup-status";
-import type { AnswerSettings } from "../../../../lib/api/answer-settings-types";
+import type { AnswerSettings, PrivacyInputMode } from "../../../../lib/api/answer-settings-types";
 import type { AdminChatbotItem, AdminChatbotResponse } from "../../../../lib/api/admin-operations-types";
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
@@ -26,10 +26,11 @@ type BasicForm = {
   fallbackMessage: string;
   operatingHoursMessage: string;
   contactPhone: string;
+  privacyInputMode: PrivacyInputMode;
 };
 
 function emptyForm(): BasicForm {
-  return { chatbotName: "", aiInstructions: "", fallbackMessage: "", operatingHoursMessage: "", contactPhone: "" };
+  return { chatbotName: "", aiInstructions: "", fallbackMessage: "", operatingHoursMessage: "", contactPhone: "", privacyInputMode: "mask" };
 }
 
 function cloneSettings(s: AnswerSettings): AnswerSettings {
@@ -100,6 +101,7 @@ export default function AdminAiBasicPage() {
         fallbackMessage: chatbot.fallbackMessage ?? settings.settings.answerPolicy.fallbackMessageWhenInsufficientEvidence ?? "",
         operatingHoursMessage: settings.settings.escalationOperating.operatingHoursFallbackMessage ?? "",
         contactPhone: String(ep.representativeContact ?? ""),
+        privacyInputMode: settings.settings.answerPolicy.privacyInputMode ?? "mask",
       };
       setSelectedChatbot(chatbot); setServerSettings(settings.settings);
       setForm(next); setSnapshot(next);
@@ -131,6 +133,7 @@ export default function AdminAiBasicPage() {
       });
       const next = cloneSettings(serverSettings);
       next.answerPolicy.fallbackMessageWhenInsufficientEvidence = form.fallbackMessage.trim();
+      next.answerPolicy.privacyInputMode = form.privacyInputMode;
       next.escalationOperating.operatingHoursFallbackMessage = form.operatingHoursMessage.trim();
       await patchAnswerSettings(selectedChatbotId, { settings: next });
       markSetupDone("ai_basic");
@@ -265,6 +268,28 @@ export default function AdminAiBasicPage() {
                 <input value={form.contactPhone} onChange={e => upd("contactPhone", e.target.value)}
                   placeholder="예: 02-1234-5678" style={inputStyle} />
                 <p style={hintStyle}>이관 안내 시 표시할 대표 연락처입니다.</p>
+              </div>
+              <div>
+                <label style={labelStyle}>개인정보 처리 방식</label>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {([["mask", "자동 마스킹", "주민번호·연락처 등을 가린 뒤 답변을 계속합니다 (권장)"],
+                     ["block", "입력 차단", "개인정보가 포함되면 답변하지 않고 입력 자제를 안내합니다"]] as const)
+                    .map(([val, title, desc]) => {
+                      const active = form.privacyInputMode === val;
+                      return (
+                        <button key={val} type="button" onClick={() => upd("privacyInputMode", val)}
+                          style={{
+                            flex: 1, textAlign: "left", padding: "10px 12px", borderRadius: 10, cursor: "pointer",
+                            border: `1px solid ${active ? "#2563eb" : "#e5e7eb"}`,
+                            background: active ? "#eff6ff" : "#fff",
+                          }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: active ? "#2563eb" : "#374151" }}>{title}</div>
+                          <div style={{ fontSize: 11.5, color: "#9ca3af", marginTop: 3, lineHeight: 1.4 }}>{desc}</div>
+                        </button>
+                      );
+                    })}
+                </div>
+                <p style={hintStyle}>사용자 질의의 개인정보(주민·외국인등록번호, 전화, 이메일, 카드, 여권, 운전면허, 생년월일)를 서버에서 자동 탐지합니다. 마스킹된 질의로 LLM 전송·대화로그 저장이 이뤄져 원본이 남지 않습니다.</p>
               </div>
             </div>
           </div>
