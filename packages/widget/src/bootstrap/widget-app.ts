@@ -563,11 +563,11 @@ function buildScopedStyles(primaryGradient: string): string {
 .ieum-starter-card-icon svg { width:23px; height:23px; display:block; }
 .ieum-starter-card-icon-emoji { background:transparent; }
 .ieum-starter-card-label { font-size:12.5px; font-weight:600; color:#1f2937; line-height:1.35; word-break:keep-all; }
-/* ── 리치 카드 (아이콘 + 제목 + 설명, 좌측정렬 1열) ── */
-.ieum-starter-questions.ieum-starter-rich { display:flex; flex-direction:column; gap:8px; }
+/* ── 리치 카드 (아이콘 + 제목 + 설명) — 배너와 동일 그리드, 세로 중앙정렬 ── */
+.ieum-starter-questions.ieum-starter-rich { gap:8px; }
 .ieum-starter-question.ieum-starter-rich-card {
-  position:relative; display:flex; align-items:flex-start; gap:11px; width:100%;
-  text-align:left; padding:13px 14px; border-radius:14px;
+  position:relative; display:flex; flex-direction:column; align-items:center; justify-content:flex-start;
+  gap:7px; width:auto; text-align:center; padding:14px 10px 12px; border-radius:14px;
   background:#fff; border:1px solid #eef0f4; box-shadow:0 1px 2px rgba(16,24,40,.04);
   transition:border-color .15s, box-shadow .15s, transform .12s;
 }
@@ -580,11 +580,14 @@ function buildScopedStyles(primaryGradient: string): string {
   background:${pcA08}; color:${pc}; font-size:20px; line-height:1; flex:0 0 auto;
 }
 .ieum-starter-rich-icon svg { width:21px; height:21px; display:block; }
-.ieum-starter-rich-body { min-width:0; flex:1; display:flex; flex-direction:column; }
-.ieum-starter-rich-title { font-size:13px; font-weight:700; color:#1f2937; line-height:1.35; }
-.ieum-starter-rich-desc { margin-top:3px; font-size:11.5px; line-height:1.55; color:#64748b; white-space:pre-line; word-break:keep-all; }
+.ieum-starter-rich-body { min-width:0; width:100%; display:flex; flex-direction:column; align-items:center; }
+.ieum-starter-rich-title { font-size:12.5px; font-weight:700; color:#1f2937; line-height:1.35; word-break:keep-all; }
+.ieum-starter-rich-desc {
+  margin-top:3px; font-size:11px; line-height:1.5; color:#64748b; white-space:pre-line; word-break:keep-all;
+  display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:3; overflow:hidden;
+}
 .ieum-starter-rich-card.ieum-starter-link::after {
-  content:"↗"; position:absolute; top:9px; right:11px; font-size:11px; color:#94a3b8;
+  content:"↗"; position:absolute; top:8px; right:10px; font-size:11px; color:#94a3b8;
 }
 .ieum-quick-action {
   border:1px solid #dbeafe; border-radius:9999px;
@@ -1190,9 +1193,10 @@ export class IeumWidgetApp {
 
     this.starterQuestionsWrap.classList.toggle("ieum-starter-rich", useRich);
     this.starterQuestionsWrap.classList.toggle("ieum-starter-banner", useBanner);
-    if (useBanner) {
+    if (useBanner || useRich) {
+      // 1~3개=한 줄, 4개=2x2, 5~6개=2줄(3열) → 세로 공간 최소화
       const n = parsed.length;
-      const cols = n <= 3 ? n : n === 4 ? 2 : 3; // 4개=2x2, 5~6개=3열
+      const cols = n <= 3 ? n : n === 4 ? 2 : 3;
       this.starterQuestionsWrap.style.display = "grid";
       this.starterQuestionsWrap.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
     } else {

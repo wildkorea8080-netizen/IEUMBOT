@@ -1147,23 +1147,27 @@ export default function WidgetPage() {
                         const visible = starterRows.filter((row) => row.text.trim() !== "").slice(0, 6);
                         if (visible.length === 0) return null;
                         if (visible.some((row) => row.description.trim())) {
+                          const richCols = visible.length <= 3 ? visible.length : visible.length === 4 ? 2 : 3;
                           return (
-                            <div className="flex flex-col gap-2">
+                            <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${richCols}, 1fr)` }}>
                               {visible.map((row, index) => (
-                                <button key={index} type="button" className="flex items-start gap-2.5 rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-left shadow-sm">
+                                <button key={index} type="button" className="flex flex-col items-center gap-1.5 rounded-2xl border border-slate-200 bg-white px-2 py-3 text-center shadow-sm">
                                   {row.icon ? (
-                                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
                                       <StarterIconPreview name={row.icon} />
                                     </span>
                                   ) : row.emoji ? (
-                                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-50 text-base">{row.emoji}</span>
+                                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-50 text-base">{row.emoji}</span>
                                   ) : null}
-                                  <span className="min-w-0">
-                                    <span className="block text-xs font-bold text-slate-800">{row.text}{row.link ? " ↗" : ""}</span>
-                                    {row.description.trim() ? (
-                                      <span className="mt-0.5 block whitespace-pre-line text-[11px] leading-relaxed text-slate-500">{row.description}</span>
-                                    ) : null}
-                                  </span>
+                                  <span className="block text-[11px] font-bold text-slate-800">{row.text}{row.link ? " ↗" : ""}</span>
+                                  {row.description.trim() ? (
+                                    <span
+                                      className="block whitespace-pre-line text-[10px] leading-relaxed text-slate-500"
+                                      style={{ display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}
+                                    >
+                                      {row.description}
+                                    </span>
+                                  ) : null}
                                 </button>
                               ))}
                             </div>
