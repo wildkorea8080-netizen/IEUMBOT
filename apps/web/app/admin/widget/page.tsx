@@ -20,6 +20,7 @@ import {
   StarterIconPreview,
   starterIconLabel,
 } from "../../../lib/widget/starter-icons";
+import { readSelectedAdminChatbot, writeSelectedAdminChatbot } from "../../../lib/admin-ui/selected-chatbot";
 
 // 추천 질문 줄 ↔ {아이콘, 이모지, 제목, 설명, 링크} 파싱/직렬화.
 // 저장 포맷: "[name] 제목 :: 설명 | URL" (설명/링크는 선택).
@@ -441,7 +442,11 @@ export default function WidgetPage() {
         if (cancelled) return;
         setChatbots(response.items);
         if (response.items[0]) {
-          setSelectedChatbotId((current) => current || response.items[0].id);
+          // 다른 화면에서 고른 챗봇이 있으면 그걸 우선 선택, 없으면 첫 번째.
+          const stored = readSelectedAdminChatbot();
+          const initial = response.items.find((item) => item.id === stored?.id) ?? response.items[0];
+          setSelectedChatbotId((current) => current || initial.id);
+          if (stored?.id !== initial.id) writeSelectedAdminChatbot({ id: initial.id, name: initial.name });
         }
       } catch (err) {
         if (!cancelled) setError(getErrorMessage(err));
@@ -664,7 +669,10 @@ export default function WidgetPage() {
                 <button
                   key={chatbot.id}
                   type="button"
-                  onClick={() => setSelectedChatbotId(chatbot.id)}
+                  onClick={() => {
+                    setSelectedChatbotId(chatbot.id);
+                    writeSelectedAdminChatbot({ id: chatbot.id, name: chatbot.name });
+                  }}
                   className={[
                     "rounded-2xl border p-4 text-left transition",
                     active ? "border-blue-400 bg-blue-50 shadow-sm ring-2 ring-blue-100" : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50",
