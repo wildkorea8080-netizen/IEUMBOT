@@ -29,6 +29,13 @@ export type AdminConversationCitationSummary = {
   sourceUrl?: string | null;
   pageNumber?: number | null;
   sectionTitle?: string | null;
+  score?: number | null;
+  finalRank?: number | null;
+};
+
+export type AdminConversationPromptTrace = {
+  systemPrompt?: string | null;
+  userPrompt?: string | null;
 };
 
 export type AdminConversationDetail = {
@@ -51,6 +58,7 @@ export type AdminConversationDetail = {
   hasCitations: boolean;
   llmExecuted?: boolean | null;
   advancedAnalysisUrl?: string | null;
+  promptTrace?: AdminConversationPromptTrace | null;
 };
 
 export type AdminConversationUpdateRequest = {

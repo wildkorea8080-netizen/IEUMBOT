@@ -15,6 +15,7 @@ from app.schemas.conversations import (
     AdminConversationCitationSummary,
     AdminConversationDetailResponse,
     AdminConversationItem,
+    AdminConversationPromptTrace,
     AdminConversationsListResponse,
     AdminConversationUpdateRequest,
 )
@@ -72,16 +73,35 @@ def _citation_summary(message: ChatMessage | None) -> list[AdminConversationCita
     for item in list(message.selected_sources or [])[:5]:
         if not isinstance(item, dict):
             continue
+        _score = item.get("score")
+        if _score is None:
+            _score = item.get("combinedScore") or item.get("combined_score")
         summaries.append(
             AdminConversationCitationSummary(
-                title=item.get("title"),
+                title=item.get("title") or item.get("documentName") or item.get("document_name"),
                 source_type=item.get("sourceType") or item.get("source_type"),
                 source_url=item.get("sourceUrl") or item.get("source_url"),
                 page_number=item.get("pageNumber") or item.get("page_number"),
                 section_title=item.get("sectionTitle") or item.get("section_title"),
+                score=round(float(_score), 4) if isinstance(_score, (int, float)) else None,
+                final_rank=item.get("finalRank") or item.get("final_rank"),
             )
         )
     return summaries
+
+
+def _prompt_trace(message: ChatMessage | None) -> AdminConversationPromptTrace | None:
+    if message is None:
+        return None
+    meta = message.metadata_json if isinstance(message.metadata_json, dict) else {}
+    trace = meta.get("promptTrace")
+    if not isinstance(trace, dict):
+        return None
+    system_prompt = trace.get("systemPrompt") or trace.get("system_prompt")
+    user_prompt = trace.get("userPrompt") or trace.get("user_prompt")
+    if not system_prompt and not user_prompt:
+        return None
+    return AdminConversationPromptTrace(system_prompt=system_prompt, user_prompt=user_prompt)
 
 
 def list_conversations_service(
@@ -186,6 +206,7 @@ def get_conversation_detail_service(
         has_citations=bool(latest_assistant and len(list(latest_assistant.selected_sources or [])) > 0),
         llm_executed=(bool(latest_assistant.model_name) if latest_assistant else None),
         advanced_analysis_url=f"/admin/conversation-analysis?sessionId={session_id}",
+        prompt_trace=_prompt_trace(latest_assistant),
     )
 
 

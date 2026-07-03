@@ -301,18 +301,55 @@ export function ConversationsManagement() {
                   <p style={{ fontSize: 13, color: "#334155", whiteSpace: "pre-wrap", lineHeight: 1.7 }}>{detail.assistantAnswer ?? "-"}</p>
                 </div>
 
-                {/* 출처 */}
+                {/* 참조 근거 (문서·조문·페이지 + 유사도 점수 + 원문 링크) */}
                 {detail.citationSummary.length > 0 && (
                   <div style={{ borderRadius: 10, border: "1px solid #e2e8f0", overflow: "hidden" }}>
-                    <div style={{ padding: "10px 14px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", fontSize: 12, fontWeight: 600, color: "#475569" }}>출처 요약 ({detail.citationSummary.length}건)</div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+                    <div style={{ padding: "10px 14px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", fontSize: 12, fontWeight: 600, color: "#475569" }}>참조 근거 ({detail.citationSummary.length}건)</div>
+                    <div style={{ display: "flex", flexDirection: "column" }}>
                       {detail.citationSummary.map((c, i) => (
-                        <div key={i} style={{ padding: "8px 14px", borderBottom: i < detail.citationSummary.length - 1 ? "1px solid #f1f5f9" : "none", fontSize: 12, color: "#334155" }}>
-                          {c.title ?? c.sourceUrl ?? "출처"}{c.sectionTitle ? ` / ${c.sectionTitle}` : ""}{c.pageNumber != null ? ` / p.${c.pageNumber}` : ""}
+                        <div key={i} style={{ padding: "9px 14px", borderBottom: i < detail.citationSummary.length - 1 ? "1px solid #f1f5f9" : "none", fontSize: 12, color: "#334155" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                            <span style={{ fontWeight: 600 }}>{c.title ?? c.sourceUrl ?? "출처"}</span>
+                            {c.sectionTitle ? <span style={{ color: "#64748b" }}>/ {c.sectionTitle}</span> : null}
+                            {c.pageNumber != null ? <span style={{ color: "#64748b" }}>/ p.{c.pageNumber}</span> : null}
+                            {typeof c.score === "number" ? (
+                              <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 700, color: "#2563eb", background: "#eff6ff", borderRadius: 6, padding: "1px 7px" }}>
+                                점수 {c.score.toFixed(3)}
+                              </span>
+                            ) : null}
+                          </div>
+                          {c.sourceUrl ? (
+                            <a href={c.sourceUrl} target="_blank" rel="noopener noreferrer" style={{ display: "inline-block", marginTop: 3, fontSize: 11, color: "#2563eb", wordBreak: "break-all" }}>
+                              {c.sourceUrl}
+                            </a>
+                          ) : null}
                         </div>
                       ))}
                     </div>
                   </div>
+                )}
+
+                {/* 사용된 프롬프트 (감사·검증용) */}
+                {detail.promptTrace && (detail.promptTrace.systemPrompt || detail.promptTrace.userPrompt) && (
+                  <details style={{ borderRadius: 10, border: "1px solid #e2e8f0", overflow: "hidden" }}>
+                    <summary style={{ padding: "10px 14px", background: "#f8fafc", fontSize: 12, fontWeight: 600, color: "#475569", cursor: "pointer" }}>
+                      사용된 프롬프트 (감사용)
+                    </summary>
+                    <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 12 }}>
+                      {detail.promptTrace.systemPrompt ? (
+                        <div>
+                          <p style={{ fontSize: 11, fontWeight: 700, color: "#64748b", marginBottom: 4 }}>SYSTEM</p>
+                          <pre style={{ margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 11.5, lineHeight: 1.6, color: "#334155", background: "#f8fafc", borderRadius: 8, padding: 10, maxHeight: 240, overflow: "auto" }}>{detail.promptTrace.systemPrompt}</pre>
+                        </div>
+                      ) : null}
+                      {detail.promptTrace.userPrompt ? (
+                        <div>
+                          <p style={{ fontSize: 11, fontWeight: 700, color: "#64748b", marginBottom: 4 }}>USER (근거 포함)</p>
+                          <pre style={{ margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 11.5, lineHeight: 1.6, color: "#334155", background: "#f8fafc", borderRadius: 8, padding: 10, maxHeight: 320, overflow: "auto" }}>{detail.promptTrace.userPrompt}</pre>
+                        </div>
+                      ) : null}
+                    </div>
+                  </details>
                 )}
 
                 {/* 에스컬레이션 */}

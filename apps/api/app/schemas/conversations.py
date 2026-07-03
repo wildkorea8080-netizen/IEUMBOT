@@ -34,6 +34,13 @@ class AdminConversationCitationSummary(ApiSchema):
     source_url: str | None = None
     page_number: int | None = None
     section_title: str | None = None
+    score: float | None = None  # 검색 유사도/종합 점수 (근거 신뢰성 표시용)
+    final_rank: int | None = None
+
+
+class AdminConversationPromptTrace(ApiSchema):
+    system_prompt: str | None = None
+    user_prompt: str | None = None
 
 
 class AdminConversationDetailResponse(ApiSchema):
@@ -56,6 +63,7 @@ class AdminConversationDetailResponse(ApiSchema):
     has_citations: bool
     llm_executed: bool | None = None
     advanced_analysis_url: str | None = None
+    prompt_trace: AdminConversationPromptTrace | None = None
 
 
 class AdminConversationUpdateRequest(ApiSchema):

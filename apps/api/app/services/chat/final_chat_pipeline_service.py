@@ -2122,7 +2122,7 @@ def run_final_chat_pipeline(
     user_message_metadata = {
         "conversationTone": tone_summary,
     }
-    assistant_message_metadata = {
+    assistant_message_metadata: dict[str, Any] = {
         "conversationTone": {
             "abusiveDetected": abusive_detected,
             "abusiveSeverity": tone_summary.get("abusiveSeverity"),
@@ -2131,6 +2131,12 @@ def run_final_chat_pipeline(
             "smallTalkDetected": small_talk_detected,
         }
     }
+    # 근거 신뢰성(감사)용: 실제 사용된 프롬프트 저장 → 관리자 대화상세에서 열람
+    if prompt_bundle:
+        assistant_message_metadata["promptTrace"] = {
+            "systemPrompt": prompt_bundle.get("systemPrompt"),
+            "userPrompt": prompt_bundle.get("userPrompt"),
+        }
 
     user_message = create_chat_message(
         db,
