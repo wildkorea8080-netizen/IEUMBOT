@@ -76,9 +76,12 @@ def match_conditional_responses(
             matched = any(kw.lower() in q_lower or kw.lower() in a_lower for kw in keywords)
 
         if matched:
+            # 사용자에게 보이는 버튼 라벨: 링크 설명 > 규칙명 > 액션타입 라벨 순.
+            # (action_label은 "링크 연결유도" 같은 타입 카테고리라 그대로 쓰면 규칙 구분 불가)
+            display_label = (row.action_description or "").strip() or row.name or row.action_label
             results.append({
                 "type": row.action_type,
-                "label": row.action_label,
+                "label": display_label,
                 "value": row.action_value,
                 "description": row.action_description or "",
             })
