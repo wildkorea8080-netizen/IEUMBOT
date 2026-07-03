@@ -216,6 +216,8 @@ export default function WidgetPage() {
   const [bannerDescription, setBannerDescription] = useState("");
   const [starterRows, setStarterRows] = useState<StarterRow[]>([]);
   const [openIconPickerRow, setOpenIconPickerRow] = useState<number | null>(null);
+  // "" = 자동(아이콘 있으면 배너), "banner" = 배너 고정, "list" = 목록 고정
+  const [starterQuestionStyle, setStarterQuestionStyle] = useState<"" | "banner" | "list">("");
   const [launcherImageIcons, setLauncherImageIcons] = useState<AdminWidgetIconAsset[]>([]);
   const [launcherIconFile, setLauncherIconFile] = useState<File | null>(null);
   const [launcherIconInputKey, setLauncherIconInputKey] = useState(0);
@@ -246,6 +248,7 @@ export default function WidgetPage() {
     launcherIconUrl: "",
     launcherHoverMessage: "",
     starterQuestions: [] as string[],
+    starterQuestionStyle: "" as "" | "banner" | "list",
   });
 
   // 저장/미리보기용: 텍스트 있는 행만 "[icon] text" 직렬화.
@@ -302,6 +305,7 @@ export default function WidgetPage() {
         launcherIconUrl: launcherIconUrl.trim(),
         launcherHoverMessage: previewHoverMessage,
         starterQuestions,
+        starterQuestionStyle,
       });
     }, 3000);
     return () => window.clearTimeout(timeout);
@@ -319,6 +323,7 @@ export default function WidgetPage() {
     selectedChatbot?.name,
     selectedChatbotId,
     starterQuestions,
+    starterQuestionStyle,
     themeColor,
     welcomeMessage,
   ]);
@@ -348,6 +353,7 @@ export default function WidgetPage() {
         description: debouncedIframeState.bannerDescription || null,
       },
       starterQuestions: debouncedIframeState.starterQuestions,
+      starterQuestionStyle: debouncedIframeState.starterQuestionStyle || null,
       launcherHoverMessage: debouncedIframeState.launcherHoverMessage,
       quickActions: [],
       operatingHours: { isAfterHours: false, message: null },
@@ -472,6 +478,11 @@ export default function WidgetPage() {
     setBannerTitle(res.bannerTitle ?? "");
     setBannerDescription(res.bannerDescription ?? "");
     setStarterRows((res.starterQuestions ?? []).map(parseStarterRow));
+    setStarterQuestionStyle(
+      res.starterQuestionStyle === "banner" || res.starterQuestionStyle === "list"
+        ? res.starterQuestionStyle
+        : "",
+    );
   }
 
   useEffect(() => {
@@ -541,6 +552,7 @@ export default function WidgetPage() {
         bannerTitle: bannerTitle.trim(),
         bannerDescription: bannerDescription.trim(),
         starterQuestions,
+        starterQuestionStyle: starterQuestionStyle || null,
       });
       setData(res);
       setSuccess("위젯 설정을 저장했습니다.");
@@ -912,8 +924,23 @@ export default function WidgetPage() {
                 <div className="space-y-2 md:col-span-2">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-medium text-slate-600">대화 시작 추천 질문 카드</span>
-                    <span className="text-[11px] text-slate-400">최대 6개 · 아이콘 선택 시 배너형</span>
+                    <span className="text-[11px] text-slate-400">최대 6개</span>
                   </div>
+                  <div className="flex items-center gap-1 rounded-md bg-slate-100 p-0.5 text-xs">
+                    {([["", "자동"], ["banner", "배너형"], ["list", "목록형"]] as const).map(([val, label]) => (
+                      <button
+                        key={val || "auto"}
+                        type="button"
+                        onClick={() => setStarterQuestionStyle(val)}
+                        className={`flex-1 rounded px-2 py-1 transition ${starterQuestionStyle === val ? "bg-white font-semibold text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-slate-400">
+                    자동: 아이콘이 있으면 배너, 없으면 목록 · 배너형/목록형: 아이콘 유무와 무관하게 고정
+                  </p>
                   <div className="space-y-2">
                     {starterRows.map((row, index) => (
                       <div key={index} className="flex items-center gap-2">
@@ -1080,7 +1107,10 @@ export default function WidgetPage() {
                       {(() => {
                         const visible = starterRows.filter((row) => row.text.trim() !== "").slice(0, 6);
                         if (visible.length === 0) return null;
-                        if (visible.some((row) => row.icon || row.emoji)) {
+                        const banner =
+                          starterQuestionStyle === "banner" ||
+                          (starterQuestionStyle !== "list" && visible.some((row) => row.icon || row.emoji));
+                        if (banner) {
                           return (
                             <div className="grid grid-cols-2 gap-2">
                               {visible.map((row, index) => (

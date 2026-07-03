@@ -223,6 +223,7 @@ class AdminWidgetResponse(ApiSchema):
     banner_title: str | None = None
     banner_description: str | None = None
     starter_questions: list[str] = []
+    starter_question_style: str | None = None
     runtime_provider: str | None = None
     runtime_model: str | None = None
     runtime_source: str | None = None
@@ -252,6 +253,7 @@ class AdminWidgetUpdateRequest(ApiSchema):
     banner_title: str | None = None
     banner_description: str | None = None
     starter_questions: list[str] | None = None
+    starter_question_style: str | None = None
 
 
 class FeedbackSummaryResponse(ApiSchema):

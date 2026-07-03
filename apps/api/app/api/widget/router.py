@@ -136,6 +136,14 @@ def get_widget_public_config(
     banner_title = theme.get("widgetBannerTitle") or theme.get("widget_banner_title")
     banner_description = theme.get("widgetBannerDescription") or theme.get("widget_banner_description")
     starter_questions = theme.get("widgetStarterQuestions") or theme.get("widget_starter_questions")
+    starter_question_style_raw = theme.get("widgetStarterQuestionStyle") or theme.get(
+        "widget_starter_question_style"
+    )
+    starter_question_style = (
+        starter_question_style_raw
+        if starter_question_style_raw in ("banner", "list")
+        else None
+    )
     citation_presentation = theme.get("aiCitationPresentation") or theme.get("ai_citation_presentation")
 
     after_hours = _is_after_hours(chatbot.business_hours or {}, organization.timezone)
@@ -184,6 +192,7 @@ def get_widget_public_config(
         ]
         if isinstance(starter_questions, list)
         else [],
+        starter_question_style=starter_question_style,
         launcher_hover_message=launcher_hover_message if isinstance(launcher_hover_message, str) else None,
         quick_actions=[
             WidgetQuickAction(

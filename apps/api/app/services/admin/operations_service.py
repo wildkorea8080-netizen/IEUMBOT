@@ -1160,6 +1160,11 @@ def get_widget_service(
         ]
         if isinstance(theme.get("widgetStarterQuestions"), list)
         else [],
+        starter_question_style=(
+            theme.get("widgetStarterQuestionStyle")
+            if theme.get("widgetStarterQuestionStyle") in ("banner", "list")
+            else None
+        ),
         runtime_provider=runtime_provider,
         runtime_model=runtime_model,
         runtime_source=runtime_source,
@@ -1222,6 +1227,9 @@ def patch_widget_service(
         theme["widgetBannerDescription"] = body.banner_description.strip() or None
     if body.starter_questions is not None:
         theme["widgetStarterQuestions"] = [item.strip() for item in body.starter_questions if item and item.strip()]
+    if body.starter_question_style is not None:
+        style = body.starter_question_style.strip().lower()
+        theme["widgetStarterQuestionStyle"] = style if style in ("banner", "list") else None
     chatbot.theme = theme
     db.commit()
     db.refresh(widget)
@@ -1284,6 +1292,11 @@ def patch_widget_service(
         ]
         if isinstance(theme.get("widgetStarterQuestions"), list)
         else [],
+        starter_question_style=(
+            theme.get("widgetStarterQuestionStyle")
+            if theme.get("widgetStarterQuestionStyle") in ("banner", "list")
+            else None
+        ),
         runtime_provider=runtime_provider,
         runtime_model=runtime_model,
         runtime_source=runtime_source,

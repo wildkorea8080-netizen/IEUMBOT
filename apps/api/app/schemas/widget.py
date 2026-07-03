@@ -44,6 +44,7 @@ class WidgetPublicConfigResponse(ApiSchema):
     theme: WidgetTheme
     banner: WidgetBanner
     starter_questions: list[str]
+    starter_question_style: str | None = None  # "banner" | "list" | None(자동)
     launcher_hover_message: str | None = None
     quick_actions: list[WidgetQuickAction]
     operating_hours: WidgetOperatingHours

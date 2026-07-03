@@ -483,6 +483,7 @@ export async function patchAdminWidget(chatbotId: string, body: {
   bannerTitle?: string;
   bannerDescription?: string;
   starterQuestions?: string[];
+  starterQuestionStyle?: string | null;
 }): Promise<AdminWidgetResponse> {
   return apiClient.request<AdminWidgetResponse>(`/admin/chatbots/${chatbotId}/widget`, {
     method: "PATCH",
