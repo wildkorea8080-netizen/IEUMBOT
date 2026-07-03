@@ -21,15 +21,15 @@ import {
   starterIconLabel,
 } from "../../../lib/widget/starter-icons";
 
-// 추천 질문 줄 ↔ {아이콘, 이모지, 텍스트, 링크} 파싱/직렬화.
-// 저장 포맷: "[name] 질문" / "🙂 질문" / "질문", 링크가 있으면 끝에 " | URL" 추가.
+// 추천 질문 줄 ↔ {아이콘, 이모지, 제목, 설명, 링크} 파싱/직렬화.
+// 저장 포맷: "[name] 제목 :: 설명 | URL" (설명/링크는 선택).
 const STARTER_LINK_RE = /^(https?:\/\/|tel:|mailto:|\/)/i;
-type StarterRow = { icon: string; emoji: string; text: string; link: string };
+type StarterRow = { icon: string; emoji: string; text: string; description: string; link: string };
 function parseStarterRow(line: string): StarterRow {
   let icon = "";
   let emoji = "";
   let text = line;
-  const token = line.match(/^\[([a-zA-Z0-9_-]+)\]\s*(.*)$/);
+  const token = line.match(/^\[([a-zA-Z0-9_-]+)\]\s*([\s\S]*)$/);
   if (token && STARTER_ICON_NAMES.includes(token[1].toLowerCase())) {
     icon = token[1].toLowerCase();
     text = token[2];
@@ -44,20 +44,28 @@ function parseStarterRow(line: string): StarterRow {
     }
   }
   let link = "";
-  const sepIdx = text.lastIndexOf(" | ");
-  if (sepIdx > 0) {
-    const tail = text.slice(sepIdx + 3).trim();
+  const linkIdx = text.lastIndexOf(" | ");
+  if (linkIdx > 0) {
+    const tail = text.slice(linkIdx + 3).trim();
     if (STARTER_LINK_RE.test(tail)) {
       link = tail;
-      text = text.slice(0, sepIdx).trim();
+      text = text.slice(0, linkIdx).trim();
     }
   }
-  return { icon, emoji, text, link };
+  let description = "";
+  const descIdx = text.indexOf(" :: ");
+  if (descIdx > 0) {
+    description = text.slice(descIdx + 4).trim();
+    text = text.slice(0, descIdx).trim();
+  }
+  return { icon, emoji, text, description, link };
 }
 function serializeStarterRow(row: StarterRow): string {
   const prefix = row.icon ? `[${row.icon}] ` : row.emoji ? `${row.emoji} ` : "";
-  const base = `${prefix}${row.text}`;
-  return row.link.trim() ? `${base} | ${row.link.trim()}` : base;
+  let out = `${prefix}${row.text}`;
+  if (row.description.trim()) out += ` :: ${row.description.trim()}`;
+  if (row.link.trim()) out += ` | ${row.link.trim()}`;
+  return out;
 }
 
 const COLOR_PRESETS = [
@@ -1033,6 +1041,13 @@ export default function WidgetPage() {
                           ✕
                         </button>
                         </div>
+                        <textarea
+                          value={row.description}
+                          onChange={(event) => updateStarterRow(index, { description: event.target.value })}
+                          placeholder="설명 (선택) — 예: 1661-2020, 월~금 10:00~17:00"
+                          rows={2}
+                          className="w-full resize-none rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-700 placeholder:text-slate-400"
+                        />
                         <input
                           value={row.link}
                           onChange={(event) => updateStarterRow(index, { link: event.target.value })}
@@ -1045,7 +1060,7 @@ export default function WidgetPage() {
                   {starterRows.length < 6 && (
                     <button
                       type="button"
-                      onClick={() => setStarterRows((rows) => [...rows, { icon: "", emoji: "", text: "", link: "" }])}
+                      onClick={() => setStarterRows((rows) => [...rows, { icon: "", emoji: "", text: "", description: "", link: "" }])}
                       className="text-xs font-medium text-blue-600 hover:text-blue-700"
                     >
                       + 질문 추가
@@ -1131,6 +1146,29 @@ export default function WidgetPage() {
                       {(() => {
                         const visible = starterRows.filter((row) => row.text.trim() !== "").slice(0, 6);
                         if (visible.length === 0) return null;
+                        if (visible.some((row) => row.description.trim())) {
+                          return (
+                            <div className="flex flex-col gap-2">
+                              {visible.map((row, index) => (
+                                <button key={index} type="button" className="flex items-start gap-2.5 rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-left shadow-sm">
+                                  {row.icon ? (
+                                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                                      <StarterIconPreview name={row.icon} />
+                                    </span>
+                                  ) : row.emoji ? (
+                                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-50 text-base">{row.emoji}</span>
+                                  ) : null}
+                                  <span className="min-w-0">
+                                    <span className="block text-xs font-bold text-slate-800">{row.text}{row.link ? " ↗" : ""}</span>
+                                    {row.description.trim() ? (
+                                      <span className="mt-0.5 block whitespace-pre-line text-[11px] leading-relaxed text-slate-500">{row.description}</span>
+                                    ) : null}
+                                  </span>
+                                </button>
+                              ))}
+                            </div>
+                          );
+                        }
                         const banner =
                           starterQuestionStyle === "banner" ||
                           (starterQuestionStyle !== "list" && visible.some((row) => row.icon || row.emoji));

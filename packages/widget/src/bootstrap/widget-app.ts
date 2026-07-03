@@ -210,11 +210,12 @@ const STARTER_ICONS: Record<string, string> = {
 
 type StarterIconType = "svg" | "emoji" | "none";
 const STARTER_LINK_RE = /^(https?:\/\/|tel:|mailto:|\/)/i;
-// 질문 문자열 파싱: [name] 토큰(내장 SVG) 또는 선행 이모지 → 아이콘, 끝의 " | URL" → 링크.
+// 질문 문자열 파싱: [name] 토큰/선행 이모지 → 아이콘, " :: 설명" → 설명, 끝의 " | URL" → 링크.
 function parseStarterItem(text: string): {
   iconType: StarterIconType;
   icon: string;
   label: string;
+  description: string;
   link: string;
   raw: string;
 } {
@@ -222,7 +223,7 @@ function parseStarterItem(text: string): {
   let iconType: StarterIconType = "none";
   let icon = "";
   let label = raw;
-  const tokenMatch = raw.match(/^\[([a-z0-9_-]+)\]\s*(.*)$/i);
+  const tokenMatch = raw.match(/^\[([a-z0-9_-]+)\]\s*([\s\S]*)$/i);
   if (tokenMatch && STARTER_ICONS[tokenMatch[1].toLowerCase()]) {
     iconType = "svg";
     icon = tokenMatch[1].toLowerCase();
@@ -248,8 +249,15 @@ function parseStarterItem(text: string): {
       label = label.slice(0, sepIdx).trim();
     }
   }
+  // " :: 설명" 분리
+  let description = "";
+  const descIdx = label.indexOf(" :: ");
+  if (descIdx > 0) {
+    description = label.slice(descIdx + 4).trim();
+    label = label.slice(0, descIdx).trim();
+  }
   if (!label) label = raw;
-  return { iconType, icon, label, link, raw };
+  return { iconType, icon, label, description, link, raw };
 }
 
 function asStringArray(value: unknown): string[] {
@@ -541,7 +549,7 @@ function buildScopedStyles(primaryGradient: string): string {
 .ieum-starter-card.ieum-starter-link::after {
   content:"↗"; position:absolute; top:7px; right:9px; font-size:11px; color:#94a3b8;
 }
-.ieum-starter-question.ieum-starter-link:not(.ieum-starter-card)::after {
+.ieum-starter-question.ieum-starter-link:not(.ieum-starter-card):not(.ieum-starter-rich-card)::after {
   content:" ↗"; color:#94a3b8; font-size:12px;
 }
 .ieum-starter-question.ieum-starter-card:hover {
@@ -555,6 +563,29 @@ function buildScopedStyles(primaryGradient: string): string {
 .ieum-starter-card-icon svg { width:23px; height:23px; display:block; }
 .ieum-starter-card-icon-emoji { background:transparent; }
 .ieum-starter-card-label { font-size:12.5px; font-weight:600; color:#1f2937; line-height:1.35; word-break:keep-all; }
+/* ── 리치 카드 (아이콘 + 제목 + 설명, 좌측정렬 1열) ── */
+.ieum-starter-questions.ieum-starter-rich { display:flex; flex-direction:column; gap:8px; }
+.ieum-starter-question.ieum-starter-rich-card {
+  position:relative; display:flex; align-items:flex-start; gap:11px; width:100%;
+  text-align:left; padding:13px 14px; border-radius:14px;
+  background:#fff; border:1px solid #eef0f4; box-shadow:0 1px 2px rgba(16,24,40,.04);
+  transition:border-color .15s, box-shadow .15s, transform .12s;
+}
+.ieum-starter-question.ieum-starter-rich-card:hover {
+  border-color:${pc}; box-shadow:0 6px 16px rgba(16,24,40,.10); transform:translateY(-1px);
+}
+.ieum-starter-rich-icon {
+  display:flex; align-items:center; justify-content:center;
+  width:38px; height:38px; border-radius:10px;
+  background:${pcA08}; color:${pc}; font-size:20px; line-height:1; flex:0 0 auto;
+}
+.ieum-starter-rich-icon svg { width:21px; height:21px; display:block; }
+.ieum-starter-rich-body { min-width:0; flex:1; display:flex; flex-direction:column; }
+.ieum-starter-rich-title { font-size:13px; font-weight:700; color:#1f2937; line-height:1.35; }
+.ieum-starter-rich-desc { margin-top:3px; font-size:11.5px; line-height:1.55; color:#64748b; white-space:pre-line; word-break:keep-all; }
+.ieum-starter-rich-card.ieum-starter-link::after {
+  content:"↗"; position:absolute; top:9px; right:11px; font-size:11px; color:#94a3b8;
+}
 .ieum-quick-action {
   border:1px solid #dbeafe; border-radius:9999px;
   background:#eff6ff; color:#1d4ed8; padding:7px 14px;
@@ -1148,13 +1179,16 @@ export class IeumWidgetApp {
     }
 
     const parsed = items.map((q) => parseStarterItem(q));
-    // 스타일 결정: config.starterQuestionStyle("banner"/"list")가 있으면 우선,
-    // 없으면 아이콘(이모지 또는 [name])이 하나라도 있으면 배너 그리드로 자동 전환.
+    // 설명이 하나라도 있으면 리치 카드(왼쪽정렬 아이콘+제목+설명, 1열)로 렌더.
+    // 아니면 스타일(banner/list)에 따라: banner 고정 / list 고정 / 자동(아이콘 있으면 배너).
     const configuredStyle = this.config?.starterQuestionStyle;
+    const useRich = parsed.some((p) => p.description);
     const useBanner =
-      configuredStyle === "banner" ||
-      (configuredStyle !== "list" && parsed.some((p) => p.iconType !== "none"));
+      !useRich &&
+      (configuredStyle === "banner" ||
+        (configuredStyle !== "list" && parsed.some((p) => p.iconType !== "none")));
 
+    this.starterQuestionsWrap.classList.toggle("ieum-starter-rich", useRich);
     this.starterQuestionsWrap.classList.toggle("ieum-starter-banner", useBanner);
     if (useBanner) {
       const n = parsed.length;
@@ -1166,24 +1200,42 @@ export class IeumWidgetApp {
       this.starterQuestionsWrap.style.gridTemplateColumns = "";
     }
 
-    for (const { iconType, icon, label, link, raw } of parsed) {
+    // 아이콘 span 생성 (svg=내장 상수 신뢰 가능, emoji=텍스트). cls로 카드/리치 구분.
+    const buildIcon = (t: StarterIconType, ic: string, cls: string): HTMLElement | null => {
+      if (t === "none") return null;
+      const span = createElement(document, "span", cls);
+      if (t === "svg") {
+        span.innerHTML = STARTER_ICONS[ic] ?? "";
+      } else {
+        span.style.background = "transparent";
+        span.textContent = ic;
+      }
+      return span;
+    };
+
+    for (const { iconType, icon, label, description, link, raw } of parsed) {
       const button = createElement(document, "button", "ieum-starter-question");
       button.type = "button";
       const sendText = label || raw;
       if (link) button.classList.add("ieum-starter-link");
-      if (useBanner) {
-        button.classList.add("ieum-starter-card");
-        if (iconType !== "none") {
-          const iconSpan = createElement(document, "span", "ieum-starter-card-icon");
-          if (iconType === "svg") {
-            // STARTER_ICONS는 내장 상수 SVG(신뢰 가능) — 사용자 입력 아님.
-            iconSpan.innerHTML = STARTER_ICONS[icon] ?? "";
-          } else {
-            iconSpan.classList.add("ieum-starter-card-icon-emoji");
-            iconSpan.textContent = icon;
-          }
-          button.appendChild(iconSpan);
+      if (useRich) {
+        button.classList.add("ieum-starter-rich-card");
+        const iconEl = buildIcon(iconType, icon, "ieum-starter-rich-icon");
+        if (iconEl) button.appendChild(iconEl);
+        const body = createElement(document, "span", "ieum-starter-rich-body");
+        const titleEl = createElement(document, "span", "ieum-starter-rich-title");
+        titleEl.textContent = label;
+        body.appendChild(titleEl);
+        if (description) {
+          const descEl = createElement(document, "span", "ieum-starter-rich-desc");
+          descEl.textContent = description;
+          body.appendChild(descEl);
         }
+        button.appendChild(body);
+      } else if (useBanner) {
+        button.classList.add("ieum-starter-card");
+        const iconEl = buildIcon(iconType, icon, "ieum-starter-card-icon");
+        if (iconEl) button.appendChild(iconEl);
         const labelSpan = createElement(document, "span", "ieum-starter-card-label");
         labelSpan.textContent = label;
         button.appendChild(labelSpan);
