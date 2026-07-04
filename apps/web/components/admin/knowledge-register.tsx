@@ -10,11 +10,12 @@ import {
   createKnowledgeWebsite,
   createKnowledgeTextToStaging,
   getAdminChatbots,
+  previewApiKnowledgeSource,
   uploadKnowledgeFileToStaging,
 } from "../../lib/api/admin-operations";
-import type { AdminChatbotItem } from "../../lib/api/admin-operations-types";
+import type { AdminChatbotItem, KnowledgeApiPreviewItem } from "../../lib/api/admin-operations-types";
 
-type RegisterType = "file" | "text" | "website";
+type RegisterType = "file" | "text" | "website" | "api";
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof ApiClientError) {
@@ -296,12 +297,114 @@ function WebsiteModal({ open, onClose, onSubmit, isSubmitting }: {
   );
 }
 
+// ── API 연동 모달 ─────────────────────────────────────────────────────────────
+
+function ApiSourceModal({ open, onClose, onSubmit, isSubmitting }: {
+  open: boolean;
+  onClose: () => void;
+  onSubmit: (v: { url: string; title: string; apiConfig: Record<string, unknown> }) => void;
+  isSubmitting: boolean;
+}) {
+  const [title, setTitle] = useState("");
+  const [url, setUrl] = useState("");
+  const [itemsPath, setItemsPath] = useState("");
+  const [titleField, setTitleField] = useState("");
+  const [contentFields, setContentFields] = useState("");
+  const [urlField, setUrlField] = useState("");
+  const [paramsText, setParamsText] = useState("");
+  const [localError, setLocalError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<KnowledgeApiPreviewItem[] | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setTitle(""); setUrl(""); setItemsPath(""); setTitleField(""); setContentFields("");
+      setUrlField(""); setParamsText(""); setLocalError(null); setPreview(null);
+    }
+  }, [open]);
+
+  const buildConfig = (): Record<string, unknown> => {
+    const params: Record<string, string> = {};
+    paramsText.split("\n").map(l => l.trim()).filter(Boolean).forEach(line => {
+      const idx = line.indexOf("=");
+      if (idx > 0) params[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
+    });
+    return {
+      itemsPath: itemsPath.trim(),
+      titleField: titleField.trim(),
+      contentFields: contentFields.split(",").map(s => s.trim()).filter(Boolean),
+      urlField: urlField.trim(),
+      params,
+    };
+  };
+
+  const doPreview = async () => {
+    if (!url.trim()) { setLocalError("엔드포인트 URL을 입력해주세요."); return; }
+    setPreviewing(true); setLocalError(null); setPreview(null);
+    try {
+      const res = await previewApiKnowledgeSource({ url: url.trim(), apiConfig: buildConfig() });
+      setPreview(res.items);
+      if (res.items.length === 0) setLocalError("항목을 찾지 못했습니다. 항목 경로·필드를 확인하세요.");
+    } catch (e) {
+      setLocalError(e instanceof ApiClientError ? `${e.code}: ${e.message}` : (e instanceof Error ? e.message : "테스트 호출 실패"));
+    } finally { setPreviewing(false); }
+  };
+
+  const inputStyle: React.CSSProperties = { width: "100%", padding: "9px 12px", boxSizing: "border-box", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 13, color: "#374151", outline: "none" };
+  const labelStyle: React.CSSProperties = { display: "block", fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 5 };
+
+  return (
+    <Modal open={open} onClose={onClose} title="API 연동 지식" subtitle="공식 OpenAPI(JSON)를 항목 단위로 수집해 지식으로 색인합니다. 예: 국가법령정보센터.">
+      <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 14 }}>
+        <div><label style={labelStyle}>이름</label><input value={title} onChange={e => setTitle(e.target.value)} placeholder="예: 국가법령정보 - 지방세" style={inputStyle} /></div>
+        <div><label style={labelStyle}>엔드포인트 URL</label><input value={url} onChange={e => setUrl(e.target.value)} placeholder="https://apis.data.go.kr/.../service" style={inputStyle} /></div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <div><label style={labelStyle}>항목 경로 (itemsPath)</label><input value={itemsPath} onChange={e => setItemsPath(e.target.value)} placeholder="response.body.items.item" style={inputStyle} /></div>
+          <div><label style={labelStyle}>제목 필드</label><input value={titleField} onChange={e => setTitleField(e.target.value)} placeholder="법령명" style={inputStyle} /></div>
+          <div><label style={labelStyle}>본문 필드(쉼표로 여러 개)</label><input value={contentFields} onChange={e => setContentFields(e.target.value)} placeholder="조문내용" style={inputStyle} /></div>
+          <div><label style={labelStyle}>원문 링크 필드(선택)</label><input value={urlField} onChange={e => setUrlField(e.target.value)} placeholder="상세링크" style={inputStyle} /></div>
+        </div>
+        <div><label style={labelStyle}>쿼리 파라미터 (한 줄에 key=value)</label>
+          <textarea value={paramsText} onChange={e => setParamsText(e.target.value)} rows={3} placeholder={"serviceKey=발급키\ntype=JSON\nnumOfRows=100"} style={{ ...inputStyle, resize: "vertical", fontFamily: "monospace", lineHeight: 1.6 }} /></div>
+      </div>
+
+      <button type="button" onClick={() => void doPreview()} disabled={previewing} style={{ padding: "8px 16px", marginBottom: 14, border: "1px solid #2563eb", borderRadius: 8, background: "#eff6ff", color: "#2563eb", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+        {previewing ? "테스트 중..." : "테스트 호출 (미리보기)"}
+      </button>
+
+      {preview && preview.length > 0 && (
+        <div style={{ marginBottom: 14, border: "1px solid #e5e7eb", borderRadius: 8, overflow: "hidden" }}>
+          <div style={{ padding: "8px 12px", background: "#f8fafc", fontSize: 12, fontWeight: 600, color: "#475569" }}>미리보기 {preview.length}건</div>
+          {preview.map((it, i) => (
+            <div key={i} style={{ padding: "8px 12px", borderTop: "1px solid #f1f5f9", fontSize: 12 }}>
+              <div style={{ fontWeight: 600, color: "#111827" }}>{it.title}</div>
+              <div style={{ color: "#64748b", marginTop: 2, whiteSpace: "pre-wrap" }}>{it.contentPreview}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {localError && <p style={{ fontSize: 12, color: "#dc2626", marginBottom: 12 }}>{localError}</p>}
+
+      <ModalButtons
+        onCancel={onClose}
+        isLoading={isSubmitting}
+        onConfirm={() => {
+          if (!title.trim() || !url.trim()) { setLocalError("이름과 엔드포인트 URL은 필수입니다."); return; }
+          onSubmit({ url: url.trim(), title: title.trim(), apiConfig: buildConfig() });
+        }}
+      />
+    </Modal>
+  );
+}
+
 // ── 타입 카드 ─────────────────────────────────────────────────────────────────
 
 const TYPE_META: Record<RegisterType, { icon: React.ReactNode; title: string; desc: string; isNew?: boolean }> = {
   file:    { icon: <UploadSvg />, title: "파일 업로드",      desc: "문서 파일을 업로드하면\nAI 답변 생성에 활용합니다." },
   text:    { icon: <PasteSvg />, title: "텍스트 붙여넣기",   desc: "텍스트를 직접 입력해\nAI 답변에 사용할 지식을 등록하세요." },
   website: { icon: <WebsiteSvg />, title: "웹사이트 연결",   desc: "웹사이트 URL을 연결해\nAI 답변에 활용할 정보를 가져옵니다.", isNew: true },
+  api:     { icon: <WebsiteSvg />, title: "API 연동 (법령 등)", desc: "공식 OpenAPI(국가법령정보 등)를\n주기적으로 수집해 자동 현행화합니다.", isNew: true },
 };
 
 function TypeCard({ type, onClick }: { type: RegisterType; onClick: () => void }) {
@@ -411,6 +514,25 @@ export function KnowledgeRegister() {
     } finally { setIsSubmitting(false); }
   };
 
+  const handleApiSubmit = async (v: { url: string; title: string; apiConfig: Record<string, unknown> }) => {
+    if (!chatbotId) { setError("챗봇을 선택해주세요."); return; }
+    setIsSubmitting(true); setError(null);
+    try {
+      await createKnowledgeWebsite({
+        chatbotId, url: v.url, title: v.title,
+        crawlPageLimit: 1, crawlAllPages: false, includeAttachments: false,
+        excludedPaths: [], tags: [],
+        sourceKind: "api", apiConfig: v.apiConfig,
+      });
+      setModal(null);
+      router.push("/admin/knowledge/list");
+    } catch (e) {
+      if (e instanceof ApiClientError && e.code === "WEBSITE_ALREADY_REGISTERED") {
+        setModal(null); router.push("/admin/knowledge/list");
+      } else { setError(getErrorMessage(e)); }
+    } finally { setIsSubmitting(false); }
+  };
+
   if (isLoading) return null;
 
   return (
@@ -433,6 +555,7 @@ export function KnowledgeRegister() {
         <TypeCard type="file" onClick={() => setModal("file")} />
         <TypeCard type="text" onClick={() => setModal("text")} />
         <TypeCard type="website" onClick={() => setModal("website")} />
+        <TypeCard type="api" onClick={() => setModal("api")} />
       </div>
 
       {/* 모달 */}
@@ -452,6 +575,12 @@ export function KnowledgeRegister() {
         open={modal === "website"}
         onClose={() => { if (!isSubmitting) setModal(null); }}
         onSubmit={handleWebsiteSubmit}
+        isSubmitting={isSubmitting}
+      />
+      <ApiSourceModal
+        open={modal === "api"}
+        onClose={() => { if (!isSubmitting) setModal(null); }}
+        onSubmit={handleApiSubmit}
         isSubmitting={isSubmitting}
       />
     </div>

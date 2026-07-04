@@ -342,6 +342,19 @@ export type KnowledgeWebsiteCreateRequest = {
   tags: string[];
   memo?: string;
   department?: string;
+  sourceKind?: "web" | "api";
+  apiConfig?: Record<string, unknown> | null;
+};
+
+export type KnowledgeApiPreviewItem = {
+  title: string;
+  contentPreview: string;
+  url?: string | null;
+};
+
+export type KnowledgeApiPreviewResponse = {
+  count: number;
+  items: KnowledgeApiPreviewItem[];
 };
 
 export type KnowledgeUpdateRequest = {

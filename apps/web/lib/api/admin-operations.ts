@@ -24,6 +24,7 @@ import type {
   FaqManagementCreateRequest,
   FaqManagementUpdateRequest,
   KnowledgeDetail,
+  KnowledgeApiPreviewResponse,
   KnowledgeItem,
   KnowledgeListResponse,
   KnowledgeRuntimeStatus,
@@ -222,6 +223,16 @@ export async function createKnowledgeText(body: KnowledgeTextCreateRequest): Pro
 
 export async function createKnowledgeWebsite(body: KnowledgeWebsiteCreateRequest): Promise<KnowledgeDetail> {
   return apiClient.request<KnowledgeDetail>("/admin/knowledge/websites", {
+    method: "POST",
+    body,
+  });
+}
+
+export async function previewApiKnowledgeSource(body: {
+  url: string;
+  apiConfig?: Record<string, unknown> | null;
+}): Promise<KnowledgeApiPreviewResponse> {
+  return apiClient.request<KnowledgeApiPreviewResponse>("/admin/knowledge/api-source/preview", {
     method: "POST",
     body,
   });
