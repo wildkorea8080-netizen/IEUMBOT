@@ -45,6 +45,12 @@ from app.schemas.knowledge import (
     KnowledgeUpsertRequest,
     KnowledgeWebsiteCreateRequest,
 )
+from app.services.admin.api_knowledge_connector import (
+    ApiConnectorConfig,
+    build_api_source_text,
+    fetch_api_items,
+    is_api_source,
+)
 from app.services.admin.scope_service import (
     ensure_chatbot_in_scope,
     ensure_document_in_scope,
@@ -3681,26 +3687,44 @@ def _ingest_web_source_content(
             job.progress_percent = min(34, 10 + int((done / max(total, 1)) * 24))
             db.commit()  # 진행률 즉시 반영 — 목록에서 5% 고정으로 보이는 문제 방지
 
-        (
-            html,
-            extracted_text,
-            crawled_urls,
-            attachment_urls,
-            final_url,
-            http_status_code,
-            crawl_diagnostics,
-        ) = _crawl_website(
-            web_source.base_url,
-            crawl_depth=web_source.crawl_depth,
-            max_pages=crawl_page_limit,
-            excluded_paths=list(web_source.excluded_paths or []),
-            crawl_all_pages=crawl_all_pages,
-            include_attachments=include_attachments,
-            delay_min=_delay_min,
-            delay_max=_delay_max,
-            max_consecutive_failures=_max_failures,
-            progress_callback=crawl_progress,
-        )
+        if is_api_source(web_source):
+            # 공식 OpenAPI 수집 — 크롤 대신 API 호출 → 동일한 [URL]-마킹 텍스트 생성.
+            # 이후 색인(청킹·임베딩·Document)은 웹소스와 완전히 동일 경로 재사용.
+            api_cfg = ApiConnectorConfig.from_dict((web_source.metadata_json or {}).get("apiConfig"))
+            api_items = fetch_api_items(web_source.base_url, api_cfg)
+            extracted_text, crawled_urls = build_api_source_text(web_source.base_url, api_items)
+            html = extracted_text
+            attachment_urls = []
+            final_url = web_source.base_url
+            http_status_code = 200
+            crawl_diagnostics = {
+                "extraction_method": "api",
+                "navigation_removed": False,
+                "removed_navigation_lines": 0,
+                "crawl_error_count": 0,
+                "crawl_errors": [],
+            }
+        else:
+            (
+                html,
+                extracted_text,
+                crawled_urls,
+                attachment_urls,
+                final_url,
+                http_status_code,
+                crawl_diagnostics,
+            ) = _crawl_website(
+                web_source.base_url,
+                crawl_depth=web_source.crawl_depth,
+                max_pages=crawl_page_limit,
+                excluded_paths=list(web_source.excluded_paths or []),
+                crawl_all_pages=crawl_all_pages,
+                include_attachments=include_attachments,
+                delay_min=_delay_min,
+                delay_max=_delay_max,
+                max_consecutive_failures=_max_failures,
+                progress_callback=crawl_progress,
+            )
     except HTTPError as exc:
         _set_job_failed(
             web_source=web_source,
