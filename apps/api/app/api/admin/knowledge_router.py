@@ -18,6 +18,9 @@ from app.schemas.knowledge import (
     FaqAnalyzeRequest,
     FaqAnalyzeResponse,
     FaqSuggestedItem,
+    KnowledgeApiPreviewItem,
+    KnowledgeApiPreviewRequest,
+    KnowledgeApiPreviewResponse,
     KnowledgeDetailResponse,
     KnowledgeItem,
     KnowledgeListResponse,
@@ -36,6 +39,7 @@ from app.services.admin.knowledge_service import (
     list_knowledge_diagnostics_service,
     list_knowledge_service,
     patch_knowledge_service,
+    preview_api_knowledge_service,
     reindex_all_knowledge_service,
     reindex_knowledge_service,
 )
@@ -128,6 +132,28 @@ def admin_create_website_knowledge(
 ) -> KnowledgeDetailResponse:
     return create_website_knowledge_service(
         db, principal=principal, body=body, background_tasks=background_tasks
+    )
+
+
+@router.post("/knowledge/api-source/preview", response_model=KnowledgeApiPreviewResponse)
+def admin_preview_api_source(
+    body: KnowledgeApiPreviewRequest,
+    principal: AdminPrincipal = Depends(require_institution_admin_auth),
+    db: Session = Depends(get_db_session),
+) -> KnowledgeApiPreviewResponse:
+    items = preview_api_knowledge_service(
+        db, principal=principal, url=body.url, api_config=body.api_config
+    )
+    return KnowledgeApiPreviewResponse(
+        count=len(items),
+        items=[
+            KnowledgeApiPreviewItem(
+                title=it["title"],
+                content_preview=it["contentPreview"],
+                url=it.get("url") or None,
+            )
+            for it in items
+        ],
     )
 
 

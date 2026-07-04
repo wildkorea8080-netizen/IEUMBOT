@@ -5807,6 +5807,15 @@ def create_website_knowledge_service(
 ) -> KnowledgeDetailResponse:
     organization_id = require_institution_organization_id(principal)
     chatbot = ensure_chatbot_in_scope(db, principal=principal, chatbot_id=body.chatbot_id)
+    if body.source_kind == "api":
+        return _create_api_knowledge_source(
+            db,
+            principal=principal,
+            organization_id=organization_id,
+            chatbot=chatbot,
+            body=body,
+            background_tasks=background_tasks,
+        )
     canonical_url = _canonicalize_website_url(body.url)
     parsed = urlparse(canonical_url)
     hostname = parsed.hostname or ""
@@ -5868,3 +5877,94 @@ def create_website_knowledge_service(
     logger.info("[WEBSITE_CREATE] web_source_id=%s queued job_id=%s", web_source.id, job.id)
     _dispatch_reindex(background_tasks, principal, str(web_source.id), str(job.id))
     return get_knowledge_service(db, principal=principal, knowledge_id=str(web_source.id))
+
+
+def _create_api_knowledge_source(
+    db: Session,
+    *,
+    principal: AdminPrincipal,
+    organization_id: str,
+    chatbot,
+    body: KnowledgeWebsiteCreateRequest,
+    background_tasks=None,
+) -> KnowledgeDetailResponse:
+    """공식 OpenAPI 지식 소스 등록. WebSource(sourceKind=api)로 저장 → 색인은
+    _ingest_web_source_content가 API 분기로 처리(크롤 인프라 재사용). 도메인 검증은
+    생략(관리자가 신뢰하는 외부 API 엔드포인트를 명시 등록)."""
+    endpoint = body.url.strip()
+    if not endpoint.lower().startswith(("http://", "https://")):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="INVALID_API_ENDPOINT")
+    duplicate_stmt = select(WebSource).where(
+        WebSource.organization_id == uuid.UUID(organization_id),
+        WebSource.chatbot_id == chatbot.id,
+        WebSource.is_deleted.is_(False),
+        WebSource.base_url == endpoint,
+    )
+    if db.execute(duplicate_stmt).scalar_one_or_none() is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="WEBSITE_ALREADY_REGISTERED")
+
+    web_source = WebSource(
+        organization_id=uuid.UUID(organization_id),
+        chatbot_id=chatbot.id,
+        name=body.title.strip(),
+        base_url=endpoint,
+        status="active",
+        sync_mode="manual",
+        allowed_domains=[],
+        excluded_paths=[],
+        metadata_json={
+            "sourceKind": "api",
+            "apiConfig": body.api_config or {},
+            "category": body.category.strip() if body.category else None,
+            "field": body.field.strip() if body.field else None,
+            "tags": _parse_tags(body.tags),
+            "memo": body.memo.strip() if body.memo else None,
+            "department": body.department.strip() if body.department else None,
+            "summary": endpoint,
+            "sensitive_detected": False,
+        },
+    )
+    db.add(web_source)
+    db.flush()
+
+    job = IngestionJob(
+        organization_id=uuid.UUID(organization_id),
+        chatbot_id=chatbot.id,
+        web_source_id=web_source.id,
+        created_by_admin_id=uuid.UUID(principal.admin_id),
+        job_type="web_source_sync",
+        status="queued",
+        current_step="registered",
+        progress_percent=0,
+        metadata_json={"sourceType": "website", "sourceKind": "api", "url": endpoint},
+    )
+    db.add(job)
+    db.commit()
+    logger.info("[API_SOURCE_CREATE] web_source_id=%s queued job_id=%s", web_source.id, job.id)
+    _dispatch_reindex(background_tasks, principal, str(web_source.id), str(job.id))
+    return get_knowledge_service(db, principal=principal, knowledge_id=str(web_source.id))
+
+
+def preview_api_knowledge_service(
+    db: Session,
+    *,
+    principal: AdminPrincipal,
+    url: str,
+    api_config: dict | None,
+) -> list[dict[str, str]]:
+    """관리자 API 소스 테스트 호출 — 앞 몇 개 항목 미리보기. 실패 시 422."""
+    require_institution_organization_id(principal)
+    endpoint = (url or "").strip()
+    if not endpoint.lower().startswith(("http://", "https://")):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="INVALID_API_ENDPOINT")
+    try:
+        config = ApiConnectorConfig.from_dict(api_config)
+        from app.services.admin.api_knowledge_connector import preview_api_source  # noqa: PLC0415
+
+        return preview_api_source(endpoint, config, limit=5)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[API_SOURCE_PREVIEW] failed url=%s error=%s", endpoint.split("?")[0], exc)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"API_PREVIEW_FAILED: {exc}",
+        ) from exc

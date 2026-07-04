@@ -124,6 +124,25 @@ class KnowledgeWebsiteCreateRequest(ApiSchema):
     tags: list[str] = Field(default_factory=list)
     memo: str | None = None
     department: str | None = None
+    # "web"(기본, 크롤링) | "api"(공식 OpenAPI 수집). api면 url=엔드포인트, api_config 사용.
+    source_kind: str = "web"
+    api_config: dict | None = None
+
+
+class KnowledgeApiPreviewRequest(ApiSchema):
+    url: str
+    api_config: dict | None = None
+
+
+class KnowledgeApiPreviewItem(ApiSchema):
+    title: str
+    content_preview: str
+    url: str | None = None
+
+
+class KnowledgeApiPreviewResponse(ApiSchema):
+    count: int
+    items: list[KnowledgeApiPreviewItem]
 
 
 class KnowledgeRuntimeDependencyItem(ApiSchema):
