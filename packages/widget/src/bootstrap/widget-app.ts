@@ -755,6 +755,11 @@ function buildScopedStyles(primaryGradient: string): string {
 }
 .ieum-input::placeholder { color:#9ca3af; }
 .ieum-input:focus { border-color:${pc}; background:#fff; box-shadow:0 0 0 3px ${pcA08}; }
+/* ── 웹접근성(KWCAG): 키보드 포커스 표시 ── */
+.ieum-panel :focus-visible, .ieum-floating:focus-visible, .ieum-launcher-tip-close:focus-visible {
+  outline:2px solid ${pc}; outline-offset:2px; border-radius:6px;
+}
+.ieum-header-button:focus-visible { outline:2px solid #fff; outline-offset:2px; }
 .ieum-send {
   width:44px; height:44px; flex-shrink:0;
   border:none; border-radius:9999px;
@@ -907,6 +912,21 @@ export class IeumWidgetApp {
     this.sendButton.type = "button";
     this.sendButton.setAttribute("aria-label", "메시지 전송");
     this.sendButton.innerHTML = createIconSvg("send");
+
+    // ── 웹접근성(KWCAG) 속성 ──────────────────────────────────────────────
+    this.titleNode.id = "ieum-title-heading";
+    this.titleNode.setAttribute("role", "heading");
+    this.titleNode.setAttribute("aria-level", "2");
+    this.panel.setAttribute("role", "dialog");
+    this.panel.setAttribute("aria-labelledby", "ieum-title-heading");
+    // 새 답변을 스크린리더가 읽도록 라이브 영역 지정
+    this.messagesWrap.setAttribute("role", "log");
+    this.messagesWrap.setAttribute("aria-live", "polite");
+    this.messagesWrap.setAttribute("aria-relevant", "additions text");
+    // 입력창: placeholder만으로는 라벨이 부족 → 명시적 라벨
+    this.input.setAttribute("aria-label", "질문 입력");
+    this.floatingButton.setAttribute("aria-haspopup", "dialog");
+    this.floatingButton.setAttribute("aria-expanded", "false");
     this.footerNotice.textContent = DEFAULT_TRUST_NOTICE;
     // "Powered by DeepSecu" — 제작사 표시(작고 비방해적). 인라인 SVG라 외부 자산 불필요.
     this.brandMark.innerHTML =
@@ -986,6 +1006,13 @@ export class IeumWidgetApp {
     });
     minimizeButton.addEventListener("click", () => this.setOpen(false));
     closeButton.addEventListener("click", () => this.setOpen(false));
+    // 웹접근성: 패널에서 Esc로 닫기 (키보드 조작)
+    this.panel.addEventListener("keydown", (event: KeyboardEvent) => {
+      if (event.key === "Escape" && this.open) {
+        event.stopPropagation();
+        this.setOpen(false);
+      }
+    });
     this.bindPanelDrag(header);
     this.sendButton.addEventListener("click", () => void this.sendCurrentInput());
     this.input.addEventListener("keydown", (event: KeyboardEvent) => {
@@ -1312,6 +1339,7 @@ export class IeumWidgetApp {
 
   private setOpen(value: boolean) {
     this.open = value;
+    this.floatingButton.setAttribute("aria-expanded", value ? "true" : "false");
     if (value) {
       this.hideLauncherTip();
       this.ensureInitialMessage();
@@ -1325,6 +1353,12 @@ export class IeumWidgetApp {
     this.panel.classList.remove("open");
     this.launcherWrap.style.opacity = "1";
     this.launcherWrap.style.pointerEvents = "auto";
+    // 닫힘 시 포커스를 런처로 되돌림(키보드 사용자 컨텍스트 유지)
+    try {
+      this.floatingButton.focus();
+    } catch {
+      /* noop */
+    }
   }
 
   private togglePanel() {
