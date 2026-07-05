@@ -7,9 +7,11 @@ from app.schemas.conversations import (
     AdminConversationDetailResponse,
     AdminConversationsListResponse,
     AdminConversationUpdateRequest,
+    AdminSubjectDistributionResponse,
 )
 from app.services.admin.conversations_service import (
     get_conversation_detail_service,
+    get_subject_distribution_service,
     list_conversations_service,
     patch_conversation_service,
 )
@@ -43,6 +45,23 @@ def admin_list_conversations(
         llm_executed=llm_executed,
         page=page,
         page_size=page_size,
+    )
+
+
+@router.get("/conversations/subject-distribution", response_model=AdminSubjectDistributionResponse)
+def admin_subject_distribution(
+    chatbot_id: str | None = Query(default=None, alias="chatbotId"),
+    from_date: str | None = Query(default=None, alias="from"),
+    to_date: str | None = Query(default=None, alias="to"),
+    principal: AdminPrincipal = Depends(require_institution_admin_auth),
+    db: Session = Depends(get_db_session),
+) -> AdminSubjectDistributionResponse:
+    return get_subject_distribution_service(
+        db,
+        principal=principal,
+        chatbot_id=chatbot_id,
+        from_date_raw=from_date,
+        to_date_raw=to_date,
     )
 
 

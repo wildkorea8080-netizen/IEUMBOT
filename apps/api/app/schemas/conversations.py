@@ -69,3 +69,20 @@ class AdminConversationDetailResponse(ApiSchema):
 class AdminConversationUpdateRequest(ApiSchema):
     status: str | None = Field(default=None, max_length=30)
     memo: str | None = Field(default=None, max_length=2000)
+
+
+class AdminSubjectStatusCount(ApiSchema):
+    status: str
+    label: str
+    count: int
+
+
+class AdminSubjectKeyword(ApiSchema):
+    keyword: str
+    count: int
+
+
+class AdminSubjectDistributionResponse(ApiSchema):
+    total_questions: int
+    status_distribution: list[AdminSubjectStatusCount]
+    top_keywords: list[AdminSubjectKeyword]

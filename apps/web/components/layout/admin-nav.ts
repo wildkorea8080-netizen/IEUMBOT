@@ -48,6 +48,7 @@ export const adminNav: NavGroup[] = [
     title: undefined,
     items: [
       { label: "대화관리", href: "/admin/chat-logs", icon: "MessageSquare" },
+      { label: "상담 주제 분포", href: "/admin/subject-distribution", icon: "BarChart2" },
     ],
   },
   {

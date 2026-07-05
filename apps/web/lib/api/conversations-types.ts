@@ -38,6 +38,14 @@ export type AdminConversationPromptTrace = {
   userPrompt?: string | null;
 };
 
+export type AdminSubjectStatusCount = { status: string; label: string; count: number };
+export type AdminSubjectKeyword = { keyword: string; count: number };
+export type AdminSubjectDistribution = {
+  totalQuestions: number;
+  statusDistribution: AdminSubjectStatusCount[];
+  topKeywords: AdminSubjectKeyword[];
+};
+
 export type AdminConversationDetail = {
   sessionId: string;
   chatbotId: string;

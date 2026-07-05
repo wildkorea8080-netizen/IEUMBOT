@@ -3,7 +3,23 @@ import type {
   AdminConversationDetail,
   AdminConversationsListResponse,
   AdminConversationUpdateRequest,
+  AdminSubjectDistribution,
 } from "./conversations-types";
+
+export async function getSubjectDistribution(params?: {
+  chatbotId?: string;
+  from?: string;
+  to?: string;
+}): Promise<AdminSubjectDistribution> {
+  const search = new URLSearchParams();
+  if (params?.chatbotId) search.set("chatbotId", params.chatbotId);
+  if (params?.from) search.set("from", params.from);
+  if (params?.to) search.set("to", params.to);
+  const query = search.toString();
+  return apiClient.request<AdminSubjectDistribution>(
+    `/admin/conversations/subject-distribution${query ? `?${query}` : ""}`,
+  );
+}
 
 export async function getAdminConversations(params?: {
   from?: string;

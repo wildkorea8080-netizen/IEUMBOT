@@ -1,7 +1,10 @@
 from datetime import UTC, datetime, time
 from uuid import UUID
 
+import re
+
 from fastapi import HTTPException, status
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from app.api.dependencies.auth import AdminPrincipal
@@ -18,6 +21,9 @@ from app.schemas.conversations import (
     AdminConversationPromptTrace,
     AdminConversationsListResponse,
     AdminConversationUpdateRequest,
+    AdminSubjectDistributionResponse,
+    AdminSubjectKeyword,
+    AdminSubjectStatusCount,
 )
 from app.services.admin.scope_service import require_institution_organization_id
 
@@ -231,3 +237,85 @@ def patch_conversation_service(
         session.summary_text = body.memo.strip() or None
     db.commit()
     return get_conversation_detail_service(db, principal=principal, session_id=session_id)
+
+
+# ── 상담 주제 분포 (질의 키워드 빈도 + 결과 상태 분포) ──────────────────────────
+_SUBJECT_STOPWORDS = {
+    "그리고", "하지만", "그런데", "어떻게", "무엇", "뭐가", "알려줘", "알려주세요", "궁금해요",
+    "궁금합니다", "인가요", "가요", "되나요", "되는지", "건가요", "입니다", "있나요", "합니까",
+    "하는", "해줘", "대해", "관련", "어디", "언제", "얼마", "어떤", "무슨", "이것", "저것", "그것",
+    "때문", "경우", "위해", "정도", "여기", "저기", "하고", "에서", "으로", "니다", "습니다", "인지",
+}
+_STATUS_LABELS = {
+    "answered": "답변성공",
+    "insufficient_evidence": "근거부족",
+    "clarification": "근거부족",
+    "escalate": "이관",
+    "restricted": "차단",
+    "conflict": "차단",
+}
+_TOKEN_RE = re.compile(r"[가-힣A-Za-z0-9]{2,}")
+
+
+def get_subject_distribution_service(
+    db: Session,
+    *,
+    principal: AdminPrincipal,
+    chatbot_id: str | None,
+    from_date_raw: str | None,
+    to_date_raw: str | None,
+    top_n: int = 15,
+) -> AdminSubjectDistributionResponse:
+    organization_id = require_institution_organization_id(principal)
+    from_date = _parse_datetime_range(from_date_raw)
+    to_date = _parse_datetime_range(to_date_raw, end_of_day=True)
+
+    base_conditions = [ChatMessage.organization_id == UUID(organization_id)]
+    if chatbot_id:
+        try:
+            base_conditions.append(ChatMessage.chatbot_id == UUID(chatbot_id))
+        except ValueError:
+            pass
+    if from_date:
+        base_conditions.append(ChatMessage.created_at >= from_date)
+    if to_date:
+        base_conditions.append(ChatMessage.created_at <= to_date)
+
+    # 사용자 질문 → 키워드 빈도 (최근 5000건 상한)
+    user_rows = db.execute(
+        select(ChatMessage.normalized_query, ChatMessage.content)
+        .where(and_(*base_conditions, ChatMessage.role == "user"))
+        .order_by(ChatMessage.created_at.desc())
+        .limit(5000)
+    ).all()
+    total_questions = len(user_rows)
+    counts: dict[str, int] = {}
+    for normalized, content in user_rows:
+        text = normalized or content or ""
+        for tok in _TOKEN_RE.findall(text.lower()):
+            if tok.isdigit() or tok in _SUBJECT_STOPWORDS:
+                continue
+            counts[tok] = counts.get(tok, 0) + 1
+    top = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)[:top_n]
+    top_keywords = [AdminSubjectKeyword(keyword=k, count=c) for k, c in top]
+
+    # 답변 결과 상태 분포 (assistant result_type)
+    status_rows = db.execute(
+        select(ChatMessage.result_type, func.count(ChatMessage.id))
+        .where(and_(*base_conditions, ChatMessage.role == "assistant"))
+        .group_by(ChatMessage.result_type)
+    ).all()
+    status_agg: dict[str, int] = {}
+    for result_type, cnt in status_rows:
+        label = _STATUS_LABELS.get((result_type or "").lower(), "기타")
+        status_agg[label] = status_agg.get(label, 0) + int(cnt)
+    status_distribution = [
+        AdminSubjectStatusCount(status=label, label=label, count=cnt)
+        for label, cnt in sorted(status_agg.items(), key=lambda kv: kv[1], reverse=True)
+    ]
+
+    return AdminSubjectDistributionResponse(
+        total_questions=total_questions,
+        status_distribution=status_distribution,
+        top_keywords=top_keywords,
+    )
