@@ -217,3 +217,28 @@ def collect_consultations(board: str, *, max_pages: int = 3, max_items: int = 50
                 )
     logger.info("[SEOUL_LABOR] collected board=%s items=%s", board, len(results))
     return results
+
+
+def build_source_text(board: str, items: list[Consultation]) -> tuple[str, list[str]]:
+    """수집한 상담을 웹 크롤과 동일한 [URL]-마킹 텍스트로 변환(색인 재사용)."""
+    list_url = BASE_URL + BOARDS.get(board, BOARDS["worker"])["list"]
+    blocks: list[str] = []
+    urls: list[str] = []
+    for it in items:
+        marker_url = f"{list_url}#{it.rcept_no}"
+        urls.append(marker_url)
+        title = it.title + (f" ({it.category})" if it.category else "")
+        blocks.append(
+            "\n".join(
+                [
+                    f"[URL] {marker_url}",
+                    f"[FINAL_URL] {marker_url}",
+                    f"[TITLE] {title}",
+                    "[EXTRACTION_METHOD] seoul_labor",
+                    "[NAVIGATION_REMOVED] false",
+                    f"[질문] {it.question}",
+                    f"[답변] {it.answer}",
+                ]
+            ).strip()
+        )
+    return "\n\n".join(blocks).strip(), urls

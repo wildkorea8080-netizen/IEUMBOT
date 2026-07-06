@@ -51,6 +51,12 @@ from app.services.admin.api_knowledge_connector import (
     fetch_api_items,
     is_api_source,
 )
+from app.services.admin.seoul_labor_board_collector import (
+    BASE_URL as SEOUL_LABOR_BASE_URL,
+    BOARDS as SEOUL_LABOR_BOARDS,
+    build_source_text as build_seoul_labor_text,
+    collect_consultations,
+)
 from app.services.admin.scope_service import (
     ensure_chatbot_in_scope,
     ensure_document_in_scope,
@@ -3687,7 +3693,26 @@ def _ingest_web_source_content(
             job.progress_percent = min(34, 10 + int((done / max(total, 1)) * 24))
             db.commit()  # 진행률 즉시 반영 — 목록에서 5% 고정으로 보이는 문제 방지
 
-        if is_api_source(web_source):
+        _meta = web_source.metadata_json or {}
+        if _meta.get("sourceKind") == "seoul_labor":
+            # 서울노동권익센터 상담게시판 수집 — 크롤 대신 수집기 호출 → [URL]-마킹 텍스트.
+            board = _meta.get("boardType") or "worker"
+            _max_pages = int(_meta.get("maxPages") or 5)
+            _max_items = int(_meta.get("maxItems") or 200)
+            consultations = collect_consultations(board, max_pages=_max_pages, max_items=_max_items)
+            extracted_text, crawled_urls = build_seoul_labor_text(board, consultations)
+            html = extracted_text
+            attachment_urls = []
+            final_url = web_source.base_url
+            http_status_code = 200
+            crawl_diagnostics = {
+                "extraction_method": "seoul_labor",
+                "navigation_removed": False,
+                "removed_navigation_lines": 0,
+                "crawl_error_count": 0,
+                "crawl_errors": [],
+            }
+        elif is_api_source(web_source):
             # 공식 OpenAPI 수집 — 크롤 대신 API 호출 → 동일한 [URL]-마킹 텍스트 생성.
             # 이후 색인(청킹·임베딩·Document)은 웹소스와 완전히 동일 경로 재사용.
             api_cfg = ApiConnectorConfig.from_dict((web_source.metadata_json or {}).get("apiConfig"))
@@ -5816,6 +5841,15 @@ def create_website_knowledge_service(
             body=body,
             background_tasks=background_tasks,
         )
+    if body.source_kind == "seoul_labor":
+        return _create_seoul_labor_source(
+            db,
+            principal=principal,
+            organization_id=organization_id,
+            chatbot=chatbot,
+            body=body,
+            background_tasks=background_tasks,
+        )
     canonical_url = _canonicalize_website_url(body.url)
     parsed = urlparse(canonical_url)
     hostname = parsed.hostname or ""
@@ -5941,6 +5975,78 @@ def _create_api_knowledge_source(
     db.add(job)
     db.commit()
     logger.info("[API_SOURCE_CREATE] web_source_id=%s queued job_id=%s", web_source.id, job.id)
+    _dispatch_reindex(background_tasks, principal, str(web_source.id), str(job.id))
+    return get_knowledge_service(db, principal=principal, knowledge_id=str(web_source.id))
+
+
+def _create_seoul_labor_source(
+    db: Session,
+    *,
+    principal: AdminPrincipal,
+    organization_id: str,
+    chatbot,
+    body: KnowledgeWebsiteCreateRequest,
+    background_tasks=None,
+) -> KnowledgeDetailResponse:
+    """서울노동권익센터 상담게시판 수집 소스 등록. WebSource(sourceKind=seoul_labor)로
+    저장 → 색인은 _ingest_web_source_content의 seoul_labor 분기가 수집기로 처리."""
+    cfg = body.api_config or {}
+    board = str(cfg.get("boardType") or "worker")
+    if board not in SEOUL_LABOR_BOARDS:
+        board = "worker"
+    base_url = SEOUL_LABOR_BASE_URL + SEOUL_LABOR_BOARDS[board]["list"]
+    try:
+        max_pages = max(1, min(int(cfg.get("maxPages") or 5), 50))
+    except (TypeError, ValueError):
+        max_pages = 5
+
+    duplicate_stmt = select(WebSource).where(
+        WebSource.organization_id == uuid.UUID(organization_id),
+        WebSource.chatbot_id == chatbot.id,
+        WebSource.is_deleted.is_(False),
+        WebSource.base_url == base_url,
+    )
+    if db.execute(duplicate_stmt).scalar_one_or_none() is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="WEBSITE_ALREADY_REGISTERED")
+
+    web_source = WebSource(
+        organization_id=uuid.UUID(organization_id),
+        chatbot_id=chatbot.id,
+        name=body.title.strip() or f"서울노동상담({SEOUL_LABOR_BOARDS[board]['label']})",
+        base_url=base_url,
+        status="active",
+        sync_mode="manual",
+        allowed_domains=[],
+        excluded_paths=[],
+        metadata_json={
+            "sourceKind": "seoul_labor",
+            "boardType": board,
+            "maxPages": max_pages,
+            "category": body.category.strip() if body.category else None,
+            "field": body.field.strip() if body.field else None,
+            "tags": _parse_tags(body.tags),
+            "memo": body.memo.strip() if body.memo else None,
+            "department": body.department.strip() if body.department else None,
+            "summary": base_url,
+            "sensitive_detected": True,
+        },
+    )
+    db.add(web_source)
+    db.flush()
+    job = IngestionJob(
+        organization_id=uuid.UUID(organization_id),
+        chatbot_id=chatbot.id,
+        web_source_id=web_source.id,
+        created_by_admin_id=uuid.UUID(principal.admin_id),
+        job_type="web_source_sync",
+        status="queued",
+        current_step="registered",
+        progress_percent=0,
+        metadata_json={"sourceType": "website", "sourceKind": "seoul_labor", "boardType": board},
+    )
+    db.add(job)
+    db.commit()
+    logger.info("[SEOUL_LABOR_CREATE] web_source_id=%s board=%s job_id=%s", web_source.id, board, job.id)
     _dispatch_reindex(background_tasks, principal, str(web_source.id), str(job.id))
     return get_knowledge_service(db, principal=principal, knowledge_id=str(web_source.id))
 

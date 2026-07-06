@@ -342,7 +342,7 @@ export type KnowledgeWebsiteCreateRequest = {
   tags: string[];
   memo?: string;
   department?: string;
-  sourceKind?: "web" | "api";
+  sourceKind?: "web" | "api" | "seoul_labor";
   apiConfig?: Record<string, unknown> | null;
 };
 

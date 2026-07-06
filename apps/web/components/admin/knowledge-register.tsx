@@ -15,7 +15,7 @@ import {
 } from "../../lib/api/admin-operations";
 import type { AdminChatbotItem, KnowledgeApiPreviewItem } from "../../lib/api/admin-operations-types";
 
-type RegisterType = "file" | "text" | "website" | "api";
+type RegisterType = "file" | "text" | "website" | "api" | "seoullabor";
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof ApiClientError) {
@@ -398,6 +398,53 @@ function ApiSourceModal({ open, onClose, onSubmit, isSubmitting }: {
   );
 }
 
+// ── 서울노동상담 수집 모달 ─────────────────────────────────────────────────────
+
+function SeoulLaborModal({ open, onClose, onSubmit, isSubmitting }: {
+  open: boolean;
+  onClose: () => void;
+  onSubmit: (v: { title: string; boardType: string; maxPages: number }) => void;
+  isSubmitting: boolean;
+}) {
+  const [board, setBoard] = useState("worker");
+  const [maxPages, setMaxPages] = useState(5);
+
+  useEffect(() => { if (open) { setBoard("worker"); setMaxPages(5); } }, [open]);
+
+  const inputStyle: React.CSSProperties = { width: "100%", padding: "9px 12px", boxSizing: "border-box", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 13, color: "#374151", outline: "none" };
+  const labelStyle: React.CSSProperties = { display: "block", fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 5 };
+
+  return (
+    <Modal open={open} onClose={onClose} title="서울노동상담 수집" subtitle="서울노동권익센터 상담게시판의 '상담완료' 질문·답변을 수집해 지식으로 색인합니다.">
+      <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 14 }}>
+        <div>
+          <label style={labelStyle}>게시판</label>
+          <select value={board} onChange={e => setBoard(e.target.value)} style={inputStyle}>
+            <option value="worker">노동자상담</option>
+            <option value="employer">사용자상담</option>
+          </select>
+        </div>
+        <div>
+          <label style={labelStyle}>수집 페이지 수 (최근순, 1~50)</label>
+          <input type="number" min={1} max={50} value={maxPages} onChange={e => setMaxPages(Math.max(1, Math.min(50, Number(e.target.value) || 5)))} style={inputStyle} />
+        </div>
+      </div>
+      <p style={{ fontSize: 11.5, color: "#b45309", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "8px 10px", marginBottom: 14, lineHeight: 1.5 }}>
+        상담 내용은 제3자 개인정보입니다. 기관의 데이터 활용 권한을 확인 후 사용하세요. 저장 시 이름·연락처 등 식별정보는 자동 마스킹됩니다.
+      </p>
+      <ModalButtons
+        onCancel={onClose}
+        isLoading={isSubmitting}
+        onConfirm={() => onSubmit({
+          title: board === "worker" ? "서울노동상담(노동자)" : "서울노동상담(사용자)",
+          boardType: board,
+          maxPages,
+        })}
+      />
+    </Modal>
+  );
+}
+
 // ── 타입 카드 ─────────────────────────────────────────────────────────────────
 
 const TYPE_META: Record<RegisterType, { icon: React.ReactNode; title: string; desc: string; isNew?: boolean }> = {
@@ -405,6 +452,7 @@ const TYPE_META: Record<RegisterType, { icon: React.ReactNode; title: string; de
   text:    { icon: <PasteSvg />, title: "텍스트 붙여넣기",   desc: "텍스트를 직접 입력해\nAI 답변에 사용할 지식을 등록하세요." },
   website: { icon: <WebsiteSvg />, title: "웹사이트 연결",   desc: "웹사이트 URL을 연결해\nAI 답변에 활용할 정보를 가져옵니다.", isNew: true },
   api:     { icon: <WebsiteSvg />, title: "API 연동 (법령 등)", desc: "공식 OpenAPI(국가법령정보 등)를\n주기적으로 수집해 자동 현행화합니다.", isNew: true },
+  seoullabor: { icon: <WebsiteSvg />, title: "서울노동상담 수집", desc: "서울노동권익센터 상담게시판의\n질문·답변을 지식으로 수집합니다.", isNew: true },
 };
 
 function TypeCard({ type, onClick }: { type: RegisterType; onClick: () => void }) {
@@ -533,6 +581,25 @@ export function KnowledgeRegister() {
     } finally { setIsSubmitting(false); }
   };
 
+  const handleSeoulLaborSubmit = async (v: { title: string; boardType: string; maxPages: number }) => {
+    if (!chatbotId) { setError("챗봇을 선택해주세요."); return; }
+    setIsSubmitting(true); setError(null);
+    try {
+      await createKnowledgeWebsite({
+        chatbotId, url: "https://www.seoullabor.or.kr", title: v.title,
+        crawlPageLimit: 1, crawlAllPages: false, includeAttachments: false,
+        excludedPaths: [], tags: [],
+        sourceKind: "seoul_labor", apiConfig: { boardType: v.boardType, maxPages: v.maxPages },
+      });
+      setModal(null);
+      router.push("/admin/knowledge/list");
+    } catch (e) {
+      if (e instanceof ApiClientError && e.code === "WEBSITE_ALREADY_REGISTERED") {
+        setModal(null); router.push("/admin/knowledge/list");
+      } else { setError(getErrorMessage(e)); }
+    } finally { setIsSubmitting(false); }
+  };
+
   if (isLoading) return null;
 
   return (
@@ -556,6 +623,7 @@ export function KnowledgeRegister() {
         <TypeCard type="text" onClick={() => setModal("text")} />
         <TypeCard type="website" onClick={() => setModal("website")} />
         <TypeCard type="api" onClick={() => setModal("api")} />
+        <TypeCard type="seoullabor" onClick={() => setModal("seoullabor")} />
       </div>
 
       {/* 모달 */}
@@ -581,6 +649,12 @@ export function KnowledgeRegister() {
         open={modal === "api"}
         onClose={() => { if (!isSubmitting) setModal(null); }}
         onSubmit={handleApiSubmit}
+        isSubmitting={isSubmitting}
+      />
+      <SeoulLaborModal
+        open={modal === "seoullabor"}
+        onClose={() => { if (!isSubmitting) setModal(null); }}
+        onSubmit={handleSeoulLaborSubmit}
         isSubmitting={isSubmitting}
       />
     </div>
