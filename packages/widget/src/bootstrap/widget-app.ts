@@ -547,10 +547,10 @@ function buildScopedStyles(primaryGradient: string): string {
   transition:border-color .15s, box-shadow .15s, transform .12s;
 }
 .ieum-starter-card.ieum-starter-link::after {
-  content:"↗"; position:absolute; top:7px; right:9px; font-size:11px; color:#94a3b8;
+  content:"↗"; position:absolute; top:7px; right:9px; font-size:11px; color:#64748b;
 }
 .ieum-starter-question.ieum-starter-link:not(.ieum-starter-card):not(.ieum-starter-rich-card)::after {
-  content:" ↗"; color:#94a3b8; font-size:12px;
+  content:" ↗"; color:#64748b; font-size:12px;
 }
 .ieum-starter-question.ieum-starter-card:hover {
   border-color:${pc}; box-shadow:0 6px 16px rgba(16,24,40,.10); transform:translateY(-1px); background:#fff;
@@ -587,7 +587,7 @@ function buildScopedStyles(primaryGradient: string): string {
   display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:3; overflow:hidden;
 }
 .ieum-starter-rich-card.ieum-starter-link::after {
-  content:"↗"; position:absolute; top:8px; right:10px; font-size:11px; color:#94a3b8;
+  content:"↗"; position:absolute; top:8px; right:10px; font-size:11px; color:#64748b;
 }
 .ieum-quick-action {
   border:1px solid #dbeafe; border-radius:9999px;
@@ -667,7 +667,7 @@ function buildScopedStyles(primaryGradient: string): string {
 .ieum-citation-link:hover { text-decoration:underline; }
 .ieum-citations-folded summary { cursor:pointer; font-size:11px; font-weight:700; color:#6b7280; list-style:none; }
 .ieum-citations-folded summary::-webkit-details-marker { display:none; }
-.ieum-citations-folded summary::after { content:" 펼치기"; font-weight:400; color:#94a3b8; }
+.ieum-citations-folded summary::after { content:" 펼치기"; font-weight:400; color:#64748b; }
 .ieum-citations-folded[open] summary { margin-bottom:4px; }
 .ieum-citations-folded[open] summary::after { content:" 접기"; }
 /* ── 이어볼 질문 (Planee 스타일: 카드 + 아이콘 + 화살표) ── */
@@ -684,7 +684,7 @@ function buildScopedStyles(primaryGradient: string): string {
 .ieum-follow-up-btn:hover { border-color:#93c5fd; background:#f0f7ff; color:#1d4ed8; }
 .ieum-follow-up-icon { font-size:13px; flex-shrink:0; opacity:.6; }
 .ieum-follow-up-text { flex:1; }
-.ieum-follow-up-arrow { font-size:12px; color:#9ca3af; flex-shrink:0; }
+.ieum-follow-up-arrow { font-size:12px; color:#6b7280; flex-shrink:0; }
 /* ── CTA 버튼 ── */
 .ieum-cta-wrap { display:flex; flex-direction:column; gap:6px; margin-top:10px; }
 .ieum-cta-title { font-size:11px; font-weight:700; color:#6b7280; margin-bottom:4px; }
@@ -723,7 +723,7 @@ function buildScopedStyles(primaryGradient: string): string {
 }
 .ieum-feedback-btn:hover { background:rgba(0,0,0,.06); }
 .ieum-feedback-active { opacity:1 !important; }
-.ieum-feedback-thanks { font-size:11px; color:#9ca3af; padding:3px 4px; }
+.ieum-feedback-thanks { font-size:11px; color:#6b7280; padding:3px 4px; }
 /* ── 타이핑 인디케이터 ── */
 .ieum-loading {
   display:none; align-self:flex-start;
@@ -753,7 +753,7 @@ function buildScopedStyles(primaryGradient: string): string {
   background:#f9fafb;
   transition:border-color .15s, background .15s;
 }
-.ieum-input::placeholder { color:#9ca3af; }
+.ieum-input::placeholder { color:#6b7280; }
 .ieum-input:focus { border-color:${pc}; background:#fff; box-shadow:0 0 0 3px ${pcA08}; }
 /* ── 웹접근성(KWCAG): 키보드 포커스 표시 ── */
 .ieum-panel :focus-visible, .ieum-floating:focus-visible, .ieum-launcher-tip-close:focus-visible {
@@ -773,7 +773,7 @@ function buildScopedStyles(primaryGradient: string): string {
 /* ── 면책 푸터 ── */
 .ieum-footer {
   padding:7px 14px 5px;
-  background:#fff; font-size:11px; color:#9ca3af; line-height:1.5;
+  background:#fff; font-size:11px; color:#6b7280; line-height:1.5;
   border-top:1px solid #f3f4f6; text-align:center; flex-shrink:0;
 }
 .ieum-footer a { color:#6b7280; }
