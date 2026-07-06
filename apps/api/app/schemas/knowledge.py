@@ -145,6 +145,23 @@ class KnowledgeApiPreviewResponse(ApiSchema):
     items: list[KnowledgeApiPreviewItem]
 
 
+class KnowledgeSeoulLaborPreviewRequest(ApiSchema):
+    board_type: str = "worker"
+
+
+class KnowledgeSeoulLaborPreviewItem(ApiSchema):
+    title: str
+    category: str
+    question_preview: str
+    answer_preview: str
+    masked_types: str
+
+
+class KnowledgeSeoulLaborPreviewResponse(ApiSchema):
+    count: int
+    items: list[KnowledgeSeoulLaborPreviewItem]
+
+
 class KnowledgeRuntimeDependencyItem(ApiSchema):
     installed: bool
     path: str | None = None

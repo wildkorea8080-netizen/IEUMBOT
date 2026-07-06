@@ -11,9 +11,10 @@ import {
   createKnowledgeTextToStaging,
   getAdminChatbots,
   previewApiKnowledgeSource,
+  previewSeoulLaborBoard,
   uploadKnowledgeFileToStaging,
 } from "../../lib/api/admin-operations";
-import type { AdminChatbotItem, KnowledgeApiPreviewItem } from "../../lib/api/admin-operations-types";
+import type { AdminChatbotItem, KnowledgeApiPreviewItem, KnowledgeSeoulLaborPreviewItem } from "../../lib/api/admin-operations-types";
 
 type RegisterType = "file" | "text" | "website" | "api" | "seoullabor";
 
@@ -408,8 +409,22 @@ function SeoulLaborModal({ open, onClose, onSubmit, isSubmitting }: {
 }) {
   const [board, setBoard] = useState("worker");
   const [maxPages, setMaxPages] = useState(5);
+  const [preview, setPreview] = useState<KnowledgeSeoulLaborPreviewItem[] | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
 
-  useEffect(() => { if (open) { setBoard("worker"); setMaxPages(5); } }, [open]);
+  useEffect(() => { if (open) { setBoard("worker"); setMaxPages(5); setPreview(null); setLocalError(null); } }, [open]);
+
+  const doPreview = async () => {
+    setPreviewing(true); setLocalError(null); setPreview(null);
+    try {
+      const res = await previewSeoulLaborBoard({ boardType: board });
+      setPreview(res.items);
+      if (res.items.length === 0) setLocalError("상담완료 건을 찾지 못했습니다.");
+    } catch (e) {
+      setLocalError(e instanceof ApiClientError ? `${e.code}: ${e.message}` : (e instanceof Error ? e.message : "테스트 수집 실패"));
+    } finally { setPreviewing(false); }
+  };
 
   const inputStyle: React.CSSProperties = { width: "100%", padding: "9px 12px", boxSizing: "border-box", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 13, color: "#374151", outline: "none" };
   const labelStyle: React.CSSProperties = { display: "block", fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 5 };
@@ -432,6 +447,26 @@ function SeoulLaborModal({ open, onClose, onSubmit, isSubmitting }: {
       <p style={{ fontSize: 11.5, color: "#b45309", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "8px 10px", marginBottom: 14, lineHeight: 1.5 }}>
         상담 내용은 제3자 개인정보입니다. 기관의 데이터 활용 권한을 확인 후 사용하세요. 저장 시 이름·연락처 등 식별정보는 자동 마스킹됩니다.
       </p>
+
+      <button type="button" onClick={() => void doPreview()} disabled={previewing} style={{ padding: "8px 16px", marginBottom: 14, border: "1px solid #2563eb", borderRadius: 8, background: "#eff6ff", color: "#2563eb", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+        {previewing ? "수집 중..." : "테스트 수집 (미리보기)"}
+      </button>
+
+      {preview && preview.length > 0 && (
+        <div style={{ marginBottom: 14, border: "1px solid #e5e7eb", borderRadius: 8, overflow: "hidden", maxHeight: 280, overflowY: "auto" }}>
+          <div style={{ padding: "8px 12px", background: "#f8fafc", fontSize: 12, fontWeight: 600, color: "#475569" }}>미리보기 {preview.length}건 (비식별화 적용)</div>
+          {preview.map((it, i) => (
+            <div key={i} style={{ padding: "8px 12px", borderTop: "1px solid #f1f5f9", fontSize: 12 }}>
+              <div style={{ fontWeight: 600, color: "#111827" }}>{it.title}{it.category ? ` · ${it.category}` : ""}</div>
+              <div style={{ color: "#64748b", marginTop: 3 }}><b style={{ color: "#475569" }}>질문</b> {it.questionPreview}</div>
+              <div style={{ color: "#64748b", marginTop: 2 }}><b style={{ color: "#475569" }}>답변</b> {it.answerPreview}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {localError && <p style={{ fontSize: 12, color: "#dc2626", marginBottom: 12 }}>{localError}</p>}
+
       <ModalButtons
         onCancel={onClose}
         isLoading={isSubmitting}

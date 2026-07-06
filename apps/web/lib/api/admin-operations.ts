@@ -25,6 +25,7 @@ import type {
   FaqManagementUpdateRequest,
   KnowledgeDetail,
   KnowledgeApiPreviewResponse,
+  KnowledgeSeoulLaborPreviewResponse,
   KnowledgeItem,
   KnowledgeListResponse,
   KnowledgeRuntimeStatus,
@@ -233,6 +234,15 @@ export async function previewApiKnowledgeSource(body: {
   apiConfig?: Record<string, unknown> | null;
 }): Promise<KnowledgeApiPreviewResponse> {
   return apiClient.request<KnowledgeApiPreviewResponse>("/admin/knowledge/api-source/preview", {
+    method: "POST",
+    body,
+  });
+}
+
+export async function previewSeoulLaborBoard(body: {
+  boardType: string;
+}): Promise<KnowledgeSeoulLaborPreviewResponse> {
+  return apiClient.request<KnowledgeSeoulLaborPreviewResponse>("/admin/knowledge/seoul-labor/preview", {
     method: "POST",
     body,
   });

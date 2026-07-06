@@ -357,6 +357,19 @@ export type KnowledgeApiPreviewResponse = {
   items: KnowledgeApiPreviewItem[];
 };
 
+export type KnowledgeSeoulLaborPreviewItem = {
+  title: string;
+  category: string;
+  questionPreview: string;
+  answerPreview: string;
+  maskedTypes: string;
+};
+
+export type KnowledgeSeoulLaborPreviewResponse = {
+  count: number;
+  items: KnowledgeSeoulLaborPreviewItem[];
+};
+
 export type KnowledgeUpdateRequest = {
   title?: string;
   category?: string;

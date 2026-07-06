@@ -6051,6 +6051,27 @@ def _create_seoul_labor_source(
     return get_knowledge_service(db, principal=principal, knowledge_id=str(web_source.id))
 
 
+def preview_seoul_labor_knowledge_service(
+    db: Session,
+    *,
+    principal: AdminPrincipal,
+    board_type: str,
+) -> list[dict[str, str]]:
+    """서울노동상담 색인 전 미리보기(앞 5건). 실패 시 422."""
+    require_institution_organization_id(principal)
+    board = board_type if board_type in SEOUL_LABOR_BOARDS else "worker"
+    try:
+        from app.services.admin.seoul_labor_board_collector import preview_consultations  # noqa: PLC0415
+
+        return preview_consultations(board, limit=5)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[SEOUL_LABOR_PREVIEW] failed board=%s error=%s", board, exc)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"SEOUL_LABOR_PREVIEW_FAILED: {exc}",
+        ) from exc
+
+
 def preview_api_knowledge_service(
     db: Session,
     *,

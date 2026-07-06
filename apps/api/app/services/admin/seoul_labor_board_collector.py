@@ -219,6 +219,23 @@ def collect_consultations(board: str, *, max_pages: int = 3, max_items: int = 50
     return results
 
 
+def preview_consultations(board: str, limit: int = 5) -> list[dict[str, str]]:
+    """색인 전 확인용: 상담완료 앞 N건의 제목·상담유형·질문/답변 요약(비식별화)."""
+    items = collect_consultations(board, max_pages=1, max_items=max(1, min(limit, 10)))
+    preview: list[dict[str, str]] = []
+    for it in items[:limit]:
+        preview.append(
+            {
+                "title": it.title,
+                "category": it.category,
+                "questionPreview": (it.question[:160] + "…") if len(it.question) > 160 else it.question,
+                "answerPreview": (it.answer[:160] + "…") if len(it.answer) > 160 else it.answer,
+                "maskedTypes": ", ".join(it.masked_types),
+            }
+        )
+    return preview
+
+
 def build_source_text(board: str, items: list[Consultation]) -> tuple[str, list[str]]:
     """수집한 상담을 웹 크롤과 동일한 [URL]-마킹 텍스트로 변환(색인 재사용)."""
     list_url = BASE_URL + BOARDS.get(board, BOARDS["worker"])["list"]

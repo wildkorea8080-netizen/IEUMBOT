@@ -21,6 +21,9 @@ from app.schemas.knowledge import (
     KnowledgeApiPreviewItem,
     KnowledgeApiPreviewRequest,
     KnowledgeApiPreviewResponse,
+    KnowledgeSeoulLaborPreviewItem,
+    KnowledgeSeoulLaborPreviewRequest,
+    KnowledgeSeoulLaborPreviewResponse,
     KnowledgeDetailResponse,
     KnowledgeItem,
     KnowledgeListResponse,
@@ -40,6 +43,7 @@ from app.services.admin.knowledge_service import (
     list_knowledge_service,
     patch_knowledge_service,
     preview_api_knowledge_service,
+    preview_seoul_labor_knowledge_service,
     reindex_all_knowledge_service,
     reindex_knowledge_service,
 )
@@ -151,6 +155,28 @@ def admin_preview_api_source(
                 title=it["title"],
                 content_preview=it["contentPreview"],
                 url=it.get("url") or None,
+            )
+            for it in items
+        ],
+    )
+
+
+@router.post("/knowledge/seoul-labor/preview", response_model=KnowledgeSeoulLaborPreviewResponse)
+def admin_preview_seoul_labor(
+    body: KnowledgeSeoulLaborPreviewRequest,
+    principal: AdminPrincipal = Depends(require_institution_admin_auth),
+    db: Session = Depends(get_db_session),
+) -> KnowledgeSeoulLaborPreviewResponse:
+    items = preview_seoul_labor_knowledge_service(db, principal=principal, board_type=body.board_type)
+    return KnowledgeSeoulLaborPreviewResponse(
+        count=len(items),
+        items=[
+            KnowledgeSeoulLaborPreviewItem(
+                title=it["title"],
+                category=it["category"],
+                question_preview=it["questionPreview"],
+                answer_preview=it["answerPreview"],
+                masked_types=it["maskedTypes"],
             )
             for it in items
         ],
