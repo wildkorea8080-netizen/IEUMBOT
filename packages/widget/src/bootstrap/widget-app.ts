@@ -665,6 +665,21 @@ function buildScopedStyles(primaryGradient: string): string {
 .ieum-citation { font-size:11px; color:#6b7280; line-height:1.45; margin-bottom:3px; }
 .ieum-citation-link { color:#2563eb; text-decoration:none; font-weight:600; overflow-wrap:anywhere; }
 .ieum-citation-link:hover { text-decoration:underline; }
+.ieum-citation-snapshot { background:none; border:none; padding:0; margin:0; font:inherit; font-weight:600; color:#2563eb; cursor:pointer; text-align:left; }
+.ieum-citation-snapshot:hover { text-decoration:underline; }
+.ieum-citation-badge { display:inline-block; margin-left:6px; padding:0 6px; font-size:10px; font-weight:600; color:#7c3aed; background:#f5f3ff; border-radius:5px; vertical-align:middle; }
+.ieum-snapshot-overlay { position:fixed; inset:0; z-index:2147483647; background:rgba(15,23,42,0.45); display:flex; align-items:center; justify-content:center; padding:16px; }
+.ieum-snapshot-card { background:#fff; border-radius:14px; width:100%; max-width:420px; max-height:80vh; display:flex; flex-direction:column; box-shadow:0 20px 60px rgba(0,0,0,.28); overflow:hidden; }
+.ieum-snapshot-header { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; padding:16px 18px 10px; border-bottom:1px solid #f1f5f9; }
+.ieum-snapshot-title { font-size:14px; font-weight:700; color:#111827; line-height:1.4; }
+.ieum-snapshot-close { flex-shrink:0; background:none; border:none; font-size:16px; color:#9ca3af; cursor:pointer; padding:2px 4px; line-height:1; }
+.ieum-snapshot-close:hover { color:#374151; }
+.ieum-snapshot-body { padding:14px 18px 18px; overflow-y:auto; font-size:13px; color:#334155; line-height:1.65; }
+.ieum-snapshot-badge { display:inline-block; margin-bottom:10px; padding:1px 8px; font-size:11px; font-weight:600; color:#7c3aed; background:#f5f3ff; border-radius:6px; }
+.ieum-snapshot-label { font-size:11px; font-weight:700; color:#64748b; margin:12px 0 3px; }
+.ieum-snapshot-label:first-of-type { margin-top:0; }
+.ieum-snapshot-text { white-space:pre-wrap; word-break:break-word; color:#1f2937; }
+.ieum-snapshot-source { margin-top:14px; padding-top:10px; border-top:1px solid #f1f5f9; font-size:11px; color:#94a3b8; }
 .ieum-citations-folded summary { cursor:pointer; font-size:11px; font-weight:700; color:#6b7280; list-style:none; }
 .ieum-citations-folded summary::-webkit-details-marker { display:none; }
 .ieum-citations-folded summary::after { content:" 펼치기"; font-weight:400; color:#64748b; }
@@ -1179,6 +1194,76 @@ export class IeumWidgetApp {
     }
   }
 
+  private async openConsultationSnapshot(chunkId: string, citation: ChatCitation) {
+    const previousFocus = this.shadow.activeElement as HTMLElement | null;
+    const overlay = createElement(document, "div", "ieum-snapshot-overlay");
+    const card = createElement(document, "div", "ieum-snapshot-card");
+    card.setAttribute("role", "dialog");
+    card.setAttribute("aria-modal", "true");
+    overlay.appendChild(card);
+
+    const close = () => {
+      overlay.remove();
+      document.removeEventListener("keydown", onKey);
+      previousFocus?.focus?.();
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close();
+    };
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay) close();
+    });
+    document.addEventListener("keydown", onKey);
+
+    const header = createElement(document, "div", "ieum-snapshot-header");
+    const heading = createElement(document, "div", "ieum-snapshot-title");
+    heading.textContent = getCitationDisplayName(citation);
+    const closeBtn = createElement(document, "button", "ieum-snapshot-close") as HTMLButtonElement;
+    closeBtn.type = "button";
+    closeBtn.setAttribute("aria-label", "닫기");
+    closeBtn.textContent = "✕";
+    closeBtn.addEventListener("click", close);
+    header.appendChild(heading);
+    header.appendChild(closeBtn);
+    card.appendChild(header);
+
+    const body = createElement(document, "div", "ieum-snapshot-body");
+    body.textContent = "상담 내용을 불러오는 중…";
+    card.appendChild(body);
+
+    this.root.appendChild(overlay);
+    closeBtn.focus();
+
+    try {
+      const snapshot = await this.api.getConsultationSnapshot(this.options.chatbotId, chunkId);
+      body.innerHTML = "";
+      const category = snapshot.category?.trim();
+      if (category) {
+        const badge = createElement(document, "span", "ieum-snapshot-badge");
+        badge.textContent = category;
+        body.appendChild(badge);
+      }
+      const blocks: Array<[string, string]> = [
+        ["질문", snapshot.question?.trim() || "(내용 없음)"],
+        ["전문가 답변", snapshot.answer?.trim() || "(내용 없음)"],
+      ];
+      for (const [label, text] of blocks) {
+        const labelNode = createElement(document, "div", "ieum-snapshot-label");
+        labelNode.textContent = label;
+        const textNode = createElement(document, "div", "ieum-snapshot-text");
+        textNode.textContent = text;
+        body.appendChild(labelNode);
+        body.appendChild(textNode);
+      }
+      const source = createElement(document, "div", "ieum-snapshot-source");
+      const board = snapshot.boardLabel?.trim() || "상담게시판";
+      source.textContent = snapshot.receiptNo ? `출처: ${board} · ${snapshot.receiptNo}` : `출처: ${board}`;
+      body.appendChild(source);
+    } catch {
+      body.textContent = "상담 내용을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.";
+    }
+  }
+
   private renderBanner() {
     this.bannerWrap.innerHTML = "";
     const title = this.config?.banner?.title?.trim();
@@ -1535,7 +1620,31 @@ export class IeumWidgetApp {
           for (const citation of message.citations.slice(0, 5)) {
             const line = createElement(document, "div", "ieum-citation");
             const sourceUrl = citation.sourceUrl?.trim();
-            if (sourceUrl) {
+            const isConsultation =
+              (citation.extractionMethod ?? "").toLowerCase() === "seoul_labor" &&
+              !!citation.chunkId?.trim();
+            if (isConsultation) {
+              // 게시판이 JS(POST)라 개별글 URL이 없어 딥링크 불가 →
+              // 수집 때 저장한 상담 원문을 내부 스냅샷 모달로 표시.
+              const chunkId = citation.chunkId as string;
+              const button = createElement(
+                document,
+                "button",
+                "ieum-citation-link ieum-citation-snapshot",
+              ) as HTMLButtonElement;
+              button.type = "button";
+              button.textContent = getCitationDisplayName(citation);
+              button.addEventListener("click", () => {
+                void this.openConsultationSnapshot(chunkId, citation);
+              });
+              line.appendChild(button);
+              const category = citation.category?.trim();
+              if (category) {
+                const badge = createElement(document, "span", "ieum-citation-badge");
+                badge.textContent = category;
+                line.appendChild(badge);
+              }
+            } else if (sourceUrl) {
               const link = createElement(document, "a", "ieum-citation-link") as HTMLAnchorElement;
               link.href = sourceUrl;
               link.target = "_blank";

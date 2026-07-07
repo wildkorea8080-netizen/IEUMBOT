@@ -1,4 +1,10 @@
-import type { ChatRequest, ChatResponse, ChatStreamEvent, WidgetPublicConfig } from "../types";
+import type {
+  ChatRequest,
+  ChatResponse,
+  ChatStreamEvent,
+  WidgetConsultationSnapshot,
+  WidgetPublicConfig,
+} from "../types";
 
 function trimTrailingSlash(value: string): string {
   return value.endsWith("/") ? value.slice(0, -1) : value;
@@ -21,6 +27,24 @@ export class WidgetApiClient {
       throw new Error(`WIDGET_CONFIG_FAILED:${response.status}`);
     }
     return (await response.json()) as WidgetPublicConfig;
+  }
+
+  async getConsultationSnapshot(
+    chatbotId: string,
+    chunkId: string,
+  ): Promise<WidgetConsultationSnapshot> {
+    const response = await fetch(
+      `${this.baseUrl}/widget/consultation/${encodeURIComponent(chatbotId)}/${encodeURIComponent(chunkId)}`,
+      {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+        credentials: "omit",
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`WIDGET_SNAPSHOT_FAILED:${response.status}`);
+    }
+    return (await response.json()) as WidgetConsultationSnapshot;
   }
 
   async sendChat(body: ChatRequest, chatEndpoint = "/chat/messages"): Promise<ChatResponse> {

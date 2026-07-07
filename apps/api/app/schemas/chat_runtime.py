@@ -56,10 +56,13 @@ class ChatCitation(ApiSchema):
     document_id: str | None = None
     document_name: str | None = None
     document_version_id: str | None = None
+    chunk_id: str | None = None
     page_number: int | None = None
     section_title: str | None = None
+    category: str | None = None
     source_type: str | None = None
     source_url: str | None = None
+    extraction_method: str | None = None
     final_rank: int | None = None
     score: float | None = None
 

@@ -30,6 +30,23 @@ class WidgetBanner(ApiSchema):
     description: str | None = None
 
 
+class WidgetConsultationSnapshot(ApiSchema):
+    """상담게시판 근거의 내부 스냅샷 — 클릭 시 참조한 상담 원문(마스킹됨)을 표시.
+
+    게시판이 JS(POST) 방식이라 개별글 URL이 없어 딥링크가 불가하므로,
+    수집 때 저장해 둔 질문/전문가답변을 정제해 보여준다.
+    """
+
+    available: bool = True
+    title: str | None = None
+    category: str | None = None
+    question: str | None = None
+    answer: str | None = None
+    board_label: str | None = None
+    receipt_no: str | None = None
+    source_list_url: str | None = None
+
+
 class WidgetPublicConfigResponse(ApiSchema):
     chatbot_id: str
     chatbot_name: str

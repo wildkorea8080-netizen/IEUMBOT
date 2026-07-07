@@ -446,6 +446,17 @@ export type AdminChatLogsResponse = {
   items: AdminChatLogItem[];
 };
 
+export type ConsultationSnapshot = {
+  available?: boolean;
+  title?: string | null;
+  category?: string | null;
+  question?: string | null;
+  answer?: string | null;
+  boardLabel?: string | null;
+  receiptNo?: string | null;
+  sourceListUrl?: string | null;
+};
+
 // ── 스마트 FAQ 분석 ────────────────────────────────────────────────────────────
 
 export type FaqSuggestedItem = {

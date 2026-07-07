@@ -4,8 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Download } from "lucide-react";
 
 import { ApiClientError } from "../../../lib/api";
-import { getAdminChatbots, getAdminChatLogs, getAdminChatLogsExportUrl } from "../../../lib/api/admin-operations";
-import type { AdminChatLogItem, AdminChatbotItem } from "../../../lib/api/admin-operations-types";
+import { getAdminChatbots, getAdminChatLogs, getAdminChatLogsExportUrl, getConsultationSnapshot } from "../../../lib/api/admin-operations";
+import type { AdminChatLogItem, AdminChatbotItem, ConsultationSnapshot } from "../../../lib/api/admin-operations-types";
 
 // ── 유틸 ──────────────────────────────────────────────────────────────────────
 
@@ -75,6 +75,83 @@ function calcStats(items: AdminChatLogItem[]) {
   };
 }
 
+// ── 참조 지식 행 (상담게시판 근거는 스냅샷 인라인 확장) ────────────────────────
+
+function CitationRow({ c, index, total, chatbotId }: { c: Record<string, unknown>; index: number; total: number; chatbotId: string }) {
+  const name = citationName(c);
+  const section = c.sectionTitle ? String(c.sectionTitle) : "";
+  const page = c.pageNumber != null ? `p.${c.pageNumber}` : "";
+  const url = typeof c.sourceUrl === "string" ? c.sourceUrl : "";
+  const category = typeof c.category === "string" ? c.category : "";
+  const score = typeof c.score === "number" ? c.score : null;
+  const sub = [section, page].filter(Boolean).join(" · ");
+  const chunkId = typeof c.chunkId === "string" ? c.chunkId : "";
+  const isConsultation = String(c.extractionMethod ?? "").toLowerCase() === "seoul_labor" && !!chunkId;
+
+  const [expanded, setExpanded] = useState(false);
+  const [snapshot, setSnapshot] = useState<ConsultationSnapshot | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  async function toggle() {
+    const next = !expanded;
+    setExpanded(next);
+    if (next && !snapshot && !loading) {
+      setLoading(true);
+      setFailed(false);
+      try {
+        setSnapshot(await getConsultationSnapshot(chatbotId, chunkId));
+      } catch {
+        setFailed(true);
+      } finally {
+        setLoading(false);
+      }
+    }
+  }
+
+  return (
+    <div style={{ padding: "10px 14px", borderBottom: index < total - 1 ? "1px solid #f1f5f9" : "none" }}>
+      <div style={{ display: "flex", gap: 10 }}>
+        <span style={{ flexShrink: 0, fontSize: 11, fontWeight: 700, color: "#475569", background: "#f1f5f9", borderRadius: 6, padding: "2px 7px", height: "fit-content" }}>{index + 1}</span>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            {isConsultation ? (
+              <button type="button" onClick={() => void toggle()} style={{ background: "none", border: "none", padding: 0, fontSize: 13, fontWeight: 600, color: "#2563eb", cursor: "pointer", textAlign: "left", wordBreak: "break-word" }}>
+                {name} <span style={{ fontSize: 10 }}>{expanded ? "▲" : "▼"}</span>
+              </button>
+            ) : (
+              <span style={{ fontSize: 13, color: "#111827", fontWeight: 500, wordBreak: "break-word" }}>{name}</span>
+            )}
+            {category && <span style={{ flexShrink: 0, fontSize: 11, fontWeight: 600, color: "#7c3aed", background: "#f5f3ff", borderRadius: 6, padding: "1px 7px" }}>{category}</span>}
+            {score != null && <span style={{ marginLeft: "auto", flexShrink: 0, fontSize: 11, fontWeight: 700, color: "#2563eb", background: "#eff6ff", borderRadius: 6, padding: "1px 7px" }}>점수 {score.toFixed(3)}</span>}
+          </div>
+          {sub && <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 2 }}>{sub}</div>}
+          {!isConsultation && url && (
+            <a href={url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#2563eb", wordBreak: "break-all" }}>{url}</a>
+          )}
+          {isConsultation && expanded && (
+            <div style={{ marginTop: 8, padding: "10px 12px", background: "#f8fafc", borderRadius: 8, fontSize: 12.5, color: "#334155", lineHeight: 1.6 }}>
+              {loading && <span style={{ color: "#94a3b8" }}>상담 내용을 불러오는 중…</span>}
+              {failed && <span style={{ color: "#dc2626" }}>상담 내용을 불러오지 못했습니다.</span>}
+              {snapshot && (
+                <>
+                  <div style={{ fontWeight: 700, color: "#64748b", fontSize: 11, marginBottom: 3 }}>질문</div>
+                  <div style={{ whiteSpace: "pre-wrap", marginBottom: 10, color: "#1f2937" }}>{snapshot.question?.trim() || "(내용 없음)"}</div>
+                  <div style={{ fontWeight: 700, color: "#64748b", fontSize: 11, marginBottom: 3 }}>전문가 답변</div>
+                  <div style={{ whiteSpace: "pre-wrap", color: "#1f2937" }}>{snapshot.answer?.trim() || "(내용 없음)"}</div>
+                  <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #e2e8f0", fontSize: 11, color: "#94a3b8" }}>
+                    출처: {snapshot.boardLabel || "상담게시판"}{snapshot.receiptNo ? ` · ${snapshot.receiptNo}` : ""}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── 상세 모달 ─────────────────────────────────────────────────────────────────
 
 function DetailModal({ item, onClose }: { item: AdminChatLogItem; onClose: () => void }) {
@@ -131,31 +208,9 @@ function DetailModal({ item, onClose }: { item: AdminChatLogItem; onClose: () =>
                 참조 지식 ({citations.length}건)
               </div>
               <div style={{ border: "1px solid #e5e7eb", borderRadius: 10, overflow: "hidden" }}>
-                {citations.map((c, i) => {
-                  const name = citationName(c);
-                  const section = c.sectionTitle ? String(c.sectionTitle) : "";
-                  const page = c.pageNumber != null ? `p.${c.pageNumber}` : "";
-                  const url = typeof c.sourceUrl === "string" ? c.sourceUrl : "";
-                  const category = typeof c.category === "string" ? c.category : "";
-                  const score = typeof c.score === "number" ? c.score : null;
-                  const sub = [section, page].filter(Boolean).join(" · ");
-                  return (
-                    <div key={i} style={{ display: "flex", gap: 10, padding: "10px 14px", borderBottom: i < citations.length - 1 ? "1px solid #f1f5f9" : "none" }}>
-                      <span style={{ flexShrink: 0, fontSize: 11, fontWeight: 700, color: "#475569", background: "#f1f5f9", borderRadius: 6, padding: "2px 7px", height: "fit-content" }}>{i + 1}</span>
-                      <div style={{ minWidth: 0, flex: 1 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                          <span style={{ fontSize: 13, color: "#111827", fontWeight: 500, wordBreak: "break-word" }}>{name}</span>
-                          {category && <span style={{ flexShrink: 0, fontSize: 11, fontWeight: 600, color: "#7c3aed", background: "#f5f3ff", borderRadius: 6, padding: "1px 7px" }}>{category}</span>}
-                          {score != null && <span style={{ marginLeft: "auto", flexShrink: 0, fontSize: 11, fontWeight: 700, color: "#2563eb", background: "#eff6ff", borderRadius: 6, padding: "1px 7px" }}>점수 {score.toFixed(3)}</span>}
-                        </div>
-                        {sub && <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 2 }}>{sub}</div>}
-                        {url && (
-                          <a href={url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#2563eb", wordBreak: "break-all" }}>{url}</a>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
+                {citations.map((c, i) => (
+                  <CitationRow key={i} c={c} index={i} total={citations.length} chatbotId={item.chatbotId} />
+                ))}
               </div>
             </div>
           )}

@@ -79,12 +79,26 @@ export type ChatCitation = {
   documentName?: string | null;
   sourceTitle?: string | null;
   documentVersionId?: string | null;
+  chunkId?: string | null;
   pageNumber?: number | null;
   sectionTitle?: string | null;
+  category?: string | null;
   sourceType?: string | null;
   sourceUrl?: string | null;
+  extractionMethod?: string | null;
   finalRank?: number | null;
   score?: number | null;
+};
+
+export type WidgetConsultationSnapshot = {
+  available?: boolean;
+  title?: string | null;
+  category?: string | null;
+  question?: string | null;
+  answer?: string | null;
+  boardLabel?: string | null;
+  receiptNo?: string | null;
+  sourceListUrl?: string | null;
 };
 
 export type ConditionalAction = {

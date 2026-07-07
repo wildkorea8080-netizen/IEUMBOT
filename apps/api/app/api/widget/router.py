@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -7,9 +8,10 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db import get_db_session
-from app.models import ChatbotSetting, QuickAction, WidgetDeployment
+from app.models import ChatbotSetting, DocumentChunk, QuickAction, WidgetDeployment
 from app.schemas.widget import (
     WidgetBanner,
+    WidgetConsultationSnapshot,
     WidgetOperatingHours,
     WidgetPublicConfigResponse,
     WidgetQuickAction,
@@ -216,4 +218,77 @@ def get_widget_public_config(
             "streamingMode": "sse_preferred",
             "sseEnabled": True,
         },
+    )
+
+
+def _parse_consultation_text(text: str) -> tuple[str, str]:
+    """수집 저장된 상담 청크(`[질문] .. [답변] ..`)를 질문/답변으로 분리."""
+    raw = text or ""
+    if "[답변]" in raw:
+        pre, answer = raw.split("[답변]", 1)
+    else:
+        pre, answer = raw, ""
+    question = pre.replace("[질문]", "", 1)
+    return question.strip(), answer.strip()
+
+
+@router.get(
+    "/consultation/{chatbot_id}/{chunk_id}",
+    response_model=WidgetConsultationSnapshot,
+)
+def get_widget_consultation_snapshot(
+    chatbot_id: str,
+    chunk_id: str,
+    db: Session = Depends(get_db_session),  # noqa: B008
+) -> WidgetConsultationSnapshot:
+    """상담게시판 근거의 내부 스냅샷 — 참조한 상담 원문(마스킹됨)을 표시.
+
+    게시판이 JS(POST)라 개별글 URL이 없으므로, 수집 때 저장한 질문/답변을 보여준다.
+    보안: 해당 챗봇 소유 + extraction_method=='seoul_labor' 청크만 노출(내부 청크 노출 금지).
+    """
+    chatbot = db.execute(
+        select(ChatbotSetting).where(
+            ChatbotSetting.id == chatbot_id,
+            ChatbotSetting.deleted_at.is_(None),
+        )
+    ).scalar_one_or_none()
+    if chatbot is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CHATBOT_NOT_FOUND")
+    ensure_runtime_access_for_widget(db, chatbot_id=str(chatbot.id))
+
+    try:
+        chunk_uuid = uuid.UUID(chunk_id)
+    except (ValueError, AttributeError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="SNAPSHOT_NOT_FOUND"
+        ) from exc
+
+    chunk = db.execute(
+        select(DocumentChunk).where(
+            DocumentChunk.id == chunk_uuid,
+            DocumentChunk.chatbot_id == chatbot.id,
+        )
+    ).scalar_one_or_none()
+    if chunk is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="SNAPSHOT_NOT_FOUND")
+
+    meta = chunk.metadata_json if isinstance(chunk.metadata_json, dict) else {}
+    if str(meta.get("extraction_method") or "").lower() != "seoul_labor":
+        # 상담 스냅샷만 노출 — 일반 문서/웹 청크 본문은 위젯에 공개하지 않음.
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="SNAPSHOT_NOT_FOUND")
+
+    question, answer = _parse_consultation_text(chunk.text_content or "")
+    url = meta.get("url") or meta.get("final_url") or ""
+    receipt_no = url.split("#", 1)[1] if "#" in url else None
+    source_list_url = url.split("#", 1)[0] if url else None
+
+    return WidgetConsultationSnapshot(
+        available=True,
+        title=chunk.section_title or meta.get("page_title"),
+        category=meta.get("category"),
+        question=question,
+        answer=answer,
+        board_label="서울노동권익센터 상담게시판",
+        receipt_no=receipt_no,
+        source_list_url=source_list_url,
     )

@@ -6,6 +6,7 @@ import type {
   AdminChatbotResponse,
   AdminChatbotsResponse,
   AdminChatLogsResponse,
+  ConsultationSnapshot,
   AdminDocumentsResponse,
   AdminKnowledgeGapResponse,
   AdminQualityReportResponse,
@@ -466,6 +467,16 @@ export async function getAdminChatLogs(params?: {
   if (params?.limit) search.set("limit", String(params.limit));
   const query = search.toString();
   return apiClient.request<AdminChatLogsResponse>(`/admin/logs/chat${query ? `?${query}` : ""}`);
+}
+
+// 상담게시판 근거 스냅샷 — 위젯 공개 엔드포인트 재사용(챗봇 소유 + seoul_labor 청크만).
+export async function getConsultationSnapshot(
+  chatbotId: string,
+  chunkId: string,
+): Promise<ConsultationSnapshot> {
+  return apiClient.request<ConsultationSnapshot>(
+    `/widget/consultation/${encodeURIComponent(chatbotId)}/${encodeURIComponent(chunkId)}`,
+  );
 }
 
 export function getAdminChatLogsExportUrl(params?: {
