@@ -107,6 +107,91 @@ def _split_semantic_chunks(text: str) -> list[str]:
     return [c for c in merged if len(c.strip()) >= 60][:_MAX_CHUNKS_PER_SESSION]
 
 
+# ── Q&A 형식 감지·추출 (원문 보존, 재작성 없음) ──────────────────────────────────
+# 문서가 이미 질의응답(Q1./질문/문답) 형식이면 LLM 재작성 없이 각 쌍을 원문 그대로
+# 추출해 FAQ 질문/답변으로 쓴다. (일반 문서용 주제추출·재작성이 Q&A를 쪼개고 답변을
+# 날조하던 문제 해결.)
+_QA_MARKER_RE = re.compile(r"(?im)(?:^|\n)[ \t]*(?:Q\s*\d+|질문\s*\d*|문\s*\d+)[ \t]*[.\):]\s*")
+_ANS_LABEL_RE = re.compile(r"(?im)(?:^|\n)[ \t]*(?:답변|답|A)[ \t]*[.\):]\s*")
+
+
+def _reflow_segment(seg: str) -> str:
+    """PDF 줄바꿈 잔여물 정리 — 문단(빈 줄) 경계는 유지, 단일 개행은 공백으로 결합.
+
+    내용은 절대 바꾸지 않는다(요약·생략·창작 없음). 줄바꿈만 정리.
+    """
+    paragraphs = re.split(r"\n[ \t]*\n", seg)
+    out: list[str] = []
+    for para in paragraphs:
+        lines = [ln.strip() for ln in para.split("\n") if ln.strip()]
+        if lines:
+            out.append(" ".join(lines))
+    return "\n\n".join(out).strip()
+
+
+def _split_question_answer(block: str) -> tuple[str, str]:
+    """Q 마커 뒤 블록을 (질문, 답변)으로 분리. 답변 라벨 > 첫 물음표 > 첫 줄 순."""
+    label = _ANS_LABEL_RE.search(block)
+    if label:
+        return block[: label.start()], block[label.end():]
+    qmark = block.find("?")
+    if qmark >= 0:
+        return block[: qmark + 1], block[qmark + 1:]
+    parts = block.split("\n", 1)
+    if len(parts) == 2:
+        return parts[0], parts[1]
+    return block, ""
+
+
+def _parse_qa_pairs(text: str) -> list[tuple[str, str]] | None:
+    """문서가 Q&A 형식이면 (질문, 답변) 쌍 리스트를 원문 그대로 반환, 아니면 None.
+
+    감지 기준: Q1./질문/문 마커가 2개 이상. 각 쌍은 재작성 없이 줄바꿈만 정리.
+    """
+    if not text or not text.strip():
+        return None
+    markers = list(_QA_MARKER_RE.finditer(text))
+    if len(markers) < 2:
+        return None
+    pairs: list[tuple[str, str]] = []
+    for i, marker in enumerate(markers):
+        start = marker.end()
+        end = markers[i + 1].start() if i + 1 < len(markers) else len(text)
+        block = text[start:end].strip()
+        if not block:
+            continue
+        raw_q, raw_a = _split_question_answer(block)
+        question = _reflow_segment(raw_q)[:480]
+        answer = _reflow_segment(raw_a)
+        if question and answer:
+            pairs.append((question, answer))
+    return pairs if len(pairs) >= 2 else None
+
+
+def _build_qa_staging_result(
+    sort_order: int, question: str, answer: str, chatbot_id: str, db: Session
+) -> dict:
+    """Q&A 쌍을 staging 청크 dict로 — 질문=주제명(=FAQ 질문), 답변=내용(원문). LLM 재작성 없음."""
+    pii_found, pii_regions = detect_pii(answer)
+    merge_title, merge_id, merge_score, existing_answer = _find_faq_merge_candidate(
+        question, chatbot_id, db
+    )
+    return {
+        "topic_title": question,
+        "content": answer,
+        "tags": [],
+        "pii_detected": pii_found,
+        "pii_regions": pii_regions,
+        "merge_candidate_title": merge_title,
+        "merge_candidate_id": merge_id,
+        "merge_score": merge_score,
+        # Q&A는 원문 보존이 핵심 — 병합 시에도 기존 답변을 LLM으로 섞지 않고 그대로 둔다.
+        "merge_original_content": existing_answer if merge_id else None,
+        "registration_type": "merge" if merge_id else "new",
+        "sort_order": sort_order,
+    }
+
+
 # ── 주제명 생성 ───────────────────────────────────────────────────────────────
 
 def _rule_based_title(text: str) -> str:
@@ -449,22 +534,41 @@ def analyze_staging_session_background(
 
         # 재분석(reanalyze)에서 재사용하도록 원본 텍스트 보관
         session_row.extracted_text = text
-        raw_chunks = _split_semantic_chunks(text)
-        session_row.total_chunks = len(raw_chunks)
-        db.flush()
-
-        # 청크별 LLM 분석을 병렬 처리 (각 스레드 독립 세션). 결과는 sort_order로 정렬해 저장.
-        results: list[dict | None] = [None] * len(raw_chunks)
-        if raw_chunks:
-            max_workers = min(_ANALYZE_CONCURRENCY, len(raw_chunks))
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                futures = {
-                    executor.submit(_analyze_one_chunk, i, chunk_text, chatbot_id): i
-                    for i, chunk_text in enumerate(raw_chunks)
-                }
-                for fut in as_completed(futures):
-                    idx = futures[fut]
-                    results[idx] = fut.result()
+        # ① Q&A 형식 우선 감지 — 이미 질의응답 문서면 LLM 재작성 없이 원문 그대로 추출.
+        #    (일반 문서용 주제추출·재작성이 Q&A를 쪼개고 답변을 날조하던 문제 회피)
+        qa_pairs = _parse_qa_pairs(text)
+        results: list[dict | None]
+        if qa_pairs:
+            session_row.total_chunks = len(qa_pairs)
+            db.flush()
+            results = []
+            for i, (question, answer) in enumerate(qa_pairs):
+                try:
+                    results.append(
+                        _build_qa_staging_result(i, question, answer, chatbot_id, db)
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("[STAGING] qa pair build failed order=%d: %s", i, exc)
+            logger.info(
+                "[STAGING] qa-format detected id=%s pairs=%d (verbatim, no rewrite)",
+                session_id, len(qa_pairs),
+            )
+        else:
+            # ② 일반 문서 — 단락 청킹 + 청크별 LLM 분석(병렬, 각 스레드 독립 세션).
+            raw_chunks = _split_semantic_chunks(text)
+            session_row.total_chunks = len(raw_chunks)
+            db.flush()
+            results = [None] * len(raw_chunks)
+            if raw_chunks:
+                max_workers = min(_ANALYZE_CONCURRENCY, len(raw_chunks))
+                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    futures = {
+                        executor.submit(_analyze_one_chunk, i, chunk_text, chatbot_id): i
+                        for i, chunk_text in enumerate(raw_chunks)
+                    }
+                    for fut in as_completed(futures):
+                        idx = futures[fut]
+                        results[idx] = fut.result()
 
         for res in results:
             if res is None:
