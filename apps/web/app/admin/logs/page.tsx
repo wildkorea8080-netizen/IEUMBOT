@@ -132,12 +132,18 @@ function DetailModal({ item, onClose }: { item: AdminChatLogItem; onClose: () =>
                   const section = c.sectionTitle ? String(c.sectionTitle) : "";
                   const page = c.pageNumber != null ? `p.${c.pageNumber}` : "";
                   const url = typeof c.sourceUrl === "string" ? c.sourceUrl : "";
+                  const category = typeof c.category === "string" ? c.category : "";
+                  const score = typeof c.score === "number" ? c.score : null;
                   const sub = [section, page].filter(Boolean).join(" · ");
                   return (
                     <div key={i} style={{ display: "flex", gap: 10, padding: "10px 14px", borderBottom: i < citations.length - 1 ? "1px solid #f1f5f9" : "none" }}>
                       <span style={{ flexShrink: 0, fontSize: 11, fontWeight: 700, color: "#475569", background: "#f1f5f9", borderRadius: 6, padding: "2px 7px", height: "fit-content" }}>{i + 1}</span>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontSize: 13, color: "#111827", fontWeight: 500, wordBreak: "break-word" }}>{name}</div>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                          <span style={{ fontSize: 13, color: "#111827", fontWeight: 500, wordBreak: "break-word" }}>{name}</span>
+                          {category && <span style={{ flexShrink: 0, fontSize: 11, fontWeight: 600, color: "#7c3aed", background: "#f5f3ff", borderRadius: 6, padding: "1px 7px" }}>{category}</span>}
+                          {score != null && <span style={{ marginLeft: "auto", flexShrink: 0, fontSize: 11, fontWeight: 700, color: "#2563eb", background: "#eff6ff", borderRadius: 6, padding: "1px 7px" }}>점수 {score.toFixed(3)}</span>}
+                        </div>
                         {sub && <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 2 }}>{sub}</div>}
                         {url && (
                           <a href={url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#2563eb", wordBreak: "break-all" }}>{url}</a>
