@@ -33,11 +33,15 @@ BOARDS: dict[str, dict[str, str]] = {
         "list": "/portal/cnsltWorker/selectPageListCnsltWorker.do",
         "detail": "/portal/cnsltWorker/selectCnsltWorker.do",
         "label": "노동자상담",
+        # 상세 POST 시 접수번호를 담는 파라미터명 (게시판마다 다름)
+        "detail_param": "rcept_no",
     },
     "employer": {
         "list": "/portal/cnsltEmplyr/selectPageListCnsltEmplyr.do",
         "detail": "/portal/cnsltEmplyr/selectCnsltEmplyr.do",
         "label": "사용자상담",
+        # 사용자 게시판은 rcept_no가 아니라 cnslt_emplyr_seq로 보내야 상세가 채워짐.
+        "detail_param": "cnslt_emplyr_seq",
     },
 }
 _UA = (
@@ -169,9 +173,11 @@ def _fetch_list_page(client: httpx.Client, board: str, csrf: str, page: int) -> 
 
 
 def _fetch_detail(client: httpx.Client, board: str, csrf: str, rcept_no: str) -> dict[str, str]:
+    # 게시판마다 상세 파라미터명이 다름(worker=rcept_no, employer=cnslt_emplyr_seq).
+    detail_param = BOARDS[board].get("detail_param", "rcept_no")
     resp = client.post(
         BASE_URL + BOARDS[board]["detail"],
-        data={"rcept_no": rcept_no, "currentPage": "1", "_csrf": csrf},
+        data={detail_param: rcept_no, "currentPage": "1", "_csrf": csrf},
         headers={"X-CSRF-TOKEN": csrf, "Referer": BASE_URL + BOARDS[board]["list"]},
     )
     return parse_detail(resp.text)
