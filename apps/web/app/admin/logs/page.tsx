@@ -84,6 +84,10 @@ function DetailModal({ item, onClose }: { item: AdminChatLogItem; onClose: () =>
   const citations = Array.isArray(meta.citationSummary)
     ? (meta.citationSummary.filter(c => c && typeof c === "object") as Record<string, unknown>[])
     : [];
+  const promptTrace =
+    meta.promptTrace && typeof meta.promptTrace === "object"
+      ? (meta.promptTrace as { systemPrompt?: string | null; userPrompt?: string | null })
+      : null;
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 9000, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
@@ -154,6 +158,29 @@ function DetailModal({ item, onClose }: { item: AdminChatLogItem; onClose: () =>
                 })}
               </div>
             </div>
+          )}
+
+          {/* 사용된 프롬프트 (감사·검증용) — 답변이 어떤 지시/근거로 생성됐는지 열람 */}
+          {promptTrace && (promptTrace.systemPrompt || promptTrace.userPrompt) && (
+            <details style={{ marginBottom: 20, borderRadius: 10, border: "1px solid #e5e7eb", overflow: "hidden" }}>
+              <summary style={{ padding: "10px 14px", background: "#f8fafc", fontSize: 12, fontWeight: 700, color: "#475569", cursor: "pointer" }}>
+                사용된 프롬프트 (감사용)
+              </summary>
+              <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 12 }}>
+                {promptTrace.systemPrompt ? (
+                  <div>
+                    <p style={{ fontSize: 11, fontWeight: 700, color: "#64748b", marginBottom: 4 }}>SYSTEM</p>
+                    <pre style={{ margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 11.5, lineHeight: 1.6, color: "#334155", background: "#f8fafc", borderRadius: 8, padding: 10, maxHeight: 240, overflow: "auto" }}>{promptTrace.systemPrompt}</pre>
+                  </div>
+                ) : null}
+                {promptTrace.userPrompt ? (
+                  <div>
+                    <p style={{ fontSize: 11, fontWeight: 700, color: "#64748b", marginBottom: 4 }}>USER (근거 포함)</p>
+                    <pre style={{ margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 11.5, lineHeight: 1.6, color: "#334155", background: "#f8fafc", borderRadius: 8, padding: 10, maxHeight: 320, overflow: "auto" }}>{promptTrace.userPrompt}</pre>
+                  </div>
+                ) : null}
+              </div>
+            </details>
           )}
 
           {/* 피드백 */}

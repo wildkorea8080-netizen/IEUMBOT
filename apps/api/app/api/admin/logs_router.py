@@ -68,6 +68,12 @@ def admin_list_chat_logs(
                     "guardrailFinalAction": guardrail_eval.get("finalAction"),
                     "retrievalSummary": (row.retrieved_documents or [])[:10],
                     "citationSummary": (row.selected_sources or [])[:10],
+                    # 근거 신뢰성(감사)용: 실제 사용된 프롬프트 — 대화상세에서 열람
+                    "promptTrace": (
+                        row.metadata_json.get("promptTrace")
+                        if isinstance(row.metadata_json, dict)
+                        else None
+                    ),
                     "effectiveSettingsSummary": {
                         "modelName": row.model_name,
                     },
