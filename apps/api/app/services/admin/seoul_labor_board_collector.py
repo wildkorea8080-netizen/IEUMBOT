@@ -244,18 +244,19 @@ def build_source_text(board: str, items: list[Consultation]) -> tuple[str, list[
     for it in items:
         marker_url = f"{list_url}#{it.rcept_no}"
         urls.append(marker_url)
-        title = it.title + (f" ({it.category})" if it.category else "")
-        blocks.append(
-            "\n".join(
-                [
-                    f"[URL] {marker_url}",
-                    f"[FINAL_URL] {marker_url}",
-                    f"[TITLE] {title}",
-                    "[EXTRACTION_METHOD] seoul_labor",
-                    "[NAVIGATION_REMOVED] false",
-                    f"[질문] {it.question}",
-                    f"[답변] {it.answer}",
-                ]
-            ).strip()
-        )
+        lines = [
+            f"[URL] {marker_url}",
+            f"[FINAL_URL] {marker_url}",
+            f"[TITLE] {it.title}",
+        ]
+        # 상담유형(카테고리)을 별도 마커로 — 청크 메타에 저장돼 주제 분류/부스트/표시에 쓰임.
+        if it.category:
+            lines.append(f"[CATEGORY] {it.category}")
+        lines += [
+            "[EXTRACTION_METHOD] seoul_labor",
+            "[NAVIGATION_REMOVED] false",
+            f"[질문] {it.question}",
+            f"[답변] {it.answer}",
+        ]
+        blocks.append("\n".join(lines).strip())
     return "\n\n".join(blocks).strip(), urls

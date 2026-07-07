@@ -32,6 +32,7 @@ def assemble_citations(
                 "documentVersionId": item.get("documentVersionId"),
                 "pageNumber": item.get("pageNumber"),
                 "sectionTitle": item.get("sectionTitle"),
+                "category": item.get("category"),
                 "sourceType": item.get("sourceType"),
                 "sourceUrl": item.get("sourceUrl"),
                 "finalRank": item.get("finalRank"),

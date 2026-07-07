@@ -34,6 +34,7 @@ class AdminConversationCitationSummary(ApiSchema):
     source_url: str | None = None
     page_number: int | None = None
     section_title: str | None = None
+    category: str | None = None  # 상담 분류(서울노동 상담게시판 등 주제 태깅)
     score: float | None = None  # 검색 유사도/종합 점수 (근거 신뢰성 표시용)
     final_rank: int | None = None
 

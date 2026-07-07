@@ -1220,6 +1220,7 @@ def _strip_website_block_markers(block: str) -> tuple[dict[str, str], str]:
         "[FINAL_URL]": "final_url",
         "[EXTRACTION_METHOD]": "extraction_method",
         "[NAVIGATION_REMOVED]": "navigation_removed",
+        "[CATEGORY]": "category",
     }
     for line in block.splitlines():
         stripped = line.strip()
@@ -1285,10 +1286,22 @@ def _split_website_chunks(
         final_url = marker_metadata.get("final_url") or source_url
         extraction_method = marker_metadata.get("extraction_method")
         navigation_removed = marker_metadata.get("navigation_removed")
-        candidate_chunks = _split_text_chunks(content_text, chunk_size=chunk_size)
+        category = marker_metadata.get("category")
+        # 서울노동 상담: 한 게시물(질문+답변)을 통째로 1청크로 유지.
+        # 900자 강제분할이 질문과 답변을 다른 청크로 쪼개는 것을 방지(Q↔A 쌍 보존).
+        is_org_qa = (extraction_method or "").lower() == "seoul_labor"
+        if is_org_qa:
+            candidate_chunks = (
+                [{"text": content_text, "section_title": page_title}]
+                if content_text.strip()
+                else []
+            )
+        else:
+            candidate_chunks = _split_text_chunks(content_text, chunk_size=chunk_size)
         for chunk_item in candidate_chunks:
             chunk_text = str(chunk_item.get("text") or "")
-            if _is_low_quality_chunk(chunk_text):
+            # 상담 원문은 collect 단계에서 이미 완료·답변보유로 걸러졌으므로 저품질 필터 생략.
+            if not is_org_qa and _is_low_quality_chunk(chunk_text):
                 continue
             section_title = chunk_item.get("section_title") or _infer_section_title(chunk_text, default_title=page_title)
             items.append(
@@ -1300,6 +1313,7 @@ def _split_website_chunks(
                     "final_url": final_url,
                     "extraction_method": extraction_method,
                     "navigation_removed": navigation_removed,
+                    "category": category,
                 }
             )
     if items:
@@ -4015,6 +4029,7 @@ def _ingest_web_source_content(
         navigation_removed = str(
             chunk_item.get("navigation_removed") or crawl_diagnostics.get("navigation_removed") or ""
         )
+        chunk_category = str(chunk_item.get("category") or "").strip() or None
         context_text = web_chunk_contexts[index - 1]
         embedding = embeddings[index - 1] if index - 1 < len(embeddings) else None
         if _embedding_generated(embedding):
@@ -4023,7 +4038,8 @@ def _ingest_web_source_content(
             embedding_error_counts["EMBEDDING_BATCH_FAILED"] = (
                 embedding_error_counts.get("EMBEDDING_BATCH_FAILED", 0) + 1
             )
-        _tsv_raw = " ".join(filter(None, [context_text, section_title, chunk_text]))
+        # 상담유형(카테고리)도 전문검색 대상에 포함 → 주제/키워드 검색이 분류값에도 매칭됨.
+        _tsv_raw = " ".join(filter(None, [context_text, section_title, chunk_category, chunk_text]))
         _tsv_value = func.to_tsvector("simple", _build_tsvector_text(_tsv_raw))
         db.add(
             DocumentChunk(
@@ -4046,6 +4062,7 @@ def _ingest_web_source_content(
                     "section_title": section_title,
                     "extraction_method": extraction_method or None,
                     "navigation_removed": navigation_removed.lower() == "true",
+                    "category": chunk_category,
                 },
                 embedding=embedding,
                 token_count=len(chunk_text.split()),
@@ -4078,6 +4095,7 @@ def _ingest_web_source_content(
                         "section_title": section_title,
                         "extraction_method": extraction_method or None,
                         "navigation_removed": navigation_removed.lower() == "true",
+                        "category": chunk_category,
                     },
                     embedding=embedding,
                     token_count=len(chunk_text.split()),

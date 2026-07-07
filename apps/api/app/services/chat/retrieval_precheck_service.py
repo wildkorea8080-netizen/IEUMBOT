@@ -36,6 +36,10 @@ TOP1_RESCUE_SCORE = 0.26
 MAX_CHUNKS_PER_KNOWLEDGE_ITEM = 2
 MAX_CHUNKS_PER_SOURCE_URL = 2
 POLICY_KEYWORD_BOOST = 0.10
+# 서울노동권익센터 상담게시판 근거(기관 요청): 유사 질의 시 최우선 참조.
+# 관련도 점수 위에 가산해 상위 노출 — extraction_method == "seoul_labor" 인 문서에만 적용.
+ORG_QA_PRIORITY_BOOST = 0.15
+ORG_QA_EXTRACTION_METHOD = "seoul_labor"
 SEMANTIC_RESCUE_VECTOR_SCORE = 0.32
 SEMANTIC_STRONG_VECTOR_SCORE = 0.38
 SEMANTIC_SCORE_FLOOR = 0.28
@@ -618,7 +622,15 @@ def _apply_prompt_selection(
         if not threshold_passed and not rescued:
             continue
 
-        knowledge_item_id = str(item.get("documentId") or "")
+        # 서울노동 상담게시판은 전 상담이 하나의 지식항목(documentId) 아래에 있으므로,
+        # documentId로 캡을 걸면 다건 종합이 막힌다. 상담(sourceUrl)별로 카운트해
+        # 여러 상담이 근거로 함께 쓰이도록 허용(각 상담=1청크라 상담당 초과 없음).
+        _is_org_qa_item = str(item.get("extractionMethod") or "").lower() == ORG_QA_EXTRACTION_METHOD
+        knowledge_item_id = (
+            f"seoul_labor::{item.get('sourceUrl') or item.get('chunkId')}"
+            if _is_org_qa_item
+            else str(item.get("documentId") or "")
+        )
         used_count = per_knowledge_item.get(knowledge_item_id, 0)
         if used_count >= MAX_CHUNKS_PER_KNOWLEDGE_ITEM:
             source_diversity_applied = True
@@ -882,6 +894,11 @@ def search_relevant_chunks(
         corpus_signal = _corpus_weight(chunk.corpus_domain, corpus_domain_policy)
         source_signal = _source_weight(version.source_type, search_control_policy)
 
+        # 서울노동 상담게시판 근거는 기관 요청에 따라 최우선 노출 — 관련도 위에 가산 부스트.
+        _doc_extraction = str((document.metadata_json or {}).get("extraction_method") or "").lower()
+        _is_org_qa = _doc_extraction == ORG_QA_EXTRACTION_METHOD
+        org_qa_boost = ORG_QA_PRIORITY_BOOST if _is_org_qa else 0.0
+
         recency_signal = 0.0
         if version.effective_date and version.effective_date <= today:
             recency_signal += 0.05
@@ -925,7 +942,8 @@ def search_relevant_chunks(
             + (source_signal * 0.05)
             + (version_signal * 0.05)
             + recency_signal
-            + manual_boost_signal,
+            + manual_boost_signal
+            + org_qa_boost,
             4,
         )
 
@@ -991,6 +1009,8 @@ def search_relevant_chunks(
                 "sourceUrl": source_url,
                 "corpusDomain": chunk.corpus_domain,
                 "sourceType": version.source_type,
+                "extractionMethod": _doc_extraction or None,
+                "category": (chunk.metadata_json or {}).get("category"),
                 "effectiveDate": version.effective_date.isoformat() if version.effective_date else None,
                 "expirationDate": version.expiration_date.isoformat() if version.expiration_date else None,
                 "keywordScore": keyword_score,

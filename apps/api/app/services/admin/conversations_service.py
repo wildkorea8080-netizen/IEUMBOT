@@ -89,6 +89,7 @@ def _citation_summary(message: ChatMessage | None) -> list[AdminConversationCita
                 source_url=item.get("sourceUrl") or item.get("source_url"),
                 page_number=item.get("pageNumber") or item.get("page_number"),
                 section_title=item.get("sectionTitle") or item.get("section_title"),
+                category=item.get("category"),
                 score=round(float(_score), 4) if isinstance(_score, (int, float)) else None,
                 final_rank=item.get("finalRank") or item.get("final_rank"),
             )

@@ -29,6 +29,7 @@ export type AdminConversationCitationSummary = {
   sourceUrl?: string | null;
   pageNumber?: number | null;
   sectionTitle?: string | null;
+  category?: string | null;
   score?: number | null;
   finalRank?: number | null;
 };

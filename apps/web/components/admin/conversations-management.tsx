@@ -310,6 +310,7 @@ export function ConversationsManagement() {
                         <div key={i} style={{ padding: "9px 14px", borderBottom: i < detail.citationSummary.length - 1 ? "1px solid #f1f5f9" : "none", fontSize: 12, color: "#334155" }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                             <span style={{ fontWeight: 600 }}>{c.title ?? c.sourceUrl ?? "출처"}</span>
+                            {c.category ? <span style={{ fontSize: 11, fontWeight: 600, color: "#7c3aed", background: "#f5f3ff", borderRadius: 6, padding: "1px 7px" }}>{c.category}</span> : null}
                             {c.sectionTitle ? <span style={{ color: "#64748b" }}>/ {c.sectionTitle}</span> : null}
                             {c.pageNumber != null ? <span style={{ color: "#64748b" }}>/ p.{c.pageNumber}</span> : null}
                             {typeof c.score === "number" ? (

@@ -837,6 +837,7 @@ def _build_admin_debug_trace(
                 "sourceUrl": item.get("sourceUrl"),
                 "fileName": item.get("fileName"),
                 "sectionTitle": item.get("sectionTitle"),
+                "category": item.get("category"),
                 "chunkIndex": item.get("chunkIndex"),
                 "score": _safe_score(item.get("combinedScore")),
                 "vectorScore": _safe_score(item.get("vectorScore")),
