@@ -801,8 +801,13 @@ def register_staging_chunks(
     chunks = list(db.execute(stmt).scalars().all())
     registered = 0
 
-    # 파일 업로드 세션은 RAG를 업로드 시점에 즉시 처리했으므로 등록 시 FAQ만 생성
+    # 파일 업로드 세션은 RAG를 업로드 시점에 즉시 처리했으므로 등록 시 FAQ만 생성.
+    # + Q&A 형식(질의응답) 세션은 각 쌍을 FAQ로만 등록하고 청크별 RAG 색인은 생략한다
+    #   (질문이 파일·텍스트 탭에 중복 등록되는 문제 방지 — 원문 전체는 이미 색인/FAQ로 커버).
     skip_rag = session_row.source_type == "file"
+    if not skip_rag and session_row.extracted_text and _parse_qa_pairs(session_row.extracted_text):
+        skip_rag = True
+        logger.info("[STAGING] qa-format session %s → FAQ only (skip per-chunk RAG)", session_id)
 
     for chunk in chunks:
         chunk_id_str = str(chunk.id)
