@@ -171,9 +171,17 @@ def _parse_qa_pairs(text: str) -> list[tuple[str, str]] | None:
 
 
 def _build_qa_staging_result(
-    sort_order: int, question: str, answer: str, chatbot_id: str, db: Session
+    sort_order: int,
+    question: str,
+    answer: str,
+    chatbot_id: str,
+    db: Session,
+    tags: list[str] | None = None,
 ) -> dict:
-    """Q&A 쌍을 staging 청크 dict로 — 질문=주제명(=FAQ 질문), 답변=내용(원문). LLM 재작성 없음."""
+    """Q&A 쌍을 staging 청크 dict로 — 질문(간결)=주제명(=FAQ 질문), 답변=내용(원문 그대로).
+
+    tags: [대분류, 소분류, 키워드...] — 등록 시 앞 2개가 category/field로 매핑된다.
+    """
     pii_found, pii_regions = detect_pii(answer)
     merge_title, merge_id, merge_score, existing_answer = _find_faq_merge_candidate(
         question, chatbot_id, db
@@ -181,7 +189,7 @@ def _build_qa_staging_result(
     return {
         "topic_title": question,
         "content": answer,
-        "tags": [],
+        "tags": tags or [],
         "pii_detected": pii_found,
         "pii_regions": pii_regions,
         "merge_candidate_title": merge_title,
@@ -228,6 +236,66 @@ def _despace_pdf_text(text: str, db: Session) -> str:
     except Exception as exc:  # noqa: BLE001
         logger.debug("[STAGING] despace failed: %s", exc)
     return text
+
+
+_QA_ENRICH_SYSTEM = (
+    "당신은 공공기관 챗봇 FAQ를 정리하는 전문가입니다.\n"
+    "질의응답 목록을 받아 각 항목에 (1) 간결한 대표 질문 (2) 대분류/소분류 (3) 키워드 태그를 부여합니다.\n"
+    "질문·답변의 내용·사실을 바꾸거나 지어내지 마세요. 오직 분류·태그·질문 표현만 다듬습니다.\n"
+    "반드시 순수 JSON 배열만 출력하세요(코드블록·설명 금지)."
+)
+
+
+def _enrich_qa_pairs(pairs: list[tuple[str, str]], db: Session) -> list[dict]:
+    """각 Q&A에 간결 질문·분류·태그를 부여. pairs와 같은 길이의 [{title, tags}] 반환.
+
+    tags = [대분류, 소분류, 키워드...] (등록 시 앞 2개가 category/field로 매핑됨).
+    실패하면 원문 질문 + 빈 태그로 폴백(답변 내용은 어느 경우든 손대지 않음).
+    """
+    fallback = [{"title": q, "tags": []} for q, _ in pairs]
+    if not pairs:
+        return fallback
+    try:
+        from app.services.llm_api_config_runtime_service import resolve_runtime_api_config  # noqa: PLC0415
+
+        runtime_api = resolve_runtime_api_config(db)
+        if runtime_api is None:
+            return fallback
+        blocks = [
+            f"{i}) 질문: {q[:180]}\n   답변요약: {a[:220]}" for i, (q, a) in enumerate(pairs)
+        ]
+        user_prompt = (
+            "다음 각 질의응답에 메타데이터를 부여해 JSON 배열로만 응답하세요.\n\n"
+            + "\n\n".join(blocks)
+            + '\n\n형식(항목마다): {"index":0,"title":"간결한 대표 질문(한 문장, 물음표로 끝)",'
+            '"category":"대분류(2~6자)","field":"소분류(2~12자)","tags":["키워드",...(2~4개)]}\n'
+            "title은 사용자가 실제로 물을 법한 짧고 자연스러운 질문으로. 원문 사실을 바꾸지 마세요."
+        )
+        raw = _call_llm_raw(runtime_api, _QA_ENRICH_SYSTEM, user_prompt, max_tokens=1500, timeout=30)
+        match = re.search(r"\[.*\]", raw, re.DOTALL)
+        if not match:
+            return fallback
+        data = json.loads(match.group(0))
+        out = list(fallback)
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            try:
+                idx = int(item.get("index", -1))
+            except (TypeError, ValueError):
+                continue
+            if not (0 <= idx < len(pairs)):
+                continue
+            title = str(item.get("title") or "").strip()[:480] or pairs[idx][0]
+            category = str(item.get("category") or "").strip()
+            field = str(item.get("field") or "").strip()
+            keywords = [str(t).strip() for t in (item.get("tags") or []) if str(t).strip()][:4]
+            tags = [t for t in ([category, field, *keywords]) if t]
+            out[idx] = {"title": title, "tags": tags}
+        return out
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[STAGING] qa enrich failed: %s (원문 질문·빈 태그 폴백)", exc)
+        return fallback
 
 
 # ── 주제명 생성 ───────────────────────────────────────────────────────────────
@@ -580,18 +648,23 @@ def analyze_staging_session_background(
             # PDF 평탄화로 생긴 단어중간 공백 교정(가드 있음) 후 재파싱 — 내용은 그대로.
             cleaned_text = _despace_pdf_text(text, db)
             qa_pairs = _parse_qa_pairs(cleaned_text) or qa_pairs
+            # 간결 대표질문(제목=매칭질문) + 분류·태그 자동 부여 (답변 원문은 유지).
+            enrichments = _enrich_qa_pairs(qa_pairs, db)
             session_row.total_chunks = len(qa_pairs)
             db.flush()
             results = []
-            for i, (question, answer) in enumerate(qa_pairs):
+            for i, (_question, answer) in enumerate(qa_pairs):
+                enr = enrichments[i] if i < len(enrichments) else {"title": _question, "tags": []}
                 try:
                     results.append(
-                        _build_qa_staging_result(i, question, answer, chatbot_id, db)
+                        _build_qa_staging_result(
+                            i, enr["title"], answer, chatbot_id, db, tags=enr["tags"]
+                        )
                     )
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("[STAGING] qa pair build failed order=%d: %s", i, exc)
             logger.info(
-                "[STAGING] qa-format detected id=%s pairs=%d (verbatim, no rewrite)",
+                "[STAGING] qa-format detected id=%s pairs=%d (concise title + tags, answer verbatim)",
                 session_id, len(qa_pairs),
             )
         else:
