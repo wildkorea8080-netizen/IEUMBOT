@@ -111,8 +111,10 @@ def _split_semantic_chunks(text: str) -> list[str]:
 # 문서가 이미 질의응답(Q1./질문/문답) 형식이면 LLM 재작성 없이 각 쌍을 원문 그대로
 # 추출해 FAQ 질문/답변으로 쓴다. (일반 문서용 주제추출·재작성이 Q&A를 쪼개고 답변을
 # 날조하던 문제 해결.)
-_QA_MARKER_RE = re.compile(r"(?im)(?:^|\n)[ \t]*(?:Q\s*\d+|질문\s*\d*|문\s*\d+)[ \t]*[.\):]\s*")
-_ANS_LABEL_RE = re.compile(r"(?im)(?:^|\n)[ \t]*(?:답변|답|A)[ \t]*[.\):]\s*")
+# PDF 추출기가 줄바꿈을 공백으로 평탄화하므로(한 줄로 이어짐) 줄 시작이 아니라
+# "공백/문자열 시작" 경계로 마커를 찾는다. (줄바꿈이 남아있는 텍스트도 \s로 포함)
+_QA_MARKER_RE = re.compile(r"(?i)(?:(?<=\s)|^)(?:Q\s*\d+|질문\s*\d*|문\s*\d+)\s*[.\):]\s*")
+_ANS_LABEL_RE = re.compile(r"(?i)(?:(?<=\s)|^)(?:답변|A)\s*[.\):]\s*")
 
 
 def _reflow_segment(seg: str) -> str:
@@ -190,6 +192,42 @@ def _build_qa_staging_result(
         "registration_type": "merge" if merge_id else "new",
         "sort_order": sort_order,
     }
+
+
+_DESPACE_SYSTEM = (
+    "당신은 PDF에서 추출한 한국어 텍스트의 잘못된 띄어쓰기를 교정합니다.\n"
+    "PDF 줄바꿈 때문에 단어 중간에 생긴 불필요한 공백만 제거해 원문을 자연스럽게 복원하세요.\n"
+    "절대 규칙: 글자·단어·문장·숫자·기호를 추가/삭제/요약/변경하지 마세요. 오직 띄어쓰기만 조정합니다.\n"
+    "교정한 텍스트만 그대로 출력하세요(설명·따옴표·코드블록 금지)."
+)
+
+
+def _despace_pdf_text(text: str, db: Session) -> str:
+    """PDF 평탄화로 단어 중간에 생긴 공백을 LLM으로 교정.
+
+    **내용 변조 방지 가드**: 공백을 모두 제거한 결과가 원문과 완전히 같을 때만 채택한다.
+    (LLM이 글자/기호를 조금이라도 바꾸면 가드에 걸려 원문 그대로 사용 → 충실성 보장.)
+    긴 문서(>8000자)는 건너뜀(부분 교정 시 가드가 항상 실패).
+    """
+    stripped = re.sub(r"\s+", "", text)
+    if len(stripped) < 20 or len(text) > 8000:
+        return text
+    try:
+        from app.services.llm_api_config_runtime_service import resolve_runtime_api_config  # noqa: PLC0415
+
+        runtime_api = resolve_runtime_api_config(db)
+        if runtime_api is None:
+            return text
+        cleaned = _call_llm_raw(
+            runtime_api, _DESPACE_SYSTEM, text,
+            max_tokens=3000, timeout=30, model=runtime_api.speed_model(),
+        ).strip()
+        if cleaned and re.sub(r"\s+", "", cleaned) == stripped:
+            return cleaned
+        logger.info("[STAGING] despace rejected (content changed) — keep verbatim")
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("[STAGING] despace failed: %s", exc)
+    return text
 
 
 # ── 주제명 생성 ───────────────────────────────────────────────────────────────
@@ -539,6 +577,9 @@ def analyze_staging_session_background(
         qa_pairs = _parse_qa_pairs(text)
         results: list[dict | None]
         if qa_pairs:
+            # PDF 평탄화로 생긴 단어중간 공백 교정(가드 있음) 후 재파싱 — 내용은 그대로.
+            cleaned_text = _despace_pdf_text(text, db)
+            qa_pairs = _parse_qa_pairs(cleaned_text) or qa_pairs
             session_row.total_chunks = len(qa_pairs)
             db.flush()
             results = []
