@@ -635,8 +635,8 @@ def analyze_staging_session_background(
         session_row.status = "ready"
         db.commit()
         logger.info(
-            "[STAGING] analysis done id=%s chunks=%d workers=%d",
-            session_id, len(raw_chunks), min(_ANALYZE_CONCURRENCY, max(1, len(raw_chunks))),
+            "[STAGING] analysis done id=%s chunks=%d",
+            session_id, session_row.total_chunks or 0,
         )
 
     except Exception as exc:
