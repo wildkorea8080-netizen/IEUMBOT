@@ -91,7 +91,7 @@ function renderMessageText(bubble: HTMLElement, text: string): void {
   }
 }
 
-function createIconSvg(name: LauncherIconName | "send" | "minimize" | "close", customIconUrl?: string | null): string {
+function createIconSvg(name: LauncherIconName | "send" | "minimize" | "close" | "reset", customIconUrl?: string | null): string {
   if (name === "custom" && customIconUrl?.trim()) {
     return renderLauncherImage(customIconUrl);
   }
@@ -150,6 +150,14 @@ function createIconSvg(name: LauncherIconName | "send" | "minimize" | "close", c
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M18 6 6 18"/>
         <path d="m6 6 12 12"/>
+      </svg>
+    `;
+  }
+  if (name === "reset") {
+    return `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+        <path d="M3 3v5h5"/>
       </svg>
     `;
   }
@@ -966,11 +974,16 @@ export class IeumWidgetApp {
     const header = createElement(document, "div", "ieum-header");
     const headerMain = createElement(document, "div", "ieum-header-main");
     const headerActions = createElement(document, "div", "ieum-header-actions");
+    const resetButton = createElement(document, "button", "ieum-header-button");
     const minimizeButton = createElement(document, "button", "ieum-header-button");
     const closeButton = createElement(document, "button", "ieum-header-button");
     const inputWrap = createElement(document, "div", "ieum-input-wrap");
 
     this.headerIconNode.innerHTML = createIconSvg("heart");
+    resetButton.type = "button";
+    resetButton.title = "대화 새로 시작";
+    resetButton.setAttribute("aria-label", "대화 새로 시작");
+    resetButton.innerHTML = createIconSvg("reset");
     minimizeButton.type = "button";
     minimizeButton.title = "최소화";
     minimizeButton.setAttribute("aria-label", "최소화");
@@ -982,6 +995,7 @@ export class IeumWidgetApp {
 
     headerMain.appendChild(this.headerIconNode);
     headerMain.appendChild(this.titleNode);
+    headerActions.appendChild(resetButton);
     headerActions.appendChild(minimizeButton);
     headerActions.appendChild(closeButton);
     header.appendChild(headerMain);
@@ -1019,6 +1033,7 @@ export class IeumWidgetApp {
       event.stopPropagation();
       this.dismissLauncherTip();
     });
+    resetButton.addEventListener("click", () => this.resetConversation());
     minimizeButton.addEventListener("click", () => this.setOpen(false));
     closeButton.addEventListener("click", () => this.setOpen(false));
     // 웹접근성: 패널에서 Esc로 닫기 (키보드 조작)
@@ -1121,11 +1136,21 @@ export class IeumWidgetApp {
   }
 
   private clearInitialWelcomeForDirectQuestion() {
-    if (this.messages.some((message) => message.role === "user")) return;
-    const filtered = this.messages.filter((message) => !message.id.startsWith("assistant_welcome_"));
-    if (filtered.length === this.messages.length) return;
-    this.messages = filtered;
+    // 초기 환영 화면 유지 — 첫 질문을 해도 환영 메시지를 지우지 않고,
+    // 그 아래로 질문·답변이 쌓이도록 한다(사용자 요청).
+  }
+
+  private resetConversation() {
+    // 헤더의 "대화 새로 시작"(↻) — 대화를 비우고 초기 화면(환영 + 추천질문)으로 복귀.
+    // 새 세션 토큰 발급 → 서버 대화 컨텍스트도 새로 시작.
+    this.messages = [];
+    this.sessionToken = `widget_${Math.random().toString(36).slice(2, 10)}_${Date.now().toString(36)}`;
+    this.ensureInitialMessage();
     this.renderMessages();
+    this.renderStarterQuestions();
+    this.input.value = "";
+    this.messagesWrap.scrollTop = 0;
+    this.input.focus();
   }
 
   private readLauncherTipDismissed() {
