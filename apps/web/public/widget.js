@@ -281,8 +281,9 @@
 .ieum-bubble-rich li { margin-bottom:3px; }
 .ieum-bubble-rich h1, .ieum-bubble-rich h2, .ieum-bubble-rich h3,
 .ieum-bubble-rich h4, .ieum-bubble-rich h5, .ieum-bubble-rich h6 {
-  margin:6px 0 4px; font-weight:600; font-size:1.05em;
+  margin:11px 0 5px; font-weight:700; font-size:1.02em; color:#111827;
 }
+.ieum-bubble-rich > :first-child { margin-top:0; }
 .ieum-bubble-rich a { color:#2563eb; text-decoration:underline; }
 .ieum-bubble-rich strong, .ieum-bubble-rich b { font-weight:600; }
 .ieum-bubble-rich code {
@@ -293,12 +294,15 @@
   font-size:0.9em; margin:6px 0;
 }
 .ieum-bubble-rich table {
-  border-collapse:collapse; margin:6px 0; font-size:0.95em;
+  border-collapse:separate; border-spacing:0; width:100%; margin:8px 0;
+  font-size:0.9em; border:1px solid #e5e7eb; border-radius:8px; overflow:hidden;
 }
 .ieum-bubble-rich th, .ieum-bubble-rich td {
-  border:1px solid #e5e7eb; padding:4px 8px; text-align:left;
+  border-bottom:1px solid #eef2f7; padding:7px 10px; text-align:left; vertical-align:top;
 }
-.ieum-bubble-rich th { background:#f8fafc; font-weight:600; }
+.ieum-bubble-rich tbody tr:last-child td { border-bottom:none; }
+.ieum-bubble-rich th { background:#f8fafc; font-weight:700; color:#374151; }
+.ieum-bubble-rich tbody tr:nth-child(even) td { background:#fafbfc; }
 .ieum-bubble-rich blockquote {
   border-left:3px solid #cbd5e1; padding-left:10px; color:#475569; margin:6px 0;
 }
