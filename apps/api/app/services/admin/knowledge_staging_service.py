@@ -298,6 +298,58 @@ def _enrich_qa_pairs(pairs: list[tuple[str, str]], db: Session) -> list[dict]:
         return fallback
 
 
+_FAQ_FORMAT_SYSTEM = (
+    "당신은 공공기관 챗봇 FAQ 답변을 읽기 좋게 마크다운으로 정리합니다.\n"
+    "절대 규칙: 사실·수치·날짜·금액·연락처·고유명사를 하나도 추가/삭제/변경하지 마세요. "
+    "없는 정보를 지어내지 마세요. 오직 '서식'만 입힙니다.\n"
+    "허용 서식: 나열·절차는 '- ' 목록으로, 핵심어는 **굵게**, 여러 갈래면 맨 앞에 '## 이모지 소제목' 1개, "
+    "비교·구분 데이터가 자연스러우면 마크다운 표. 이모지는 소제목에 1개만 쓰고 남발하지 마세요.\n"
+    "정리된 마크다운 본문만 출력하세요(설명·따옴표·코드블록 금지)."
+)
+
+
+def _preserves_facts(original: str, formatted: str) -> bool:
+    """서식화 결과가 원문 사실을 보존했는지 검사(누락·창작 방지 가드)."""
+    def _tokens(text: str) -> list[str]:
+        clean = re.sub(r"[#*_\-|>`~\[\]()]", " ", text)
+        return [t for t in re.split(r"[^0-9A-Za-z가-힣]+", clean) if t]
+
+    orig = _tokens(original)
+    fmt_set = {t for t in _tokens(formatted)}
+    orig_sig = {t for t in orig if len(t) >= 2 or t.isdigit()}
+    orig_num = {t for t in orig if any(c.isdigit() for c in t)}
+    if not orig_sig:
+        return False
+    # 숫자 포함 토큰(연락처·날짜·금액)은 전부 보존되어야 함
+    if orig_num - fmt_set:
+        return False
+    coverage = 1 - len(orig_sig - fmt_set) / len(orig_sig)
+    inflated = len(fmt_set) > len(orig_sig) * 1.7 + 8  # 과한 창작 방지
+    return coverage >= 0.85 and not inflated
+
+
+def _format_faq_answer(answer: str, db: Session) -> str:
+    """FAQ 답변을 마크다운으로 서식화. 사실 보존 가드 실패 시 원문 그대로 유지."""
+    text = (answer or "").strip()
+    if len(text) < 30 or len(text) > 4000:
+        return answer
+    try:
+        from app.services.llm_api_config_runtime_service import resolve_runtime_api_config  # noqa: PLC0415
+
+        runtime_api = resolve_runtime_api_config(db)
+        if runtime_api is None:
+            return answer
+        formatted = _call_llm_raw(
+            runtime_api, _FAQ_FORMAT_SYSTEM, text, max_tokens=1600, timeout=30
+        ).strip()
+        if formatted and _preserves_facts(text, formatted):
+            return formatted
+        logger.info("[STAGING] faq answer format rejected (facts changed) — keep verbatim")
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("[STAGING] faq answer format failed: %s", exc)
+    return answer
+
+
 # ── 주제명 생성 ───────────────────────────────────────────────────────────────
 
 def _rule_based_title(text: str) -> str:
@@ -656,9 +708,11 @@ def analyze_staging_session_background(
             for i, (_question, answer) in enumerate(qa_pairs):
                 enr = enrichments[i] if i < len(enrichments) else {"title": _question, "tags": []}
                 try:
+                    # 답변을 마크다운으로 자동 서식화(사실 보존 가드) → 위젯이 표·목록·굵게 렌더.
+                    formatted_answer = _format_faq_answer(answer, db)
                     results.append(
                         _build_qa_staging_result(
-                            i, enr["title"], answer, chatbot_id, db, tags=enr["tags"]
+                            i, enr["title"], formatted_answer, chatbot_id, db, tags=enr["tags"]
                         )
                     )
                 except Exception as exc:  # noqa: BLE001
