@@ -8,7 +8,7 @@ import logging
 import uuid
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import Text, cast, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.faq_item import FaqItem
@@ -205,6 +205,13 @@ def search_faq_by_question(
         faq_row, score = row
         score = float(score)
         if score < threshold:
+            # 임베딩 미달 → 태그/분류/질문 키워드 매칭 폴백.
+            # (예: 사용자가 "전산업무" 같은 태그/키워드만 입력한 경우 대응)
+            kw = _search_faq_by_keyword(
+                db, chatbot_id=chatbot_id, query=query, query_embedding=query_embedding
+            )
+            if kw is not None:
+                return kw
             logger.debug("[FAQ] best match score=%.3f < threshold=%.2f → skip", score, threshold)
             return None
 
@@ -220,6 +227,47 @@ def search_faq_by_question(
     except Exception as exc:
         logger.warning("[FAQ] search failed: %s", exc)
         return None
+
+
+def _search_faq_by_keyword(
+    db: Session, *, chatbot_id: str, query: str, query_embedding: list[float]
+) -> dict[str, Any] | None:
+    """짧은 키워드 질의가 FAQ의 태그·분류·질문에 포함되면 그 FAQ를 반환(임베딩 미달 폴백).
+
+    여러 개면 임베딩 유사도가 가장 높은 것을 선택. 긴 문장 질의는 대상 아님(임베딩이 담당).
+    """
+    q = query.strip()
+    if not (2 <= len(q) <= 30):
+        return None
+    like = f"%{q}%"
+    stmt = (
+        select(FaqItem, (1 - FaqItem.embedding.cosine_distance(query_embedding)).label("score"))
+        .where(
+            FaqItem.chatbot_id == uuid.UUID(chatbot_id),
+            FaqItem.is_active.is_(True),
+            FaqItem.embedding.is_not(None),
+            or_(
+                cast(FaqItem.tags, Text).ilike(like),
+                FaqItem.question.ilike(like),
+                FaqItem.category.ilike(like),
+                FaqItem.field.ilike(like),
+            ),
+        )
+        .order_by((1 - FaqItem.embedding.cosine_distance(query_embedding)).desc())
+        .limit(1)
+    )
+    row = db.execute(stmt).first()
+    if row is None:
+        return None
+    faq_row, score = row
+    logger.info("[FAQ] keyword/tag matched id=%s query=%s", faq_row.id, q[:30])
+    return {
+        "id": str(faq_row.id),
+        "question": faq_row.question,
+        "answer": faq_row.answer,
+        "tags": list(faq_row.tags or []),
+        "score": float(score),
+    }
 
 
 # ── 내부 헬퍼 ─────────────────────────────────────────────────────────────────
