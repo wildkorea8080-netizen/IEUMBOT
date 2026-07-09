@@ -290,7 +290,11 @@ def _enrich_qa_pairs(pairs: list[tuple[str, str]], db: Session) -> list[dict]:
             category = str(item.get("category") or "").strip()
             field = str(item.get("field") or "").strip()
             keywords = [str(t).strip() for t in (item.get("tags") or []) if str(t).strip()][:4]
-            tags = [t for t in ([category, field, *keywords]) if t]
+            # 중복 제거(순서 유지) — category/field/keyword가 겹쳐도 한 번만.
+            seen: set[str] = set()
+            tags = [
+                t for t in ([category, field, *keywords]) if t and not (t in seen or seen.add(t))
+            ][:6]
             out[idx] = {"title": title, "tags": tags}
         return out
     except Exception as exc:  # noqa: BLE001
@@ -299,11 +303,14 @@ def _enrich_qa_pairs(pairs: list[tuple[str, str]], db: Session) -> list[dict]:
 
 
 _FAQ_FORMAT_SYSTEM = (
-    "당신은 공공기관 챗봇 FAQ 답변을 읽기 좋게 마크다운으로 정리합니다.\n"
-    "절대 규칙: 사실·수치·날짜·금액·연락처·고유명사를 하나도 추가/삭제/변경하지 마세요. "
-    "없는 정보를 지어내지 마세요. 오직 '서식'만 입힙니다.\n"
-    "허용 서식: 나열·절차는 '- ' 목록으로, 핵심어는 **굵게**, 여러 갈래면 맨 앞에 '## 이모지 소제목' 1개, "
-    "비교·구분 데이터가 자연스러우면 마크다운 표. 이모지는 소제목에 1개만 쓰고 남발하지 마세요.\n"
+    "당신은 공공기관 챗봇 FAQ 답변에 마크다운 '서식'만 입히는 편집자입니다.\n"
+    "절대 규칙: 원문의 단어·문장·표현을 그대로 두고 마크다운 기호(-, **, ##, |)만 덧붙이세요. "
+    "문장을 다시 쓰거나 요약·부연하지 말고, 사실·수치·날짜·연락처를 하나도 바꾸거나 빼지 마세요.\n"
+    "적극 반영할 것:\n"
+    "1) 한 문장 안에 항목이 쉼표로 나열돼 있으면(예: 'A 교육, B 수립, C 정립을 지원') 그 항목들을 '- ' 목록으로 줄바꿈해 분리하세요.\n"
+    "2) 핵심 용어·명사구는 **굵게** 표시하세요.\n"
+    "3) 답변에 갈래가 여럿이면 맨 앞에 '## 이모지 소제목' 1개(예: '## 🖥️ 시작 가이드'). 이모지는 소제목에 1개만.\n"
+    "4) 비교·구분 데이터가 자연스러우면 마크다운 표.\n"
     "정리된 마크다운 본문만 출력하세요(설명·따옴표·코드블록 금지)."
 )
 
@@ -325,7 +332,7 @@ def _preserves_facts(original: str, formatted: str) -> bool:
         return False
     coverage = 1 - len(orig_sig - fmt_set) / len(orig_sig)
     inflated = len(fmt_set) > len(orig_sig) * 1.7 + 8  # 과한 창작 방지
-    return coverage >= 0.85 and not inflated
+    return coverage >= 0.8 and not inflated
 
 
 def _format_faq_answer(answer: str, db: Session) -> str:
