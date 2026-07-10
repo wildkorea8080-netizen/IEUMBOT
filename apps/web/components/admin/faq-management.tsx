@@ -125,6 +125,12 @@ function FaqEditModal({
   const [isDeleting, setIsDeleting] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // HTML 소스 모드 — 디자인된 HTML(인라인 style 포함)을 TipTap이 뭉개지 않고 그대로 저장.
+  // 기존 답변이 인라인 style/div/table 등 리치 HTML이면 기본으로 소스 모드(서식모드가 스타일을 지우는 것 방지).
+  const [htmlMode, setHtmlMode] = useState(() =>
+    /style\s*=|<div|<table|<section|<span/i.test(item?.answer ?? ""),
+  );
+  const [htmlSource, setHtmlSource] = useState(item?.answer ?? "");
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -156,9 +162,22 @@ function FaqEditModal({
     setTagInput("");
   };
 
+  const toggleHtmlMode = () => {
+    if (!htmlMode) {
+      // 서식 → HTML 소스: 현재 편집기 내용을 소스 초기값으로(여기에 디자인 HTML을 붙여넣으면 됨)
+      setHtmlSource(editor?.getHTML() ?? htmlSource);
+    } else {
+      // HTML 소스 → 서식: TipTap에 로드(일부 스타일은 서식모드에서 손실될 수 있음)
+      editor?.commands.setContent(htmlSource || "");
+    }
+    setHtmlMode(m => !m);
+  };
+
   const handleSave = async () => {
-    const answerHtml = editor?.getHTML() ?? "";
-    const answerText = editor?.getText() ?? "";
+    const answerHtml = htmlMode ? htmlSource : (editor?.getHTML() ?? "");
+    const answerText = htmlMode
+      ? htmlSource.replace(/<[^>]+>/g, "").trim()
+      : (editor?.getText() ?? "");
     if (!editQuestion.trim() || !answerText.trim()) {
       setError("질문과 답변을 입력해주세요.");
       return;
@@ -274,14 +293,40 @@ function FaqEditModal({
             <div style={{ fontSize: 11, fontWeight: 600, color: "#9ca3af", textTransform: "uppercase", letterSpacing: 0.8 }}>답변 내용</div>
           </div>
 
-          {/* 툴바 */}
-          <EditorToolbar editor={editor} />
-
-          {/* 에디터 */}
-          <div style={{ padding: "0 24px 12px" }}>
-            <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, background: "#fafafa", marginTop: 8, overflow: "hidden" }}>
-              <EditorContent editor={editor} />
+          {/* 툴바 + HTML 소스 토글 */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+            <div style={{ flex: 1, minWidth: 0, opacity: htmlMode ? 0.4 : 1, pointerEvents: htmlMode ? "none" : "auto" }}>
+              <EditorToolbar editor={editor} />
             </div>
+            <button type="button" onClick={toggleHtmlMode}
+              title="디자인된 HTML(인라인 style 포함)을 그대로 붙여넣어 저장하려면 켜세요"
+              style={{ flexShrink: 0, marginRight: 24, padding: "4px 10px", fontSize: 12, fontWeight: 600, borderRadius: 6, cursor: "pointer",
+                border: `1px solid ${htmlMode ? "#2563eb" : "#e5e7eb"}`, background: htmlMode ? "#eff6ff" : "#fff", color: htmlMode ? "#2563eb" : "#374151" }}>
+              {htmlMode ? "✓ HTML 소스 편집" : "</> HTML 소스"}
+            </button>
+          </div>
+
+          {/* 에디터 또는 HTML 소스 */}
+          <div style={{ padding: "0 24px 12px" }}>
+            {htmlMode ? (
+              <div style={{ marginTop: 8 }}>
+                <textarea
+                  value={htmlSource}
+                  onChange={e => { setHtmlSource(e.target.value); setIsDirty(true); }}
+                  placeholder="디자인된 HTML 코드를 붙여넣으세요. 인라인 style(색상·표·여백 등)이 그대로 저장·렌더됩니다."
+                  spellCheck={false}
+                  style={{ width: "100%", minHeight: 260, boxSizing: "border-box", border: "1px solid #e5e7eb", borderRadius: 8,
+                    padding: 12, fontSize: 12, lineHeight: 1.6, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", color: "#334155", resize: "vertical" }}
+                />
+                <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 4 }}>
+                  ⚠️ script·이벤트 핸들러·외부 url()·position:fixed 등 위험 요소는 렌더 시 자동 제거됩니다(레이아웃·색상·표 style은 유지).
+                </div>
+              </div>
+            ) : (
+              <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, background: "#fafafa", marginTop: 8, overflow: "hidden" }}>
+                <EditorContent editor={editor} />
+              </div>
+            )}
           </div>
 
           {/* 태그 */}

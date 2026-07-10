@@ -8,13 +8,13 @@
  */
 
 const ALLOWED_TAGS = new Set([
-  "p", "br", "div", "span",
+  "p", "br", "div", "span", "section", "article", "header", "footer", "small", "sub", "sup",
   "h1", "h2", "h3", "h4", "h5", "h6",
   "strong", "em", "b", "i", "u", "s", "mark", "code", "pre",
   "ul", "ol", "li",
   "a",
-  "table", "thead", "tbody", "tr", "td", "th", "caption",
-  "blockquote", "hr",
+  "table", "thead", "tbody", "tr", "td", "th", "caption", "colgroup", "col",
+  "blockquote", "hr", "figure", "figcaption",
   "img",
 ]);
 
@@ -23,7 +23,57 @@ const ALLOWED_ATTRS_PER_TAG: Record<string, Set<string>> = {
   img: new Set(["src", "alt", "title", "width", "height"]),
   td: new Set(["colspan", "rowspan"]),
   th: new Set(["colspan", "rowspan", "scope"]),
+  col: new Set(["span"]),
+  colgroup: new Set(["span"]),
 };
+
+// 인라인 style에서 허용하는 CSS 속성(레이아웃·타이포·색상 등 안전한 것만).
+// FAQ 디자인 HTML의 인라인 스타일이 렌더되도록 허용하되, 위험 속성/값은 차단.
+const ALLOWED_STYLE_PROPS = new Set([
+  "color", "background", "background-color",
+  "margin", "margin-top", "margin-right", "margin-bottom", "margin-left",
+  "padding", "padding-top", "padding-right", "padding-bottom", "padding-left",
+  "gap", "row-gap", "column-gap",
+  "border", "border-top", "border-right", "border-bottom", "border-left",
+  "border-width", "border-style", "border-color", "border-radius",
+  "border-collapse", "border-spacing",
+  "font", "font-size", "font-weight", "font-style", "font-family", "line-height",
+  "letter-spacing", "text-align", "text-decoration", "text-transform", "white-space",
+  "word-break", "overflow-wrap", "vertical-align",
+  "width", "min-width", "max-width", "height", "min-height", "max-height", "box-sizing",
+  "display", "flex", "flex-direction", "flex-wrap", "flex-grow", "flex-shrink", "flex-basis",
+  "align-items", "align-self", "justify-content", "justify-items",
+  "grid-template-columns", "grid-template-rows", "grid-gap",
+  "list-style", "list-style-type", "list-style-position",
+  "box-shadow", "opacity", "overflow", "overflow-x", "overflow-y",
+]);
+
+function sanitizeStyleValue(style: string): string {
+  const kept: string[] = [];
+  for (const decl of style.split(";")) {
+    const idx = decl.indexOf(":");
+    if (idx < 0) continue;
+    const prop = decl.slice(0, idx).trim().toLowerCase();
+    const value = decl.slice(idx + 1).trim();
+    if (!ALLOWED_STYLE_PROPS.has(prop)) continue;
+    const low = value.toLowerCase();
+    // 위험 값 차단(외부 리소스·스크립트·오버레이 등)
+    if (
+      low.includes("url(") ||
+      low.includes("expression") ||
+      low.includes("javascript:") ||
+      low.includes("@import") ||
+      low.includes("</") ||
+      low.includes("fixed") ||
+      low.includes("absolute") ||
+      low.includes("sticky")
+    ) {
+      continue;
+    }
+    kept.push(`${prop}: ${value}`);
+  }
+  return kept.join("; ");
+}
 
 const HTML_TAG_RE = /<[a-zA-Z][a-zA-Z0-9]*(\s|>|\/)/;
 
@@ -56,10 +106,20 @@ function sanitizeElement(el: Element, doc: Document): void {
       child.replaceWith(textNode);
       continue;
     }
-    // 속성 필터링
+    // 속성 필터링 (style은 값 검증 후 유지, 나머지는 태그별 허용목록)
     const allowedAttrs = ALLOWED_ATTRS_PER_TAG[tag] || new Set<string>();
     for (const attr of Array.from(child.attributes)) {
-      if (!allowedAttrs.has(attr.name.toLowerCase())) {
+      const name = attr.name.toLowerCase();
+      if (name === "style") {
+        const safe = sanitizeStyleValue(attr.value);
+        if (safe) {
+          child.setAttribute("style", safe);
+        } else {
+          child.removeAttribute("style");
+        }
+        continue;
+      }
+      if (!allowedAttrs.has(name)) {
         child.removeAttribute(attr.name);
       }
     }
