@@ -17,6 +17,7 @@ import logging
 import re
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from html import escape as _html_escape
 from typing import Any
 
 from sqlalchemy import select
@@ -354,6 +355,339 @@ def _format_faq_answer(answer: str, db: Session) -> str:
     except Exception as exc:  # noqa: BLE001
         logger.debug("[STAGING] faq answer format failed: %s", exc)
     return answer
+
+
+# ── FAQ 답변 디자인 카드(테마 반영 HTML) ──────────────────────────────────────
+# 등록 시점에 각 Q&A 답변을 기관 테마 색상이 적용된 카드형 HTML로 변환한다.
+# 구조는 전 기관 공통(품질 통일), 색상만 챗봇 primaryColor에서 → 브랜드는 기관별.
+# LLM은 원문을 구조(요약·항목·표·주석)로 재배치만 하고(창작 금지), 파이썬이 결정적으로 렌더.
+# 사실 보존 가드(_preserves_facts) 실패 시 원문 답변을 그대로 유지(안전 폴백).
+
+_DEFAULT_PRIMARY = "#2563eb"
+_CONTACT_PHONE_RE = re.compile(r"0\d{1,2}[-.\s]?\d{3,4}[-.\s]?\d{4}")
+_CONTACT_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
+
+
+def _normalize_hex(color: Any) -> str | None:
+    """테마 색상 문자열을 #rrggbb 6자리 hex로 정규화. 실패 시 None."""
+    if not isinstance(color, str) or not color.strip():
+        return None
+    c = color.strip()
+    m = re.fullmatch(r"#?([0-9a-fA-F]{6})", c)
+    if m:
+        return "#" + m.group(1).lower()
+    m = re.fullmatch(r"#?([0-9a-fA-F]{3})", c)
+    if m:
+        h = m.group(1).lower()
+        return "#" + "".join(ch * 2 for ch in h)
+    m = re.search(r"#([0-9a-fA-F]{6})", c)  # gradient 등 문자열 속 첫 hex 추출
+    if m:
+        return "#" + m.group(1).lower()
+    return None
+
+
+def _get_chatbot_design_context(chatbot_id: str, db: Session) -> tuple[str, str]:
+    """챗봇 테마에서 (primaryColor hex, 기관명 라벨) 로드. 실패 시 기본 파랑 + 빈 라벨."""
+    primary = _DEFAULT_PRIMARY
+    institution = ""
+    try:
+        from app.models.chatbot_settings import ChatbotSetting  # noqa: PLC0415
+
+        row = db.execute(
+            select(ChatbotSetting).where(ChatbotSetting.id == uuid.UUID(str(chatbot_id)))
+        ).scalar_one_or_none()
+        if row is not None:
+            theme = row.theme if isinstance(row.theme, dict) else {}
+            norm = _normalize_hex(theme.get("primaryColor") or theme.get("primary_color"))
+            if norm:
+                primary = norm
+            institution = str(
+                theme.get("widgetInstitutionName")
+                or theme.get("widget_institution_name")
+                or theme.get("widgetChatbotName")
+                or row.name
+                or ""
+            ).strip()
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("[STAGING] design context load failed: %s", exc)
+    return primary, institution
+
+
+def _detect_contact(text: str) -> list[tuple[str, str]]:
+    """원문 답변에 실제로 있는 연락처(전화·이메일)만 추출 — 하드코딩·창작 금지(테넌트 안전)."""
+    out: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for v in _CONTACT_PHONE_RE.findall(text):
+        v = v.strip()
+        if v and v not in seen:
+            out.append(("📞", v))
+            seen.add(v)
+        if len(out) >= 2:
+            break
+    for v in _CONTACT_EMAIL_RE.findall(text):
+        v = v.strip()
+        if v and v not in seen:
+            out.append(("✉️", v))
+            seen.add(v)
+            break
+    return out[:4]
+
+
+_FAQ_DESIGN_SYSTEM = (
+    "당신은 공공기관 챗봇 FAQ 답변을 '디자인 카드'용 구조로 재구성하는 편집자입니다.\n"
+    "질문과 답변을 받아 지정된 JSON 구조로만 출력합니다.\n"
+    "절대 규칙:\n"
+    "- 답변에 없는 사실·숫자·주장·연락처를 지어내지 마세요. 있는 내용만 재배치·정리합니다.\n"
+    "- summary/items/table/note 텍스트는 원문 문장을 거의 그대로 사용하세요(가벼운 다듬기만).\n"
+    "- 답변의 모든 핵심 내용이 summary·sections에 빠짐없이 담기게 하세요(내용 누락 금지).\n"
+    "- 내용이 단순하면 sections·table을 비우고 summary만 채워도 됩니다.\n"
+    "- table은 원문에 실제로 '비교/구분'되는 항목이 있을 때만. 없으면 null.\n"
+    "- eyebrow/subtitle/heading/소제목은 짧은 디자인 라벨입니다(사실 주장이 아님).\n"
+    "순수 JSON 객체 하나만 출력(코드블록·설명 금지)."
+)
+
+
+def _extract_faq_design(question: str, answer: str, db: Session) -> dict | None:
+    """LLM으로 답변을 카드 구조(JSON)로 재배치. 실패 시 None."""
+    try:
+        from app.services.llm_api_config_runtime_service import resolve_runtime_api_config  # noqa: PLC0415
+
+        runtime_api = resolve_runtime_api_config(db)
+        if runtime_api is None:
+            return None
+        user_prompt = (
+            f"[질문]\n{question[:300]}\n\n[답변]\n{answer[:3500]}\n\n"
+            "위 답변을 아래 JSON 형식으로 재구성하세요.\n"
+            '{"icon":"주제를 상징하는 이모지 1개",'
+            '"eyebrow":"짧은 분류 라벨(2~4어절)",'
+            '"subtitle":"주제 부제 한 줄",'
+            '"heading":"답변 핵심을 담은 짧은 제목(물음표 없이)",'
+            '"summary":"핵심 답변 1~2문장(원문 기반)",'
+            '"sections":[{"icon":"이모지","title":"소제목","items":["원문 문장","..."]}],'
+            '"table":{"headers":["구분","A","B"],"rows":[["...","...","..."]]},'
+            '"note":"부가 안내 한 줄"}\n'
+            "해당 내용이 없으면 sections는 [], table·note는 null 로 두세요."
+        )
+        raw = _call_llm_raw(runtime_api, _FAQ_DESIGN_SYSTEM, user_prompt, max_tokens=1800, timeout=35)
+        match = re.search(r"\{.*\}", raw, re.DOTALL)
+        if not match:
+            return None
+        data = json.loads(match.group(0))
+        return data if isinstance(data, dict) else None
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("[STAGING] faq design extract failed: %s", exc)
+        return None
+
+
+def _render_faq_card(
+    *,
+    icon: str,
+    eyebrow: str,
+    subtitle: str,
+    pill: str,
+    heading: str,
+    summary: str,
+    sections: list[dict],
+    table: dict | None,
+    note: str | None,
+    contact: list[tuple[str, str]],
+    primary: str,
+) -> str:
+    """구조(dict) + 테마색(primary hex) → 결정적 카드 HTML(위젯 sanitizer 허용 인라인 style)."""
+    e = _html_escape
+    p = primary  # #rrggbb — 뒤에 알파(hex) 붙여 반투명 배경 생성: {p}12, {p}2e 등
+    out: list[str] = []
+    out.append(
+        '<div style="box-sizing:border-box;width:100%;max-width:860px;margin:0 auto 4px;'
+        "padding:22px;border:1px solid #e5e7eb;border-radius:22px;background:#ffffff;"
+        "box-shadow:0 12px 34px rgba(15,23,42,0.08);"
+        "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',Arial,sans-serif;\">"
+    )
+    # 헤더: 아이콘 배지 + 라벨 + 기관 pill
+    out.append(
+        '<div style="display:flex;align-items:center;justify-content:space-between;'
+        'gap:12px;flex-wrap:wrap;margin-bottom:16px;">'
+        '<div style="display:flex;align-items:center;gap:12px;">'
+        f'<div style="width:46px;height:46px;border-radius:15px;background:{p};color:#ffffff;'
+        f'display:flex;align-items:center;justify-content:center;font-size:23px;'
+        f'box-shadow:0 8px 18px {p}40;">{e(icon)}</div><div>'
+    )
+    if eyebrow:
+        out.append(
+            f'<div style="font-size:12px;letter-spacing:.06em;text-transform:uppercase;'
+            f'color:{p};font-weight:800;">{e(eyebrow)}</div>'
+        )
+    if subtitle:
+        out.append(f'<div style="font-size:14px;color:#64748b;font-weight:700;">{e(subtitle)}</div>')
+    out.append("</div></div>")
+    if pill:
+        out.append(
+            f'<span style="display:inline-block;padding:7px 11px;border-radius:999px;'
+            f'background:{p}12;color:{p};font-weight:800;font-size:12px;">{e(pill)}</span>'
+        )
+    out.append("</div>")
+    # 제목
+    if heading:
+        out.append(
+            f'<h3 style="margin:0 0 12px;font-size:21px;line-height:1.35;color:#0f172a;'
+            f'font-weight:900;">{e(heading)}</h3>'
+        )
+    # 핵심 답변 박스
+    if summary:
+        out.append(
+            f'<div style="padding:15px 17px;border-radius:16px;'
+            f'background:linear-gradient(135deg,{p}12,#f8fafc);border:1px solid {p}2e;">'
+            f'<div style="font-size:13px;color:{p};font-weight:900;margin-bottom:6px;">핵심 답변</div>'
+            f'<p style="margin:0;font-size:15.5px;line-height:1.8;color:#1f2937;'
+            f'font-weight:600;">{e(summary)}</p></div>'
+        )
+    # 특징/항목 카드 (체크리스트)
+    for sec in sections:
+        title = sec.get("title") or ""
+        items = sec.get("items") or []
+        sicon = sec.get("icon") or "•"
+        if not items:
+            continue
+        out.append(
+            '<div style="margin-top:14px;padding:15px 16px;border:1px solid #e2e8f0;'
+            'border-radius:15px;background:#ffffff;">'
+        )
+        if title:
+            out.append(
+                f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">'
+                f'<span style="font-size:19px;">{e(sicon)}</span>'
+                f'<strong style="font-size:15px;color:#0f172a;">{e(title)}</strong></div>'
+            )
+        out.append('<ul style="padding:0;margin:0;list-style:none;">')
+        for it in items:
+            out.append(
+                f'<li style="display:flex;gap:10px;margin:8px 0;line-height:1.65;color:#334155;">'
+                f'<span style="color:{p};font-weight:800;line-height:1.5;">✓</span>'
+                f'<span>{e(it)}</span></li>'
+            )
+        out.append("</ul></div>")
+    # 비교 표
+    if table and table.get("headers") and table.get("rows"):
+        th = "".join(
+            f'<th style="padding:11px 13px;text-align:left;font-size:13px;color:#334155;'
+            f'background:#f8fafc;border-bottom:1px solid #e2e8f0;">{e(str(h))}</th>'
+            for h in table["headers"]
+        )
+        trs = []
+        for row in table["rows"]:
+            tds = "".join(
+                f'<td style="padding:11px 13px;font-size:14px;line-height:1.65;color:#334155;'
+                f'border-bottom:1px solid #e2e8f0;vertical-align:top;">{e(str(c))}</td>'
+                for c in row
+            )
+            trs.append(f"<tr>{tds}</tr>")
+        out.append(
+            f'<div style="margin-top:14px;overflow-x:auto;border:1px solid #e2e8f0;'
+            f'border-radius:14px;background:#ffffff;">'
+            f'<table style="width:100%;border-collapse:collapse;min-width:480px;">'
+            f'<thead><tr>{th}</tr></thead><tbody>{"".join(trs)}</tbody></table></div>'
+        )
+    # 주석(callout)
+    if note:
+        out.append(
+            f'<div style="margin-top:14px;padding:12px 14px;border-left:4px solid {p};'
+            f'background:#f8fafc;border-radius:10px;color:#475569;font-size:13px;'
+            f'line-height:1.65;">{e(note)}</div>'
+        )
+    # 연락처(원문에 있을 때만)
+    if contact:
+        pills = "".join(
+            f'<span style="display:inline-flex;align-items:center;gap:6px;margin:4px 8px 4px 0;'
+            f'padding:8px 10px;border-radius:999px;background:#fff;color:#334155;'
+            f'border:1px solid #e2e8f0;font-size:13px;">{e(ic)} {e(tx)}</span>'
+            for ic, tx in contact
+        )
+        out.append(
+            f'<div style="margin-top:16px;padding:15px;border-radius:15px;'
+            f'background:linear-gradient(135deg,{p}14,#ffffff);border:1px solid {p}33;">'
+            f'<div style="font-weight:800;color:#0f172a;margin-bottom:8px;">문의 안내</div>'
+            f"<div>{pills}</div></div>"
+        )
+    out.append("</div>")
+    return "".join(out)
+
+
+def _design_faq_answer_html(
+    question: str, answer: str, db: Session, primary: str, institution: str
+) -> str:
+    """Q&A 답변 → 테마 반영 디자인 카드 HTML. 실패·가드 위반 시 원문 답변 그대로 반환."""
+    text = (answer or "").strip()
+    if len(text) < 40 or len(text) > 4000:
+        return answer
+    design = _extract_faq_design(question, text, db)
+    if not design:
+        return answer
+
+    summary = str(design.get("summary") or "").strip()[:900]
+    sections: list[dict] = []
+    for sec in design.get("sections") or []:
+        if not isinstance(sec, dict):
+            continue
+        items = [str(x).strip()[:400] for x in (sec.get("items") or []) if str(x).strip()][:8]
+        if not items:
+            continue
+        sections.append(
+            {
+                "icon": (str(sec.get("icon") or "").strip()[:4] or "•"),
+                "title": str(sec.get("title") or "").strip()[:80],
+                "items": items,
+            }
+        )
+    table = None
+    t = design.get("table")
+    if isinstance(t, dict) and t.get("headers") and t.get("rows"):
+        headers = [str(h).strip()[:60] for h in t["headers"] if str(h).strip()][:5]
+        rows = []
+        for r in t["rows"]:
+            if isinstance(r, list):
+                cells = [str(c).strip()[:200] for c in r][:5]
+                if any(cells):
+                    rows.append(cells)
+        rows = rows[:12]
+        if headers and rows:
+            table = {"headers": headers, "rows": rows}
+    note = str(design.get("note") or "").strip()[:300] or None
+
+    if not summary and not sections:
+        return answer  # 카드로 만들 최소 구조(요약/섹션)조차 없으면 원문 유지
+
+    # 사실 보존 가드 — 내용 필드(디자인 라벨 제외)가 원문을 누락·변조하지 않았는지 검사.
+    guard_bits = [summary]
+    if note:
+        guard_bits.append(note)
+    for sec in sections:
+        guard_bits.extend(sec["items"])
+    if table:
+        guard_bits.extend(table["headers"])
+        for r in table["rows"]:
+            guard_bits.extend(r)
+    guard_text = " ".join(b for b in guard_bits if b)
+    if not _preserves_facts(text, guard_text):
+        logger.info("[STAGING] faq design rejected (facts changed) — keep original answer")
+        return answer
+
+    try:
+        return _render_faq_card(
+            icon=(str(design.get("icon") or "").strip()[:4] or "💬"),
+            eyebrow=str(design.get("eyebrow") or "").strip()[:40],
+            subtitle=str(design.get("subtitle") or "").strip()[:80],
+            pill=(institution.strip()[:20] or "FAQ"),
+            heading=str(design.get("heading") or "").strip()[:120],
+            summary=summary,
+            sections=sections,
+            table=table,
+            note=note,
+            contact=_detect_contact(text),
+            primary=primary,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("[STAGING] faq card render failed: %s", exc)
+        return answer
 
 
 # ── 주제명 생성 ───────────────────────────────────────────────────────────────
@@ -865,11 +1199,41 @@ def register_staging_chunks(
     # + Q&A 형식(질의응답) 세션은 각 쌍을 FAQ로만 등록하고 청크별 RAG 색인은 생략한다
     #   (질문이 파일·텍스트 탭에 중복 등록되는 문제 방지 — 원문 전체는 이미 색인/FAQ로 커버).
     skip_rag = session_row.source_type == "file"
-    if not skip_rag and session_row.extracted_text and _parse_qa_pairs(session_row.extracted_text):
+    is_qa_session = bool(
+        session_row.extracted_text and _parse_qa_pairs(session_row.extracted_text)
+    )
+    if is_qa_session:
         skip_rag = True
         logger.info("[STAGING] qa-format session %s → FAQ only (skip per-chunk RAG)", session_id)
 
+    # Q&A 세션: 각 답변을 기관 테마 색상이 반영된 디자인 카드(HTML)로 변환 → FAQ 답변.
+    #   등록 지연을 줄이기 위해 청크별 LLM 디자인 호출을 병렬 선처리(각 스레드 독립 세션).
+    #   가드 실패 시 원문 답변 그대로 → design_map엔 항상 유효한 답변이 담긴다.
+    design_map: dict[uuid.UUID, str] = {}
+    if is_qa_session and chunks:
+        primary, institution = _get_chatbot_design_context(chatbot_id, db)
+
+        def _design_worker(topic: str, content: str) -> str:
+            from app.db import SessionLocal  # noqa: PLC0415
+
+            with SessionLocal() as d_db:
+                return _design_faq_answer_html(topic, content, d_db, primary, institution)
+
+        with ThreadPoolExecutor(max_workers=min(4, len(chunks))) as ex:
+            futs = {ex.submit(_design_worker, c.topic_title, c.content): c.id for c in chunks}
+            for fut in as_completed(futs):
+                cid = futs[fut]
+                try:
+                    design_map[cid] = fut.result()
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("[STAGING] faq design worker failed chunk=%s: %s", cid, exc)
+        logger.info(
+            "[STAGING] faq design generated session=%s chunks=%d designed=%d",
+            session_id, len(chunks), sum(1 for v in design_map.values() if "<div" in v),
+        )
+
     for chunk in chunks:
+        faq_answer = design_map.get(chunk.id, chunk.content)
         chunk_id_str = str(chunk.id)
         chunk_tags = list(chunk.tags or [])
         # 병합 후보(기존 FAQ와 동일 주제)면 새로 만들지 않고 기존 FAQ를 갱신(upsert)
@@ -885,7 +1249,7 @@ def register_staging_chunks(
                         faq_db,
                         faq_id=chunk.merge_candidate_id,
                         organization_id=str(session_row.organization_id),
-                        answer=chunk.content,
+                        answer=faq_answer,
                         tags=chunk_tags or None,
                     )
                     if updated is not None:
@@ -897,7 +1261,7 @@ def register_staging_chunks(
                         chatbot_id=str(session_row.chatbot_id),
                         organization_id=str(session_row.organization_id),
                         question=chunk.topic_title,
-                        answer=chunk.content,
+                        answer=faq_answer,
                         tags=chunk_tags,
                         source_staging_session_id=session_id,
                         category=chunk_tags[0] if chunk_tags else None,
