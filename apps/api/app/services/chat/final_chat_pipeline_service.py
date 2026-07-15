@@ -162,6 +162,65 @@ def _normalize_text(value: str) -> str:
     return " ".join(value.strip().lower().split())
 
 
+_SEP_ROW_RE = re.compile(r"^\s*\|?[\s:|-]*-[-\s:|]*\|?\s*$")
+
+
+def _is_separator_row(line: str) -> bool:
+    s = line.strip()
+    return "|" in s and "-" in s and bool(_SEP_ROW_RE.match(s))
+
+
+def _split_prose_and_header(line: str, ncols: int) -> tuple[str, str] | None:
+    """소제목·프롬프트 뒤에 붙은 표 헤더행을 (앞 텍스트, 헤더행)으로 분리."""
+    stripped = line.rstrip()
+    if not stripped.endswith("|"):
+        return None
+    positions = [i for i, ch in enumerate(stripped) if ch == "|"]
+    if len(positions) < ncols + 1:
+        return None
+    start_pipe = positions[-(ncols + 1)]
+    prose = stripped[:start_pipe]
+    header = stripped[start_pipe:]
+    if not prose.strip():
+        return None
+    return prose, header
+
+
+def _normalize_answer_layout(text: str) -> str:
+    """LLM 답변의 마크다운 레이아웃 정규화 — 개행 없이 한 줄로 뭉친 표·소제목을 복원.
+
+    일부 모델이 마크다운 표/소제목을 실제 줄바꿈 없이 출력하면 위젯의 마크다운
+    감지(줄머리 기준)가 실패해 원문(| 표 |, ##)이 그대로 노출된다. 이를 방지한다.
+    잘 포맷된 답변엔 무해(idempotent) — 이미 개행이 있으면 건드리지 않는다.
+    """
+    if not text or ("|" not in text and "#" not in text):
+        return text
+    t = text.replace("\r\n", "\n")
+    # 1) 표 행 경계 '| |'(파이프-공백-파이프) → 개행
+    t = re.sub(r"\|[ \t]+\|", "|\n|", t)
+    # 2) 소제목(##)이 앞 텍스트에 공백으로 붙어있으면 자체 줄로 분리
+    t = re.sub(r"(\S)[ \t]+(#{1,6}[ \t]+)", r"\1\n\n\2", t)
+    # 3) 표 헤더행이 소제목/문장에 붙어있으면 구분행(---) 기준으로 분리
+    lines = t.split("\n")
+    out: list[str] = []
+    for i, line in enumerate(lines):
+        if i + 1 < len(lines) and _is_separator_row(lines[i + 1]):
+            ncols = len([c for c in lines[i + 1].strip().strip("|").split("|")])
+            if ncols >= 1:
+                split = _split_prose_and_header(line, ncols)
+                if split:
+                    prose, header = split
+                    if prose.strip():
+                        out.append(prose.rstrip())
+                    out.append(header)
+                    continue
+        out.append(line)
+    t = "\n".join(out)
+    # 4) 과도한 빈 줄 정리
+    t = re.sub(r"\n{3,}", "\n\n", t)
+    return t.strip()
+
+
 def _has_business_signal(normalized: str) -> bool:
     return any(keyword in normalized for keyword in BUSINESS_SIGNAL_KEYWORDS)
 
@@ -2034,7 +2093,8 @@ def run_final_chat_pipeline(
         model_name = generation.get("model") if isinstance(generation.get("model"), str) else model_name
 
         if generation.get("text"):
-            answer_text = str(generation["text"])
+            # 일부 모델이 표·소제목을 개행 없이 출력 → 위젯 마크다운 렌더 실패 방지.
+            answer_text = _normalize_answer_layout(str(generation["text"]))
             if guardrail_eval.get("requiresWarningNotice"):
                 warnings.append("최신 기준이나 공고 조건에 따라 결과가 달라질 수 있으므로 담당 부서 확인이 필요합니다.")
             outcome = "answered"
