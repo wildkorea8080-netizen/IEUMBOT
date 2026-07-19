@@ -86,6 +86,21 @@ class Settings(BaseSettings):
     langfuse_secret_key: str = ""
     langfuse_host: str = "https://cloud.langfuse.com"
 
+    # ── SNS OAuth (셀프서비스 가입/로그인) ──────────────────────────────
+    # 각 제공사 개발자콘솔에서 발급. Secret은 반드시 env로만(저장소 커밋 금지).
+    # client_id 미설정 제공사는 로그인 버튼 자동 숨김(oauth_service.enabled_providers).
+    # 콜백 redirect_uri = {oauth_api_base_url}/auth/oauth/{provider}/callback
+    #   예) https://api.deepsecu.co.kr/api/auth/oauth/google/callback
+    oauth_api_base_url: str = ""      # 콜백 조립용 API 베이스, 예: https://api.deepsecu.co.kr/api
+    oauth_web_success_url: str = ""   # 로그인 완료 후 복귀할 프론트 URL, 예: https://chat.deepsecu.co.kr/auth/callback
+    oauth_google_client_id: str = ""
+    oauth_google_client_secret: str = ""
+    oauth_kakao_client_id: str = ""       # 카카오 REST API 키
+    oauth_kakao_client_secret: str = ""   # (선택)
+    oauth_naver_client_id: str = ""
+    oauth_naver_client_secret: str = ""
+    oauth_trial_days: int = 7             # 신규 셀프가입 시 부여할 무료체험 기간(일)
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

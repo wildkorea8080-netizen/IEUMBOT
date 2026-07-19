@@ -32,7 +32,8 @@ def admin_login(
     normalized_email = body.email.strip().lower()
     admin = get_active_admin_by_email(db, normalized_email)
 
-    if admin is None or not verify_password(body.password, admin.password_hash):
+    # 소셜(OAuth) 전용 계정은 password_hash가 없음 → 비밀번호 로그인 불가(500 방지 + 우회 차단).
+    if admin is None or not admin.password_hash or not verify_password(body.password, admin.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="INVALID_CREDENTIALS",

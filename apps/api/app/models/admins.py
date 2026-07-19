@@ -13,6 +13,9 @@ class Admin(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "admins"
     __table_args__ = (
         UniqueConstraint("organization_id", "email", name="uq_admins_org_email"),
+        # 소셜 신원(provider+subject)당 계정 1개. oauth_subject가 NULL(로컬 계정)이면
+        # Postgres가 NULL을 서로 다르게 취급하므로 로컬 계정끼리는 충돌하지 않는다.
+        UniqueConstraint("auth_provider", "oauth_subject", name="uq_admins_oauth_identity"),
         Index("ix_admins_org_role", "organization_id", "role"),
     )
 
@@ -23,7 +26,14 @@ class Admin(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     role: Mapped[str] = mapped_column(String(30), nullable=False, default="institution_admin")
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="active")
-    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    # 소셜(OAuth) 계정은 비밀번호가 없으므로 nullable.
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # 인증 수단: "local"(이메일+비번) | "google" | "kakao" | "naver"
+    auth_provider: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="local", server_default="local"
+    )
+    # 제공사 고유 사용자 id (이메일이 바뀌어도 안정적인 식별자)
+    oauth_subject: Mapped[str | None] = mapped_column(String(255), nullable=True)
     must_change_password: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

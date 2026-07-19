@@ -1,11 +1,12 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { ApiClientError, apiClient } from "../../lib/api";
 import { clearAdminAccessToken, getAdminAccessToken, setAdminAccessToken } from "../../lib/auth/token";
 import type { AdminLoginResponse, AdminRole, AdminSummary } from "../../lib/auth/types";
+import { SnsLoginButtons } from "../../components/auth/sns-login-buttons";
 
 type AdminMeResponse = {
   admin: AdminSummary;
@@ -169,6 +170,8 @@ export default function LoginPage() {
             {isSubmitting ? "로그인 중..." : "로그인"}
           </button>
         </form>
+
+        <SnsLoginButtons />
       </section>
     </main>
   );
