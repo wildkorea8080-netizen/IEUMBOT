@@ -531,6 +531,13 @@ function buildScopedStyles(primaryGradient: string): string {
 }
 .ieum-banner-title { font-size:11px; font-weight:700; color:#1e40af; }
 .ieum-banner-description { margin-top:3px; font-size:11px; line-height:1.5; color:#475569; white-space:pre-wrap; }
+.ieum-trust-badges { display:flex; flex-wrap:wrap; gap:6px; padding:9px 14px 3px; }
+.ieum-trust-badge {
+  display:inline-flex; align-items:center; gap:5px;
+  font-size:11px; font-weight:600; color:#334155;
+  background:#f8fafc; border:1px solid #e2e8f0; border-radius:999px; padding:3px 9px 3px 8px;
+}
+.ieum-trust-icon { font-size:11px; line-height:1; }
 /* ── 스타터 질문 ── */
 .ieum-starter-questions {
   display:flex; flex-direction:column; gap:8px; padding:0 0 12px; background:#fff;
@@ -854,6 +861,7 @@ export class IeumWidgetApp {
   private readonly titleNode: HTMLDivElement;
   private readonly headerIconNode: HTMLDivElement;
   private readonly bannerWrap: HTMLDivElement;
+  private readonly trustBadgesWrap: HTMLDivElement;
   private readonly starterQuestionsWrap: HTMLDivElement;
   private readonly quickActionsWrap: HTMLDivElement;
   private readonly messagesWrap: HTMLDivElement;
@@ -896,6 +904,7 @@ export class IeumWidgetApp {
     this.titleNode = createElement(document, "div", "ieum-title");
     this.headerIconNode = createElement(document, "div", "ieum-header-icon");
     this.bannerWrap = createElement(document, "div", "ieum-banner");
+    this.trustBadgesWrap = createElement(document, "div", "ieum-trust-badges");
     this.starterQuestionsWrap = createElement(document, "div", "ieum-starter-questions");
     this.quickActionsWrap = createElement(document, "div", "ieum-quick-actions");
     this.messagesWrap = createElement(document, "div", "ieum-messages");
@@ -1010,6 +1019,7 @@ export class IeumWidgetApp {
 
     this.panel.appendChild(header);
     this.panel.appendChild(this.bannerWrap);
+    this.panel.appendChild(this.trustBadgesWrap);
     this.panel.appendChild(this.messagesWrap);
     this.panel.appendChild(this.starterQuestionsWrap);
     this.panel.appendChild(this.quickActionsWrap);
@@ -1200,6 +1210,7 @@ export class IeumWidgetApp {
       this.launcherTipDismissed = this.readLauncherTipDismissed();
       this.showLauncherTip({ respectDismissed: true });
       this.renderBanner();
+      this.renderTrustBadges();
       this.renderStarterQuestions();
       this.footerNotice.textContent = this.config.privacyNotice?.trim() || DEFAULT_TRUST_NOTICE;
       this.renderQuickActions(this.config.quickActions);
@@ -1311,6 +1322,29 @@ export class IeumWidgetApp {
       const descriptionNode = createElement(document, "div", "ieum-banner-description");
       descriptionNode.textContent = description;
       this.bannerWrap.appendChild(descriptionNode);
+    }
+  }
+
+  private renderTrustBadges() {
+    this.trustBadgesWrap.innerHTML = "";
+    const badges = (this.config?.trustBadges ?? []).filter((badge) => badge && badge.label?.trim());
+    if (badges.length === 0) {
+      this.trustBadgesWrap.style.display = "none";
+      return;
+    }
+    this.trustBadgesWrap.style.display = "flex";
+    for (const badge of badges.slice(0, 4)) {
+      const chip = createElement(document, "span", "ieum-trust-badge");
+      const icon = (badge.icon ?? "").trim();
+      if (icon) {
+        const iconNode = createElement(document, "span", "ieum-trust-icon");
+        iconNode.textContent = icon;
+        chip.appendChild(iconNode);
+      }
+      const labelNode = createElement(document, "span");
+      labelNode.textContent = badge.label.trim();
+      chip.appendChild(labelNode);
+      this.trustBadgesWrap.appendChild(chip);
     }
   }
 

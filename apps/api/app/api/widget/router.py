@@ -16,6 +16,7 @@ from app.schemas.widget import (
     WidgetPublicConfigResponse,
     WidgetQuickAction,
     WidgetTheme,
+    WidgetTrustBadge,
 )
 from app.services.enforcement_service import ensure_runtime_access_for_widget
 
@@ -89,6 +90,36 @@ def _build_after_hours_message(chatbot: ChatbotSetting) -> str | None:
     if chatbot.fallback_message:
         return chatbot.fallback_message
     return None
+
+
+# 신뢰·보안 표기 뱃지 — 기본값(관리자가 커스터마이즈/비활성 가능).
+_DEFAULT_TRUST_BADGES = [
+    {"icon": "✓", "label": "공식 등록 자료 기반 답변"},
+    {"icon": "🔒", "label": "개인정보 자동 보호"},
+]
+
+
+def _resolve_trust_badges(theme: dict) -> list[WidgetTrustBadge]:
+    """테마에서 신뢰 뱃지 해석. 기본 ON(미설정 시 기본 뱃지), 명시적 off/커스텀/빈배열 지원."""
+    enabled = theme.get("widgetTrustBadgesEnabled")
+    if enabled is None:
+        enabled = theme.get("widget_trust_badges_enabled")
+    if enabled is False:
+        return []
+    raw = theme.get("widgetTrustBadges")
+    if raw is None:
+        raw = theme.get("widget_trust_badges")
+    items = raw if isinstance(raw, list) else _DEFAULT_TRUST_BADGES
+    badges: list[WidgetTrustBadge] = []
+    for item in items[:4]:
+        if not isinstance(item, dict):
+            continue
+        label = str(item.get("label") or "").strip()
+        if not label:
+            continue
+        icon = str(item.get("icon") or "").strip()[:4] or "✓"
+        badges.append(WidgetTrustBadge(icon=icon, label=label[:40]))
+    return badges
 
 
 @router.get("/config/{chatbot_id}", response_model=WidgetPublicConfigResponse)
@@ -187,6 +218,7 @@ def get_widget_public_config(
             title=banner_title if isinstance(banner_title, str) else None,
             description=banner_description if isinstance(banner_description, str) else None,
         ),
+        trust_badges=_resolve_trust_badges(theme),
         starter_questions=[
             item.strip()
             for item in starter_questions

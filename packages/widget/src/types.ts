@@ -31,6 +31,7 @@ export type WidgetPublicConfig = {
     title?: string | null;
     description?: string | null;
   };
+  trustBadges?: { icon: string; label: string }[];
   starterQuestions: string[];
   starterQuestionStyle?: string | null;
   launcherHoverMessage?: string | null;

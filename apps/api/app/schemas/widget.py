@@ -30,6 +30,13 @@ class WidgetBanner(ApiSchema):
     description: str | None = None
 
 
+class WidgetTrustBadge(ApiSchema):
+    """신뢰·보안 표기 뱃지 (예: ✓ 공식 등록 자료 기반 · 🔒 개인정보 자동 보호)."""
+
+    icon: str
+    label: str
+
+
 class WidgetConsultationSnapshot(ApiSchema):
     """상담게시판 근거의 내부 스냅샷 — 클릭 시 참조한 상담 원문(마스킹됨)을 표시.
 
@@ -60,6 +67,7 @@ class WidgetPublicConfigResponse(ApiSchema):
     citation_presentation: str | None = None
     theme: WidgetTheme
     banner: WidgetBanner
+    trust_badges: list[WidgetTrustBadge] = []
     starter_questions: list[str]
     starter_question_style: str | None = None  # "banner" | "list" | None(자동)
     launcher_hover_message: str | None = None
