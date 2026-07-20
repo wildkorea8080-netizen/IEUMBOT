@@ -1,5 +1,6 @@
 export const superAdminNavItems = [
   { href: "/super-admin/dashboard", label: "대시보드", icon: "dashboard", section: "Overview" },
+  { href: "/super-admin/inquiries", label: "도입 문의", icon: "notification", section: "Tenant Ops" },
   { href: "/super-admin/organizations", label: "조직 관리", icon: "organization", section: "Tenant Ops" },
   { href: "/super-admin/contracts", label: "계약 관리", icon: "contract", section: "Tenant Ops" },
   { href: "/super-admin/billing", label: "결제 관리", icon: "billing", section: "Tenant Ops" },

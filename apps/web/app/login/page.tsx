@@ -1,6 +1,7 @@
 "use client";
 
 import { type FormEvent, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { ApiClientError, apiClient } from "../../lib/api";
@@ -172,6 +173,13 @@ export default function LoginPage() {
         </form>
 
         <SnsLoginButtons />
+
+        <p className="mt-6 border-t border-slate-100 pt-5 text-center text-sm text-slate-500">
+          아직 계정이 없으신가요?{" "}
+          <Link href="/inquiry" className="font-medium text-brand-600 hover:underline">
+            도입 문의하기
+          </Link>
+        </p>
       </section>
     </main>
   );

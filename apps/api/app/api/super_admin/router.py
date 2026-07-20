@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 
-from app.api.super_admin.operations_router import router as operations_router
 from app.api.dependencies.auth import AdminPrincipal, require_super_admin_auth
+from app.api.super_admin.operations_router import router as operations_router
 from app.db import get_db_session
 from app.schemas.billing import (
     BillingAlertListResponse,
@@ -20,6 +20,11 @@ from app.schemas.enforcement import (
     AutoEnforcementPolicyListResponse,
     AutoEnforcementPolicyUpdateRequest,
     AutoEnforcementResolveRequest,
+)
+from app.schemas.inquiries import (
+    ProductInquiryItem,
+    ProductInquiryListResponse,
+    ProductInquiryUpdateRequest,
 )
 from app.schemas.notifications import (
     NotificationItem,
@@ -97,6 +102,7 @@ from app.services.enforcement_service import (
     resolve_enforcement_log_service,
     update_enforcement_policy_service,
 )
+from app.services.inquiries_service import list_inquiries_service, update_inquiry_service
 from app.services.notification_service import (
     list_integrations_service,
     list_notifications_service,
@@ -142,8 +148,8 @@ from app.services.super_admin.chatbots_widgets_service import (
     list_widgets_service,
     suspend_chatbot_service,
     update_chatbot_service,
-    update_widget_service,
     update_widget_domains_service,
+    update_widget_service,
 )
 from app.services.super_admin.impersonation_service import create_impersonation_session_service
 from app.services.super_admin.organizations_service import (
@@ -219,7 +225,9 @@ def super_admin_get_organization_detail(
     )
 
 
-@router.patch("/organizations/{organization_id}", response_model=SuperAdminOrganizationDetailResponse)
+@router.patch(
+    "/organizations/{organization_id}", response_model=SuperAdminOrganizationDetailResponse
+)
 def super_admin_patch_organization(
     organization_id: str,
     body: SuperAdminOrganizationUpdateRequest,
@@ -234,7 +242,9 @@ def super_admin_patch_organization(
     )
 
 
-@router.post("/organizations/{organization_id}/activate", response_model=SuperAdminOrganizationDetailResponse)
+@router.post(
+    "/organizations/{organization_id}/activate", response_model=SuperAdminOrganizationDetailResponse
+)
 def super_admin_activate_organization(
     organization_id: str,
     principal: AdminPrincipal = Depends(require_super_admin_auth),
@@ -247,7 +257,9 @@ def super_admin_activate_organization(
     )
 
 
-@router.post("/organizations/{organization_id}/suspend", response_model=SuperAdminOrganizationDetailResponse)
+@router.post(
+    "/organizations/{organization_id}/suspend", response_model=SuperAdminOrganizationDetailResponse
+)
 def super_admin_suspend_organization(
     organization_id: str,
     principal: AdminPrincipal = Depends(require_super_admin_auth),
@@ -260,7 +272,9 @@ def super_admin_suspend_organization(
     )
 
 
-@router.post("/organizations/{organization_id}/impersonate", response_model=SuperAdminImpersonationResponse)
+@router.post(
+    "/organizations/{organization_id}/impersonate", response_model=SuperAdminImpersonationResponse
+)
 def super_admin_impersonate_organization(
     organization_id: str,
     body: SuperAdminImpersonationRequest,
@@ -302,7 +316,9 @@ def super_admin_patch_announcement(
     principal: AdminPrincipal = Depends(require_super_admin_auth),
     db: Session = Depends(get_db_session),
 ) -> SuperAdminAnnouncementItem:
-    return update_announcement_service(db, principal=principal, announcement_id=announcement_id, body=body)
+    return update_announcement_service(
+        db, principal=principal, announcement_id=announcement_id, body=body
+    )
 
 
 @router.get("/system/maintenance", response_model=SuperAdminMaintenanceItem)
@@ -330,7 +346,9 @@ def super_admin_disable_maintenance(
     return disable_maintenance_service(db, principal=principal)
 
 
-@router.get("/organizations/{organization_id}/admins", response_model=SuperAdminOrgAdminListResponse)
+@router.get(
+    "/organizations/{organization_id}/admins", response_model=SuperAdminOrgAdminListResponse
+)
 def super_admin_list_org_admins(
     organization_id: str,
     principal: AdminPrincipal = Depends(require_super_admin_auth),
@@ -373,7 +391,9 @@ def super_admin_patch_admin(
     )
 
 
-@router.post("/admins/{admin_id}/reset-password", response_model=SuperAdminAdminResetPasswordResponse)
+@router.post(
+    "/admins/{admin_id}/reset-password", response_model=SuperAdminAdminResetPasswordResponse
+)
 def super_admin_reset_admin_password(
     admin_id: str,
     body: SuperAdminAdminResetPasswordRequest,
@@ -414,7 +434,9 @@ def super_admin_delete_admin(
     )
 
 
-@router.get("/organizations/{organization_id}/contracts", response_model=SuperAdminContractListResponse)
+@router.get(
+    "/organizations/{organization_id}/contracts", response_model=SuperAdminContractListResponse
+)
 def super_admin_list_org_contracts(
     organization_id: str,
     principal: AdminPrincipal = Depends(require_super_admin_auth),
@@ -427,7 +449,9 @@ def super_admin_list_org_contracts(
     )
 
 
-@router.post("/organizations/{organization_id}/contracts", response_model=SuperAdminContractResponse)
+@router.post(
+    "/organizations/{organization_id}/contracts", response_model=SuperAdminContractResponse
+)
 def super_admin_create_contract(
     organization_id: str,
     body: SuperAdminContractCreateRequest,
@@ -471,7 +495,9 @@ def super_admin_patch_contract(
     )
 
 
-@router.get("/organizations/{organization_id}/chatbots", response_model=SuperAdminChatbotListResponse)
+@router.get(
+    "/organizations/{organization_id}/chatbots", response_model=SuperAdminChatbotListResponse
+)
 def super_admin_list_chatbots(
     organization_id: str,
     principal: AdminPrincipal = Depends(require_super_admin_auth),
@@ -831,7 +857,9 @@ def super_admin_list_notifications(
     db: Session = Depends(get_db_session),
 ) -> NotificationListResponse:
     _ = principal
-    return list_notifications_service(db, organization_id=None, severity=severity, type_value=type_value)
+    return list_notifications_service(
+        db, organization_id=None, severity=severity, type_value=type_value
+    )
 
 
 @router.patch("/notifications/{notification_id}/read", response_model=NotificationItem)
@@ -873,7 +901,9 @@ def super_admin_patch_system_integration(
     principal: AdminPrincipal = Depends(require_super_admin_auth),
     db: Session = Depends(get_db_session),
 ) -> SystemIntegrationItem:
-    return upsert_integration_service(db, principal=principal, integration_id=integration_id, body=body)
+    return upsert_integration_service(
+        db, principal=principal, integration_id=integration_id, body=body
+    )
 
 
 @router.get("/enforcement/policies", response_model=AutoEnforcementPolicyListResponse)
@@ -891,7 +921,9 @@ def super_admin_patch_enforcement_policy(
     principal: AdminPrincipal = Depends(require_super_admin_auth),
     db: Session = Depends(get_db_session),
 ) -> AutoEnforcementPolicyItem:
-    return update_enforcement_policy_service(db, principal=principal, policy_id=policy_id, body=body)
+    return update_enforcement_policy_service(
+        db, principal=principal, policy_id=policy_id, body=body
+    )
 
 
 @router.get("/enforcement/logs", response_model=AutoEnforcementLogListResponse)
@@ -909,4 +941,34 @@ def super_admin_resolve_enforcement_log(
     principal: AdminPrincipal = Depends(require_super_admin_auth),
     db: Session = Depends(get_db_session),
 ) -> AutoEnforcementLogItem:
-    return resolve_enforcement_log_service(db, principal=principal, log_id=log_id, reason=body.reason)
+    return resolve_enforcement_log_service(
+        db, principal=principal, log_id=log_id, reason=body.reason
+    )
+
+
+# ── 도입 문의(리드) ───────────────────────────────────────────────────────────
+
+
+@router.get("/inquiries", response_model=ProductInquiryListResponse)
+def super_admin_list_inquiries(
+    status: str | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200, alias="pageSize"),
+    principal: AdminPrincipal = Depends(require_super_admin_auth),
+    db: Session = Depends(get_db_session),
+) -> ProductInquiryListResponse:
+    return list_inquiries_service(
+        db, status_filter=status, limit=page_size, offset=(page - 1) * page_size
+    )
+
+
+@router.patch("/inquiries/{inquiry_id}", response_model=ProductInquiryItem)
+def super_admin_update_inquiry(
+    inquiry_id: str,
+    body: ProductInquiryUpdateRequest,
+    principal: AdminPrincipal = Depends(require_super_admin_auth),
+    db: Session = Depends(get_db_session),
+) -> ProductInquiryItem:
+    return update_inquiry_service(
+        db, inquiry_id=inquiry_id, status_value=body.status, handled_note=body.handled_note
+    )
