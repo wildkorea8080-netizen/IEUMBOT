@@ -57,6 +57,12 @@ export const adminNav: NavGroup[] = [
       { label: "보안센터", href: "/admin/security", icon: "Shield" },
     ],
   },
+  {
+    title: "기관 설정",
+    items: [
+      { label: "관리자 관리", href: "/admin/team", icon: "Users" },
+    ],
+  },
 ];
 
 // 하위 호환: 기존 adminNavItems가 필요한 파일을 위해 flat 배열도 export
