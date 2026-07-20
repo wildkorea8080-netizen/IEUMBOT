@@ -20,20 +20,36 @@ def get_install_guide_service(
         widget = get_widget_by_chatbot(db, organization_id=organization_id, chatbot_id=str(chatbot.id))
         theme = chatbot.theme if isinstance(getattr(chatbot, "theme", None), dict) else {}
         if widget is None:
+            # 위젯 배포 레코드가 없어도 설치 스크립트는 챗봇 ID만으로 생성 가능.
+            # (위젯은 chatbot_id로 동작하며, 배포 레코드는 도메인 등 메타데이터일 뿐이라
+            #  이것이 없다고 설치코드를 막으면 사용자가 코드를 영영 얻지 못하는 막다른 길이 됨.)
+            install_script = build_widget_install_script(
+                chatbot_id=str(chatbot.id),
+                launcher_icon=(
+                    theme.get("widgetLauncherIcon")
+                    if isinstance(theme.get("widgetLauncherIcon"), str)
+                    else None
+                ),
+                launcher_icon_url=(
+                    theme.get("widgetLauncherIconUrl")
+                    if isinstance(theme.get("widgetLauncherIconUrl"), str)
+                    else None
+                ),
+            )
             items.append(
                 AdminInstallGuideItem(
                     chatbot_id=str(chatbot.id),
                     chatbot_name=chatbot.name,
                     widget_id=None,
                     widget_name=None,
-                    status="missing",
-                    is_active=False,
+                    status="ready",
+                    is_active=True,
                     allowed_domains=[],
                     theme_color=None,
                     position=None,
                     created_at=None,
-                    install_script=None,
-                    has_widget=False,
+                    install_script=install_script,
+                    has_widget=True,
                 )
             )
             continue
