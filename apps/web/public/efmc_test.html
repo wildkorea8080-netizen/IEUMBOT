@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>은평구시설관리공단 (테스트 페이지)</title>
+  <style>
+    :root {
+      --blue: #3e6dbf;
+      --blue-dark: #2f56a0;
+      --indigo: #5c63a6;
+      --ink: #222;
+      --muted: #666;
+      --line: #e5e7eb;
+      --bg-soft: #f5f7fb;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: "Noto Sans KR", "Malgun Gothic", "맑은 고딕", sans-serif;
+      color: var(--ink); background: #fff; line-height: 1.5;
+    }
+    a { color: inherit; text-decoration: none; }
+    .wrap { width: 100%; max-width: 1200px; margin: 0 auto; padding: 0 20px; }
+
+    /* 상단 유틸리티 바 */
+    .utility { border-bottom: 1px solid var(--line); background: #fafbfc; font-size: 12px; color: var(--muted); }
+    .utility .wrap { display: flex; justify-content: flex-end; align-items: center; gap: 16px; height: 34px; }
+    .utility a:hover { color: var(--blue); }
+
+    /* 헤더 + GNB */
+    .header .wrap { display: flex; align-items: center; justify-content: space-between; height: 84px; }
+    .logo { display: flex; align-items: center; gap: 12px; }
+    .logo .mark {
+      width: 44px; height: 44px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--blue), var(--indigo)); color: #fff;
+      display: grid; place-items: center; font-weight: 800; font-size: 15px; letter-spacing: -1px;
+    }
+    .logo .name { font-size: 20px; font-weight: 800; color: var(--ink); letter-spacing: -0.5px; }
+    .logo .name small { display: block; font-size: 11px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+    .gnb { display: flex; gap: 38px; }
+    .gnb > a { font-size: 17px; font-weight: 700; color: #333; padding: 8px 0; position: relative; }
+    .gnb > a:hover { color: var(--blue); }
+    .gnb > a:hover::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--blue); }
+
+    /* 히어로 */
+    .hero {
+      background: linear-gradient(120deg, var(--blue) 0%, var(--indigo) 100%);
+      color: #fff; position: relative; overflow: hidden;
+    }
+    .hero::after {
+      content: ""; position: absolute; right: -80px; top: -60px; width: 380px; height: 380px;
+      border-radius: 50%; background: rgba(255,255,255,0.08);
+    }
+    .hero .wrap { padding: 64px 20px; position: relative; z-index: 1; }
+    .hero .eyebrow { font-size: 14px; opacity: 0.85; font-weight: 600; }
+    .hero h1 { font-size: 34px; font-weight: 800; line-height: 1.35; margin-top: 12px; letter-spacing: -0.5px; }
+    .hero p { margin-top: 14px; font-size: 16px; opacity: 0.92; }
+    .hero-cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+    .hero-cta a {
+      background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.35);
+      color: #fff; padding: 12px 22px; border-radius: 999px; font-weight: 700; font-size: 15px;
+      transition: background 0.15s;
+    }
+    .hero-cta a:hover { background: rgba(255,255,255,0.26); }
+
+    /* 퀵 메뉴 */
+    .quick { background: var(--bg-soft); border-bottom: 1px solid var(--line); }
+    .quick .wrap { display: grid; grid-template-columns: repeat(6, 1fr); gap: 14px; padding: 30px 20px; }
+    .quick-card {
+      background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 20px 12px;
+      text-align: center; transition: transform 0.12s, box-shadow 0.12s;
+    }
+    .quick-card:hover { transform: translateY(-3px); box-shadow: 0 12px 24px -14px rgba(62,109,191,0.4); border-color: var(--blue); }
+    .quick-card .ico { font-size: 26px; }
+    .quick-card .t { margin-top: 10px; font-size: 14px; font-weight: 700; color: #333; }
+    @media (max-width: 900px) { .quick .wrap { grid-template-columns: repeat(3, 1fr); } }
+
+    /* 본문 2단: 공지 + 갤러리 */
+    .main .wrap { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 40px; padding: 54px 20px; }
+    .section-head { display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid var(--ink); padding-bottom: 12px; }
+    .section-head h2 { font-size: 22px; font-weight: 800; letter-spacing: -0.5px; }
+    .section-head a { font-size: 13px; color: var(--muted); }
+    .notice { list-style: none; }
+    .notice li { display: flex; align-items: baseline; gap: 14px; padding: 16px 2px; border-bottom: 1px solid var(--line); }
+    .notice .tag { flex: 0 0 auto; font-size: 12px; font-weight: 700; color: var(--blue); border: 1px solid #c7d6f0; background: #eef3fc; border-radius: 6px; padding: 2px 8px; }
+    .notice .title { flex: 1; font-size: 15px; color: #333; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .notice .title:hover { color: var(--blue); text-decoration: underline; }
+    .notice .date { flex: 0 0 auto; font-size: 13px; color: #9aa3af; font-variant-numeric: tabular-nums; }
+    .gallery { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 6px; }
+    .gallery .card { border-radius: 12px; overflow: hidden; border: 1px solid var(--line); }
+    .gallery .thumb { aspect-ratio: 4/3; background: linear-gradient(135deg, #dbe6f7, #cdd2ee); display: grid; place-items: center; color: var(--blue); font-weight: 700; font-size: 13px; text-align: center; padding: 8px; }
+    .gallery .cap { padding: 10px 12px; font-size: 13px; color: #333; font-weight: 600; }
+    @media (max-width: 900px) { .main .wrap { grid-template-columns: 1fr; } }
+
+    /* 관련 사이트 배너 */
+    .banners { border-top: 1px solid var(--line); background: #fff; }
+    .banners .wrap { display: flex; flex-wrap: wrap; gap: 10px; padding: 24px 20px; align-items: center; }
+    .banners .lbl { font-weight: 800; margin-right: 12px; color: #333; }
+    .banners a { font-size: 13px; color: var(--muted); border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; background: #fafbfc; }
+    .banners a:hover { border-color: var(--blue); color: var(--blue); }
+
+    /* 푸터 */
+    footer { background: #2b3240; color: #c4cbd6; font-size: 13px; }
+    footer .wrap { padding: 34px 20px; }
+    .footer-top { display: flex; flex-wrap: wrap; gap: 18px; padding-bottom: 16px; border-bottom: 1px solid #3c4453; }
+    .footer-top a { font-weight: 600; color: #e2e8f0; }
+    .footer-family { display: flex; flex-wrap: wrap; gap: 8px 16px; padding: 16px 0; color: #93a0b3; }
+    .footer-addr { margin-top: 10px; line-height: 1.9; color: #93a0b3; }
+    .footer-addr strong { color: #e2e8f0; }
+    .copyright { margin-top: 16px; color: #7a8699; }
+
+    .test-flag {
+      position: fixed; top: 8px; left: 8px; z-index: 5;
+      background: #111827; color: #fde68a; font-size: 11px; font-weight: 700;
+      padding: 5px 10px; border-radius: 6px; opacity: 0.9;
+    }
+  </style>
+</head>
+<body>
+  <div class="test-flag">⚙ IEUMBOT 데모 · 은평구시설관리공단 (테스트 페이지)</div>
+
+  <!-- 상단 유틸리티 -->
+  <div class="utility">
+    <div class="wrap">
+      <a href="#">로그인</a>
+      <a href="#">회원가입</a>
+      <a href="#">사이트맵</a>
+      <a href="#">온라인신청</a>
+      <a href="#">통합검색</a>
+    </div>
+  </div>
+
+  <!-- 헤더 + GNB -->
+  <header class="header">
+    <div class="wrap">
+      <a class="logo" href="#">
+        <span class="mark">EFMC</span>
+        <span class="name">은평구시설관리공단<small>Eunpyeong Facilities Management Corporation</small></span>
+      </a>
+      <nav class="gnb">
+        <a href="#">주차사업</a>
+        <a href="#">체육사업</a>
+        <a href="#">건강여가사업</a>
+        <a href="#">참여와소통</a>
+        <a href="#">공단소식</a>
+        <a href="#">정보공개</a>
+        <a href="#">공단소개</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- 히어로 -->
+  <section class="hero">
+    <div class="wrap">
+      <p class="eyebrow">SMART PUBLIC CORPORATION</p>
+      <h1>구민행복을 위해 혁신과 소통으로<br />미래를 준비하는 스마트 공기업</h1>
+      <p>맞춤형 감동 서비스를 제공하는 은평구시설관리공단입니다.</p>
+      <div class="hero-cta">
+        <a href="#">주차사업</a>
+        <a href="#">체육사업</a>
+        <a href="#">건강여가사업</a>
+        <a href="#">공단시설현황</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- 퀵 메뉴 -->
+  <section class="quick">
+    <div class="wrap">
+      <a class="quick-card" href="#"><div class="ico">🏸</div><div class="t">체육프로그램<br>수강신청</div></a>
+      <a class="quick-card" href="#"><div class="ico">🏟️</div><div class="t">체육시설<br>대관신청</div></a>
+      <a class="quick-card" href="#"><div class="ico">🅿️</div><div class="t">거주자우선주차<br>신청</div></a>
+      <a class="quick-card" href="#"><div class="ico">📋</div><div class="t">현수막<br>지정게시대</div></a>
+      <a class="quick-card" href="#"><div class="ico">⛺</div><div class="t">앵봉산<br>가족캠핑장</div></a>
+      <a class="quick-card" href="#"><div class="ico">🚌</div><div class="t">셔틀버스<br>노선안내</div></a>
+    </div>
+  </section>
+
+  <!-- 본문 -->
+  <section class="main">
+    <div class="wrap">
+      <div>
+        <div class="section-head">
+          <h2>공단소식</h2>
+          <a href="#">+ 더보기</a>
+        </div>
+        <ul class="notice">
+          <li><span class="tag">공지</span><a class="title">제 177차 부정주차요금 가산금 체납차량 공시송달 공고문</a><span class="date">2026-07-09</span></li>
+          <li><span class="tag">공지</span><a class="title">공영주차장 정기권 배정방법 변경에 대한 사전예고</a><span class="date">2026-07-07</span></li>
+          <li><span class="tag">공모</span><a class="title">2026년 ESG 주민 제안 사업 공모전 안내</a><span class="date">2026-07-06</span></li>
+          <li><span class="tag">공지</span><a class="title">제 176차 부정주차요금 가산금 체납차량 공시송달 공고문</a><span class="date">2026-06-12</span></li>
+          <li><span class="tag">채용</span><a class="title">은평구시설관리공단 기간제근로자 채용 공고</a><span class="date">2026-06-05</span></li>
+        </ul>
+      </div>
+      <div>
+        <div class="section-head">
+          <h2>포토갤러리</h2>
+          <a href="#">+ 더보기</a>
+        </div>
+        <div class="gallery">
+          <div class="card"><div class="thumb">김우영 국회의원 내방<br>임직원 인사 및 환담</div><div class="cap">현장 소식</div></div>
+          <div class="card"><div class="thumb">2025년 종무식</div><div class="cap">공단 행사</div></div>
+          <div class="card"><div class="thumb">도농가치 같이 UP!<br>농촌 봉사활동</div><div class="cap">사회공헌</div></div>
+          <div class="card"><div class="thumb">김미경 구청장 내방<br>기관 현안 환담</div><div class="cap">현장 소식</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 관련 사이트 -->
+  <section class="banners">
+    <div class="wrap">
+      <span class="lbl">은평구 관련 사이트</span>
+      <a href="#">은평구청</a>
+      <a href="#">은평거주자우선주차</a>
+      <a href="#">은평구민체육센터</a>
+      <a href="#">은평구체육회</a>
+      <a href="#">서울시청</a>
+      <a href="#">도로명주소</a>
+      <a href="#">서울특별시 주차정보안내시스템</a>
+    </div>
+  </section>
+
+  <!-- 푸터 -->
+  <footer>
+    <div class="wrap">
+      <div class="footer-top">
+        <a href="#">개인정보처리방침</a>
+        <a href="#">이용약관</a>
+        <a href="#">이메일주소 집단수집거부</a>
+      </div>
+      <div class="footer-addr">
+        <strong>은평구시설관리공단</strong><br />
+        서울시 은평구 통일로 684 서울혁신파크 미래청 4층 | 전화번호 02-350-5114 | 팩스 02-386-5150<br />
+        주차 관련 민원 02-350-5184 · 공영 주차장 02-350-5185 · 구민체육센터 02-350-5351~2
+      </div>
+      <div class="copyright">Copyright © 은평구시설관리공단 All Rights Reserved. — 본 페이지는 IEUMBOT 챗봇 데모용 테스트 페이지입니다.</div>
+    </div>
+  </footer>
+
+  <!-- ▼▼▼ IEUMBOT 위젯 (은평구시설관리공단 · efmc 챗봇) ▼▼▼ -->
+  <!-- data-chatbot-id 에는 관리자 콘솔 '설치 안내'에서 발급된 efmc 챗봇의 실제 ID를 넣어야 위젯이 로드됩니다. -->
+  <script
+    src="https://chat.deepsecu.co.kr/widget.js"
+    data-chatbot-id="68aa894d-f885-4b31-befa-15d471f326ab"
+    data-api-base-url="https://api.deepsecu.co.kr"
+    data-launcher-icon="chat"
+  ></script>
+  <!-- ▲▲▲ IEUMBOT 위젯 ▲▲▲ -->
+</body>
+</html>
