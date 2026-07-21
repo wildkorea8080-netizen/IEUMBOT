@@ -68,6 +68,7 @@ export default function LoginPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [mode, setMode] = useState<"login" | "signup">("login");
   const [signupEnabled, setSignupEnabled] = useState(false);
+  const [passwordResetReady, setPasswordResetReady] = useState(false);
 
   const nextPath = useMemo(() => searchParams.get("next"), [searchParams]);
   const reasonMessage = useMemo(() => getReasonMessage(searchParams.get("reason")), [searchParams]);
@@ -103,6 +104,7 @@ export default function LoginPage() {
     void getSignupConfig().then((config) => {
       if (isMounted) {
         setSignupEnabled(config.enabled);
+        setPasswordResetReady(config.passwordResetReady);
       }
     });
     return () => {
@@ -216,6 +218,17 @@ export default function LoginPage() {
           >
             {isSubmitting ? "로그인 중..." : "로그인"}
           </button>
+
+          {passwordResetReady ? (
+            <p className="text-center">
+              <Link
+                href="/auth/forgot-password"
+                className="text-sm text-slate-500 hover:text-slate-700 hover:underline"
+              >
+                비밀번호를 잊으셨나요?
+              </Link>
+            </p>
+          ) : null}
         </form>
 
         <SnsLoginButtons />

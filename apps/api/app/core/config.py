@@ -119,6 +119,8 @@ class Settings(BaseSettings):
     signup_web_base_url: str = ""         # 인증 링크용 프론트 베이스, 예: https://chat.deepsecu.co.kr
     signup_trial_days: int = 7            # 가입 시 부여할 무료체험 기간(일)
     signup_verification_ttl_hours: int = 24
+    # 비밀번호 재설정 링크 유효시간(보안상 짧게). SMTP가 설정돼 있어야 동작.
+    password_reset_ttl_hours: int = 2
 
     model_config = SettingsConfigDict(
         env_file=".env",

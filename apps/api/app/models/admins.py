@@ -47,6 +47,11 @@ class Admin(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     terms_agreed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # 비밀번호 재설정 — 인증 토큰과 분리(둘이 동시에 진행될 수 있으므로).
+    reset_token_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    reset_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     must_change_password: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

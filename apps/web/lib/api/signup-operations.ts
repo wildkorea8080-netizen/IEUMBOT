@@ -3,14 +3,45 @@ import { apiClient } from "./index";
 export type SignupConfig = {
   enabled: boolean;
   emailDeliveryReady: boolean;
+  passwordResetReady: boolean;
 };
 
-/** 회원가입 기능 활성 여부(비활성이면 탭 자체를 숨김). */
+/** 회원가입·비밀번호 찾기 가용 여부(비활성이면 UI 자체를 숨김). */
 export async function getSignupConfig(): Promise<SignupConfig> {
   try {
     return await apiClient.request<SignupConfig>("/auth/signup/config");
   } catch {
-    return { enabled: false, emailDeliveryReady: false };
+    return { enabled: false, emailDeliveryReady: false, passwordResetReady: false };
+  }
+}
+
+/** 비밀번호 재설정 메일 요청 (계정 존재 여부는 응답으로 알 수 없음). */
+export async function forgotPassword(email: string): Promise<void> {
+  await apiClient.request("/auth/password/forgot", { method: "POST", body: { email } });
+}
+
+/** 토큰으로 새 비밀번호 설정. */
+export async function resetPassword(
+  token: string,
+  password: string,
+): Promise<{ email: string; reset: boolean }> {
+  return apiClient.request<{ email: string; reset: boolean }>("/auth/password/reset", {
+    method: "POST",
+    body: { token, password },
+  });
+}
+
+/** 재설정 관련 에러 코드 → 사용자 문구. */
+export function resetErrorMessage(code: string | undefined): string {
+  switch (code) {
+    case "TOKEN_EXPIRED":
+      return "재설정 링크가 만료되었습니다. 다시 요청해 주세요.";
+    case "INVALID_TOKEN":
+      return "유효하지 않은 재설정 링크입니다. 메일의 링크를 다시 확인해 주세요.";
+    case "TOO_MANY_REQUESTS":
+      return "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.";
+    default:
+      return signupErrorMessage(code);
   }
 }
 
