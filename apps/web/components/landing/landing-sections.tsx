@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 
+import { COMPANY } from "../../lib/company";
+
 function SectionHeading({
   eyebrow,
   title,
@@ -390,8 +392,11 @@ export function ClosingSection() {
 
 /* ── 푸터 ──────────────────────────────────────────────────── */
 
-/** 확정 전 사업자 정보 자리표시. 오픈 전 실제 값으로 교체할 것. */
-function Blank({ label }: { label: string }) {
+/** lib/company.ts 값이 채워지면 그대로 출력, 아직 null이면 자리표시를 남긴다. */
+function Field({ value, label }: { value: string | null; label: string }) {
+  if (value) {
+    return <>{value}</>;
+  }
   return (
     <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[12px] font-medium text-amber-900">
       [{label}]
@@ -434,22 +439,27 @@ export function LandingFooter() {
 
         <div className="mt-8 border-t border-white/10 pt-6 text-[12px] leading-6 text-slate-400">
           <p className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <span>상호 {COMPANY.name}</span>
             <span>
-              상호 <Blank label="회사명" />
+              대표자 <Field value={COMPANY.representative} label="대표자명" />
             </span>
             <span>
-              대표자 <Blank label="대표자명" />
-            </span>
-            <span>
-              사업자등록번호 <Blank label="000-00-00000" />
+              사업자등록번호 <Field value={COMPANY.businessNumber} label="000-00-00000" />
             </span>
           </p>
           <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <span>주소 {COMPANY.address}</span>
             <span>
-              주소 <Blank label="사업장 주소" />
+              문의{" "}
+              <a href={`mailto:${COMPANY.email}`} className="hover:text-white">
+                {COMPANY.email}
+              </a>
             </span>
             <span>
-              문의 <Blank label="support@example.com" />
+              전화{" "}
+              <a href={`tel:${COMPANY.tel}`} className="hover:text-white">
+                {COMPANY.tel}
+              </a>
             </span>
           </p>
           <p className="mt-4 text-slate-500">© {new Date().getFullYear()} IEUMBOT. All rights reserved.</p>

@@ -64,8 +64,14 @@ export function List({ items }: { items: ReactNode[] }) {
   );
 }
 
-/** 확정 전 사업자 정보 자리표시. 운영 오픈 전 실제 값으로 교체할 것. */
-export function Blank({ label }: { label: string }) {
+/**
+ * 사업자 정보 표시. lib/company.ts의 값이 채워지면 그대로 출력하고,
+ * 아직 null이면 눈에 띄는 자리표시를 남긴다.
+ */
+export function Field({ value, label }: { value: string | null; label: string }) {
+  if (value) {
+    return <>{value}</>;
+  }
   return (
     <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[13px] font-medium text-amber-900">
       [{label}]

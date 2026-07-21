@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
-import { Blank, LegalLayout, List, Section } from "../../components/legal/legal-layout";
+import { Field, LegalLayout, List, Section } from "../../components/legal/legal-layout";
+import { COMPANY, LEGAL_EFFECTIVE_DATE } from "../../lib/company";
 
 export const metadata: Metadata = {
   title: "이용약관 | IEUMBOT",
@@ -9,10 +10,10 @@ export const metadata: Metadata = {
 
 export default function TermsPage() {
   return (
-    <LegalLayout title="이용약관" effectiveDate="2026년 7월 1일">
+    <LegalLayout title="이용약관" effectiveDate={LEGAL_EFFECTIVE_DATE}>
       <Section heading="제1조 (목적)">
         <p>
-          본 약관은 <Blank label="회사명" />(이하 &ldquo;회사&rdquo;)이 제공하는 문서 기반 AI 챗봇
+          본 약관은 {COMPANY.name}(이하 &ldquo;회사&rdquo;)이 제공하는 문서 기반 AI 챗봇
           서비스 IEUMBOT(이하 &ldquo;서비스&rdquo;)의 이용과 관련하여 회사와 이용자의 권리·의무 및
           책임사항, 이용조건 및 절차를 규정함을 목적으로 합니다.
         </p>
@@ -206,11 +207,13 @@ export default function TermsPage() {
       </Section>
 
       <Section heading="부칙">
-        <p>본 약관은 2026년 7월 1일부터 시행합니다.</p>
-        <p className="text-sm text-slate-500">
-          상호: <Blank label="회사명" /> · 대표자: <Blank label="대표자명" /> · 사업자등록번호:{" "}
-          <Blank label="000-00-00000" /> · 주소: <Blank label="사업장 주소" /> · 문의:{" "}
-          <Blank label="support@example.com" />
+        <p>본 약관은 {LEGAL_EFFECTIVE_DATE}부터 시행합니다.</p>
+        <p className="text-sm leading-7 text-slate-500">
+          상호: {COMPANY.name} · 대표자:{" "}
+          <Field value={COMPANY.representative} label="대표자명" /> · 사업자등록번호:{" "}
+          <Field value={COMPANY.businessNumber} label="000-00-00000" />
+          <br />
+          주소: {COMPANY.address} · 문의: {COMPANY.email} · 전화: {COMPANY.tel}
         </p>
       </Section>
     </LegalLayout>

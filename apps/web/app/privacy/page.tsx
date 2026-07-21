@@ -1,13 +1,15 @@
 import type { Metadata } from "next";
+import type { ReactNode } from "react";
 
-import { Blank, LegalLayout, List, Section } from "../../components/legal/legal-layout";
+import { Field, LegalLayout, List, Section } from "../../components/legal/legal-layout";
+import { COMPANY, LEGAL_EFFECTIVE_DATE } from "../../lib/company";
 
 export const metadata: Metadata = {
   title: "개인정보처리방침 | IEUMBOT",
   description: "IEUMBOT 개인정보처리방침",
 };
 
-function Table({ head, rows }: { head: string[]; rows: string[][] }) {
+function Table({ head, rows }: { head: string[]; rows: ReactNode[][] }) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-[520px] border-collapse text-sm">
@@ -44,10 +46,10 @@ function Table({ head, rows }: { head: string[]; rows: string[][] }) {
 
 export default function PrivacyPage() {
   return (
-    <LegalLayout title="개인정보처리방침" effectiveDate="2026년 7월 1일">
+    <LegalLayout title="개인정보처리방침" effectiveDate={LEGAL_EFFECTIVE_DATE}>
       <Section heading="1. 총칙">
         <p>
-          <Blank label="회사명" />(이하 &ldquo;회사&rdquo;)은 문서 기반 AI 챗봇 서비스
+          {COMPANY.name}(이하 &ldquo;회사&rdquo;)은 문서 기반 AI 챗봇 서비스
           IEUMBOT(이하 &ldquo;서비스&rdquo;)을 제공하면서 「개인정보 보호법」 등 관련 법령을 준수하며,
           이용자의 개인정보를 보호하기 위해 다음과 같이 개인정보처리방침을 수립·공개합니다.
         </p>
@@ -96,8 +98,16 @@ export default function PrivacyPage() {
           head={["구분", "보유 기간", "근거"]}
           rows={[
             ["관리자 계정 정보", "이용계약 종료 또는 회원 탈퇴 시까지", "이용자 동의"],
-            ["챗봇 대화 기록", "수집일로부터 [ 보유기간 ]", "이용기관과의 계약"],
-            ["도입 문의 기록", "문의 처리 완료 후 [ 보유기간 ]", "이용자 동의"],
+            [
+              "챗봇 대화 기록",
+              <Field key="chat" value={COMPANY.retention.chatLogs} label="보유기간" />,
+              "이용기관과의 계약",
+            ],
+            [
+              "도입 문의 기록",
+              <Field key="inq" value={COMPANY.retention.inquiries} label="보유기간" />,
+              "이용자 동의",
+            ],
             ["접속 기록", "3개월", "통신비밀보호법"],
             ["계약·결제 기록", "5년", "전자상거래법"],
             ["소비자 불만·분쟁 처리 기록", "3년", "전자상거래법"],
@@ -116,8 +126,16 @@ export default function PrivacyPage() {
           rows={[
             ["OpenAI, L.P.", "질문·문서의 임베딩 생성 및 답변 생성", "미국 / API 호출 시점에 처리"],
             ["Anthropic, PBC", "답변 생성(설정에 따라 선택적 사용)", "미국 / API 호출 시점에 처리"],
-            ["[ 클라우드 인프라 사업자 ]", "서버·데이터베이스 운영 및 보관", "[ 소재 국가 ]"],
-            ["[ 메일 발송 사업자 ]", "인증·안내 메일 발송", "[ 소재 국가 ]"],
+            [
+              <Field key="cloud" value={COMPANY.processors.cloud} label="클라우드 인프라 사업자" />,
+              "서버·데이터베이스 운영 및 보관",
+              <Field key="cloudr" value={COMPANY.processors.cloudRegion} label="소재 국가" />,
+            ],
+            [
+              <Field key="mail" value={COMPANY.processors.mail} label="메일 발송 사업자" />,
+              "인증·안내 메일 발송",
+              <Field key="mailr" value={COMPANY.processors.mailRegion} label="소재 국가" />,
+            ],
           ]}
         />
       </Section>
@@ -181,14 +199,14 @@ export default function PrivacyPage() {
       </Section>
 
       <Section heading="11. 개인정보 보호책임자">
-        <p className="text-sm">
-          성명: <Blank label="담당자명" />
+        <p className="text-sm leading-7">
+          성명: <Field value={COMPANY.privacyOfficer.name} label="담당자명" />
           <br />
-          직책: <Blank label="직책" />
+          직책: <Field value={COMPANY.privacyOfficer.title} label="직책" />
           <br />
-          이메일: <Blank label="privacy@example.com" />
+          이메일: {COMPANY.privacyOfficer.email}
           <br />
-          전화: <Blank label="00-0000-0000" />
+          전화: {COMPANY.privacyOfficer.tel}
         </p>
         <p className="text-sm text-slate-500">
           개인정보 침해에 관한 상담이 필요한 경우 개인정보침해신고센터(privacy.kisa.or.kr,
@@ -202,7 +220,9 @@ export default function PrivacyPage() {
           본 방침의 내용 추가·삭제 및 수정이 있을 경우 시행 7일 전부터 서비스 공지사항을 통해
           고지합니다. 다만 이용자 권리의 중대한 변경이 발생하는 경우에는 최소 30일 전에 고지합니다.
         </p>
-        <p>공고일자: 2026년 7월 1일 / 시행일자: 2026년 7월 1일</p>
+        <p>
+          공고일자: {LEGAL_EFFECTIVE_DATE} / 시행일자: {LEGAL_EFFECTIVE_DATE}
+        </p>
       </Section>
     </LegalLayout>
   );
