@@ -392,16 +392,40 @@ export function ClosingSection() {
 
 /* ── 푸터 ──────────────────────────────────────────────────── */
 
-/** lib/company.ts 값이 채워지면 그대로 출력, 아직 null이면 자리표시를 남긴다. */
-function Field({ value, label }: { value: string | null; label: string }) {
-  if (value) {
-    return <>{value}</>;
+/**
+ * 사업자 정보 항목. 확인되지 않은 값(null)은 거짓을 채우는 대신 항목 자체를 뺀다.
+ * lib/company.ts에 값을 넣으면 자동으로 다시 나타난다.
+ */
+function companyEntries(): { label: string; value: ReactNode }[] {
+  const entries: { label: string; value: ReactNode }[] = [
+    { label: "상호", value: COMPANY.name },
+  ];
+  if (COMPANY.representative) {
+    entries.push({ label: "대표자", value: COMPANY.representative });
   }
-  return (
-    <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[12px] font-medium text-amber-900">
-      [{label}]
-    </span>
+  if (COMPANY.businessNumber) {
+    entries.push({ label: "사업자등록번호", value: COMPANY.businessNumber });
+  }
+  entries.push(
+    { label: "주소", value: COMPANY.address },
+    {
+      label: "문의",
+      value: (
+        <a href={`mailto:${COMPANY.email}`} className="hover:text-white">
+          {COMPANY.email}
+        </a>
+      ),
+    },
+    {
+      label: "전화",
+      value: (
+        <a href={`tel:${COMPANY.tel}`} className="hover:text-white">
+          {COMPANY.tel}
+        </a>
+      ),
+    },
   );
+  return entries;
 }
 
 export function LandingFooter() {
@@ -439,28 +463,11 @@ export function LandingFooter() {
 
         <div className="mt-8 border-t border-white/10 pt-6 text-[12px] leading-6 text-slate-400">
           <p className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-            <span>상호 {COMPANY.name}</span>
-            <span>
-              대표자 <Field value={COMPANY.representative} label="대표자명" />
-            </span>
-            <span>
-              사업자등록번호 <Field value={COMPANY.businessNumber} label="000-00-00000" />
-            </span>
-          </p>
-          <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
-            <span>주소 {COMPANY.address}</span>
-            <span>
-              문의{" "}
-              <a href={`mailto:${COMPANY.email}`} className="hover:text-white">
-                {COMPANY.email}
-              </a>
-            </span>
-            <span>
-              전화{" "}
-              <a href={`tel:${COMPANY.tel}`} className="hover:text-white">
-                {COMPANY.tel}
-              </a>
-            </span>
+            {companyEntries().map((entry) => (
+              <span key={entry.label}>
+                {entry.label} {entry.value}
+              </span>
+            ))}
           </p>
           <p className="mt-4 text-slate-500">© {new Date().getFullYear()} IEUMBOT. All rights reserved.</p>
         </div>

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 
-import { Field, LegalLayout, List, Section } from "../../components/legal/legal-layout";
+import { LegalLayout, List, Section } from "../../components/legal/legal-layout";
 import { COMPANY, LEGAL_EFFECTIVE_DATE } from "../../lib/company";
 
 export const metadata: Metadata = {
@@ -208,10 +208,15 @@ export default function TermsPage() {
 
       <Section heading="부칙">
         <p>본 약관은 {LEGAL_EFFECTIVE_DATE}부터 시행합니다.</p>
+        {/* 확인되지 않은 항목(대표자·사업자등록번호)은 임의로 채우지 않고 뺀다. */}
         <p className="text-sm leading-7 text-slate-500">
-          상호: {COMPANY.name} · 대표자:{" "}
-          <Field value={COMPANY.representative} label="대표자명" /> · 사업자등록번호:{" "}
-          <Field value={COMPANY.businessNumber} label="000-00-00000" />
+          {[
+            `상호: ${COMPANY.name}`,
+            COMPANY.representative ? `대표자: ${COMPANY.representative}` : null,
+            COMPANY.businessNumber ? `사업자등록번호: ${COMPANY.businessNumber}` : null,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
           <br />
           주소: {COMPANY.address} · 문의: {COMPANY.email} · 전화: {COMPANY.tel}
         </p>

@@ -216,10 +216,16 @@ export default function PrivacyPage() {
       </Section>
 
       <Section heading="11. 개인정보 보호책임자">
+        {/* 개인정보보호법 제30조는 "성명 또는 직책"을 요구한다.
+            성명이 확정되기 전에는 직책과 연락처만 표시한다. */}
         <p className="text-sm leading-7">
-          성명: <Field value={COMPANY.privacyOfficer.name} label="담당자명" />
-          <br />
-          직책: <Field value={COMPANY.privacyOfficer.title} label="직책" />
+          {COMPANY.privacyOfficer.name ? (
+            <>
+              성명: {COMPANY.privacyOfficer.name}
+              <br />
+            </>
+          ) : null}
+          직책: {COMPANY.privacyOfficer.title}
           <br />
           이메일: {COMPANY.privacyOfficer.email}
           <br />
