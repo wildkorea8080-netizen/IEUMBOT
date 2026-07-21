@@ -100,12 +100,16 @@ export default function PrivacyPage() {
             ["관리자 계정 정보", "이용계약 종료 또는 회원 탈퇴 시까지", "이용자 동의"],
             [
               "챗봇 대화 기록",
-              <Field key="chat" value={COMPANY.retention.chatLogs} label="보유기간" />,
+              <>
+                수집일로부터 <Field value={COMPANY.retention.chatLogs} label="보유기간" />
+              </>,
               "이용기관과의 계약",
             ],
             [
               "도입 문의 기록",
-              <Field key="inq" value={COMPANY.retention.inquiries} label="보유기간" />,
+              <>
+                문의 처리 완료 후 <Field value={COMPANY.retention.inquiries} label="보유기간" />
+              </>,
               "이용자 동의",
             ],
             ["접속 기록", "3개월", "통신비밀보호법"],
@@ -131,11 +135,20 @@ export default function PrivacyPage() {
               "서버·데이터베이스 운영 및 보관",
               <Field key="cloudr" value={COMPANY.processors.cloudRegion} label="소재 국가" />,
             ],
-            [
-              <Field key="mail" value={COMPANY.processors.mail} label="메일 발송 사업자" />,
-              "인증·안내 메일 발송",
-              <Field key="mailr" value={COMPANY.processors.mailRegion} label="소재 국가" />,
-            ],
+            // 메일 발송은 SMTP를 설정한 뒤에만 실제로 위탁이 발생한다.
+            ...(COMPANY.processors.mail
+              ? [
+                  [
+                    COMPANY.processors.mail,
+                    "인증·안내 메일 발송",
+                    <Field
+                      key="mailr"
+                      value={COMPANY.processors.mailRegion}
+                      label="소재 국가"
+                    />,
+                  ],
+                ]
+              : []),
           ]}
         />
       </Section>
@@ -147,8 +160,12 @@ export default function PrivacyPage() {
           문서 텍스트이며, 이전 시점은 API 호출 시, 이전 방법은 암호화된 통신(HTTPS)입니다. 해당
           사업자는 회사와의 계약에 따라 전송된 데이터를 모델 학습에 사용하지 않습니다.
         </p>
+        <p>
+          그 외 서버와 데이터베이스는 {COMPANY.processors.cloudRegion} 내에 위치하며, 등록 자료와
+          대화 기록의 원본은 국내에 보관됩니다.
+        </p>
         <p className="text-sm text-slate-500">
-          국외 이전을 원하지 않는 이용기관은 별도 협의를 통해 국내 처리 구성 여부를 문의하실 수
+          국외 이전을 원하지 않는 이용기관은 별도 협의를 통해 처리 구성 조정 여부를 문의하실 수
           있습니다.
         </p>
       </Section>

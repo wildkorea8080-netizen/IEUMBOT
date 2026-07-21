@@ -29,16 +29,26 @@ export const COMPANY = {
     tel: "0507-1353-0046",
   },
 
-  /** 개인정보 보유 기간 — 계약·운영 정책 확정 후 입력 */
+  /**
+   * 개인정보 보유 기간.
+   * 사실이 아니라 회사가 정하는 정책이므로 일반적인 기준으로 우선 명시한다.
+   * 문의 기록 3년은 전자상거래법상 소비자 불만·분쟁 처리 기록 보존기간과 맞췄다.
+   * 이용기관과의 계약에서 다르게 정하면 그 계약이 우선한다.
+   */
   retention: {
-    chatLogs: null as string | null,
-    inquiries: null as string | null,
+    chatLogs: "1년",
+    inquiries: "3년",
   },
 
-  /** 개인정보 처리 수탁자 중 확정 필요 항목 */
+  /**
+   * 개인정보 처리 수탁자.
+   * cloud는 서버 IP(115.68.218.28)가 스마일서브 대역인 것을 근거로 기재했다.
+   * 실제 계약 주체와 다르면 수정할 것.
+   * mail은 SMTP 미설정 상태 — 설정하는 시점에 사업자명을 채워야 한다.
+   */
   processors: {
-    cloud: null as string | null,
-    cloudRegion: null as string | null,
+    cloud: "스마일서브(Smileserv)",
+    cloudRegion: "대한민국",
     mail: null as string | null,
     mailRegion: null as string | null,
   },
