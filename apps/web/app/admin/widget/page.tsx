@@ -13,7 +13,12 @@ import {
   patchAdminWidget,
   uploadAdminWidgetIcon,
 } from "../../../lib/api/admin-operations";
-import type { AdminChatbotItem, AdminWidgetIconAsset, AdminWidgetResponse } from "../../../lib/api/admin-operations-types";
+import type {
+  AdminChatbotItem,
+  AdminWidgetIconAsset,
+  AdminWidgetResponse,
+  WidgetTrustBadge,
+} from "../../../lib/api/admin-operations-types";
 import {
   CURATED_STARTER_EMOJIS,
   STARTER_ICON_NAMES,
@@ -239,6 +244,9 @@ export default function WidgetPage() {
   const [welcomeMessage, setWelcomeMessage] = useState("");
   const [bannerTitle, setBannerTitle] = useState("");
   const [bannerDescription, setBannerDescription] = useState("");
+  // 신뢰 뱃지 — 기본 ON. 끄면 위젯 상단에서 완전히 사라진다.
+  const [trustBadgesEnabled, setTrustBadgesEnabled] = useState(true);
+  const [trustBadgeRows, setTrustBadgeRows] = useState<WidgetTrustBadge[]>([]);
   const [starterRows, setStarterRows] = useState<StarterRow[]>([]);
   const [openIconPickerRow, setOpenIconPickerRow] = useState<number | null>(null);
   // "" = 자동(아이콘 있으면 배너), "banner" = 배너 고정, "list" = 목록 고정
@@ -268,6 +276,8 @@ export default function WidgetPage() {
     welcomeMessage: "",
     bannerTitle: "",
     bannerDescription: "",
+    trustBadgesEnabled: true,
+    trustBadges: [] as WidgetTrustBadge[],
     launcherLabel: "",
     launcherIcon: "chat",
     launcherIconUrl: "",
@@ -286,6 +296,18 @@ export default function WidgetPage() {
   );
   const updateStarterRow = (index: number, patch: Partial<StarterRow>) =>
     setStarterRows((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+
+  // 저장/미리보기용: 문구가 비어 있는 행은 버린다(서버도 동일하게 걸러낸다).
+  const cleanedTrustBadges = useMemo(
+    () =>
+      trustBadgeRows
+        .filter((badge) => badge.label.trim() !== "")
+        .slice(0, 4)
+        .map((badge) => ({ icon: badge.icon.trim() || "✓", label: badge.label.trim().slice(0, 40) })),
+    [trustBadgeRows],
+  );
+  const updateTrustBadge = (index: number, patch: Partial<WidgetTrustBadge>) =>
+    setTrustBadgeRows((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
 
   const selectedChatbot = useMemo(
     () => chatbots.find((item) => item.id === selectedChatbotId) ?? null,
@@ -325,6 +347,8 @@ export default function WidgetPage() {
         welcomeMessage: welcomeMessage.trim(),
         bannerTitle: bannerTitle.trim(),
         bannerDescription: bannerDescription.trim(),
+        trustBadgesEnabled,
+        trustBadges: cleanedTrustBadges,
         launcherLabel: launcherLabel.trim(),
         launcherIcon,
         launcherIconUrl: launcherIconUrl.trim(),
@@ -337,6 +361,8 @@ export default function WidgetPage() {
   }, [
     bannerDescription,
     bannerTitle,
+    cleanedTrustBadges,
+    trustBadgesEnabled,
     colorPreset,
     introMessage,
     launcherIcon,
@@ -377,6 +403,9 @@ export default function WidgetPage() {
         title: debouncedIframeState.bannerTitle || null,
         description: debouncedIframeState.bannerDescription || null,
       },
+      trustBadges: debouncedIframeState.trustBadgesEnabled
+        ? debouncedIframeState.trustBadges
+        : [],
       starterQuestions: debouncedIframeState.starterQuestions,
       starterQuestionStyle: debouncedIframeState.starterQuestionStyle || null,
       launcherHoverMessage: debouncedIframeState.launcherHoverMessage,
@@ -505,6 +534,8 @@ export default function WidgetPage() {
     setColorPreset(res.colorPreset ?? "default");
     setWelcomeMessage(res.welcomeMessage ?? "");
     setBannerTitle(res.bannerTitle ?? "");
+    setTrustBadgesEnabled(res.trustBadgesEnabled ?? true);
+    setTrustBadgeRows(res.trustBadges ?? []);
     setBannerDescription(res.bannerDescription ?? "");
     setStarterRows((res.starterQuestions ?? []).map(parseStarterRow));
     setStarterQuestionStyle(
@@ -580,6 +611,8 @@ export default function WidgetPage() {
         welcomeMessage: welcomeMessage.trim(),
         bannerTitle: bannerTitle.trim(),
         bannerDescription: bannerDescription.trim(),
+        trustBadgesEnabled,
+        trustBadges: cleanedTrustBadges,
         starterQuestions,
         starterQuestionStyle: starterQuestionStyle || null,
       });
@@ -953,6 +986,88 @@ export default function WidgetPage() {
                   <span className="text-xs font-medium text-slate-600">상단 안내 배너 설명</span>
                   <textarea value={bannerDescription} onChange={(event) => setBannerDescription(event.target.value)} rows={3} placeholder="운영시간, 상담 범위, 응답 안내 등을 입력하세요." className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
                 </label>
+
+                <div className="space-y-2 md:col-span-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-slate-600">신뢰 표기 뱃지</span>
+                    <label className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                      <input
+                        type="checkbox"
+                        checked={trustBadgesEnabled}
+                        onChange={(event) => setTrustBadgesEnabled(event.target.checked)}
+                        className="h-3.5 w-3.5 rounded border-slate-300"
+                      />
+                      위젯에 표시
+                    </label>
+                  </div>
+                  <p className="text-[11px] leading-5 text-slate-400">
+                    채팅창 상단에 표시되는 짧은 신뢰 문구입니다. 비워 두면 기본 문구(공식 등록 자료 기반
+                    답변 · 개인정보 자동 보호)가 표시됩니다.
+                  </p>
+
+                  {trustBadgesEnabled ? (
+                    <div className="space-y-2">
+                      {trustBadgeRows.length === 0 ? (
+                        <p className="rounded-md border border-dashed border-slate-300 px-3 py-2.5 text-[11px] text-slate-500">
+                          기본 문구가 표시되는 중입니다. 직접 정하려면 아래에서 추가하세요.
+                        </p>
+                      ) : null}
+
+                      {trustBadgeRows.map((badge, index) => (
+                        <div key={index} className="flex items-center gap-2">
+                          <input
+                            value={badge.icon}
+                            onChange={(event) => updateTrustBadge(index, { icon: event.target.value })}
+                            placeholder="✓"
+                            maxLength={4}
+                            aria-label={`${index + 1}번 뱃지 아이콘`}
+                            className="w-14 rounded-md border border-slate-300 px-2 py-2 text-center text-sm"
+                          />
+                          <input
+                            value={badge.label}
+                            onChange={(event) => updateTrustBadge(index, { label: event.target.value })}
+                            placeholder="예: 공식 등록 자료 기반 답변"
+                            maxLength={40}
+                            aria-label={`${index + 1}번 뱃지 문구`}
+                            className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setTrustBadgeRows((rows) => rows.filter((_, i) => i !== index))}
+                            className="rounded-md border border-slate-300 px-2.5 py-2 text-xs text-slate-500 hover:bg-slate-50"
+                          >
+                            삭제
+                          </button>
+                        </div>
+                      ))}
+
+                      {trustBadgeRows.length < 4 ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setTrustBadgeRows((rows) => [
+                              // 처음 추가할 때는 기본 문구를 채워 넣어 무엇을 적는 칸인지 바로 보이게 한다.
+                              ...(rows.length === 0
+                                ? [
+                                    { icon: "✓", label: "공식 등록 자료 기반 답변" },
+                                    { icon: "🔒", label: "개인정보 자동 보호" },
+                                  ]
+                                : rows),
+                              ...(rows.length === 0 ? [] : [{ icon: "✓", label: "" }]),
+                            ])
+                          }
+                          className="rounded-md border border-slate-300 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                        >
+                          + 뱃지 추가 {trustBadgeRows.length === 0 ? "(기본 문구로 시작)" : `(${trustBadgeRows.length}/4)`}
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2.5 text-[11px] text-slate-500">
+                      표시하지 않음 — 채팅창 상단에 신뢰 문구가 나오지 않습니다.
+                    </p>
+                  )}
+                </div>
                 <div className="space-y-2 md:col-span-2">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-medium text-slate-600">대화 시작 추천 질문 카드</span>

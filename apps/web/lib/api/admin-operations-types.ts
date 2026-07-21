@@ -386,6 +386,12 @@ export type KnowledgeUpdateRequest = {
   isActive?: boolean;
 };
 
+/** 위젯 상단 신뢰 뱃지. icon은 이모지 한두 자, label은 40자 이내 짧은 문구. */
+export type WidgetTrustBadge = {
+  icon: string;
+  label: string;
+};
+
 export type AdminWidgetResponse = {
   id: string;
   chatbotId: string;
@@ -407,6 +413,8 @@ export type AdminWidgetResponse = {
   launcherHoverMessage?: string | null;
   bannerTitle?: string | null;
   bannerDescription?: string | null;
+  trustBadgesEnabled: boolean;
+  trustBadges: WidgetTrustBadge[];
   starterQuestions: string[];
   starterQuestionStyle?: string | null;
   runtimeProvider?: string | null;

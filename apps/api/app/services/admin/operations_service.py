@@ -58,7 +58,9 @@ from app.schemas.admin_operations import (
     AdminRoiTopicItem,
     AdminWidgetResponse,
     AdminWidgetUpdateRequest,
+    WidgetTrustBadgeItem,
 )
+from app.services import widget_trust_badges as trust_badges
 from app.services.admin.scope_service import (
     ensure_chatbot_in_scope,
     ensure_document_in_scope,
@@ -1153,6 +1155,8 @@ def get_widget_service(
         banner_description=(
             theme.get("widgetBannerDescription") if isinstance(theme.get("widgetBannerDescription"), str) else None
         ),
+        trust_badges_enabled=trust_badges.read_enabled(theme),
+        trust_badges=[WidgetTrustBadgeItem(**badge) for badge in trust_badges.read_badges(theme)],
         starter_questions=[
             item.strip()
             for item in theme.get("widgetStarterQuestions", [])
@@ -1225,6 +1229,12 @@ def patch_widget_service(
         theme["widgetBannerTitle"] = body.banner_title.strip() or None
     if body.banner_description is not None:
         theme["widgetBannerDescription"] = body.banner_description.strip() or None
+    if body.trust_badges_enabled is not None:
+        theme["widgetTrustBadgesEnabled"] = bool(body.trust_badges_enabled)
+    if body.trust_badges is not None:
+        theme["widgetTrustBadges"] = trust_badges.normalize_badges(
+            [item.model_dump() for item in body.trust_badges]
+        )
     if body.starter_questions is not None:
         theme["widgetStarterQuestions"] = [item.strip() for item in body.starter_questions if item and item.strip()]
     if body.starter_question_style is not None:
@@ -1285,6 +1295,8 @@ def patch_widget_service(
         banner_description=(
             theme.get("widgetBannerDescription") if isinstance(theme.get("widgetBannerDescription"), str) else None
         ),
+        trust_badges_enabled=trust_badges.read_enabled(theme),
+        trust_badges=[WidgetTrustBadgeItem(**badge) for badge in trust_badges.read_badges(theme)],
         starter_questions=[
             item.strip()
             for item in theme.get("widgetStarterQuestions", [])

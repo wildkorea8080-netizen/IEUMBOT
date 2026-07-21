@@ -13,6 +13,7 @@ import type {
   AdminRoiDashboardResponse,
   AdminWidgetIconAsset,
   AdminWidgetResponse,
+  WidgetTrustBadge,
   DashboardQuestionTypeItem,
   DashboardRecentChatItem,
   DashboardSummaryResponse,
@@ -514,6 +515,8 @@ export async function patchAdminWidget(chatbotId: string, body: {
   launcherHoverMessage?: string;
   bannerTitle?: string;
   bannerDescription?: string;
+  trustBadgesEnabled?: boolean;
+  trustBadges?: WidgetTrustBadge[];
   starterQuestions?: string[];
   starterQuestionStyle?: string | null;
 }): Promise<AdminWidgetResponse> {

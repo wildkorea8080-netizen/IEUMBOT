@@ -201,6 +201,13 @@ class AdminChatbotResponse(ApiSchema):
     updated_at: str
 
 
+class WidgetTrustBadgeItem(ApiSchema):
+    """위젯 상단 신뢰 뱃지 1개. icon은 이모지 한두 자, label은 짧은 문구."""
+
+    icon: str = ""
+    label: str
+
+
 class AdminWidgetResponse(ApiSchema):
     id: str
     chatbot_id: str
@@ -222,6 +229,9 @@ class AdminWidgetResponse(ApiSchema):
     launcher_hover_message: str | None = None
     banner_title: str | None = None
     banner_description: str | None = None
+    # 신뢰 뱃지 — 미설정(None)이면 위젯이 기본 뱃지를 표시한다.
+    trust_badges_enabled: bool = True
+    trust_badges: list[WidgetTrustBadgeItem] = []
     starter_questions: list[str] = []
     starter_question_style: str | None = None
     runtime_provider: str | None = None
@@ -252,6 +262,8 @@ class AdminWidgetUpdateRequest(ApiSchema):
     launcher_hover_message: str | None = None
     banner_title: str | None = None
     banner_description: str | None = None
+    trust_badges_enabled: bool | None = None
+    trust_badges: list[WidgetTrustBadgeItem] | None = None
     starter_questions: list[str] | None = None
     starter_question_style: str | None = None
 
