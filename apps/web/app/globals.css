@@ -197,3 +197,34 @@
     animation: none;
   }
 }
+
+/* ── 랜딩 기관 마퀴 ──────────────────────────────────
+   목록을 두 번 렌더해 -50% 지점에서 이음매 없이 반복시킨다.
+   여기서도 transform만 쓴다 — 애니메이션이 멈춰도 항목은 그대로 보인다. */
+@keyframes landingMarquee {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+
+.landing-marquee {
+  animation: landingMarquee 42s linear infinite;
+}
+
+.landing-marquee:hover {
+  animation-play-state: paused;
+}
+
+.landing-marquee-mask {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 6rem, #000 calc(100% - 6rem), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 6rem, #000 calc(100% - 6rem), transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-marquee {
+    animation: none;
+  }
+  /* 애니메이션을 끈 만큼 손으로 넘겨볼 수 있게 한다 */
+  .landing-marquee-mask {
+    overflow-x: auto;
+  }
+}

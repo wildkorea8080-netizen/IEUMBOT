@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 
+import { InstitutionMarquee } from "../components/landing/institution-marquee";
 import { LandingHero } from "../components/landing/landing-hero";
 import { LandingNav } from "../components/landing/landing-nav";
 import {
@@ -26,6 +27,7 @@ export default function HomePage() {
       <LandingNav />
       <main>
         <LandingHero />
+        <InstitutionMarquee />
         <ProblemSection />
         <AnswerFlowSection />
         <FeatureSection />
