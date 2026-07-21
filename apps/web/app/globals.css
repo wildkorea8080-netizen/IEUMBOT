@@ -174,3 +174,26 @@
     50% { opacity: 0.5; }
   }
 }
+
+/* ── 랜딩 진입 애니메이션 ────────────────────────────
+   transform만 사용한다. opacity로 시작 상태를 숨기면 애니메이션이
+   실행되지 않는 환경(감속 모드, 스타일 로드 실패)에서 본문이 영영
+   보이지 않는다. 움직임은 장식이고, 내용은 항상 보여야 한다. */
+@keyframes landingRise {
+  from { transform: translateY(14px); }
+  to   { transform: translateY(0); }
+}
+
+.landing-rise {
+  animation: landingRise 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.landing-rise-delay {
+  animation-delay: 0.12s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-rise {
+    animation: none;
+  }
+}
