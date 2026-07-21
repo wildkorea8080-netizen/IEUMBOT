@@ -101,6 +101,25 @@ class Settings(BaseSettings):
     oauth_naver_client_secret: str = ""
     oauth_trial_days: int = 7             # 신규 셀프가입 시 부여할 무료체험 기간(일)
 
+    # ── 이메일 발송(SMTP) ───────────────────────────────────────────────
+    # SendGrid·AWS SES·구글워크스페이스·네이버 등 모두 SMTP 지원 → 업체 종속 없음.
+    # 미설정 시 발송은 no-op(로그만) — 회원가입 인증메일이 안 나가므로 운영에선 필수.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""                   # 발신 주소, 예: no-reply@deepsecu.co.kr
+    smtp_from_name: str = "IEUMBOT"
+    smtp_use_tls: bool = True             # STARTTLS. 465 포트면 False + smtp_use_ssl
+    smtp_use_ssl: bool = False
+
+    # ── 이메일/비밀번호 셀프 회원가입 ────────────────────────────────────
+    # 기본 비활성 — 켜야 가입 API·화면이 동작(기존 발급형 온보딩 영향 없음).
+    signup_enabled: bool = False
+    signup_web_base_url: str = ""         # 인증 링크용 프론트 베이스, 예: https://chat.deepsecu.co.kr
+    signup_trial_days: int = 7            # 가입 시 부여할 무료체험 기간(일)
+    signup_verification_ttl_hours: int = 24
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

@@ -1,16 +1,23 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
-from app.api.dependencies.auth import AdminPrincipal, require_admin_auth, require_institution_admin_auth
+from app.api.dependencies.auth import (
+    AdminPrincipal,
+    require_admin_auth,
+    require_institution_admin_auth,
+)
 from app.core.security import create_access_token, verify_password
 from app.db import get_db_session
-from app.repositories.auth.admin_auth_repository import get_active_admin_by_email, get_active_admin_by_id
+from app.repositories.auth.admin_auth_repository import (
+    get_active_admin_by_email,
+    get_active_admin_by_id,
+)
 from app.schemas.auth import (
-    AdminChangePasswordRequest,
-    AdminChangePasswordResponse,
     AdminAuthLoginRequest,
     AdminAuthLoginResponse,
     AdminAuthMeResponse,
+    AdminChangePasswordRequest,
+    AdminChangePasswordResponse,
     AdminSummary,
 )
 from app.services.auth.admin_password_service import change_admin_password_service
@@ -37,6 +44,14 @@ def admin_login(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="INVALID_CREDENTIALS",
+        )
+
+    # 셀프 회원가입 계정은 이메일 인증 전 로그인 차단.
+    # (발급형 계정은 verification_token_hash가 NULL이라 이 가드에 걸리지 않는다.)
+    if getattr(admin, "verification_token_hash", None) and admin.email_verified_at is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="EMAIL_NOT_VERIFIED",
         )
 
     normalized_role = _normalize_admin_role(admin.role)

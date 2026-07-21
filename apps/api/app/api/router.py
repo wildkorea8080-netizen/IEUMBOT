@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends
 from app.api.admin.router import router as admin_router
 from app.api.auth.oauth_router import router as oauth_router
 from app.api.auth.router import router as auth_router
+from app.api.auth.signup_router import router as signup_router
 from app.api.chat.router import router as chat_router
 from app.api.dependencies import require_admin_auth, require_institution_admin_auth
 from app.api.documents.router import router as documents_router
@@ -20,6 +21,8 @@ api_router.include_router(public_router, prefix="/public")
 api_router.include_router(auth_router, prefix="/admin/auth")
 # 공개 SNS OAuth (셀프서비스 가입/로그인) — 인증 의존성 없음
 api_router.include_router(oauth_router, prefix="/auth")
+# 공개 이메일/비밀번호 회원가입 — 인증 의존성 없음
+api_router.include_router(signup_router, prefix="/auth")
 api_router.include_router(admin_router, prefix="/admin", dependencies=[Depends(require_institution_admin_auth)])
 api_router.include_router(chat_router, prefix="/chat", tags=["chat"])
 api_router.include_router(

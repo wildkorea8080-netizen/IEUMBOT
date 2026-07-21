@@ -34,6 +34,19 @@ class Admin(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     # 제공사 고유 사용자 id (이메일이 바뀌어도 안정적인 식별자)
     oauth_subject: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # 이메일 인증 — 셀프 회원가입(local) 계정은 인증 완료 전 로그인 불가.
+    # 발급형/소셜 계정은 NULL이어도 무방(로그인 가드에서 local 가입 건만 검사).
+    email_verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    verification_token_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    verification_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # 이용약관·개인정보처리방침 동의 시각(개인정보보호법 대응 기록)
+    terms_agreed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     must_change_password: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
