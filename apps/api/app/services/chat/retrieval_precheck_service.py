@@ -379,6 +379,67 @@ def _is_faq_candidate(item: dict[str, Any]) -> bool:
     return "faq" in haystack or "자주" in haystack
 
 
+# 시설·기관 고유명사 접미사 — 공공기관 명칭에 흔한 것만(오탐 최소화).
+# 접두 1자 이상 + 접미사(예: '광역자원순환'+'센터', '가족'+'캠핑장')로 된
+# '붙어있는' 복합 고유명사만 잡는다. 띄어쓴 일반어('주차장 요금')는 잡히지 않아
+# 게이트가 과잉 발동하지 않는다.
+_FACILITY_TERM_RE = re.compile(
+    r"[가-힣]{1,12}(?:센터|공단|캠핑장|주차장|도서관|체육관|수영장|회관|보건소|"
+    r"사업소|복지관|박물관|미술관|문화원|주민센터|관리소|시청|구청|군청|도청)"
+)
+
+
+def _extract_facility_terms(text: str) -> set[str]:
+    """텍스트에서 시설·기관 고유명사(접두+접미사 복합어)만 추출."""
+    if not text:
+        return set()
+    return {m.group(0) for m in _FACILITY_TERM_RE.finditer(text)}
+
+
+def _candidate_text_blob(item: dict[str, Any]) -> str:
+    signals = item.get("contentSignals") or {}
+    preview = signals.get("textPreview") if isinstance(signals, dict) else None
+    parts = [
+        item.get("title"),
+        item.get("sectionTitle"),
+        item.get("documentName"),
+        preview or item.get("text_content") or item.get("text"),
+    ]
+    return " ".join(str(p) for p in parts if p)
+
+
+def _filter_subject_mismatch(
+    question: str, prompt_candidates: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], int]:
+    """질문의 시설 고유명사와 '다른' 시설을 다루는 근거 청크를 프롬프트에서 제거.
+
+    보수적 규칙 — 청크를 버리는 조건은 모두 만족해야 한다:
+      1) 질문에 시설 고유명사가 있고,
+      2) 그 고유명사가 청크 어디에도 없으며,
+      3) 청크가 '다른' 시설 고유명사를 담고 있다(= 명백히 다른 대상).
+    셋을 다 만족할 때만 제거하므로, 일반 질문·하위 페이지 청크는 영향받지 않는다.
+    남는 근거가 0개가 되면 상위 파이프라인의 '근거 부족' 폴백이 발동한다.
+    """
+    q_terms = _extract_facility_terms(question)
+    if not q_terms:
+        return prompt_candidates, 0
+    kept: list[dict[str, Any]] = []
+    dropped = 0
+    for item in prompt_candidates:
+        blob = _candidate_text_blob(item)
+        matches_question = any(q in blob for q in q_terms) or bool(
+            q_terms & _extract_facility_terms(blob)
+        )
+        has_other_facility = bool(_extract_facility_terms(blob) - q_terms)
+        if matches_question or not has_other_facility:
+            kept.append(item)
+        else:
+            item["subjectMismatchDropped"] = True
+            item["usedInPrompt"] = False
+            dropped += 1
+    return kept, dropped
+
+
 def _dynamic_threshold_for_candidate(
     item: dict[str, Any],
     *,
@@ -1071,6 +1132,18 @@ def search_relevant_chunks(
         question=question,
         prompt_limit=MAX_PROMPT_CHUNKS,
     )
+    # 주제-불일치 게이트: 질문의 시설 고유명사와 다른 시설을 다루는 청크를 제거.
+    # 남는 근거가 없으면 상위 파이프라인이 '근거 부족' 폴백으로 깔끔히 거절한다.
+    prompt_candidates, subject_mismatch_dropped = _filter_subject_mismatch(
+        question, prompt_candidates
+    )
+    if subject_mismatch_dropped:
+        logger.info(
+            "[SUBJECT_GATE] dropped=%s remaining=%s question_len=%s",
+            subject_mismatch_dropped,
+            len(prompt_candidates),
+            len(question),
+        )
     keyword_boost_applied = any(bool(item.get("keywordBoostApplied")) for item in ranked)
     noise_penalty_applied = any(bool(item.get("noisePenaltyApplied")) for item in ranked)
     semantic_evidence_applied = any(bool(item.get("semanticEvidenceApplied")) for item in ranked)
