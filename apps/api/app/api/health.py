@@ -18,9 +18,15 @@ router = APIRouter(tags=["health"])
 _PING_TIMEOUT_SECONDS = 1.0
 
 
+# 배포 확인용 마커. 커밋마다 갱신 — /api/health 응답의 build 값으로
+# "이 코드가 실제로 배포됐는지"를 API만으로 확인할 수 있다.
+BUILD_TAG = "2026-07-22-subject-gate"
+
+
 class HealthResponse(ApiSchema):
     status: str
     service: str
+    build: str
 
 
 class ReadyDependencies(ApiSchema):
@@ -76,7 +82,7 @@ def _check_redis() -> str:
 @router.get("/health")
 def health() -> HealthResponse:
     """Liveness — 항상 200 (의존성 무관). 컨테이너 OOM/deadlock 감지용."""
-    return HealthResponse(status="ok", service="ieumbot-api")
+    return HealthResponse(status="ok", service="ieumbot-api", build=BUILD_TAG)
 
 
 @router.get("/health/ready")
