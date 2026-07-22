@@ -154,10 +154,12 @@ function createIconSvg(name: LauncherIconName | "send" | "minimize" | "close" | 
     `;
   }
   if (name === "reset") {
+    // 홈 아이콘 — 클릭 시 대화를 비우고 초기 화면으로 돌아가므로 '처음으로' 의미와 맞다.
     return `
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
-        <path d="M3 3v5h5"/>
+        <path d="m3 10.5 9-7 9 7"/>
+        <path d="M5 9.5V20a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9.5"/>
+        <path d="M9.5 21v-6h5v6"/>
       </svg>
     `;
   }
@@ -994,8 +996,8 @@ export class IeumWidgetApp {
 
     this.headerIconNode.innerHTML = createIconSvg("heart");
     resetButton.type = "button";
-    resetButton.title = "대화 새로 시작";
-    resetButton.setAttribute("aria-label", "대화 새로 시작");
+    resetButton.title = "처음으로";
+    resetButton.setAttribute("aria-label", "처음 화면으로 (대화 새로 시작)");
     resetButton.innerHTML = createIconSvg("reset");
     minimizeButton.type = "button";
     minimizeButton.title = "최소화";
