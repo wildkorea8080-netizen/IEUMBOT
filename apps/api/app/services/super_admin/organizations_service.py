@@ -192,6 +192,7 @@ def list_organizations_service(
             contact_email=org.contact_email,
             contact_phone=org.contact_phone,
             chatbot_count=int(chatbot_count or 0),
+            chatbot_limit=int(getattr(org, "chatbot_limit", 1) or 1),
             contract_status=contract_status,
             created_at=org.created_at.isoformat(),
         )
@@ -366,6 +367,7 @@ def get_organization_detail_service(
         ),
         admin_count=admin_count,
         chatbot_count=chatbot_count,
+        chatbot_limit=int(getattr(row, "chatbot_limit", 1) or 1),
         widget_count=widget_count,
         recent_usage_summary=OrganizationUsageSummary(
             monthly_conversation_count=last_30_days_conversation_count,
@@ -419,6 +421,9 @@ def update_organization_service(
         _validate_status(body.status)
         row.status = body.status
         changed_fields.append("status")
+    if body.chatbot_limit is not None:
+        row.chatbot_limit = int(body.chatbot_limit)
+        changed_fields.append("chatbot_limit")
 
     create_audit_log(
         db,

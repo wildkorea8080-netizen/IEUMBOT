@@ -25,6 +25,7 @@ class SuperAdminOrganizationListItem(ApiSchema):
     contact_email: str | None = None
     contact_phone: str | None = None
     chatbot_count: int = 0
+    chatbot_limit: int = 1
     contract_status: str | None = None
     created_at: str
 
@@ -55,6 +56,8 @@ class SuperAdminOrganizationUpdateRequest(ApiSchema):
     contact_email: str | None = Field(default=None, max_length=255)
     contact_phone: str | None = Field(default=None, max_length=50)
     status: OrganizationStatus | None = None
+    # 챗봇 생성 한도(기관별). 1 이상. None이면 변경하지 않음.
+    chatbot_limit: int | None = Field(default=None, ge=1, le=100)
 
 
 class OrganizationContractSummary(ApiSchema):
@@ -83,6 +86,7 @@ class SuperAdminOrganizationDetailResponse(ApiSchema):
     contract_summary: OrganizationContractSummary
     admin_count: int
     chatbot_count: int
+    chatbot_limit: int = 1
     widget_count: int
     recent_usage_summary: OrganizationUsageSummary
 

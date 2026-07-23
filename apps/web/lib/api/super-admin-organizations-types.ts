@@ -10,6 +10,7 @@ export type SuperAdminOrganizationListItem = {
   contactEmail?: string | null;
   contactPhone?: string | null;
   chatbotCount: number;
+  chatbotLimit: number;
   contractStatus?: string | null;
   createdAt: string;
 };
@@ -47,6 +48,7 @@ export type SuperAdminOrganizationDetail = {
   contractSummary: SuperAdminOrganizationContractSummary;
   adminCount: number;
   chatbotCount: number;
+  chatbotLimit: number;
   widgetCount: number;
   recentUsageSummary: SuperAdminOrganizationUsageSummary;
 };
@@ -61,6 +63,7 @@ export type SuperAdminOrganizationUpsertRequest = {
   contactEmail?: string | null;
   contactPhone?: string | null;
   status: SuperAdminOrganizationStatus;
+  chatbotLimit?: number;
 };
 
 export type SuperAdminOrganizationCreateResponse = SuperAdminOrganizationDetail & {

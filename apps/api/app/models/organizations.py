@@ -1,4 +1,4 @@
-from sqlalchemy import String, Text, UniqueConstraint
+from sqlalchemy import Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -21,6 +21,11 @@ class Organization(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # 관리자 콘솔 좌측 상단에 노출되는 기관 로고. base64 data URL 또는 외부 URL.
     # 미설정(None)이면 기본 '이음봇' 브랜드 마크를 표시한다.
     logo_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 이 기관이 생성할 수 있는 챗봇 최대 개수. 기본 1, 슈퍼관리자가 기관별로 조정.
+    # 챗봇 생성 게이트(check_chatbot_limit)가 이 값을 우선 적용한다.
+    chatbot_limit: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="1", default=1
+    )
 
     admins = relationship("Admin", back_populates="organization")
     chatbot_settings = relationship("ChatbotSetting", back_populates="organization")

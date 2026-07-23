@@ -43,6 +43,7 @@ type FormState = {
   contactEmail: string;
   contactPhone: string;
   status: SuperAdminOrganizationStatus;
+  chatbotLimit: string;
 };
 
 type CreatedAdminCredentials = {
@@ -83,6 +84,7 @@ function mapOrganizationErrorCode(code: string): string | null {
 const EMPTY_FORM: FormState = {
   name: "", code: "", adminEmail: "", adminName: "",
   primaryDomain: "", contactName: "", contactEmail: "", contactPhone: "", status: "active",
+  chatbotLimit: "1",
 };
 
 function getErrorMessage(error: unknown): string {
@@ -98,6 +100,7 @@ function toForm(detail: SuperAdminOrganizationDetail | null): FormState {
     primaryDomain: detail.primaryDomain ?? "", contactName: detail.contactName ?? "",
     contactEmail: detail.contactEmail ?? "", contactPhone: detail.contactPhone ?? "",
     status: detail.status,
+    chatbotLimit: String(detail.chatbotLimit ?? 1),
   };
 }
 
@@ -114,12 +117,14 @@ function toCreateRequest(form: FormState): SuperAdminOrganizationUpsertRequest {
 }
 
 function toUpdateRequest(form: FormState): Partial<SuperAdminOrganizationUpsertRequest> {
+  const parsedLimit = Math.max(1, Math.min(100, Math.trunc(Number(form.chatbotLimit) || 1)));
   return {
     name: form.name.trim(), primaryDomain: form.primaryDomain.trim() || null,
     contactName: form.contactName.trim() || null,
     contactEmail: form.contactEmail.trim() || null,
     contactPhone: form.contactPhone.trim() || null,
     status: form.status,
+    chatbotLimit: parsedLimit,
   };
 }
 
@@ -395,7 +400,7 @@ export function SuperAdminOrganizations() {
                     <StatusBadge tone={statusTone(item.status)}>{item.status}</StatusBadge>
                   </div>
                   <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-600">
-                    <span>챗봇 {item.chatbotCount}</span>
+                    <span>챗봇 {item.chatbotCount}/{item.chatbotLimit}</span>
                     <span>계약 {item.contractStatus || "-"}</span>
                     <span>{item.primaryDomain ?? "도메인 없음"}</span>
                     <span>{formatDate(item.createdAt)}</span>
@@ -479,6 +484,21 @@ export function SuperAdminOrganizations() {
                   <option value="trial">체험</option>
                   <option value="suspended">중지</option>
                 </select>
+              </label>
+              <label className="text-sm text-slate-700">
+                <span className="mb-1 block font-medium">챗봇 생성 한도</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={form.chatbotLimit}
+                  onChange={(e) => setForm((p) => ({ ...p, chatbotLimit: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2"
+                />
+                <span className="mt-1 block text-xs text-slate-400">
+                  이 기관이 만들 수 있는 챗봇 최대 개수 (기본 1)
+                  {selectedId !== "new" && detail ? ` · 현재 ${detail.chatbotCount}개 사용 중` : ""}
+                </span>
               </label>
               <label className="text-sm text-slate-700">
                 <span className="mb-1 block font-medium">관리자 이메일</span>

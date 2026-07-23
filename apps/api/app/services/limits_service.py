@@ -5,7 +5,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.models import ChatSession, ChatbotSetting, Contract, WidgetDeployment
+from app.models import ChatSession, ChatbotSetting, Contract, Organization, WidgetDeployment
 from app.repositories.logs.audit_log_repository import create_audit_log
 from app.services.notification_service import safe_create_notification
 
@@ -174,11 +174,20 @@ def check_chatbot_limit(
         target_id=organization_id,
         admin_id=admin_id,
     )
-    if contract is None or contract.chatbot_limit is None:
+    # 기관별 챗봇 개수 한도는 Organization.chatbot_limit(기본 1)를 우선 적용한다.
+    # 슈퍼관리자가 기관 관리 화면에서 조정하는 값 — 계약(contract)보다 우선.
+    org = db.execute(
+        select(Organization).where(Organization.id == _to_uuid(organization_id))
+    ).scalar_one_or_none()
+    org_limit = getattr(org, "chatbot_limit", None)
+    if org_limit is None:
+        # 안전장치: org 미조회 시 계약 한도로 폴백(기존 동작)
+        org_limit = contract.chatbot_limit if contract else None
+    if org_limit is None:
         return
 
     current_count = _count_chatbots(db, organization_id=organization_id)
-    if current_count >= contract.chatbot_limit:
+    if current_count >= org_limit:
         create_audit_log(
             db,
             organization_id=organization_id,
@@ -191,8 +200,7 @@ def check_chatbot_limit(
             metadata_json={
                 "code": "CHATBOT_LIMIT_EXCEEDED",
                 "currentCount": current_count,
-                "limit": contract.chatbot_limit,
-                "contractId": str(contract.id),
+                "limit": org_limit,
             },
         )
         safe_create_notification(
@@ -202,7 +210,7 @@ def check_chatbot_limit(
             title="Chatbot limit exceeded",
             message="Chatbot creation was blocked because the organization reached its chatbot limit.",
             organization_id=organization_id,
-            metadata={"contractId": str(contract.id), "currentCount": current_count, "limit": contract.chatbot_limit},
+            metadata={"currentCount": current_count, "limit": org_limit},
             dedupe_within_minutes=30,
         )
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="CHATBOT_LIMIT_EXCEEDED")
