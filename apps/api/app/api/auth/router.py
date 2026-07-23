@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.dependencies.auth import (
@@ -8,6 +9,7 @@ from app.api.dependencies.auth import (
 )
 from app.core.security import create_access_token, verify_password
 from app.db import get_db_session
+from app.models.admins import Admin
 from app.repositories.auth.admin_auth_repository import (
     get_active_admin_by_email,
     get_active_admin_by_id,
@@ -31,6 +33,25 @@ def _normalize_admin_role(raw_role: str) -> str:
     return raw_role
 
 
+def _raise_pending_if_applicable(db: Session, email: str, password: str) -> None:
+    """비밀번호가 일치하는 승인 대기 기관사용자면 명확한 안내(403)를 준다.
+
+    비밀번호 검증을 먼저 하므로 계정 존재 여부가 무단 노출되지 않는다.
+    """
+    candidate = db.execute(
+        select(Admin).where(func.lower(Admin.email) == email, Admin.status == "pending")
+    ).scalar_one_or_none()
+    if candidate is None or not candidate.password_hash:
+        return
+    if not verify_password(password, candidate.password_hash):
+        return
+    if candidate.email_verified_at is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="EMAIL_NOT_VERIFIED")
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN, detail="ACCOUNT_PENDING_APPROVAL"
+    )
+
+
 @router.post("/login", response_model=AdminAuthLoginResponse)
 def admin_login(
     body: AdminAuthLoginRequest,
@@ -41,6 +62,9 @@ def admin_login(
 
     # 소셜(OAuth) 전용 계정은 password_hash가 없음 → 비밀번호 로그인 불가(500 방지 + 우회 차단).
     if admin is None or not admin.password_hash or not verify_password(body.password, admin.password_hash):
+        # 활성 계정이 없더라도, 비밀번호가 일치하는 '승인 대기 기관사용자'라면
+        # 명확한 안내를 준다(계정 존재는 비밀번호 확인 후에만 노출 → 열거 공격 방지).
+        _raise_pending_if_applicable(db, normalized_email, body.password)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="INVALID_CREDENTIALS",

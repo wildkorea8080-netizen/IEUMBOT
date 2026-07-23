@@ -42,3 +42,18 @@ class TeamMemberUpdateRequest(ApiSchema):
 class TeamMemberResetPasswordResponse(ApiSchema):
     id: str
     temporary_password: str
+
+
+class PendingMemberItem(ApiSchema):
+    """승인 대기 중인 기관사용자(institution_user, status=pending)."""
+
+    id: str
+    email: str
+    name: str
+    # 이메일 인증 완료 여부 — 인증까지 마친 신청자만 실제로 대기 상태.
+    email_verified: bool = False
+    requested_at: datetime | None = None
+
+
+class PendingMemberListResponse(ApiSchema):
+    items: list[PendingMemberItem]

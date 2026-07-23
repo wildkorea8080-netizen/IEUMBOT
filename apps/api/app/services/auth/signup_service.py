@@ -188,8 +188,11 @@ def signup_service(
 
 
 def verify_email_service(db: Session, *, token: str) -> Admin:
-    """인증 토큰 검증 → 이메일 인증 완료 처리."""
-    _require_enabled()
+    """인증 토큰 검증 → 이메일 인증 완료 처리.
+
+    유효한 토큰 인증은 signup_enabled 여부와 무관하게 허용한다(기관사용자 멤버 가입,
+    가입 후 플래그가 꺼진 경우 등 모두 포함). 신규 계정 '생성'만 각 서비스에서 게이팅.
+    """
     cleaned = (token or "").strip()
     if not cleaned:
         _fail("INVALID_TOKEN", status.HTTP_400_BAD_REQUEST)

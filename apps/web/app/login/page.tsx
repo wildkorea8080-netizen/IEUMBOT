@@ -69,6 +69,7 @@ export default function LoginPage() {
   const [mode, setMode] = useState<"login" | "signup">("login");
   const [signupEnabled, setSignupEnabled] = useState(false);
   const [passwordResetReady, setPasswordResetReady] = useState(false);
+  const [memberSignupReady, setMemberSignupReady] = useState(false);
 
   const nextPath = useMemo(() => searchParams.get("next"), [searchParams]);
   const reasonMessage = useMemo(() => getReasonMessage(searchParams.get("reason")), [searchParams]);
@@ -105,6 +106,7 @@ export default function LoginPage() {
       if (isMounted) {
         setSignupEnabled(config.enabled);
         setPasswordResetReady(config.passwordResetReady);
+        setMemberSignupReady(config.memberSignupReady);
       }
     });
     return () => {
@@ -126,7 +128,9 @@ export default function LoginPage() {
       setAdminAccessToken(response.accessToken);
       router.replace(resolvePostLoginPath(nextPath, response.admin));
     } catch (error) {
-      if (error instanceof ApiClientError && error.code === "EMAIL_NOT_VERIFIED") {
+      if (error instanceof ApiClientError && error.code === "ACCOUNT_PENDING_APPROVAL") {
+        setErrorMessage("가입 신청이 승인 대기 중입니다. 기관관리자의 승인이 완료되면 로그인할 수 있습니다.");
+      } else if (error instanceof ApiClientError && error.code === "EMAIL_NOT_VERIFIED") {
         setErrorMessage("이메일 인증이 완료되지 않았습니다. 받은 인증 메일의 링크를 눌러 주세요.");
       } else if (error instanceof ApiClientError && error.status === 401) {
         setErrorMessage("이메일 또는 비밀번호가 올바르지 않습니다.");
@@ -233,7 +237,16 @@ export default function LoginPage() {
 
         <SnsLoginButtons />
 
-        <p className="mt-6 border-t border-slate-100 pt-5 text-center text-sm text-slate-500">
+        {memberSignupReady ? (
+          <p className="mt-6 border-t border-slate-100 pt-5 text-center text-sm text-slate-500">
+            기관 직원이신가요?{" "}
+            <Link href="/auth/member-signup" className="font-medium text-brand-600 hover:underline">
+              기관사용자 가입 신청
+            </Link>
+          </p>
+        ) : null}
+
+        <p className={`text-center text-sm text-slate-500 ${memberSignupReady ? "mt-3" : "mt-6 border-t border-slate-100 pt-5"}`}>
           기관 단위 도입을 원하시나요?{" "}
           <Link href="/inquiry" className="font-medium text-brand-600 hover:underline">
             도입 문의하기

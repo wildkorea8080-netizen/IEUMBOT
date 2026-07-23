@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session
 from app.api.dependencies.auth import AdminPrincipal, require_institution_admin_auth
 from app.db import get_db_session
 from app.schemas.team import (
+    PendingMemberItem,
+    PendingMemberListResponse,
     TeamMemberCreateRequest,
     TeamMemberCreateResponse,
     TeamMemberItem,
@@ -18,8 +20,11 @@ from app.schemas.team import (
 )
 from app.services.admin.scope_service import require_institution_organization_id
 from app.services.admin.team_service import (
+    approve_member_service,
     create_team_member_service,
+    list_pending_members_service,
     list_team_members_service,
+    reject_member_service,
     reset_team_member_password_service,
     update_team_member_service,
 )
@@ -86,3 +91,35 @@ def reset_team_member_password(
         db, organization_id=organization_id, admin_id=admin_id
     )
     return TeamMemberResetPasswordResponse(id=member_id, temporary_password=temp_password)
+
+
+# ── 기관사용자 가입 승인 (항목 1) ──────────────────────────────────────────────
+
+
+@router.get("/pending-members", response_model=PendingMemberListResponse)
+def list_pending_members(
+    principal: AdminPrincipal = Depends(require_institution_admin_auth),
+    db: Session = Depends(get_db_session),
+) -> PendingMemberListResponse:
+    organization_id = require_institution_organization_id(principal)
+    return list_pending_members_service(db, organization_id=organization_id)
+
+
+@router.post("/pending-members/{admin_id}/approve", response_model=PendingMemberItem)
+def approve_pending_member(
+    admin_id: str,
+    principal: AdminPrincipal = Depends(require_institution_admin_auth),
+    db: Session = Depends(get_db_session),
+) -> PendingMemberItem:
+    organization_id = require_institution_organization_id(principal)
+    return approve_member_service(db, organization_id=organization_id, admin_id=admin_id)
+
+
+@router.post("/pending-members/{admin_id}/reject", status_code=status.HTTP_204_NO_CONTENT)
+def reject_pending_member(
+    admin_id: str,
+    principal: AdminPrincipal = Depends(require_institution_admin_auth),
+    db: Session = Depends(get_db_session),
+) -> None:
+    organization_id = require_institution_organization_id(principal)
+    reject_member_service(db, organization_id=organization_id, admin_id=admin_id)

@@ -4,10 +4,14 @@ import { type FormEvent, useCallback, useEffect, useState } from "react";
 
 import { ApiClientError, apiClient } from "../../lib/api";
 import {
+  approvePendingMember,
   createTeamMember,
+  getPendingMembers,
   getTeamMembers,
+  rejectPendingMember,
   resetTeamMemberPassword,
   updateTeamMember,
+  type PendingMember,
   type TeamMember,
 } from "../../lib/api/team-operations";
 
@@ -86,17 +90,21 @@ export function TeamManagement() {
   const [submitting, setSubmitting] = useState(false);
   const [credential, setCredential] = useState<IssuedCredential | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [pending, setPending] = useState<PendingMember[]>([]);
+  const [pendingBusyId, setPendingBusyId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [list, me] = await Promise.all([
+      const [list, me, pendingList] = await Promise.all([
         getTeamMembers(),
         apiClient.request<{ admin: { id: string } }>("/admin/auth/me").catch(() => null),
+        getPendingMembers().catch(() => []),
       ]);
       setMembers(list);
       setMyId(me?.admin.id ?? null);
+      setPending(pendingList);
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : "관리자 목록을 불러오지 못했습니다.");
     } finally {
@@ -107,6 +115,35 @@ export function TeamManagement() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const handleApprove = async (id: string) => {
+    setPendingBusyId(id);
+    setError(null);
+    try {
+      await approvePendingMember(id);
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : "승인에 실패했습니다.");
+    } finally {
+      setPendingBusyId(null);
+    }
+  };
+
+  const handleReject = async (id: string, email: string) => {
+    if (!window.confirm(`${email} 님의 가입 신청을 거부하시겠습니까? 신청 정보가 삭제됩니다.`)) {
+      return;
+    }
+    setPendingBusyId(id);
+    setError(null);
+    try {
+      await rejectPendingMember(id);
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : "거부 처리에 실패했습니다.");
+    } finally {
+      setPendingBusyId(null);
+    }
+  };
 
   const handleCreate = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -186,6 +223,57 @@ export function TeamManagement() {
 
       {error ? (
         <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
+      ) : null}
+
+      {pending.length > 0 ? (
+        <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-4">
+          <h2 className="text-sm font-semibold text-amber-900">
+            가입 승인 대기 <span className="ml-1 rounded-full bg-amber-200 px-2 py-0.5 text-xs">{pending.length}</span>
+          </h2>
+          <p className="mt-1 text-xs text-amber-800">
+            기관 코드로 가입 신청한 기관사용자입니다. 승인하면 로그인할 수 있습니다.
+          </p>
+          <ul className="mt-3 space-y-2">
+            {pending.map((p) => (
+              <li
+                key={p.id}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-200 bg-white px-3 py-2.5"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-slate-800">{p.email}</p>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    신청 {formatDateTime(p.requestedAt)}
+                    {" · "}
+                    {p.emailVerified ? (
+                      <span className="text-emerald-600">이메일 인증 완료</span>
+                    ) : (
+                      <span className="text-amber-600">이메일 인증 대기</span>
+                    )}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={pendingBusyId === p.id || !p.emailVerified}
+                    title={!p.emailVerified ? "이메일 인증 완료 후 승인할 수 있습니다." : undefined}
+                    onClick={() => void handleApprove(p.id)}
+                    className="rounded-md bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {pendingBusyId === p.id ? "처리 중..." : "승인"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={pendingBusyId === p.id}
+                    onClick={() => void handleReject(p.id, p.email)}
+                    className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    거부
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
       ) : null}
 
       {showAdd ? (

@@ -15,6 +15,8 @@ from app.core.config import settings
 from app.db import get_db_session
 from app.schemas.signup import (
     ForgotPasswordRequest,
+    MemberSignupRequest,
+    MemberSignupResponse,
     ResendVerificationRequest,
     ResetPasswordRequest,
     ResetPasswordResponse,
@@ -24,6 +26,7 @@ from app.schemas.signup import (
     VerifyEmailRequest,
     VerifyEmailResponse,
 )
+from app.services.auth.member_signup_service import member_signup_service
 from app.services.auth.password_reset_service import (
     request_password_reset_service,
     reset_password_service,
@@ -46,6 +49,31 @@ def signup_config() -> SignupConfigResponse:
         email_delivery_ready=email_ready,
         # 재설정 링크를 메일로 보내야 하므로 SMTP 설정이 곧 가용 조건.
         password_reset_ready=email_ready,
+        # 기관사용자 가입도 인증메일이 필요하므로 SMTP 설정 여부와 동일.
+        member_signup_ready=email_ready,
+    )
+
+
+@router.post(
+    "/signup/member", response_model=MemberSignupResponse, status_code=status.HTTP_201_CREATED
+)
+def member_signup(
+    body: MemberSignupRequest,
+    request: Request,
+    db: Session = Depends(get_db_session),
+) -> MemberSignupResponse:
+    """기관사용자 가입 신청 — 기관 코드로 기존 기관에 합류(승인 대기)."""
+    client_ip = request.client.host if request.client else None
+    admin, org, sent = member_signup_service(
+        db,
+        email=body.email,
+        password=body.password,
+        org_code=body.org_code,
+        terms_agreed=body.terms_agreed,
+        client_ip=client_ip,
+    )
+    return MemberSignupResponse(
+        email=admin.email, organization_name=org.name, verification_sent=sent
     )
 
 

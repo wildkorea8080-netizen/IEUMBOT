@@ -20,7 +20,7 @@ _PING_TIMEOUT_SECONDS = 1.0
 
 # 배포 확인용 마커. 커밋마다 갱신 — /api/health 응답의 build 값으로
 # "이 코드가 실제로 배포됐는지"를 API만으로 확인할 수 있다.
-BUILD_TAG = "2026-07-23-chatbot-limit"
+BUILD_TAG = "2026-07-23-member-signup"
 
 
 class HealthResponse(ApiSchema):

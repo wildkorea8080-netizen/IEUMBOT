@@ -22,6 +22,8 @@ from app.repositories.super_admin.admins_contracts_repository import (
     list_admins_by_organization,
 )
 from app.schemas.team import (
+    PendingMemberItem,
+    PendingMemberListResponse,
     TeamMemberCreateRequest,
     TeamMemberItem,
     TeamMemberListResponse,
@@ -29,6 +31,9 @@ from app.schemas.team import (
 )
 
 logger = logging.getLogger(__name__)
+
+_INSTITUTION_USER_ROLE = "institution_user"
+_PENDING_STATUS = "pending"
 
 _INSTITUTION_ADMIN_ROLE = "institution_admin"
 _ALLOWED_STATUS = {"active", "inactive"}
@@ -169,3 +174,62 @@ def reset_team_member_password_service(
     row.must_change_password = True
     db.commit()
     return str(row.id), temp_password
+
+
+# ── 기관사용자 가입 승인 (항목 1) ──────────────────────────────────────────────
+
+
+def _get_scoped_pending_member(db: Session, *, organization_id: str, admin_id: str) -> Admin:
+    """자기 기관 소속의 '승인 대기 기관사용자'만 반환(테넌트 격리 + 역할/상태 가드)."""
+    row = _get_scoped_member(db, organization_id=organization_id, admin_id=admin_id)
+    if row.role != _INSTITUTION_USER_ROLE or row.status != _PENDING_STATUS:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="PENDING_MEMBER_NOT_FOUND")
+    return row
+
+
+def list_pending_members_service(
+    db: Session, *, organization_id: str
+) -> PendingMemberListResponse:
+    """승인 대기 중인 기관사용자 목록(이메일 인증 여부 포함)."""
+    rows = [
+        row
+        for row in list_admins_by_organization(db, organization_id=organization_id)
+        if row.role == _INSTITUTION_USER_ROLE and row.status == _PENDING_STATUS
+    ]
+    items = [
+        PendingMemberItem(
+            id=str(row.id),
+            email=row.email,
+            name=row.name,
+            email_verified=row.email_verified_at is not None,
+            requested_at=getattr(row, "created_at", None),
+        )
+        for row in rows
+    ]
+    return PendingMemberListResponse(items=items)
+
+
+def approve_member_service(
+    db: Session, *, organization_id: str, admin_id: str
+) -> PendingMemberItem:
+    """가입 신청 승인 → status="active"(로그인 가능)."""
+    row = _get_scoped_pending_member(db, organization_id=organization_id, admin_id=admin_id)
+    row.status = "active"
+    db.commit()
+    db.refresh(row)
+    logger.info("[MEMBER_APPROVE] org=%s admin=%s approved", organization_id, admin_id)
+    return PendingMemberItem(
+        id=str(row.id),
+        email=row.email,
+        name=row.name,
+        email_verified=row.email_verified_at is not None,
+        requested_at=getattr(row, "created_at", None),
+    )
+
+
+def reject_member_service(db: Session, *, organization_id: str, admin_id: str) -> None:
+    """가입 신청 거부 → 계정 삭제(이메일 재사용 가능하도록). 대기 계정만 삭제 가능."""
+    row = _get_scoped_pending_member(db, organization_id=organization_id, admin_id=admin_id)
+    db.delete(row)
+    db.commit()
+    logger.info("[MEMBER_REJECT] org=%s admin=%s rejected(deleted)", organization_id, admin_id)

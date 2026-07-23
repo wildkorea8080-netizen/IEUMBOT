@@ -4,6 +4,7 @@ export type SignupConfig = {
   enabled: boolean;
   emailDeliveryReady: boolean;
   passwordResetReady: boolean;
+  memberSignupReady: boolean;
 };
 
 /** 회원가입·비밀번호 찾기 가용 여부(비활성이면 UI 자체를 숨김). */
@@ -11,7 +12,38 @@ export async function getSignupConfig(): Promise<SignupConfig> {
   try {
     return await apiClient.request<SignupConfig>("/auth/signup/config");
   } catch {
-    return { enabled: false, emailDeliveryReady: false, passwordResetReady: false };
+    return {
+      enabled: false,
+      emailDeliveryReady: false,
+      passwordResetReady: false,
+      memberSignupReady: false,
+    };
+  }
+}
+
+/** 기관사용자(멤버) 가입 신청 — 기관 코드로 기존 기관에 합류(승인 대기). */
+export async function memberSignup(input: {
+  email: string;
+  password: string;
+  orgCode: string;
+  termsAgreed: boolean;
+}): Promise<{ email: string; organizationName: string; verificationSent: boolean }> {
+  return apiClient.request("/auth/signup/member", { method: "POST", body: input });
+}
+
+/** 멤버 가입 관련 에러 코드 → 사용자 문구. */
+export function memberSignupErrorMessage(code: string | undefined): string {
+  switch (code) {
+    case "ORG_CODE_REQUIRED":
+      return "기관 코드를 입력해 주세요.";
+    case "ORG_NOT_FOUND":
+      return "해당 기관 코드를 찾을 수 없습니다. 기관관리자에게 코드를 확인해 주세요.";
+    case "ORG_NOT_AVAILABLE":
+      return "현재 가입할 수 없는 기관입니다. 기관관리자에게 문의해 주세요.";
+    case "MEMBER_SIGNUP_DISABLED":
+      return "현재 기관사용자 가입이 열려 있지 않습니다.";
+    default:
+      return signupErrorMessage(code);
   }
 }
 

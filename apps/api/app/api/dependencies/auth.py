@@ -13,6 +13,8 @@ bearer_scheme = HTTPBearer(auto_error=False)
 SUPER_ADMIN_ROLE = "super_admin"
 INSTITUTION_ADMIN_ROLE = "institution_admin"
 LEGACY_INSTITUTION_ADMIN_ROLE = "admin"
+# 기관사용자(제한 멤버). 승인 후 로그인 가능하나, 메뉴 접근 권한은 항목 5(RBAC)에서 부여.
+INSTITUTION_USER_ROLE = "institution_user"
 ALLOWED_ADMIN_ROLES = {SUPER_ADMIN_ROLE, INSTITUTION_ADMIN_ROLE, LEGACY_INSTITUTION_ADMIN_ROLE}
 
 

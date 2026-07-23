@@ -52,3 +52,28 @@ export async function resetTeamMemberPassword(
     { method: "POST" },
   );
 }
+
+// ── 기관사용자 가입 승인 ──────────────────────────────────────────
+
+export type PendingMember = {
+  id: string;
+  email: string;
+  name: string;
+  emailVerified: boolean;
+  requestedAt: string | null;
+};
+
+export async function getPendingMembers(): Promise<PendingMember[]> {
+  const res = await apiClient.request<{ items: PendingMember[] }>("/admin/team/pending-members");
+  return res.items ?? [];
+}
+
+export async function approvePendingMember(id: string): Promise<PendingMember> {
+  return apiClient.request<PendingMember>(`/admin/team/pending-members/${id}/approve`, {
+    method: "POST",
+  });
+}
+
+export async function rejectPendingMember(id: string): Promise<void> {
+  await apiClient.request<void>(`/admin/team/pending-members/${id}/reject`, { method: "POST" });
+}
