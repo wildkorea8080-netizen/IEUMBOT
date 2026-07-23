@@ -18,6 +18,7 @@ from app.api.admin.knowledge_sync_router import router as knowledge_sync_router
 from app.api.admin.logs_router import router as admin_logs_router
 from app.api.admin.notifications_router import router as notifications_router
 from app.api.admin.operations_router import router as operations_router
+from app.api.admin.organization_router import router as organization_router
 from app.api.admin.search_control_router import router as search_control_router
 from app.api.admin.security_events_router import router as security_events_router
 from app.api.admin.security_router import router as security_router
@@ -52,6 +53,7 @@ router.include_router(knowledge_sync_router)
 router.include_router(security_events_router)
 router.include_router(unanswered_router)
 router.include_router(team_router)
+router.include_router(organization_router)
 
 
 @router.get("/ping")

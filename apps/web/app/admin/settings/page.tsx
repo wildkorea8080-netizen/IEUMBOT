@@ -1,10 +1,15 @@
 import Link from "next/link";
 
+import { OrgLogoSettings } from "../../../components/admin/org-logo-settings";
 import { PagePanel } from "../../../components/ui/page-panel";
 
 export default function SettingsPage() {
   return (
     <div className="space-y-4">
+      <PagePanel title="기관 로고" description="관리자 콘솔 좌측 상단에 표시할 기관 로고를 등록합니다.">
+        <OrgLogoSettings />
+      </PagePanel>
+
       <PagePanel title="계정 설정" description="관리자 계정 보안 설정을 관리합니다.">
         <Link
           href="/admin/change-password"

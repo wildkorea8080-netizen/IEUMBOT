@@ -24,6 +24,11 @@ import {
 } from "../../lib/admin-ui/setup-status";
 import { getAdminChatbots } from "../../lib/api/admin-operations";
 import { getAdminInstallGuide } from "../../lib/api/install-guide";
+import {
+  getOrganizationBranding,
+  ORG_BRANDING_EVENT,
+  type OrganizationBranding,
+} from "../../lib/api/organization";
 import { apiClient } from "../../lib/api";
 import { clearAdminAccessToken } from "../../lib/auth/token";
 import { useRouter } from "next/navigation";
@@ -53,6 +58,28 @@ export function AdminSidebar() {
   const router = useRouter();
   const [selectedChatbot, setSelectedChatbot] = useState<SelectedAdminChatbot | null>(null);
   const [setupStatus, setSetupStatus] = useState<SetupStatus>({});
+  const [branding, setBranding] = useState<OrganizationBranding | null>(null);
+
+  // 기관 로고 — 최초 1회 조회 + 설정 페이지에서 변경 시 즉시 반영
+  useEffect(() => {
+    let mounted = true;
+    void getOrganizationBranding()
+      .then((res) => {
+        if (mounted) setBranding(res);
+      })
+      .catch(() => {
+        /* 미인증/오류 시 기본 마크 유지 */
+      });
+    const onUpdate = (event: Event) => {
+      const detail = (event as CustomEvent<OrganizationBranding>).detail;
+      if (detail) setBranding(detail);
+    };
+    window.addEventListener(ORG_BRANDING_EVENT, onUpdate);
+    return () => {
+      mounted = false;
+      window.removeEventListener(ORG_BRANDING_EVENT, onUpdate);
+    };
+  }, []);
 
   useEffect(() => {
     function sync() {
@@ -114,27 +141,36 @@ export function AdminSidebar() {
       className="hidden lg:flex flex-col shrink-0 sticky top-0 h-screen overflow-y-auto"
       style={{ width: 232, background: "#fff", borderRight: "1px solid #f0f0f0" }}
     >
-      {/* 로고 — 플래니 스타일: 파란 배경 + 흰 텍스트 */}
+      {/* 로고 — 기관 로고가 있으면 그것으로 교체, 없으면 기본 이음봇 마크 */}
       <div
         className="flex items-center shrink-0"
         style={{
-          height: 60, padding: "0 20px",
-          background: "#2563eb",
+          height: 60, padding: "0 16px",
+          background: branding?.logoUrl ? "#fff" : "#2563eb",
+          borderBottom: branding?.logoUrl ? "1px solid #f0f0f0" : "none",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <div style={{
-            width: 28, height: 28, borderRadius: 8,
-            background: "rgba(255,255,255,0.2)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: 14, fontWeight: 900, color: "#fff",
-          }}>
-            이
+        {branding?.logoUrl ? (
+          <img
+            src={branding.logoUrl}
+            alt={branding.organizationName || "기관 로고"}
+            style={{ maxHeight: 40, maxWidth: 180, objectFit: "contain" }}
+          />
+        ) : (
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{
+              width: 28, height: 28, borderRadius: 8,
+              background: "rgba(255,255,255,0.2)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 14, fontWeight: 900, color: "#fff",
+            }}>
+              이
+            </div>
+            <span style={{ fontSize: 16, fontWeight: 800, color: "#fff", letterSpacing: "-0.02em" }}>
+              이음봇
+            </span>
           </div>
-          <span style={{ fontSize: 16, fontWeight: 800, color: "#fff", letterSpacing: "-0.02em" }}>
-            이음봇
-          </span>
-        </div>
+        )}
       </div>
 
       {/* 챗봇 선택기 — 플래니 스타일 */}
