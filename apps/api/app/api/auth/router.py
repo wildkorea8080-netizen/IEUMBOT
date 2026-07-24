@@ -45,7 +45,8 @@ def _raise_pending_if_applicable(db: Session, email: str, password: str) -> None
         return
     if not verify_password(password, candidate.password_hash):
         return
-    if candidate.email_verified_at is None:
+    # 이메일 인증 토큰이 실제로 발급된 경우에만 인증 안내(SMTP 미설정 멤버는 토큰이 없음).
+    if candidate.verification_token_hash and candidate.email_verified_at is None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="EMAIL_NOT_VERIFIED")
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN, detail="ACCOUNT_PENDING_APPROVAL"

@@ -10,7 +10,7 @@
 import logging
 from datetime import UTC, datetime
 
-from fastapi import HTTPException, status
+from fastapi import status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -34,12 +34,6 @@ MEMBER_PENDING_STATUS = "pending"
 MEMBER_REJECTED_STATUS = "rejected"
 
 
-def _require_email_ready() -> None:
-    # 멤버 가입은 이메일 인증이 필수 → SMTP 미설정이면 기능 자체를 비활성.
-    if not email_is_configured():
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="MEMBER_SIGNUP_DISABLED")
-
-
 def member_signup_service(
     db: Session,
     *,
@@ -51,9 +45,10 @@ def member_signup_service(
 ) -> tuple[Admin, Organization, bool]:
     """기관사용자 가입 신청 → (생성된 계정, 소속 기관, 인증메일 발송 여부).
 
-    계정은 status="pending"으로 생성되어 기관관리자 승인 전에는 로그인할 수 없다.
+    계정은 status="pending"으로 생성되어 기관관리자 '승인' 전에는 로그인할 수 없다.
+    실질 게이트는 관리자 승인이며, 이메일 인증은 SMTP가 설정된 경우에만 부가로 진행한다
+    (SMTP 미설정이어도 가입·승인 흐름은 정상 동작).
     """
-    _require_email_ready()
     if not terms_agreed:
         _fail("TERMS_NOT_AGREED")
 
@@ -95,16 +90,21 @@ def member_signup_service(
         must_change_password=False,
         terms_agreed_at=datetime.now(UTC),
     )
-    token = _issue_verification_token(admin)
+    # SMTP가 설정된 경우에만 이메일 인증 토큰 발급 + 메일 발송.
+    # 미설정이면 인증 단계를 건너뛴다(verification_token_hash=None → 로그인
+    # 시 EMAIL_NOT_VERIFIED 가드에 걸리지 않음; status=pending 승인 게이트만 유지).
+    email_ready = email_is_configured()
+    token = _issue_verification_token(admin) if email_ready else None
     db.add(admin)
     db.commit()
     db.refresh(admin)
 
-    sent = _send_verification_email(email=normalized_email, token=token)
+    sent = _send_verification_email(email=normalized_email, token=token) if token else False
     logger.info(
-        "[MEMBER_SIGNUP] pending account org=%s admin=%s verification_sent=%s",
+        "[MEMBER_SIGNUP] pending account org=%s admin=%s email_ready=%s verification_sent=%s",
         org.id,
         admin.id,
+        email_ready,
         sent,
     )
     return admin, org, sent

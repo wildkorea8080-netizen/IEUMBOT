@@ -243,19 +243,15 @@ export function TeamManagement() {
                   <p className="truncate text-sm font-medium text-slate-800">{p.email}</p>
                   <p className="mt-0.5 text-xs text-slate-500">
                     신청 {formatDateTime(p.requestedAt)}
-                    {" · "}
                     {p.emailVerified ? (
-                      <span className="text-emerald-600">이메일 인증 완료</span>
-                    ) : (
-                      <span className="text-amber-600">이메일 인증 대기</span>
-                    )}
+                      <span className="text-emerald-600">{" · 이메일 인증 완료"}</span>
+                    ) : null}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    disabled={pendingBusyId === p.id || !p.emailVerified}
-                    title={!p.emailVerified ? "이메일 인증 완료 후 승인할 수 있습니다." : undefined}
+                    disabled={pendingBusyId === p.id}
                     onClick={() => void handleApprove(p.id)}
                     className="rounded-md bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
                   >

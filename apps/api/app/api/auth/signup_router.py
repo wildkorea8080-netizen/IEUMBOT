@@ -49,8 +49,9 @@ def signup_config() -> SignupConfigResponse:
         email_delivery_ready=email_ready,
         # 재설정 링크를 메일로 보내야 하므로 SMTP 설정이 곧 가용 조건.
         password_reset_ready=email_ready,
-        # 기관사용자 가입도 인증메일이 필요하므로 SMTP 설정 여부와 동일.
-        member_signup_ready=email_ready,
+        # 기관사용자 가입은 관리자 승인이 게이트이므로 SMTP와 무관하게 항상 가능.
+        # (SMTP가 있으면 이메일 인증도 부가로 진행)
+        member_signup_ready=True,
     )
 
 

@@ -98,33 +98,40 @@ export default function MemberSignupPage() {
               ✉️
             </div>
             <h1 className="mt-4 text-lg font-semibold text-slate-900">가입 신청이 접수되었습니다</h1>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
-              <span className="font-medium text-slate-800">{done.org}</span>에 가입 신청되었습니다.
-              <br />
-              1) <span className="font-medium text-slate-800">{done.email}</span> 으로 보낸 인증
-              메일로 이메일을 인증하고,
-              <br />
-              2) 기관관리자의 <span className="font-medium text-slate-800">승인</span>이 완료되면
-              로그인할 수 있습니다.
-            </p>
-
-            {!done.sent ? (
-              <p className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                인증 메일 발송에 실패했습니다. 잠시 후 재발송하거나 기관관리자에게 문의해 주세요.
+            {done.sent ? (
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                <span className="font-medium text-slate-800">{done.org}</span>에 가입 신청되었습니다.
+                <br />
+                1) <span className="font-medium text-slate-800">{done.email}</span> 으로 보낸 인증
+                메일로 이메일을 인증하고,
+                <br />
+                2) 기관관리자의 <span className="font-medium text-slate-800">승인</span>이 완료되면
+                로그인할 수 있습니다.
               </p>
-            ) : null}
+            ) : (
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                <span className="font-medium text-slate-800">{done.org}</span>에{" "}
+                <span className="font-medium text-slate-800">{done.email}</span> 계정으로 가입
+                신청되었습니다.
+                <br />
+                기관관리자의 <span className="font-medium text-slate-800">승인</span>이 완료되면
+                로그인할 수 있습니다.
+              </p>
+            )}
 
             <div className="mt-5 flex flex-col items-center gap-2">
-              <button
-                type="button"
-                onClick={async () => {
-                  await resendVerification(done.email);
-                  setResendState("sent");
-                }}
-                className="text-sm font-medium text-brand-600 hover:underline"
-              >
-                {resendState === "sent" ? "재발송했습니다" : "인증 메일 재발송"}
-              </button>
+              {done.sent ? (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await resendVerification(done.email);
+                    setResendState("sent");
+                  }}
+                  className="text-sm font-medium text-brand-600 hover:underline"
+                >
+                  {resendState === "sent" ? "재발송했습니다" : "인증 메일 재발송"}
+                </button>
+              ) : null}
               <Link href="/login" className="text-sm text-slate-500 hover:text-slate-700">
                 로그인 화면으로
               </Link>

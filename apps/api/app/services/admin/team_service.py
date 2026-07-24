@@ -110,6 +110,10 @@ def create_team_member_service(
         password_hash=hash_password(temp_password),
         must_change_password=True,
     )
+    # create_admin은 flush만 하므로 여기서 커밋해야 실제로 저장된다.
+    # (get_db_session은 자동 커밋하지 않음 — 커밋 없으면 요청 종료 시 롤백됨)
+    db.commit()
+    db.refresh(row)
     logger.info(
         "[TEAM] member created org=%s by=%s new_admin=%s", organization_id, actor_admin_id, row.id
     )
