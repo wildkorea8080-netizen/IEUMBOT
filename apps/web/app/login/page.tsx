@@ -23,6 +23,9 @@ function getReasonMessage(reason: string | null): string | null {
   if (reason === "authFailed") {
     return "인증 확인에 실패했습니다. 다시 로그인해 주세요.";
   }
+  if (reason === "idleTimeout") {
+    return "장시간 활동이 없어 자동 로그아웃되었습니다. 다시 로그인해 주세요.";
+  }
   return null;
 }
 

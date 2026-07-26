@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 
+import { IdleLogout } from "../auth/idle-logout";
 import { SuperAdminHeader } from "./super-admin-header";
 import { SuperAdminSidebar } from "./super-admin-sidebar";
 import { SystemStatusBanner } from "./system-status-banner";
@@ -11,6 +12,7 @@ type SuperAdminShellProps = {
 export function SuperAdminShell({ children }: SuperAdminShellProps) {
   return (
     <div className="flex min-h-screen bg-transparent">
+      <IdleLogout />
       <SuperAdminSidebar />
       <div className="flex min-h-screen min-w-0 flex-1 flex-col">
         <SuperAdminHeader />

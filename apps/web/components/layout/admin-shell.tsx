@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 
+import { IdleLogout } from "../auth/idle-logout";
 import { AdminHeader } from "./admin-header";
 import { AdminSidebar } from "./admin-sidebar";
 import { SystemStatusBanner } from "./system-status-banner";
@@ -11,6 +12,7 @@ type AdminShellProps = {
 export function AdminShell({ children }: AdminShellProps) {
   return (
     <div className="flex min-h-screen bg-transparent">
+      <IdleLogout />
       <AdminSidebar />
       <div className="flex min-h-screen min-w-0 flex-1 flex-col">
         <AdminHeader />
