@@ -9,7 +9,7 @@ type AdminLayoutProps = {
 
 export default function AdminLayout({ children }: AdminLayoutProps) {
   return (
-    <AdminAuthGuard allowedRoles={["institution_admin"]}>
+    <AdminAuthGuard allowedRoles={["institution_admin", "institution_user"]}>
       <AdminShell>{children}</AdminShell>
     </AdminAuthGuard>
   );

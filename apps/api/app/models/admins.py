@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, UniqueConstraint
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -26,6 +26,9 @@ class Admin(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     role: Mapped[str] = mapped_column(String(30), nullable=False, default="institution_admin")
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="active")
+    # 기관사용자(institution_user)가 접근할 수 있는 메뉴 키 목록. JSON 배열.
+    # institution_admin/super_admin에게는 무시(전체 접근). None/빈 배열이면 접근 메뉴 없음.
+    menu_permissions: Mapped[list | None] = mapped_column(JSON, nullable=True)
     # 소셜(OAuth) 계정은 비밀번호가 없으므로 nullable.
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # 인증 수단: "local"(이메일+비번) | "google" | "kakao" | "naver"

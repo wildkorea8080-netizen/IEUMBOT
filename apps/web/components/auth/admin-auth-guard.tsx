@@ -11,6 +11,7 @@ import {
   readAdminImpersonation,
 } from "../../lib/auth/token";
 import type { AdminRole, AdminSummary } from "../../lib/auth/types";
+import { firstPermittedHref, memberCanAccessHref } from "../../lib/admin-ui/menu-permissions";
 
 type AdminAuthGuardProps = {
   children: ReactNode;
@@ -25,11 +26,24 @@ function getDefaultPathByRole(role: AdminRole): string {
   if (role === "super_admin") {
     return "/super-admin/dashboard";
   }
+  if (role === "institution_user") {
+    return "/admin/no-access";
+  }
   return "/admin/dashboard";
+}
+
+// 기관사용자는 권한 없는 페이지 접근 시 첫 허용 메뉴(없으면 권한없음 화면)로 보낸다.
+function memberLandingPath(permissions: string[]): string {
+  return firstPermittedHref(permissions) ?? "/admin/no-access";
 }
 
 function isPasswordChangePath(pathname: string): boolean {
   return pathname === "/admin/change-password";
+}
+
+// 권한 없음 화면은 기관사용자라면 언제나 접근 가능(막다른 곳 방지).
+function isAlwaysAllowedMemberPath(pathname: string): boolean {
+  return pathname === "/admin/no-access" || isPasswordChangePath(pathname);
 }
 
 export function AdminAuthGuard({ children, allowedRoles }: AdminAuthGuardProps) {
@@ -51,7 +65,11 @@ export function AdminAuthGuard({ children, allowedRoles }: AdminAuthGuardProps) 
         const response = await apiClient.request<AdminMeResponse>("/admin/auth/me");
         const role = response.admin.role;
         if (allowedRoles && !allowedRoles.includes(role)) {
-          router.replace(getDefaultPathByRole(role));
+          if (role === "institution_user") {
+            router.replace(memberLandingPath(response.admin.menuPermissions ?? []));
+          } else {
+            router.replace(getDefaultPathByRole(role));
+          }
           return;
         }
         if (
@@ -61,6 +79,14 @@ export function AdminAuthGuard({ children, allowedRoles }: AdminAuthGuardProps) 
         ) {
           router.replace("/admin/change-password");
           return;
+        }
+        // 기관사용자: 부여된 메뉴만 접근 허용. 권한 없는 경로면 첫 허용 메뉴로.
+        if (role === "institution_user" && !isAlwaysAllowedMemberPath(pathname)) {
+          const perms = response.admin.menuPermissions ?? [];
+          if (!memberCanAccessHref(pathname, perms)) {
+            router.replace(memberLandingPath(perms));
+            return;
+          }
         }
         if (isMounted) {
           setIsReady(true);

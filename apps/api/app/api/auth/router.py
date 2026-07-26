@@ -97,6 +97,7 @@ def admin_login(
             name=admin.name,
             role=normalized_role,
             must_change_password=admin.must_change_password,
+            menu_permissions=list(admin.menu_permissions or []),
         ),
     )
 
@@ -120,6 +121,7 @@ def admin_me(
             name=admin.name,
             role=principal.role,
             must_change_password=admin.must_change_password,
+            menu_permissions=list(admin.menu_permissions or []),
             effective_role=("super_admin_impersonating" if principal.is_impersonating else principal.role),
             is_impersonating=principal.is_impersonating,
             impersonated_by_admin_id=principal.impersonated_by_admin_id,

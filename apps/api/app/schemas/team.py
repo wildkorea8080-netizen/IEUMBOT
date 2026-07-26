@@ -15,6 +15,12 @@ class TeamMemberItem(ApiSchema):
     auth_provider: str = "local"
     last_login_at: datetime | None = None
     created_at: datetime | None = None
+    # 기관사용자(institution_user)의 접근 가능 메뉴 키. 관리자는 빈 배열(전체 접근).
+    menu_permissions: list[str] = []
+
+
+class MemberPermissionsUpdateRequest(ApiSchema):
+    menu_permissions: list[str] = Field(default_factory=list)
 
 
 class TeamMemberListResponse(ApiSchema):

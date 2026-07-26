@@ -10,6 +10,7 @@ import type { AdminLoginResponse, AdminRole, AdminSummary } from "../../lib/auth
 import { SnsLoginButtons } from "../../components/auth/sns-login-buttons";
 import { SignupForm } from "../../components/auth/signup-form";
 import { getSignupConfig } from "../../lib/api/signup-operations";
+import { firstPermittedHref, memberCanAccessHref } from "../../lib/admin-ui/menu-permissions";
 
 type AdminMeResponse = {
   admin: AdminSummary;
@@ -55,6 +56,13 @@ function resolveRedirectPath(nextPath: string | null, role: AdminRole): string {
 function resolvePostLoginPath(nextPath: string | null, admin: AdminSummary): string {
   if (admin.role === "institution_admin" && admin.mustChangePassword === true) {
     return "/admin/change-password";
+  }
+  if (admin.role === "institution_user") {
+    const perms = admin.menuPermissions ?? [];
+    if (nextPath && nextPath.startsWith("/admin") && memberCanAccessHref(nextPath, perms)) {
+      return nextPath;
+    }
+    return firstPermittedHref(perms) ?? "/admin/no-access";
   }
   return resolveRedirectPath(nextPath, admin.role);
 }

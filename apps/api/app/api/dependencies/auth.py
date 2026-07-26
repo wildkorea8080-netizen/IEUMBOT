@@ -79,12 +79,13 @@ def require_admin_auth(
     normalized_source_role = (
         INSTITUTION_ADMIN_ROLE if str(admin.role) == LEGACY_INSTITUTION_ADMIN_ROLE else str(admin.role)
     )
-    if normalized_token_role not in {SUPER_ADMIN_ROLE, INSTITUTION_ADMIN_ROLE}:
+    _accepted_roles = {SUPER_ADMIN_ROLE, INSTITUTION_ADMIN_ROLE, INSTITUTION_USER_ROLE}
+    if normalized_token_role not in _accepted_roles:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="UNSUPPORTED_ADMIN_ROLE",
         )
-    if normalized_source_role not in {SUPER_ADMIN_ROLE, INSTITUTION_ADMIN_ROLE}:
+    if normalized_source_role not in _accepted_roles:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="UNSUPPORTED_ADMIN_ROLE",
@@ -117,7 +118,8 @@ def require_admin_auth(
             ),
         )
 
-    if normalized_token_role == INSTITUTION_ADMIN_ROLE and not organization_id:
+    # 기관 소속 역할(관리자·사용자)은 반드시 org scope가 있어야 한다.
+    if normalized_token_role in {INSTITUTION_ADMIN_ROLE, INSTITUTION_USER_ROLE} and not organization_id:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="MISSING_ORGANIZATION_SCOPE",
@@ -136,6 +138,24 @@ def require_admin_auth(
 def require_institution_admin_auth(
     principal: AdminPrincipal = Depends(require_admin_auth),
 ) -> AdminPrincipal:
+    """기관 스코프 접근. 기관관리자(institution_admin) + 기관사용자(institution_user) 허용.
+
+    기관사용자의 '메뉴별' 접근 제한은 프론트엔드가 제어하며, 관리자 전용 기능
+    (관리자 관리·기관 설정 쓰기 등)은 require_institution_admin_strict로 별도 차단한다.
+    super_admin은 대리접속(impersonation) 시 institution_admin 역할로 들어온다.
+    """
+    if principal.role not in {INSTITUTION_ADMIN_ROLE, INSTITUTION_USER_ROLE}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="INSTITUTION_ADMIN_ROLE_REQUIRED",
+        )
+    return principal
+
+
+def require_institution_admin_strict(
+    principal: AdminPrincipal = Depends(require_admin_auth),
+) -> AdminPrincipal:
+    """기관관리자 전용(기관사용자 차단). 관리자 관리·기관 설정 등 민감 기능에 사용."""
     if principal.role != INSTITUTION_ADMIN_ROLE:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

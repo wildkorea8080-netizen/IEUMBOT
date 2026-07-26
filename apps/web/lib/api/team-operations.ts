@@ -10,6 +10,7 @@ export type TeamMember = {
   authProvider: string;
   lastLoginAt: string | null;
   createdAt: string | null;
+  menuPermissions: string[];
 };
 
 export type TeamMemberCreateResult = {
@@ -76,4 +77,15 @@ export async function approvePendingMember(id: string): Promise<PendingMember> {
 
 export async function rejectPendingMember(id: string): Promise<void> {
   await apiClient.request<void>(`/admin/team/pending-members/${id}/reject`, { method: "POST" });
+}
+
+/** 기관사용자의 메뉴 접근 권한 설정. */
+export async function setMemberPermissions(
+  id: string,
+  menuPermissions: string[],
+): Promise<TeamMember> {
+  return apiClient.request<TeamMember>(`/admin/team/members/${id}/permissions`, {
+    method: "PATCH",
+    body: { menuPermissions },
+  });
 }

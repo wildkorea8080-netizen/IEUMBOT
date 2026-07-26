@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, useCallback, useEffect, useState } from "react";
+import { Fragment, type FormEvent, useCallback, useEffect, useState } from "react";
 
 import { ApiClientError, apiClient } from "../../lib/api";
 import {
@@ -10,10 +10,12 @@ import {
   getTeamMembers,
   rejectPendingMember,
   resetTeamMemberPassword,
+  setMemberPermissions,
   updateTeamMember,
   type PendingMember,
   type TeamMember,
 } from "../../lib/api/team-operations";
+import { MENU_CATALOG } from "../../lib/admin-ui/menu-permissions";
 
 type IssuedCredential = { name: string; email: string; password: string };
 
@@ -92,6 +94,32 @@ export function TeamManagement() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [pending, setPending] = useState<PendingMember[]>([]);
   const [pendingBusyId, setPendingBusyId] = useState<string | null>(null);
+  const [permEditorId, setPermEditorId] = useState<string | null>(null);
+  const [draftPerms, setDraftPerms] = useState<string[]>([]);
+  const [permBusy, setPermBusy] = useState(false);
+
+  const openPermEditor = (member: TeamMember) => {
+    setPermEditorId((cur) => (cur === member.id ? null : member.id));
+    setDraftPerms(member.menuPermissions ?? []);
+  };
+
+  const togglePerm = (key: string) => {
+    setDraftPerms((cur) => (cur.includes(key) ? cur.filter((k) => k !== key) : [...cur, key]));
+  };
+
+  const savePerms = async (member: TeamMember) => {
+    setPermBusy(true);
+    setError(null);
+    try {
+      await setMemberPermissions(member.id, draftPerms);
+      setPermEditorId(null);
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : "권한 저장에 실패했습니다.");
+    } finally {
+      setPermBusy(false);
+    }
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -339,12 +367,19 @@ export function TeamManagement() {
               {members.map((member) => {
                 const isSelf = member.id === myId;
                 const active = member.status === "active";
+                const isMember = member.role === "institution_user";
                 return (
-                  <tr key={member.id} className="border-b border-slate-50 last:border-0">
+                  <Fragment key={member.id}>
+                  <tr className="border-b border-slate-50 last:border-0">
                     <td className="px-4 py-3">
                       <span className="font-medium text-slate-800">{member.name}</span>
                       {isSelf ? (
                         <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">나</span>
+                      ) : null}
+                      {isMember ? (
+                        <span className="ml-2 rounded bg-indigo-100 px-1.5 py-0.5 text-xs text-indigo-700">
+                          기관사용자
+                        </span>
                       ) : null}
                       {member.mustChangePassword ? (
                         <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-700">
@@ -365,6 +400,15 @@ export function TeamManagement() {
                     <td className="px-4 py-3 text-slate-500">{formatDateTime(member.lastLoginAt)}</td>
                     <td className="px-4 py-3">
                       <div className="flex justify-end gap-2">
+                        {isMember ? (
+                          <button
+                            type="button"
+                            onClick={() => openPermEditor(member)}
+                            className="rounded-md border border-indigo-200 px-2.5 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-50"
+                          >
+                            메뉴 권한 ({member.menuPermissions?.length ?? 0})
+                          </button>
+                        ) : null}
                         <button
                           type="button"
                           disabled={busyId === member.id}
@@ -390,6 +434,49 @@ export function TeamManagement() {
                       </div>
                     </td>
                   </tr>
+                  {isMember && permEditorId === member.id ? (
+                    <tr className="bg-indigo-50/40">
+                      <td colSpan={5} className="px-4 py-4">
+                        <p className="mb-2 text-xs font-semibold text-slate-600">
+                          {member.email} 님이 접근할 메뉴를 선택하세요.
+                        </p>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-3 lg:grid-cols-4">
+                          {MENU_CATALOG.map((menu) => (
+                            <label key={menu.key} className="flex items-center gap-2 text-sm text-slate-700">
+                              <input
+                                type="checkbox"
+                                checked={draftPerms.includes(menu.key)}
+                                onChange={() => togglePerm(menu.key)}
+                                className="h-4 w-4 rounded border-slate-300"
+                              />
+                              {menu.label}
+                            </label>
+                          ))}
+                        </div>
+                        <div className="mt-3 flex items-center gap-2">
+                          <button
+                            type="button"
+                            disabled={permBusy}
+                            onClick={() => void savePerms(member)}
+                            className="rounded-md bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-60"
+                          >
+                            {permBusy ? "저장 중..." : "권한 저장"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPermEditorId(null)}
+                            className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                          >
+                            취소
+                          </button>
+                          <span className="text-xs text-slate-400">
+                            선택 {draftPerms.length} / {MENU_CATALOG.length}
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : null}
+                  </Fragment>
                 );
               })}
               {members.length === 0 ? (

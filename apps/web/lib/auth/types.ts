@@ -1,4 +1,4 @@
-export type AdminRole = "super_admin" | "institution_admin";
+export type AdminRole = "super_admin" | "institution_admin" | "institution_user";
 export type AdminEffectiveRole = AdminRole | "super_admin_impersonating";
 
 export type AdminImpersonationInfo = {
@@ -22,6 +22,8 @@ export type AdminSummary = {
   name: string;
   role: AdminRole;
   mustChangePassword?: boolean;
+  // 기관사용자 접근 가능 메뉴 키. 관리자는 빈 배열(전체 접근).
+  menuPermissions?: string[];
   effectiveRole?: AdminEffectiveRole | null;
   isImpersonating?: boolean;
   impersonatedByAdminId?: string | null;

@@ -6,9 +6,10 @@
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
-from app.api.dependencies.auth import AdminPrincipal, require_institution_admin_auth
+from app.api.dependencies.auth import AdminPrincipal, require_institution_admin_strict
 from app.db import get_db_session
 from app.schemas.team import (
+    MemberPermissionsUpdateRequest,
     PendingMemberItem,
     PendingMemberListResponse,
     TeamMemberCreateRequest,
@@ -26,6 +27,7 @@ from app.services.admin.team_service import (
     list_team_members_service,
     reject_member_service,
     reset_team_member_password_service,
+    set_member_permissions_service,
     update_team_member_service,
 )
 
@@ -34,7 +36,7 @@ router = APIRouter(prefix="/team", tags=["admin-team"])
 
 @router.get("/members", response_model=TeamMemberListResponse)
 def list_team_members(
-    principal: AdminPrincipal = Depends(require_institution_admin_auth),
+    principal: AdminPrincipal = Depends(require_institution_admin_strict),
     db: Session = Depends(get_db_session),
 ) -> TeamMemberListResponse:
     organization_id = require_institution_organization_id(principal)
@@ -48,7 +50,7 @@ def list_team_members(
 )
 def create_team_member(
     body: TeamMemberCreateRequest,
-    principal: AdminPrincipal = Depends(require_institution_admin_auth),
+    principal: AdminPrincipal = Depends(require_institution_admin_strict),
     db: Session = Depends(get_db_session),
 ) -> TeamMemberCreateResponse:
     organization_id = require_institution_organization_id(principal)
@@ -64,7 +66,7 @@ def create_team_member(
 def update_team_member(
     admin_id: str,
     body: TeamMemberUpdateRequest,
-    principal: AdminPrincipal = Depends(require_institution_admin_auth),
+    principal: AdminPrincipal = Depends(require_institution_admin_strict),
     db: Session = Depends(get_db_session),
 ) -> TeamMemberItem:
     organization_id = require_institution_organization_id(principal)
@@ -83,7 +85,7 @@ def update_team_member(
 )
 def reset_team_member_password(
     admin_id: str,
-    principal: AdminPrincipal = Depends(require_institution_admin_auth),
+    principal: AdminPrincipal = Depends(require_institution_admin_strict),
     db: Session = Depends(get_db_session),
 ) -> TeamMemberResetPasswordResponse:
     organization_id = require_institution_organization_id(principal)
@@ -98,7 +100,7 @@ def reset_team_member_password(
 
 @router.get("/pending-members", response_model=PendingMemberListResponse)
 def list_pending_members(
-    principal: AdminPrincipal = Depends(require_institution_admin_auth),
+    principal: AdminPrincipal = Depends(require_institution_admin_strict),
     db: Session = Depends(get_db_session),
 ) -> PendingMemberListResponse:
     organization_id = require_institution_organization_id(principal)
@@ -108,7 +110,7 @@ def list_pending_members(
 @router.post("/pending-members/{admin_id}/approve", response_model=PendingMemberItem)
 def approve_pending_member(
     admin_id: str,
-    principal: AdminPrincipal = Depends(require_institution_admin_auth),
+    principal: AdminPrincipal = Depends(require_institution_admin_strict),
     db: Session = Depends(get_db_session),
 ) -> PendingMemberItem:
     organization_id = require_institution_organization_id(principal)
@@ -118,8 +120,24 @@ def approve_pending_member(
 @router.post("/pending-members/{admin_id}/reject", status_code=status.HTTP_204_NO_CONTENT)
 def reject_pending_member(
     admin_id: str,
-    principal: AdminPrincipal = Depends(require_institution_admin_auth),
+    principal: AdminPrincipal = Depends(require_institution_admin_strict),
     db: Session = Depends(get_db_session),
 ) -> None:
     organization_id = require_institution_organization_id(principal)
     reject_member_service(db, organization_id=organization_id, admin_id=admin_id)
+
+
+@router.patch("/members/{admin_id}/permissions", response_model=TeamMemberItem)
+def set_member_permissions(
+    admin_id: str,
+    body: MemberPermissionsUpdateRequest,
+    principal: AdminPrincipal = Depends(require_institution_admin_strict),
+    db: Session = Depends(get_db_session),
+) -> TeamMemberItem:
+    organization_id = require_institution_organization_id(principal)
+    return set_member_permissions_service(
+        db,
+        organization_id=organization_id,
+        admin_id=admin_id,
+        menu_permissions=body.menu_permissions,
+    )

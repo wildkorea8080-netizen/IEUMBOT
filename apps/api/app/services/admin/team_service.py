@@ -12,6 +12,7 @@ import uuid
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.core.menu_permissions import sanitize_menu_permissions
 from app.core.security import hash_password
 from app.models.admins import Admin
 from app.repositories.super_admin.admins_contracts_repository import (
@@ -63,6 +64,7 @@ def _to_item(row: Admin) -> TeamMemberItem:
         auth_provider=getattr(row, "auth_provider", "local") or "local",
         last_login_at=row.last_login_at,
         created_at=getattr(row, "created_at", None),
+        menu_permissions=list(getattr(row, "menu_permissions", None) or []),
     )
 
 
@@ -237,3 +239,21 @@ def reject_member_service(db: Session, *, organization_id: str, admin_id: str) -
     db.delete(row)
     db.commit()
     logger.info("[MEMBER_REJECT] org=%s admin=%s rejected(deleted)", organization_id, admin_id)
+
+
+def set_member_permissions_service(
+    db: Session, *, organization_id: str, admin_id: str, menu_permissions: list[str]
+) -> TeamMemberItem:
+    """기관사용자의 메뉴 접근 권한 설정. 대상은 같은 기관의 institution_user만."""
+    row = _get_scoped_member(db, organization_id=organization_id, admin_id=admin_id)
+    if row.role != _INSTITUTION_USER_ROLE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="NOT_A_MEMBER_ACCOUNT"
+        )
+    row.menu_permissions = sanitize_menu_permissions(menu_permissions)
+    db.commit()
+    db.refresh(row)
+    logger.info(
+        "[MEMBER_PERMS] org=%s admin=%s perms=%s", organization_id, admin_id, row.menu_permissions
+    )
+    return _to_item(row)

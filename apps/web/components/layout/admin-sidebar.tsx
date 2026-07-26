@@ -10,7 +10,8 @@ import {
   TestTube2, Users, CreditCard, Shield, ChevronDown, LogOut,
 } from "lucide-react";
 
-import { adminNav } from "./admin-nav";
+import { adminNav, type NavGroup } from "./admin-nav";
+import { filterNavForMember } from "../../lib/admin-ui/menu-permissions";
 import {
   ADMIN_SELECTED_CHATBOT_EVENT,
   readSelectedAdminChatbot,
@@ -59,6 +60,28 @@ export function AdminSidebar() {
   const [selectedChatbot, setSelectedChatbot] = useState<SelectedAdminChatbot | null>(null);
   const [setupStatus, setSetupStatus] = useState<SetupStatus>({});
   const [branding, setBranding] = useState<OrganizationBranding | null>(null);
+  // 기관사용자면 부여된 메뉴만 노출. 관리자는 전체(adminNav).
+  const [navGroups, setNavGroups] = useState<NavGroup[]>(adminNav);
+
+  useEffect(() => {
+    let mounted = true;
+    void apiClient
+      .request<{ admin: { role: string; menuPermissions?: string[] } }>("/admin/auth/me")
+      .then((res) => {
+        if (!mounted) return;
+        if (res.admin.role === "institution_user") {
+          setNavGroups(filterNavForMember(res.admin.menuPermissions ?? []));
+        } else {
+          setNavGroups(adminNav);
+        }
+      })
+      .catch(() => {
+        /* 미인증/오류 시 기본 nav 유지 */
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   // 기관 로고 — 최초 1회 조회 + 설정 페이지에서 변경 시 즉시 반영
   useEffect(() => {
@@ -198,7 +221,7 @@ export function AdminSidebar() {
 
       {/* 네비게이션 — 플래니 스타일 */}
       <nav className="flex-1" style={{ padding: "6px 0", overflowY: "auto" }}>
-        {adminNav.map((group, gi) => (
+        {navGroups.map((group, gi) => (
           <div key={gi} style={{ marginBottom: 4 }}>
             {group.title ? (
               <p

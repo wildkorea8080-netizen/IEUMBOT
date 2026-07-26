@@ -17,6 +17,8 @@ class AdminSummary(ApiSchema):
     name: str
     role: str
     must_change_password: bool = False
+    # 기관사용자(institution_user)의 접근 가능 메뉴 키. 관리자는 빈 배열(전체 접근).
+    menu_permissions: list[str] = []
     effective_role: str | None = None
     is_impersonating: bool = False
     impersonated_by_admin_id: str | None = None

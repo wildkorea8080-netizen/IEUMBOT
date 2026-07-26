@@ -9,7 +9,11 @@ PUT  /api/admin/organization/branding  → 로고 설정/제거 (기관관리자
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.api.dependencies.auth import AdminPrincipal, require_institution_admin_auth
+from app.api.dependencies.auth import (
+    AdminPrincipal,
+    require_institution_admin_auth,
+    require_institution_admin_strict,
+)
 from app.db import get_db_session
 from app.schemas.organization import (
     OrganizationBrandingResponse,
@@ -36,7 +40,7 @@ def get_organization_branding(
 @router.put("/branding", response_model=OrganizationBrandingResponse)
 def update_organization_branding(
     body: OrganizationBrandingUpdateRequest,
-    principal: AdminPrincipal = Depends(require_institution_admin_auth),
+    principal: AdminPrincipal = Depends(require_institution_admin_strict),
     db: Session = Depends(get_db_session),
 ) -> OrganizationBrandingResponse:
     organization_id = require_institution_organization_id(principal)
