@@ -55,7 +55,7 @@ def member_signup_service(
     normalized_email = (email or "").strip().lower()
     if not _EMAIL_RE.match(normalized_email):
         _fail("INVALID_EMAIL")
-    validate_password(password or "")
+    validate_password(db, password or "")
 
     normalized_code = (org_code or "").strip().lower()
     if not normalized_code:

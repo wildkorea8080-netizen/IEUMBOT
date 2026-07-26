@@ -116,7 +116,7 @@ def reset_password_service(db: Session, *, token: str, new_password: str) -> Adm
     if expires_at is not None and expires_at < datetime.now(UTC):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="TOKEN_EXPIRED")
 
-    validate_password(new_password or "")
+    validate_password(db, new_password or "")
 
     admin.password_hash = hash_password(new_password)
     admin.reset_token_hash = None

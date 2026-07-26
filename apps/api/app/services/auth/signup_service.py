@@ -43,16 +43,13 @@ def _fail(code: str, http_status: int = status.HTTP_422_UNPROCESSABLE_ENTITY) ->
     raise HTTPException(status_code=http_status, detail=code)
 
 
-def validate_password(password: str) -> None:
-    """비밀번호 정책: 8자 이상 + 영문 대문자 · 숫자 · 특수문자 각 1자 이상."""
-    if not (8 <= len(password) <= 200):
-        _fail("PASSWORD_LENGTH")
-    if not re.search(r"[A-Z]", password):
-        _fail("PASSWORD_NEEDS_UPPERCASE")
-    if not re.search(r"\d", password):
-        _fail("PASSWORD_NEEDS_DIGIT")
-    if not re.search(r"[^A-Za-z0-9]", password):
-        _fail("PASSWORD_NEEDS_SYMBOL")
+def validate_password(db: Session, password: str) -> None:
+    """전역 비밀번호 정책(system_password_policy)에 따라 검증. 슈퍼관리자 설정 반영."""
+    from app.services.password_policy_service import (  # noqa: PLC0415
+        validate_password as _validate,
+    )
+
+    _validate(db, password)
 
 
 def _enforce_rate_limit(client_ip: str | None) -> None:
@@ -123,7 +120,7 @@ def signup_service(
     normalized_email = (email or "").strip().lower()
     if not _EMAIL_RE.match(normalized_email):
         _fail("INVALID_EMAIL")
-    validate_password(password or "")
+    validate_password(db, password or "")
     _enforce_rate_limit(client_ip)
 
     # 로그인은 이메일 전역 조회이므로 전역 중복을 막는다.

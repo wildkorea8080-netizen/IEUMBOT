@@ -34,6 +34,10 @@ from app.schemas.notifications import (
     SystemIntegrationListResponse,
     SystemIntegrationUpsertRequest,
 )
+from app.schemas.password_policy import (
+    PasswordPolicyResponse,
+    PasswordPolicyUpdateRequest,
+)
 from app.schemas.super_admin_accounts_contracts import (
     SuperAdminAdminResetPasswordRequest,
     SuperAdminAdminResetPasswordResponse,
@@ -108,6 +112,12 @@ from app.services.notification_service import (
     list_notifications_service,
     mark_notification_read_service,
     upsert_integration_service,
+)
+from app.services.password_policy_service import (
+    get_policy as get_password_policy,
+)
+from app.services.password_policy_service import (
+    upsert_policy as upsert_password_policy,
 )
 from app.services.super_admin.admins_contracts_service import (
     create_contract_service,
@@ -344,6 +354,31 @@ def super_admin_disable_maintenance(
     db: Session = Depends(get_db_session),
 ) -> SuperAdminMaintenanceItem:
     return disable_maintenance_service(db, principal=principal)
+
+
+@router.get("/system/password-policy", response_model=PasswordPolicyResponse)
+def super_admin_get_password_policy(
+    principal: AdminPrincipal = Depends(require_super_admin_auth),
+    db: Session = Depends(get_db_session),
+) -> PasswordPolicyResponse:
+    return PasswordPolicyResponse(**get_password_policy(db))
+
+
+@router.put("/system/password-policy", response_model=PasswordPolicyResponse)
+def super_admin_update_password_policy(
+    body: PasswordPolicyUpdateRequest,
+    principal: AdminPrincipal = Depends(require_super_admin_auth),
+    db: Session = Depends(get_db_session),
+) -> PasswordPolicyResponse:
+    updated = upsert_password_policy(
+        db,
+        min_length=body.min_length,
+        require_uppercase=body.require_uppercase,
+        require_lowercase=body.require_lowercase,
+        require_digit=body.require_digit,
+        require_symbol=body.require_symbol,
+    )
+    return PasswordPolicyResponse(**updated)
 
 
 @router.get(

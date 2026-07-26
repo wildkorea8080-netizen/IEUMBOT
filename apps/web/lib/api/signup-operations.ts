@@ -115,6 +115,8 @@ export function signupErrorMessage(code: string | undefined): string {
       return "비밀번호는 8자 이상이어야 합니다.";
     case "PASSWORD_NEEDS_UPPERCASE":
       return "비밀번호에 영문 대문자를 1자 이상 포함해 주세요.";
+    case "PASSWORD_NEEDS_LOWERCASE":
+      return "비밀번호에 영문 소문자를 1자 이상 포함해 주세요.";
     case "PASSWORD_NEEDS_DIGIT":
       return "비밀번호에 숫자를 1자 이상 포함해 주세요.";
     case "PASSWORD_NEEDS_SYMBOL":

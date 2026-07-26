@@ -5,7 +5,13 @@ import Link from "next/link";
 
 import { ApiClientError } from "../../../lib/api";
 import { resetErrorMessage, resetPassword } from "../../../lib/api/signup-operations";
-import { PASSWORD_HINT, checkPasswordPolicy } from "../../../lib/auth/password-policy";
+import {
+  DEFAULT_PASSWORD_POLICY,
+  checkPassword,
+  getPasswordPolicy,
+  passwordHint,
+  type PasswordPolicy,
+} from "../../../lib/auth/password-policy";
 
 export default function ResetPasswordPage() {
   const [token, setToken] = useState<string | null>(null);
@@ -14,16 +20,24 @@ export default function ResetPasswordPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  const [policy, setPolicy] = useState<PasswordPolicy>(DEFAULT_PASSWORD_POLICY);
 
   useEffect(() => {
     setToken(new URLSearchParams(window.location.search).get("token") ?? "");
+    let mounted = true;
+    void getPasswordPolicy().then((p) => {
+      if (mounted) setPolicy(p);
+    });
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setErrorMessage(null);
 
-    const policyError = checkPasswordPolicy(password);
+    const policyError = checkPassword(policy, password);
     if (policyError) {
       setErrorMessage(policyError);
       return;
@@ -94,7 +108,7 @@ export default function ResetPasswordPage() {
                   type="password"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
-                  placeholder={PASSWORD_HINT}
+                  placeholder={passwordHint(policy)}
                   className="w-full rounded-md border border-slate-300 px-3 py-2.5 text-sm outline-none ring-brand-600 focus:ring-2"
                   autoComplete="new-password"
                   required

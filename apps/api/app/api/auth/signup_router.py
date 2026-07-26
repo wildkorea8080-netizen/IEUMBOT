@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db import get_db_session
+from app.schemas.password_policy import PasswordPolicyResponse
 from app.schemas.signup import (
     ForgotPasswordRequest,
     MemberSignupRequest,
@@ -37,6 +38,7 @@ from app.services.auth.signup_service import (
     verify_email_service,
 )
 from app.services.email_service import is_configured as email_is_configured
+from app.services.password_policy_service import get_policy as get_password_policy
 
 router = APIRouter(tags=["auth-signup"])
 
@@ -53,6 +55,12 @@ def signup_config() -> SignupConfigResponse:
         # (SMTP가 있으면 이메일 인증도 부가로 진행)
         member_signup_ready=True,
     )
+
+
+@router.get("/password-policy", response_model=PasswordPolicyResponse)
+def password_policy(db: Session = Depends(get_db_session)) -> PasswordPolicyResponse:
+    """현재 비밀번호 정책(공개) — 비밀번호 입력 폼이 힌트·클라이언트 검증에 사용."""
+    return PasswordPolicyResponse(**get_password_policy(db))
 
 
 @router.post(

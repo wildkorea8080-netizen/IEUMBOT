@@ -6,6 +6,7 @@ from app.core.security import hash_password, verify_password
 from app.repositories.auth.admin_auth_repository import get_active_admin_by_id
 from app.repositories.logs.audit_log_repository import create_audit_log
 from app.schemas.auth import AdminChangePasswordRequest, AdminChangePasswordResponse
+from app.services.password_policy_service import validate_password
 
 
 def change_admin_password_service(
@@ -38,6 +39,9 @@ def change_admin_password_service(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="NEW_PASSWORD_MUST_DIFFER",
         )
+
+    # 전역 비밀번호 정책 적용(슈퍼관리자 설정).
+    validate_password(db, body.new_password)
 
     admin.password_hash = hash_password(body.new_password)
     admin.must_change_password = False

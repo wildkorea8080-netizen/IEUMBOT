@@ -30,6 +30,7 @@ from app.models.system_announcements import SystemAnnouncement
 from app.models.system_api_configs import SystemApiConfig
 from app.models.system_integrations import SystemIntegration
 from app.models.system_maintenance import SystemMaintenance
+from app.models.system_password_policy import SystemPasswordPolicy
 from app.models.unanswered_log import UnansweredLog
 from app.models.users import User
 from app.models.web_sources import WebSource
@@ -61,6 +62,7 @@ __all__ = [
     "SystemApiConfig",
     "SystemAnnouncement",
     "SystemMaintenance",
+    "SystemPasswordPolicy",
     "LLMUsageLog",
     "Notification",
     "BillingAlert",

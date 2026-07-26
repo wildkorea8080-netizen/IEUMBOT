@@ -10,7 +10,13 @@ import {
   memberSignupErrorMessage,
   resendVerification,
 } from "../../../lib/api/signup-operations";
-import { PASSWORD_HINT, checkPasswordPolicy } from "../../../lib/auth/password-policy";
+import {
+  DEFAULT_PASSWORD_POLICY,
+  checkPassword,
+  getPasswordPolicy,
+  passwordHint,
+  type PasswordPolicy,
+} from "../../../lib/auth/password-policy";
 
 export default function MemberSignupPage() {
   const [ready, setReady] = useState<boolean | null>(null);
@@ -23,11 +29,15 @@ export default function MemberSignupPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [done, setDone] = useState<{ email: string; org: string; sent: boolean } | null>(null);
   const [resendState, setResendState] = useState<"idle" | "sent">("idle");
+  const [policy, setPolicy] = useState<PasswordPolicy>(DEFAULT_PASSWORD_POLICY);
 
   useEffect(() => {
     let mounted = true;
     void getSignupConfig().then((config) => {
       if (mounted) setReady(config.memberSignupReady);
+    });
+    void getPasswordPolicy().then((p) => {
+      if (mounted) setPolicy(p);
     });
     return () => {
       mounted = false;
@@ -38,7 +48,7 @@ export default function MemberSignupPage() {
     event.preventDefault();
     setErrorMessage(null);
 
-    const policyError = checkPasswordPolicy(password);
+    const policyError = checkPassword(policy, password);
     if (policyError) {
       setErrorMessage(policyError);
       return;
@@ -178,7 +188,7 @@ export default function MemberSignupPage() {
                   type="password"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
-                  placeholder={PASSWORD_HINT}
+                  placeholder={passwordHint(policy)}
                   className="w-full rounded-md border border-slate-300 px-3 py-2.5 text-sm outline-none ring-brand-600 focus:ring-2"
                   autoComplete="new-password"
                   required
