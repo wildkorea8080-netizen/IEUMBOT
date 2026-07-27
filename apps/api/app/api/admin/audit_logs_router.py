@@ -1,10 +1,13 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.api.dependencies.auth import AdminPrincipal, require_institution_admin_auth
+from app.api.dependencies.auth import AdminPrincipal, require_institution_admin_strict
 from app.db import get_db_session
 from app.schemas.audit_logs import AdminAuditLogDetailResponse, AdminAuditLogsResponse
-from app.services.admin.audit_logs_service import get_audit_log_detail_service, list_audit_logs_service
+from app.services.admin.audit_logs_service import (
+    get_audit_log_detail_service,
+    list_audit_logs_service,
+)
 
 router = APIRouter(tags=["admin-audit-logs"])
 
@@ -17,7 +20,7 @@ def admin_audit_logs(
     action_type: str | None = Query(default=None, alias="actionType", max_length=50),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, alias="pageSize", ge=1, le=100),
-    principal: AdminPrincipal = Depends(require_institution_admin_auth),
+    principal: AdminPrincipal = Depends(require_institution_admin_strict),
     db: Session = Depends(get_db_session),
 ) -> AdminAuditLogsResponse:
     return list_audit_logs_service(
@@ -35,7 +38,7 @@ def admin_audit_logs(
 @router.get("/audit-logs/{log_id}", response_model=AdminAuditLogDetailResponse)
 def admin_audit_log_detail(
     log_id: str,
-    principal: AdminPrincipal = Depends(require_institution_admin_auth),
+    principal: AdminPrincipal = Depends(require_institution_admin_strict),
     db: Session = Depends(get_db_session),
 ) -> AdminAuditLogDetailResponse:
     return get_audit_log_detail_service(db, principal=principal, log_id=log_id)

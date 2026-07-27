@@ -11,11 +11,11 @@ import type {
 } from "../../lib/api/audit-logs-types";
 
 const TEXT = {
-  title: "감사 로그",
-  description: "기관관리자 권한 범위에서 발생한 주요 운영 이력을 조회합니다.",
-  loading: "감사 로그를 불러오는 중입니다.",
-  empty: "조회된 감사 로그가 없습니다.",
-  error: "감사 로그를 불러오는 중 오류가 발생했습니다.",
+  title: "접속기록",
+  description: "기관관리자·기관사용자의 로그인(접속) 기록과 권한 범위에서 발생한 주요 운영 이력을 조회합니다.",
+  loading: "접속기록을 불러오는 중입니다.",
+  empty: "조회된 접속기록이 없습니다.",
+  error: "접속기록을 불러오는 중 오류가 발생했습니다.",
   search: "조회",
   allActions: "전체 작업",
   login: "로그인",
@@ -28,10 +28,12 @@ const TEXT = {
   admin: "관리자",
   action: "작업",
   target: "대상",
+  ipAddress: "접속 IP",
+  userAgent: "User-Agent",
   result: "결과",
   detail: "상세",
   close: "닫기",
-  detailTitle: "감사 로그 상세",
+  detailTitle: "접속기록 상세",
   detailDescription: "민감정보와 전체 메타데이터 JSON은 기본 노출하지 않습니다.",
   metadata: "메타데이터 요약",
   noMetadata: "표시할 메타데이터 요약이 없습니다.",
@@ -148,7 +150,8 @@ export function AuditLogPage() {
                   <th className="w-44 px-3 py-3">{TEXT.time}</th>
                   <th className="w-52 px-3 py-3">{TEXT.admin}</th>
                   <th className="px-3 py-3">{TEXT.action}</th>
-                  <th className="w-64 px-3 py-3">{TEXT.target}</th>
+                  <th className="w-36 px-3 py-3">{TEXT.ipAddress}</th>
+                  <th className="w-56 px-3 py-3">{TEXT.target}</th>
                   <th className="w-28 px-3 py-3">{TEXT.result}</th>
                   <th className="w-24 px-3 py-3">작업</th>
                 </tr>
@@ -156,7 +159,7 @@ export function AuditLogPage() {
               <tbody className="divide-y divide-slate-100 bg-white">
                 {items.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-3 py-10 text-center text-sm text-slate-500">{TEXT.empty}</td>
+                    <td colSpan={7} className="px-3 py-10 text-center text-sm text-slate-500">{TEXT.empty}</td>
                   </tr>
                 ) : (
                   items.map((item) => (
@@ -170,6 +173,7 @@ export function AuditLogPage() {
                         <p className="font-medium text-slate-900">{item.actionLabel}</p>
                         <p className="text-xs text-slate-500">{item.action}</p>
                       </td>
+                      <td className="px-3 py-4 font-mono text-xs text-slate-600">{item.ipAddress ?? "-"}</td>
                       <td className="px-3 py-4 text-slate-700">{targetLabel(item)}</td>
                       <td className="px-3 py-4">
                         <span className={`rounded-full px-3 py-1 text-xs font-medium ${resultBadgeClass(item.result)}`}>
@@ -226,6 +230,8 @@ export function AuditLogPage() {
                   <div><strong className="mr-2 text-slate-900">{TEXT.result}</strong>{detail.result}</div>
                   <div><strong className="mr-2 text-slate-900">{TEXT.admin}</strong>{detail.adminEmail ?? "-"}</div>
                   <div><strong className="mr-2 text-slate-900">{TEXT.target}</strong>{targetLabel(detail)}</div>
+                  <div><strong className="mr-2 text-slate-900">{TEXT.ipAddress}</strong><span className="font-mono text-xs">{detail.ipAddress ?? "-"}</span></div>
+                  <div className="md:col-span-2 break-all"><strong className="mr-2 text-slate-900">{TEXT.userAgent}</strong><span className="text-xs text-slate-500">{detail.userAgent ?? "-"}</span></div>
                 </div>
 
                 <div className="rounded-xl border border-slate-200 p-4">

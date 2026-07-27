@@ -17,7 +17,7 @@ const ADMIN_ROUTE_META: Array<{ href: string; meta: RouteMeta }> = [
   { href: "/admin/billing", meta: { title: "결제 관리", breadcrumbs: ["기관관리자", "운영", "결제 관리"] } },
   { href: "/admin/notifications", meta: { title: "알림", breadcrumbs: ["기관관리자", "운영", "알림"] } },
   { href: "/admin/users", meta: { title: "사용자", breadcrumbs: ["기관관리자", "운영", "사용자"] } },
-  { href: "/admin/audit", meta: { title: "감사 로그", breadcrumbs: ["기관관리자", "운영", "감사 로그"] } },
+  { href: "/admin/audit", meta: { title: "접속기록", breadcrumbs: ["기관관리자", "운영", "접속기록"] } },
   { href: "/admin/chatbots", meta: { title: "챗봇 관리", breadcrumbs: ["기관관리자", "워크스페이스", "챗봇"] } },
   { href: "/admin/answer-settings", meta: { title: "답변 설정", breadcrumbs: ["기관관리자", "고급", "답변 설정"] } },
   { href: "/admin/guardrails", meta: { title: "가드레일", breadcrumbs: ["기관관리자", "고급", "가드레일"] } },

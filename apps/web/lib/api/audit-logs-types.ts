@@ -9,6 +9,7 @@ export type AdminAuditLogItem = {
   targetType?: string | null;
   targetId?: string | null;
   result: string;
+  ipAddress?: string | null;
 };
 
 export type AdminAuditLogsResponse = {
@@ -29,6 +30,8 @@ export type AdminAuditLogDetail = {
   targetType?: string | null;
   targetId?: string | null;
   result: string;
+  ipAddress?: string | null;
+  userAgent?: string | null;
   metadataSummary: Record<string, string>;
 };
 

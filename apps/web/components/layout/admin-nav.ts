@@ -55,6 +55,7 @@ export const adminNav: NavGroup[] = [
     title: undefined,
     items: [
       { label: "보안센터", href: "/admin/security", icon: "Shield" },
+      { label: "접속기록", href: "/admin/audit", icon: "ScrollText" },
     ],
   },
   {

@@ -25,6 +25,7 @@ from app.schemas.auth import (
 )
 from app.services.admin.ip_access_service import enforce_org_ip_access
 from app.services.auth.admin_password_service import change_admin_password_service
+from app.services.auth.login_audit_service import record_admin_login
 
 router = APIRouter(tags=["auth"])
 
@@ -97,6 +98,9 @@ def admin_login(
         organization_id=(str(admin.organization_id) if admin.organization_id else None),
         role=normalized_role,
     )
+
+    # 접속기록(감사로그) — 기관 계정 로그인 성공을 남긴다. best-effort(실패해도 로그인 진행).
+    record_admin_login(db, admin=admin, role=normalized_role, request=request)
 
     return AdminAuthLoginResponse(
         access_token=access_token,

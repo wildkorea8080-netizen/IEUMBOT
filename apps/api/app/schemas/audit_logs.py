@@ -12,6 +12,7 @@ class AdminAuditLogItem(ApiSchema):
     target_type: str | None = None
     target_id: str | None = None
     result: str
+    ip_address: str | None = None
 
 
 class AdminAuditLogsResponse(ApiSchema):
@@ -32,5 +33,7 @@ class AdminAuditLogDetailResponse(ApiSchema):
     target_type: str | None = None
     target_id: str | None = None
     result: str
+    ip_address: str | None = None
+    user_agent: str | None = None
     metadata_summary: dict[str, str]
 

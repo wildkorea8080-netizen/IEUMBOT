@@ -124,6 +124,7 @@ def list_audit_logs_service(
                 target_type=audit_log.target_type,
                 target_id=audit_log.target_id,
                 result=audit_log.result,
+                ip_address=audit_log.ip_address,
             )
         )
 
@@ -159,6 +160,8 @@ def get_audit_log_detail_service(
         target_type=audit_log.target_type,
         target_id=audit_log.target_id,
         result=audit_log.result,
+        ip_address=audit_log.ip_address,
+        user_agent=audit_log.user_agent,
         metadata_summary=_safe_metadata_summary(audit_log.metadata_json),
     )
 
