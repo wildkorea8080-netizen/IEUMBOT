@@ -61,6 +61,7 @@ export const adminNav: NavGroup[] = [
   {
     title: "기관 설정",
     items: [
+      { label: "챗봇 관리", href: "/admin/chatbots", icon: "BotMessageSquare" },
       { label: "관리자 관리", href: "/admin/team", icon: "Users" },
     ],
   },

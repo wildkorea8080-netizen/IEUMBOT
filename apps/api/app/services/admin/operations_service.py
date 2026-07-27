@@ -66,7 +66,7 @@ from app.services.admin.scope_service import (
     ensure_document_in_scope,
     require_institution_organization_id,
 )
-from app.services.limits_service import check_chatbot_limit
+from app.services.limits_service import check_chatbot_limit, get_chatbot_capacity
 from app.services.llm_api_config_runtime_service import (
     inspect_runtime_api_config_status,
     resolve_runtime_api_config,
@@ -860,7 +860,14 @@ def list_chatbots_service(
         )
         for row in rows
     ]
-    return AdminChatbotsListResponse(items=items)
+    count, limit = get_chatbot_capacity(db, organization_id=organization_id)
+    can_create = limit is None or count < limit
+    return AdminChatbotsListResponse(
+        items=items,
+        chatbot_limit=limit,
+        chatbot_count=count,
+        can_create=can_create,
+    )
 
 
 def get_chatbot_service(

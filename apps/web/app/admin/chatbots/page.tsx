@@ -48,6 +48,10 @@ export default function AdminChatbotsPage() {
   const [createForm, setCreateForm] = useState({ name: "", description: "" });
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  // 슈퍼관리자가 설정한 생성 한도 상태 — 생성 버튼 활성/비활성 제어에 사용.
+  const [capacity, setCapacity] = useState<{ limit: number | null; count: number; canCreate: boolean }>(
+    { limit: null, count: 0, canCreate: true },
+  );
 
   async function load(preferredId?: string) {
     setIsLoading(true);
@@ -55,6 +59,11 @@ export default function AdminChatbotsPage() {
     try {
       const res = await getAdminChatbots();
       setItems(res.items);
+      setCapacity({
+        limit: res.chatbotLimit ?? null,
+        count: res.chatbotCount ?? res.items.length,
+        canCreate: res.canCreate ?? true,
+      });
       const target = preferredId
         ? res.items.find((i) => i.id === preferredId)
         : res.items[0];
@@ -114,6 +123,9 @@ export default function AdminChatbotsPage() {
     }
   }
 
+  const atLimit = !isLoading && !capacity.canCreate;
+  const limitLabel = capacity.limit != null ? `${capacity.count}/${capacity.limit}개` : `${items.length}개`;
+
   return (
     <div className="space-y-4">
       {/* 페이지 헤더 */}
@@ -145,14 +157,21 @@ export default function AdminChatbotsPage() {
           <div>
             <span style={{ fontSize: 14, fontWeight: 600, color: "#1e293b" }}>챗봇 목록</span>
             {!isLoading && (
-              <span style={{ fontSize: 12, color: "#94a3b8", marginLeft: 8 }}>{items.length}개</span>
+              <span style={{ fontSize: 12, color: "#94a3b8", marginLeft: 8 }}>{limitLabel}</span>
+            )}
+            {atLimit && (
+              <span style={{ fontSize: 12, color: "#dc2626", marginLeft: 8 }}>
+                생성 한도에 도달했습니다 — 슈퍼관리자에게 한도 상향을 요청하세요.
+              </span>
             )}
           </div>
           <button
             type="button"
+            disabled={atLimit}
+            title={atLimit ? `챗봇 생성 한도에 도달했습니다 (${capacity.count}/${capacity.limit})` : undefined}
             onClick={() => { setError(null); setIsCreateModalOpen(true); }}
             className="btn-primary"
-            style={{ padding: "7px 16px", fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6 }}
+            style={{ padding: "7px 16px", fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6, opacity: atLimit ? 0.5 : 1, cursor: atLimit ? "not-allowed" : "pointer" }}
           >
             <Plus style={{ width: 14, height: 14 }} />
             챗봇 생성

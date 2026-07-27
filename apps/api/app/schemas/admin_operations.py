@@ -150,6 +150,11 @@ class AdminChatbotItem(ApiSchema):
 
 class AdminChatbotsListResponse(ApiSchema):
     items: list[AdminChatbotItem]
+    # 슈퍼관리자가 설정한 기관별 챗봇 생성 한도(None이면 무제한)와 현재 개수.
+    # 프론트가 생성 버튼을 한도에 맞춰 활성/비활성 처리하는 데 사용.
+    chatbot_limit: int | None = None
+    chatbot_count: int = 0
+    can_create: bool = True
 
 
 class AdminChatbotCreateRequest(ApiSchema):

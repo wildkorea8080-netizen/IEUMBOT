@@ -159,6 +159,23 @@ def check_widget_limit(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="WIDGET_LIMIT_EXCEEDED")
 
 
+def get_chatbot_capacity(db: Session, *, organization_id: str) -> tuple[int, int | None]:
+    """현재 챗봇 수와 유효 한도를 반환한다. 한도가 None이면 무제한.
+
+    check_chatbot_limit과 동일한 우선순위: Organization.chatbot_limit(슈퍼관리자 설정)
+    우선, 없으면 활성 계약의 chatbot_limit. UI가 생성 버튼을 한도에 맞춰 제어하는 데 쓴다.
+    """
+    org = db.execute(
+        select(Organization).where(Organization.id == _to_uuid(organization_id))
+    ).scalar_one_or_none()
+    limit = getattr(org, "chatbot_limit", None)
+    if limit is None:
+        contract = _get_active_contract(db, organization_id=organization_id)
+        limit = contract.chatbot_limit if contract else None
+    current_count = _count_chatbots(db, organization_id=organization_id)
+    return current_count, (int(limit) if limit is not None else None)
+
+
 def check_chatbot_limit(
     db: Session,
     *,

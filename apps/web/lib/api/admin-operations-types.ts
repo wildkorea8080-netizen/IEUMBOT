@@ -281,6 +281,12 @@ export type AdminChatbotItem = {
 
 export type AdminChatbotsResponse = {
   items: AdminChatbotItem[];
+  /** 슈퍼관리자가 설정한 기관별 챗봇 생성 한도(null이면 무제한). */
+  chatbotLimit?: number | null;
+  /** 현재 생성된 챗봇 수. */
+  chatbotCount?: number;
+  /** 한도 미만이라 추가 생성이 가능한지. */
+  canCreate?: boolean;
 };
 
 export type AdminChatbotCreateRequest = {
