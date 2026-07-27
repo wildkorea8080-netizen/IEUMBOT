@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { OrgIpAccessSettings } from "../../../components/admin/org-ip-access-settings";
 import { OrgLogoSettings } from "../../../components/admin/org-logo-settings";
 import { PagePanel } from "../../../components/ui/page-panel";
 
@@ -8,6 +9,13 @@ export default function SettingsPage() {
     <div className="space-y-4">
       <PagePanel title="기관 로고" description="관리자 콘솔 좌측 상단에 표시할 기관 로고를 등록합니다.">
         <OrgLogoSettings />
+      </PagePanel>
+
+      <PagePanel
+        title="IP 접근제어"
+        description="관리자 콘솔에 접속할 수 있는 IP를 제한합니다. 목록이 비어 있으면 제한이 없습니다."
+      >
+        <OrgIpAccessSettings />
       </PagePanel>
 
       <PagePanel title="계정 설정" description="관리자 계정 보안 설정을 관리합니다.">

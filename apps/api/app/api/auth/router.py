@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -7,6 +7,7 @@ from app.api.dependencies.auth import (
     require_admin_auth,
     require_institution_admin_auth,
 )
+from app.core.client_ip import get_client_ip
 from app.core.security import create_access_token, verify_password
 from app.db import get_db_session
 from app.models.admins import Admin
@@ -22,6 +23,7 @@ from app.schemas.auth import (
     AdminChangePasswordResponse,
     AdminSummary,
 )
+from app.services.admin.ip_access_service import enforce_org_ip_access
 from app.services.auth.admin_password_service import change_admin_password_service
 
 router = APIRouter(tags=["auth"])
@@ -56,6 +58,7 @@ def _raise_pending_if_applicable(db: Session, email: str, password: str) -> None
 @router.post("/login", response_model=AdminAuthLoginResponse)
 def admin_login(
     body: AdminAuthLoginRequest,
+    request: Request,
     db: Session = Depends(get_db_session),
 ) -> AdminAuthLoginResponse:
     normalized_email = body.email.strip().lower()
@@ -80,6 +83,14 @@ def admin_login(
         )
 
     normalized_role = _normalize_admin_role(admin.role)
+
+    # 기관 IP 접근제어 — 슈퍼관리자는 우회, 기관 계정은 허용목록 밖이면 차단.
+    if normalized_role != "super_admin" and admin.organization_id:
+        enforce_org_ip_access(
+            db,
+            organization_id=str(admin.organization_id),
+            client_ip=get_client_ip(request),
+        )
 
     access_token, expires_at = create_access_token(
         admin_id=str(admin.id),

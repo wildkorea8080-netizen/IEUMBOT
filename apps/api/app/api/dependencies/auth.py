@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
@@ -32,6 +32,7 @@ class AdminPrincipal:
 
 
 def require_admin_auth(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     db: Session = Depends(get_db_session),
 ) -> AdminPrincipal:
@@ -126,6 +127,20 @@ def require_admin_auth(
         )
     if normalized_token_role == SUPER_ADMIN_ROLE:
         organization_id = None
+
+    # 기관 IP 접근제어 — 기관 역할(관리자/사용자)만, 슈퍼관리자·임퍼소네이션은 우회.
+    if organization_id and normalized_token_role in {
+        INSTITUTION_ADMIN_ROLE,
+        INSTITUTION_USER_ROLE,
+    }:
+        from app.core.client_ip import get_client_ip  # noqa: PLC0415
+        from app.services.admin.ip_access_service import (  # noqa: PLC0415
+            enforce_org_ip_access,
+        )
+
+        enforce_org_ip_access(
+            db, organization_id=str(organization_id), client_ip=get_client_ip(request)
+        )
 
     return AdminPrincipal(
         admin_id=str(admin.id),

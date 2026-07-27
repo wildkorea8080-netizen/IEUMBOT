@@ -121,6 +121,9 @@ class Settings(BaseSettings):
     signup_verification_ttl_hours: int = 24
     # 비밀번호 재설정 링크 유효시간(보안상 짧게). SMTP가 설정돼 있어야 동작.
     password_reset_ttl_hours: int = 2
+    # IP 접근제어용 신뢰 프록시 홉 수. Coolify(Traefik) 단일 프록시면 1.
+    # 앞에 CDN(Cloudflare 등)을 추가하면 2로 올려야 실제 클라이언트 IP를 얻는다.
+    trusted_proxy_count: int = 1
 
     model_config = SettingsConfigDict(
         env_file=".env",

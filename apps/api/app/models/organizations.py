@@ -1,4 +1,4 @@
-from sqlalchemy import Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -26,6 +26,9 @@ class Organization(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     chatbot_limit: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default="1", default=1
     )
+    # 관리자 콘솔 접근을 허용할 IP/CIDR 목록. None/빈 배열이면 제한 없음(모든 IP 허용).
+    # 값이 있으면 로그인·관리자 API가 이 목록 밖 IP를 403으로 차단. 슈퍼관리자는 우회.
+    allowed_admin_ips: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
     admins = relationship("Admin", back_populates="organization")
     chatbot_settings = relationship("ChatbotSetting", back_populates="organization")

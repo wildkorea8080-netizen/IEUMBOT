@@ -6,7 +6,7 @@ PUT  /api/admin/organization/branding  → 로고 설정/제거 (기관관리자
 모두 호출자의 organization_id로 스코프.
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
 from app.api.dependencies.auth import (
@@ -14,10 +14,17 @@ from app.api.dependencies.auth import (
     require_institution_admin_auth,
     require_institution_admin_strict,
 )
+from app.core.client_ip import get_client_ip
 from app.db import get_db_session
 from app.schemas.organization import (
     OrganizationBrandingResponse,
     OrganizationBrandingUpdateRequest,
+    OrganizationIpAccessResponse,
+    OrganizationIpAccessUpdateRequest,
+)
+from app.services.admin.ip_access_service import (
+    get_org_allowed_ips,
+    update_org_allowed_ips,
 )
 from app.services.admin.organization_service import (
     get_org_branding_service,
@@ -46,4 +53,39 @@ def update_organization_branding(
     organization_id = require_institution_organization_id(principal)
     return update_org_branding_service(
         db, organization_id=organization_id, logo_url=body.logo_url
+    )
+
+
+# ── IP 접근제어 (항목 2) — 기관관리자 전용 ─────────────────────────────
+
+
+@router.get("/ip-access", response_model=OrganizationIpAccessResponse)
+def get_organization_ip_access(
+    request: Request,
+    principal: AdminPrincipal = Depends(require_institution_admin_strict),
+    db: Session = Depends(get_db_session),
+) -> OrganizationIpAccessResponse:
+    organization_id = require_institution_organization_id(principal)
+    allowed = get_org_allowed_ips(db, organization_id)
+    return OrganizationIpAccessResponse(
+        allowed_ips=allowed,
+        enabled=bool(allowed),
+        current_ip=get_client_ip(request),
+    )
+
+
+@router.put("/ip-access", response_model=OrganizationIpAccessResponse)
+def update_organization_ip_access(
+    body: OrganizationIpAccessUpdateRequest,
+    request: Request,
+    principal: AdminPrincipal = Depends(require_institution_admin_strict),
+    db: Session = Depends(get_db_session),
+) -> OrganizationIpAccessResponse:
+    organization_id = require_institution_organization_id(principal)
+    current_ip = get_client_ip(request)
+    allowed = update_org_allowed_ips(
+        db, organization_id=organization_id, entries=body.allowed_ips, current_ip=current_ip
+    )
+    return OrganizationIpAccessResponse(
+        allowed_ips=allowed, enabled=bool(allowed), current_ip=current_ip
     )
