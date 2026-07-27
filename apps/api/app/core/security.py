@@ -1,9 +1,8 @@
 from datetime import UTC, datetime, timedelta
 
 import jwt
-from passlib.context import CryptContext
-
 from app.core.config import settings
+from passlib.context import CryptContext
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 IMPERSONATION_TOKEN_EXPIRE_MINUTES = 20
@@ -22,6 +21,7 @@ def create_access_token(
     admin_id: str,
     organization_id: str | None,
     role: str,
+    session_token: str | None = None,
 ) -> tuple[str, datetime]:
     issued_at = datetime.now(UTC)
     expires_at = issued_at + timedelta(minutes=settings.api_access_token_expire_minutes)
@@ -33,6 +33,10 @@ def create_access_token(
         "iat": int(issued_at.timestamp()),
         "exp": int(expires_at.timestamp()),
     }
+    # 동일계정 동시접속 제한 — 세션 식별자(sid). 검증 시 admin.session_token과 대조하여
+    # 최신 로그인만 유효하게 만든다. None이면 클레임 미포함(하위호환).
+    if session_token is not None:
+        payload["sid"] = session_token
     token = jwt.encode(payload, settings.api_session_secret, algorithm="HS256")
     return token, expires_at
 

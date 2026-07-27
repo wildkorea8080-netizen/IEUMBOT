@@ -99,7 +99,10 @@ export function AdminAuthGuard({ children, allowedRoles }: AdminAuthGuardProps) 
         }
         clearAdminAccessToken();
         if (error instanceof ApiClientError && error.status === 401) {
-          router.replace(`/login?next=${encodeURIComponent(pathname)}&reason=sessionExpired`);
+          // 동일계정 동시접속 제한으로 세션이 대체된 경우 별도 안내.
+          const reason =
+            error.code === "SESSION_SUPERSEDED" ? "concurrentLogin" : "sessionExpired";
+          router.replace(`/login?next=${encodeURIComponent(pathname)}&reason=${reason}`);
           return;
         }
         router.replace(`/login?next=${encodeURIComponent(pathname)}&reason=authFailed`);

@@ -1,3 +1,6 @@
+import uuid
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -93,10 +96,19 @@ def admin_login(
             client_ip=get_client_ip(request),
         )
 
+    # 동일계정 동시접속 제한 — 새 세션 식별자 발급 후 저장(commit). 이 커밋으로
+    # 이 계정의 이전 세션 토큰(sid 불일치)이 즉시 무효화된다(최신 로그인 우선).
+    # 세션 토큰 저장은 인증 무결성의 핵심이므로 감사로그(best-effort)보다 먼저 확정한다.
+    session_token = uuid.uuid4().hex
+    admin.session_token = session_token
+    admin.last_login_at = datetime.now(UTC)
+    db.commit()
+
     access_token, expires_at = create_access_token(
         admin_id=str(admin.id),
         organization_id=(str(admin.organization_id) if admin.organization_id else None),
         role=normalized_role,
+        session_token=session_token,
     )
 
     # 접속기록(감사로그) — 기관 계정 로그인 성공을 남긴다. best-effort(실패해도 로그인 진행).

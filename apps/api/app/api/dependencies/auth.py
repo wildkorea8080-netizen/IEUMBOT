@@ -74,6 +74,17 @@ def require_admin_auth(
             detail="ADMIN_NOT_FOUND_OR_DISABLED",
         )
 
+    # 동일계정 동시접속 제한 — 최신 로그인 세션만 유효.
+    # admin.session_token이 설정돼 있고 토큰 sid와 다르면, 이 세션은 이후의 다른
+    # 로그인으로 대체된 것 → 차단. session_token이 NULL이면 미적용(하위호환).
+    # 임퍼소네이션 토큰은 sid를 발급하지 않으므로 예외(항상 통과).
+    if not is_impersonating and admin.session_token is not None:
+        if payload.get("sid") != admin.session_token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="SESSION_SUPERSEDED",
+            )
+
     normalized_token_role = (
         INSTITUTION_ADMIN_ROLE if str(role) == LEGACY_INSTITUTION_ADMIN_ROLE else str(role)
     )

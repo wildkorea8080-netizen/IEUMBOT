@@ -26,6 +26,9 @@ function getReasonMessage(reason: string | null): string | null {
   if (reason === "idleTimeout") {
     return "장시간 활동이 없어 자동 로그아웃되었습니다. 다시 로그인해 주세요.";
   }
+  if (reason === "concurrentLogin") {
+    return "다른 기기 또는 브라우저에서 로그인하여 현재 세션이 종료되었습니다. 계속하려면 다시 로그인해 주세요.";
+  }
   return null;
 }
 

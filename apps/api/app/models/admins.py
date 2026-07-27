@@ -57,6 +57,10 @@ class Admin(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     must_change_password: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # 동일계정 동시접속 제한 — 마지막 로그인 세션 식별자. 로그인 때마다 재발급되어,
+    # 이전 세션이 들고 있는 토큰(sid 불일치)을 무효화한다(최신 로그인 우선).
+    # NULL이면 미적용(하위호환) — 재로그인 전까지 기존 토큰은 그대로 유효.
+    session_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     organization = relationship("Organization", back_populates="admins")
     audit_logs = relationship("AuditLog", back_populates="admin")
