@@ -1,18 +1,37 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { ApiClientError } from "../../../lib/api";
 import { changeAdminPassword } from "../../../lib/api/auth";
+import {
+  checkPassword,
+  DEFAULT_PASSWORD_POLICY,
+  getPasswordPolicy,
+  passwordHint,
+  type PasswordPolicy,
+} from "../../../lib/auth/password-policy";
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof ApiClientError) {
-    if (error.code === "CURRENT_PASSWORD_INVALID") {
-      return "현재 비밀번호가 올바르지 않습니다.";
-    }
-    if (error.code === "NEW_PASSWORD_MUST_DIFFER") {
-      return "새 비밀번호는 현재 비밀번호와 달라야 합니다.";
+    switch (error.code) {
+      case "CURRENT_PASSWORD_INVALID":
+        return "현재 비밀번호가 올바르지 않습니다.";
+      case "NEW_PASSWORD_MUST_DIFFER":
+        return "새 비밀번호는 현재 비밀번호와 달라야 합니다.";
+      case "PASSWORD_LENGTH":
+        return "새 비밀번호가 정책의 길이 조건을 충족하지 않습니다.";
+      case "PASSWORD_NEEDS_UPPERCASE":
+        return "새 비밀번호에 영문 대문자를 1자 이상 포함해 주세요.";
+      case "PASSWORD_NEEDS_LOWERCASE":
+        return "새 비밀번호에 영문 소문자를 1자 이상 포함해 주세요.";
+      case "PASSWORD_NEEDS_DIGIT":
+        return "새 비밀번호에 숫자를 1자 이상 포함해 주세요.";
+      case "PASSWORD_NEEDS_SYMBOL":
+        return "새 비밀번호에 특수문자를 1자 이상 포함해 주세요.";
+      default:
+        break;
     }
   }
   return "비밀번호 변경에 실패했습니다. 입력값을 확인해 주세요.";
@@ -25,17 +44,33 @@ export default function AdminChangePasswordPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [policy, setPolicy] = useState<PasswordPolicy>(DEFAULT_PASSWORD_POLICY);
+
+  useEffect(() => {
+    let mounted = true;
+    void getPasswordPolicy().then((p) => {
+      if (mounted) setPolicy(p);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setErrorMessage(null);
 
-    if (newPassword.length < 8) {
-      setErrorMessage("새 비밀번호는 8자 이상이어야 합니다.");
+    const policyError = checkPassword(policy, newPassword);
+    if (policyError) {
+      setErrorMessage(policyError);
       return;
     }
     if (newPassword !== confirmPassword) {
       setErrorMessage("새 비밀번호 확인이 일치하지 않습니다.");
+      return;
+    }
+    if (newPassword === currentPassword) {
+      setErrorMessage("새 비밀번호는 현재 비밀번호와 달라야 합니다.");
       return;
     }
 
@@ -83,8 +118,9 @@ export default function AdminChangePasswordPage() {
               className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none ring-brand-600 focus:ring-2"
               autoComplete="new-password"
               required
-              minLength={8}
+              minLength={policy.minLength}
             />
+            <span className="mt-1 block text-xs text-slate-500">{passwordHint(policy)}</span>
           </label>
 
           <label className="block">
@@ -96,7 +132,7 @@ export default function AdminChangePasswordPage() {
               className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none ring-brand-600 focus:ring-2"
               autoComplete="new-password"
               required
-              minLength={8}
+              minLength={policy.minLength}
             />
           </label>
 
