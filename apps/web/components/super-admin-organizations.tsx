@@ -549,6 +549,13 @@ export function SuperAdminOrganizations() {
               </div>
             ) : null}
 
+            {/* 저장 실패 원인을 폼(저장 버튼) 근처에 표시 — 상단 배너는 화면 위쪽이라 안 보일 수 있음 */}
+            {error && (
+              <div className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                {error}
+              </div>
+            )}
+
             {/* 액션 버튼 */}
             <div className="mt-5 flex flex-wrap justify-between gap-2">
               <div className="flex flex-wrap gap-2">
