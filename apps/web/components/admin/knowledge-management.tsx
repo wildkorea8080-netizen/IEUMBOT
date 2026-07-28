@@ -2,7 +2,7 @@
 
 import NextLink from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Search, RefreshCw, Trash2, ChevronDown, ChevronRight as ChevronRightIcon,
   CheckCircle, Loader2, XCircle, Clock, BookOpen, PenLine, Globe,
@@ -42,6 +42,10 @@ import type {
   KnowledgeSourceGroup,
   WebSourceSyncSettings,
 } from "../../lib/api/admin-operations-types";
+import {
+  ADMIN_SELECTED_CHATBOT_EVENT,
+  readSelectedAdminChatbot,
+} from "../../lib/admin-ui/selected-chatbot";
 
 // ── 에디터 툴바 ────────────────────────────────────────────────────────────────
 
@@ -319,6 +323,8 @@ export function KnowledgeManagement() {
     if (!silent) setIsLoading(true);
     setError(null);
     const otherGroup = sourceGroup === "file_text" ? "website" : "file_text";
+    // 좌측 상단에서 선택한 챗봇 기준으로 지식을 조회한다(챗봇별 지식 분리).
+    const selectedChatbotId = readSelectedAdminChatbot()?.id;
     try {
       const [response, otherRes, runtime, chatbotResponse] = await Promise.all([
         getKnowledgeList({
@@ -327,8 +333,9 @@ export function KnowledgeManagement() {
           category: category || undefined,
           field: field || undefined,
           status: status || undefined,
+          chatbotId: selectedChatbotId,
         }),
-        getKnowledgeList({ sourceGroup: otherGroup }),
+        getKnowledgeList({ sourceGroup: otherGroup, chatbotId: selectedChatbotId }),
         getKnowledgeRuntimeStatus(),
         getAdminChatbots(),
       ]);
@@ -341,7 +348,9 @@ export function KnowledgeManagement() {
         setStableFileCnt(otherRes.items.length);
       }
       setRuntimeStatus(runtime);
-      const chatbot = chatbotResponse.items[0];
+      // 선택된 챗봇의 설정을 쓴다(없으면 첫 챗봇으로 폴백).
+      const chatbot =
+        chatbotResponse.items.find((c) => c.id === selectedChatbotId) ?? chatbotResponse.items[0];
       setSettingsChatbotId(chatbot?.id ?? null);
       setSkipDuplicateReindex(chatbot?.skipDuplicateFileReindex ?? false);
       if (chatbot?.id) {
@@ -357,9 +366,26 @@ export function KnowledgeManagement() {
     }
   };
 
+  // 항상 최신 load를 가리키는 ref (이벤트 핸들러의 stale closure 방지).
+  const loadRef = useRef(load);
+  loadRef.current = load;
+
   useEffect(() => {
     if (activeTab !== "faq") void load();
   }, [activeTab]);
+
+  // 좌측 상단 '현재 챗봇'을 바꾸면 지식 목록을 해당 챗봇 기준으로 다시 불러온다.
+  useEffect(() => {
+    const handler = () => {
+      void loadRef.current();
+    };
+    window.addEventListener(ADMIN_SELECTED_CHATBOT_EVENT, handler as EventListener);
+    window.addEventListener("storage", handler);
+    return () => {
+      window.removeEventListener(ADMIN_SELECTED_CHATBOT_EVENT, handler as EventListener);
+      window.removeEventListener("storage", handler);
+    };
+  }, []);
 
   // 처리 중(학습중/대기) 항목이 있으면 자동 폴링 — 새로고침 없이 학습완료로 갱신
   useEffect(() => {

@@ -4837,6 +4837,7 @@ def list_knowledge_service(
     category: str | None,
     field: str | None,
     status_filter: str | None,
+    chatbot_id: str | None = None,
 ) -> KnowledgeListResponse:
     organization_id = require_institution_organization_id(principal)
     items: list[KnowledgeItem] = []
@@ -4844,13 +4845,17 @@ def list_knowledge_service(
     # 삭제된 웹소스의 잔존 Document 자가치유(검색·인용에서 즉시 제외)
     recovered = _reconcile_orphaned_web_documents(db, organization_id=organization_id) > 0 or recovered
     if source_group in {None, "", "file_text"}:
-        for doc, version, job in list_document_knowledge_rows(db, organization_id=organization_id):
+        for doc, version, job in list_document_knowledge_rows(
+            db, organization_id=organization_id, chatbot_id=chatbot_id
+        ):
             recovered = _recover_document_ingest_state(doc, version, job) or recovered
             item = _document_item(doc, version, job)
             if _matches_query(item, query) and _matches_filter(item, category=category, field=field, status_filter=status_filter):
                 items.append(item)
     if source_group in {None, "", "website"}:
-        for web_source, job in list_web_source_knowledge_rows(db, organization_id=organization_id):
+        for web_source, job in list_web_source_knowledge_rows(
+            db, organization_id=organization_id, chatbot_id=chatbot_id
+        ):
             recovered = _recover_web_ingest_state(web_source, job) or recovered
             item = _website_item(web_source, job)
             if _matches_query(item, query) and _matches_filter(item, category=category, field=field, status_filter=status_filter):

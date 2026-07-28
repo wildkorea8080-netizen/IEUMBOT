@@ -58,6 +58,7 @@ def admin_list_knowledge(
     category: str | None = Query(default=None, max_length=100),
     field: str | None = Query(default=None, max_length=100),
     status_filter: str | None = Query(default=None, alias="status", max_length=30),
+    chatbot_id: str | None = Query(default=None, alias="chatbotId", max_length=64),
     principal: AdminPrincipal = Depends(require_institution_admin_auth),
     db: Session = Depends(get_db_session),
 ) -> KnowledgeListResponse:
@@ -69,6 +70,7 @@ def admin_list_knowledge(
         category=category,
         field=field,
         status_filter=status_filter,
+        chatbot_id=chatbot_id,
     )
 
 

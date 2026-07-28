@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { X, Plus, Loader2 } from "lucide-react";
 
 import { ApiClientError } from "../../lib/api";
-import { writeSelectedAdminChatbot } from "../../lib/admin-ui/selected-chatbot";
+import { readSelectedAdminChatbot, writeSelectedAdminChatbot } from "../../lib/admin-ui/selected-chatbot";
 import {
   createKnowledgeWebsite,
   createKnowledgeTextToStaging,
@@ -535,9 +535,13 @@ export function KnowledgeRegister() {
       try {
         const res = await getAdminChatbots();
         setChatbots(res.items);
-        const defaultId = res.items[0]?.id ?? "";
-        setChatbotId(defaultId);
-        if (res.items[0]) writeSelectedAdminChatbot({ id: res.items[0].id, name: res.items[0].name });
+        // 좌측 상단에서 선택한 챗봇을 기본값으로. 선택이 없을 때만 첫 챗봇으로 bootstrap.
+        const selected = readSelectedAdminChatbot();
+        const preferred = res.items.find((c) => c.id === selected?.id) ?? res.items[0];
+        setChatbotId(preferred?.id ?? "");
+        if (preferred && !selected) {
+          writeSelectedAdminChatbot({ id: preferred.id, name: preferred.name });
+        }
         if (searchParams.get("type") === "text") setModal("text");
       } catch (e) { setError(getErrorMessage(e)); }
       finally { setIsLoading(false); }

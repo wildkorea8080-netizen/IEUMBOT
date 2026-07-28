@@ -173,6 +173,7 @@ export async function getKnowledgeList(params?: {
   category?: string;
   field?: string;
   status?: string;
+  chatbotId?: string;
 }): Promise<KnowledgeListResponse> {
   const search = new URLSearchParams();
   if (params?.sourceGroup) search.set("sourceGroup", params.sourceGroup);
@@ -180,6 +181,7 @@ export async function getKnowledgeList(params?: {
   if (params?.category) search.set("category", params.category);
   if (params?.field) search.set("field", params.field);
   if (params?.status) search.set("status", params.status);
+  if (params?.chatbotId) search.set("chatbotId", params.chatbotId);
   const query = search.toString();
   return apiClient.request<KnowledgeListResponse>(`/admin/knowledge${query ? `?${query}` : ""}`);
 }

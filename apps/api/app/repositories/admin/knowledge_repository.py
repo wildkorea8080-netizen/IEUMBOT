@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session, aliased
 from app.models import Document, DocumentVersion, IngestionJob, WebSource
 
 
-def list_document_knowledge_rows(db: Session, *, organization_id: str):
+def list_document_knowledge_rows(db: Session, *, organization_id: str, chatbot_id: str | None = None):
     latest_version_sq = (
         select(
             DocumentVersion.document_id.label("document_id"),
@@ -50,10 +50,12 @@ def list_document_knowledge_rows(db: Session, *, organization_id: str):
         .where(Document.organization_id == organization_id, Document.deleted_at.is_(None))
         .order_by(Document.updated_at.desc())
     )
+    if chatbot_id:
+        stmt = stmt.where(Document.chatbot_id == chatbot_id)
     return list(db.execute(stmt).all())
 
 
-def list_web_source_knowledge_rows(db: Session, *, organization_id: str):
+def list_web_source_knowledge_rows(db: Session, *, organization_id: str, chatbot_id: str | None = None):
     latest_job_sq = (
         select(
             IngestionJob.web_source_id.label("web_source_id"),
@@ -81,6 +83,8 @@ def list_web_source_knowledge_rows(db: Session, *, organization_id: str):
         .where(WebSource.organization_id == organization_id, WebSource.is_deleted.is_(False))
         .order_by(WebSource.updated_at.desc())
     )
+    if chatbot_id:
+        stmt = stmt.where(WebSource.chatbot_id == chatbot_id)
     return list(db.execute(stmt).all())
 
 
