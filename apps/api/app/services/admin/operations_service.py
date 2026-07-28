@@ -14,8 +14,6 @@ from app.repositories.admin.operations_repository import (
     average_response_time_seconds,
     count_answered_messages,
     count_chat_sessions,
-    count_chatbots,
-    count_documents,
     count_documents_by_chatbot,
     count_web_sources_by_chatbot,
     daily_message_counts,
@@ -125,16 +123,19 @@ def get_dashboard_summary_service(
     db: Session,
     *,
     principal: AdminPrincipal,
+    chatbot_id: str | None = None,
 ) -> AdminDashboardResponse:
     organization_id = require_institution_organization_id(principal)
 
-    _ = count_chatbots(db, organization_id=organization_id)
-    _ = count_documents(db, organization_id=organization_id)
-    total_users = count_chat_sessions(db, organization_id=organization_id)
+    total_users = count_chat_sessions(db, organization_id=organization_id, chatbot_id=chatbot_id)
     total_conversations = total_users
-    success_count, total_answer_count = count_answered_messages(db, organization_id=organization_id)
+    success_count, total_answer_count = count_answered_messages(
+        db, organization_id=organization_id, chatbot_id=chatbot_id
+    )
     success_rate = (success_count / total_answer_count * 100.0) if total_answer_count > 0 else 0.0
-    avg_response_time = average_response_time_seconds(db, organization_id=organization_id)
+    avg_response_time = average_response_time_seconds(
+        db, organization_id=organization_id, chatbot_id=chatbot_id
+    )
 
     return AdminDashboardResponse(
         total_users=total_users,
@@ -172,12 +173,19 @@ def get_dashboard_usage_trend_service(
     principal: AdminPrincipal,
     from_date_raw: str | None,
     to_date_raw: str | None,
+    chatbot_id: str | None = None,
 ) -> list[AdminDashboardUsageTrendItem]:
     organization_id = require_institution_organization_id(principal)
     from_date, to_date = _normalize_date_range(from_date_raw, to_date_raw)
-    user_counts = dict(daily_session_counts(db, organization_id=organization_id, from_date=from_date, to_date=to_date))
+    user_counts = dict(
+        daily_session_counts(
+            db, organization_id=organization_id, from_date=from_date, to_date=to_date, chatbot_id=chatbot_id
+        )
+    )
     message_counts = dict(
-        daily_message_counts(db, organization_id=organization_id, from_date=from_date, to_date=to_date),
+        daily_message_counts(
+            db, organization_id=organization_id, from_date=from_date, to_date=to_date, chatbot_id=chatbot_id
+        ),
     )
 
     items: list[AdminDashboardUsageTrendItem] = []
@@ -218,6 +226,7 @@ def get_dashboard_question_types_service(
     principal: AdminPrincipal,
     from_date_raw: str | None,
     to_date_raw: str | None,
+    chatbot_id: str | None = None,
 ) -> list[AdminDashboardQuestionTypeItem]:
     organization_id = require_institution_organization_id(principal)
     from_date, to_date = _normalize_date_range(from_date_raw, to_date_raw)
@@ -226,6 +235,7 @@ def get_dashboard_question_types_service(
         organization_id=organization_id,
         from_date=from_date,
         to_date=to_date,
+        chatbot_id=chatbot_id,
     )
     counter = Counter(_classify_question_type(content) for content in contents if content.strip())
     if not counter:
@@ -241,9 +251,12 @@ def get_dashboard_recent_chats_service(
     *,
     principal: AdminPrincipal,
     limit: int,
+    chatbot_id: str | None = None,
 ) -> list[AdminDashboardRecentChatItem]:
     organization_id = require_institution_organization_id(principal)
-    rows = list_recent_assistant_messages(db, organization_id=organization_id, limit_count=limit)
+    rows = list_recent_assistant_messages(
+        db, organization_id=organization_id, chatbot_id=chatbot_id, limit_count=limit
+    )
     items: list[AdminDashboardRecentChatItem] = []
     for row in rows:
         latest_user = get_latest_user_question_for_session(

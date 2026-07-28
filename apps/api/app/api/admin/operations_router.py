@@ -56,16 +56,18 @@ logger = logging.getLogger(__name__)
 
 @router.get("/dashboard", response_model=AdminDashboardResponse)
 def admin_dashboard_summary(
+    chatbot_id: str | None = Query(default=None, alias="chatbotId", max_length=64),
     principal: AdminPrincipal = Depends(require_institution_admin_auth),
     db: Session = Depends(get_db_session),
 ) -> AdminDashboardResponse:
-    return get_dashboard_summary_service(db, principal=principal)
+    return get_dashboard_summary_service(db, principal=principal, chatbot_id=chatbot_id)
 
 
 @router.get("/dashboard/usage-trend", response_model=list[AdminDashboardUsageTrendItem])
 def admin_dashboard_usage_trend(
     from_date: str | None = Query(default=None, alias="from"),
     to_date: str | None = Query(default=None, alias="to"),
+    chatbot_id: str | None = Query(default=None, alias="chatbotId", max_length=64),
     principal: AdminPrincipal = Depends(require_institution_admin_auth),
     db: Session = Depends(get_db_session),
 ) -> list[AdminDashboardUsageTrendItem]:
@@ -74,6 +76,7 @@ def admin_dashboard_usage_trend(
         principal=principal,
         from_date_raw=from_date,
         to_date_raw=to_date,
+        chatbot_id=chatbot_id,
     )
 
 
@@ -81,6 +84,7 @@ def admin_dashboard_usage_trend(
 def admin_dashboard_question_types(
     from_date: str | None = Query(default=None, alias="from"),
     to_date: str | None = Query(default=None, alias="to"),
+    chatbot_id: str | None = Query(default=None, alias="chatbotId", max_length=64),
     principal: AdminPrincipal = Depends(require_institution_admin_auth),
     db: Session = Depends(get_db_session),
 ) -> list[AdminDashboardQuestionTypeItem]:
@@ -89,12 +93,14 @@ def admin_dashboard_question_types(
         principal=principal,
         from_date_raw=from_date,
         to_date_raw=to_date,
+        chatbot_id=chatbot_id,
     )
 
 
 @router.get("/dashboard/recent-chats", response_model=list[AdminDashboardRecentChatItem])
 def admin_dashboard_recent_chats(
     limit: int = Query(default=12, ge=1, le=50),
+    chatbot_id: str | None = Query(default=None, alias="chatbotId", max_length=64),
     principal: AdminPrincipal = Depends(require_institution_admin_auth),
     db: Session = Depends(get_db_session),
 ) -> list[AdminDashboardRecentChatItem]:
@@ -102,6 +108,7 @@ def admin_dashboard_recent_chats(
         db,
         principal=principal,
         limit=limit,
+        chatbot_id=chatbot_id,
     )
 
 

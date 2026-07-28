@@ -19,17 +19,24 @@ def count_documents(db: Session, *, organization_id: str) -> int:
     return int(db.execute(stmt).scalar_one())
 
 
-def count_chat_sessions(db: Session, *, organization_id: str) -> int:
+def count_chat_sessions(db: Session, *, organization_id: str, chatbot_id: str | None = None) -> int:
     stmt = select(func.count(ChatSession.id)).where(ChatSession.organization_id == organization_id)
+    if chatbot_id:
+        stmt = stmt.where(ChatSession.chatbot_id == chatbot_id)
     return int(db.execute(stmt).scalar_one())
 
 
-def count_answered_messages(db: Session, *, organization_id: str) -> tuple[int, int]:
-    base = and_(
+def count_answered_messages(
+    db: Session, *, organization_id: str, chatbot_id: str | None = None
+) -> tuple[int, int]:
+    conditions = [
         ChatMessage.organization_id == organization_id,
         ChatMessage.role == "assistant",
         ChatMessage.is_test.is_(False),
-    )
+    ]
+    if chatbot_id:
+        conditions.append(ChatMessage.chatbot_id == chatbot_id)
+    base = and_(*conditions)
     total_stmt = select(func.count(ChatMessage.id)).where(base)
     success_stmt = select(func.count(ChatMessage.id)).where(base, ChatMessage.result_type == "answered")
     total = int(db.execute(total_stmt).scalar_one())
@@ -37,13 +44,18 @@ def count_answered_messages(db: Session, *, organization_id: str) -> tuple[int, 
     return success, total
 
 
-def average_response_time_seconds(db: Session, *, organization_id: str) -> float:
-    latency_stmt = select(func.avg(ChatMessage.latency_ms)).where(
+def average_response_time_seconds(
+    db: Session, *, organization_id: str, chatbot_id: str | None = None
+) -> float:
+    latency_conditions = [
         ChatMessage.organization_id == organization_id,
         ChatMessage.role == "assistant",
         ChatMessage.is_test.is_(False),
         ChatMessage.latency_ms.is_not(None),
-    )
+    ]
+    if chatbot_id:
+        latency_conditions.append(ChatMessage.chatbot_id == chatbot_id)
+    latency_stmt = select(func.avg(ChatMessage.latency_ms)).where(*latency_conditions)
     latency_avg = db.execute(latency_stmt).scalar_one_or_none()
     if latency_avg is not None:
         return float(latency_avg) / 1000.0
@@ -73,6 +85,8 @@ def average_response_time_seconds(db: Session, *, organization_id: str) -> float
             user_msg.is_test.is_(False),
         )
     )
+    if chatbot_id:
+        diff_stmt = diff_stmt.where(assistant_msg.chatbot_id == chatbot_id)
     diff_avg = db.execute(diff_stmt).scalar_one_or_none()
     return float(diff_avg or 0.0)
 
@@ -95,17 +109,17 @@ def list_recent_conversations(db: Session, *, organization_id: str, limit_count:
     return list(db.execute(assistant_stmt).all())
 
 
-def list_recent_assistant_messages(db: Session, *, organization_id: str, limit_count: int = 20) -> list[ChatMessage]:
-    stmt = (
-        select(ChatMessage)
-        .where(
-            ChatMessage.organization_id == organization_id,
-            ChatMessage.role == "assistant",
-            ChatMessage.is_test.is_(False),
-        )
-        .order_by(ChatMessage.created_at.desc())
-        .limit(limit_count)
+def list_recent_assistant_messages(
+    db: Session, *, organization_id: str, chatbot_id: str | None = None, limit_count: int = 20
+) -> list[ChatMessage]:
+    stmt = select(ChatMessage).where(
+        ChatMessage.organization_id == organization_id,
+        ChatMessage.role == "assistant",
+        ChatMessage.is_test.is_(False),
     )
+    if chatbot_id:
+        stmt = stmt.where(ChatMessage.chatbot_id == chatbot_id)
+    stmt = stmt.order_by(ChatMessage.created_at.desc()).limit(limit_count)
     return list(db.execute(stmt).scalars().all())
 
 
@@ -115,19 +129,23 @@ def daily_session_counts(
     organization_id: str,
     from_date: date,
     to_date: date,
+    chatbot_id: str | None = None,
 ) -> list[tuple[date, int]]:
     from_dt = datetime.combine(from_date, time.min, tzinfo=timezone.utc)
     to_dt = datetime.combine(to_date + timedelta(days=1), time.min, tzinfo=timezone.utc)
+    conditions = [
+        ChatSession.organization_id == organization_id,
+        ChatSession.created_at >= from_dt,
+        ChatSession.created_at < to_dt,
+    ]
+    if chatbot_id:
+        conditions.append(ChatSession.chatbot_id == chatbot_id)
     stmt = (
         select(
             func.date(ChatSession.created_at).label("d"),
             func.count(ChatSession.id).label("c"),
         )
-        .where(
-            ChatSession.organization_id == organization_id,
-            ChatSession.created_at >= from_dt,
-            ChatSession.created_at < to_dt,
-        )
+        .where(*conditions)
         .group_by(func.date(ChatSession.created_at))
         .order_by(func.date(ChatSession.created_at).asc())
     )
@@ -141,20 +159,24 @@ def daily_message_counts(
     organization_id: str,
     from_date: date,
     to_date: date,
+    chatbot_id: str | None = None,
 ) -> list[tuple[date, int]]:
     from_dt = datetime.combine(from_date, time.min, tzinfo=timezone.utc)
     to_dt = datetime.combine(to_date + timedelta(days=1), time.min, tzinfo=timezone.utc)
+    conditions = [
+        ChatMessage.organization_id == organization_id,
+        ChatMessage.is_test.is_(False),
+        ChatMessage.created_at >= from_dt,
+        ChatMessage.created_at < to_dt,
+    ]
+    if chatbot_id:
+        conditions.append(ChatMessage.chatbot_id == chatbot_id)
     stmt = (
         select(
             func.date(ChatMessage.created_at).label("d"),
             func.count(ChatMessage.id).label("c"),
         )
-        .where(
-            ChatMessage.organization_id == organization_id,
-            ChatMessage.is_test.is_(False),
-            ChatMessage.created_at >= from_dt,
-            ChatMessage.created_at < to_dt,
-        )
+        .where(*conditions)
         .group_by(func.date(ChatMessage.created_at))
         .order_by(func.date(ChatMessage.created_at).asc())
     )
@@ -169,18 +191,22 @@ def list_user_message_contents_for_range(
     from_date: date,
     to_date: date,
     limit_count: int = 5000,
+    chatbot_id: str | None = None,
 ) -> list[str]:
     from_dt = datetime.combine(from_date, time.min, tzinfo=timezone.utc)
     to_dt = datetime.combine(to_date + timedelta(days=1), time.min, tzinfo=timezone.utc)
+    conditions = [
+        ChatMessage.organization_id == organization_id,
+        ChatMessage.role == "user",
+        ChatMessage.is_test.is_(False),
+        ChatMessage.created_at >= from_dt,
+        ChatMessage.created_at < to_dt,
+    ]
+    if chatbot_id:
+        conditions.append(ChatMessage.chatbot_id == chatbot_id)
     stmt = (
         select(ChatMessage.content)
-        .where(
-            ChatMessage.organization_id == organization_id,
-            ChatMessage.role == "user",
-            ChatMessage.is_test.is_(False),
-            ChatMessage.created_at >= from_dt,
-            ChatMessage.created_at < to_dt,
-        )
+        .where(*conditions)
         .order_by(ChatMessage.created_at.desc())
         .limit(limit_count)
     )

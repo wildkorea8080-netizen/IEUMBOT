@@ -25,6 +25,7 @@ import {
   getDashboardUsageTrend,
 } from "../../../lib/api/admin-operations";
 import { apiClient } from "../../../lib/api/client";
+import { useSelectedChatbot } from "../../../lib/admin-ui/use-selected-chatbot";
 import type {
   DashboardQuestionTypeItem,
   DashboardRecentChatItem,
@@ -88,16 +89,19 @@ export default function DashboardPage() {
   const [error, setError]             = useState<string | null>(null);
 
   const range = useMemo(() => ({ from: startDate, to: endDate }), [startDate, endDate]);
+  // 좌측 상단 '현재 챗봇' 선택 — 대시보드 지표를 이 챗봇 기준으로 집계.
+  const selectedChatbot = useSelectedChatbot();
+  const chatbotId = selectedChatbot?.id;
 
   const loadData = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
       const [s, u, q, r, sec] = await Promise.all([
-        getDashboardSummary(),
-        getDashboardUsageTrend(range),
-        getDashboardQuestionTypes(range),
-        getDashboardRecentChats({ limit: 8 }),
+        getDashboardSummary({ chatbotId }),
+        getDashboardUsageTrend({ ...range, chatbotId }),
+        getDashboardQuestionTypes({ ...range, chatbotId }),
+        getDashboardRecentChats({ limit: 8, chatbotId }),
         apiClient.request<{ items: unknown[]; total: number; summary: { total: number; privacyExposure: number; abnormalAccess: number; inappropriate: number; negativeEmotion: number } }>(
           "/admin/security/events?page=1&pageSize=1"
         ).catch(() => null),
@@ -112,7 +116,7 @@ export default function DashboardPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [range]);
+  }, [range, chatbotId]);
 
   useEffect(() => { void loadData(); }, [loadData]);
 

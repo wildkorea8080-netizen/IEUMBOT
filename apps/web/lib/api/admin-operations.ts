@@ -67,17 +67,24 @@ function formatUnknownApiDetail(value: unknown): string | undefined {
   return undefined;
 }
 
-export async function getDashboardSummary(): Promise<DashboardSummaryResponse> {
-  return apiClient.request<DashboardSummaryResponse>("/admin/dashboard");
+export async function getDashboardSummary(params?: {
+  chatbotId?: string;
+}): Promise<DashboardSummaryResponse> {
+  const search = new URLSearchParams();
+  if (params?.chatbotId) search.set("chatbotId", params.chatbotId);
+  const query = search.toString();
+  return apiClient.request<DashboardSummaryResponse>(`/admin/dashboard${query ? `?${query}` : ""}`);
 }
 
 export async function getDashboardUsageTrend(params?: {
   from?: string;
   to?: string;
+  chatbotId?: string;
 }): Promise<DashboardUsageTrendItem[]> {
   const search = new URLSearchParams();
   if (params?.from) search.set("from", params.from);
   if (params?.to) search.set("to", params.to);
+  if (params?.chatbotId) search.set("chatbotId", params.chatbotId);
   const query = search.toString();
   return apiClient.request<DashboardUsageTrendItem[]>(`/admin/dashboard/usage-trend${query ? `?${query}` : ""}`);
 }
@@ -85,19 +92,23 @@ export async function getDashboardUsageTrend(params?: {
 export async function getDashboardQuestionTypes(params?: {
   from?: string;
   to?: string;
+  chatbotId?: string;
 }): Promise<DashboardQuestionTypeItem[]> {
   const search = new URLSearchParams();
   if (params?.from) search.set("from", params.from);
   if (params?.to) search.set("to", params.to);
+  if (params?.chatbotId) search.set("chatbotId", params.chatbotId);
   const query = search.toString();
   return apiClient.request<DashboardQuestionTypeItem[]>(`/admin/dashboard/question-types${query ? `?${query}` : ""}`);
 }
 
 export async function getDashboardRecentChats(params?: {
   limit?: number;
+  chatbotId?: string;
 }): Promise<DashboardRecentChatItem[]> {
   const search = new URLSearchParams();
   if (typeof params?.limit === "number") search.set("limit", String(params.limit));
+  if (params?.chatbotId) search.set("chatbotId", params.chatbotId);
   const query = search.toString();
   return apiClient.request<DashboardRecentChatItem[]>(`/admin/dashboard/recent-chats${query ? `?${query}` : ""}`);
 }
