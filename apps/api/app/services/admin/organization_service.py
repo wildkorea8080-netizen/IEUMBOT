@@ -38,6 +38,7 @@ def _to_response(org: Organization) -> OrganizationBrandingResponse:
     return OrganizationBrandingResponse(
         organization_id=str(org.id),
         organization_name=org.name,
+        organization_slug=org.slug,
         logo_url=org.logo_url,
     )
 

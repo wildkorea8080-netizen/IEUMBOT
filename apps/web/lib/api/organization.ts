@@ -3,6 +3,8 @@ import { apiClient } from "./index";
 export type OrganizationBranding = {
   organizationId: string;
   organizationName: string;
+  /** 기관 코드(slug). 특정 기관 전용 기능 노출 제어에 사용. */
+  organizationSlug: string;
   /** base64 data URL 또는 외부 URL. null이면 기본 이음봇 마크 표시. */
   logoUrl: string | null;
 };

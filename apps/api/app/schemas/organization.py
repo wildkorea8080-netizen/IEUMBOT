@@ -8,6 +8,8 @@ class OrganizationBrandingResponse(ApiSchema):
 
     organization_id: str
     organization_name: str
+    # 기관 코드(slug). 특정 기관 전용 기능(예: 서울노동상담 수집)의 노출 제어에 사용.
+    organization_slug: str
     # base64 data URL 또는 외부 URL. None이면 기본 이음봇 마크 표시.
     logo_url: str | None = None
 

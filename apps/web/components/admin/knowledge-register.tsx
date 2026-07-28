@@ -15,6 +15,10 @@ import {
   uploadKnowledgeFileToStaging,
 } from "../../lib/api/admin-operations";
 import type { AdminChatbotItem, KnowledgeApiPreviewItem, KnowledgeSeoulLaborPreviewItem } from "../../lib/api/admin-operations-types";
+import { getOrganizationBranding } from "../../lib/api/organization";
+
+// 서울노동상담 수집은 서울노동권익센터(기관코드 labors)에서만 노출.
+const SEOUL_LABOR_ORG_SLUG = "labors";
 
 type RegisterType = "file" | "text" | "website" | "api" | "seoullabor";
 
@@ -529,6 +533,13 @@ export function KnowledgeRegister() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [orgSlug, setOrgSlug] = useState<string | null>(null);
+
+  useEffect(() => {
+    void getOrganizationBranding()
+      .then((b) => setOrgSlug(b.organizationSlug))
+      .catch(() => setOrgSlug(null));
+  }, []);
 
   useEffect(() => {
     void (async () => {
@@ -662,7 +673,9 @@ export function KnowledgeRegister() {
         <TypeCard type="text" onClick={() => setModal("text")} />
         <TypeCard type="website" onClick={() => setModal("website")} />
         <TypeCard type="api" onClick={() => setModal("api")} />
-        <TypeCard type="seoullabor" onClick={() => setModal("seoullabor")} />
+        {orgSlug === SEOUL_LABOR_ORG_SLUG && (
+          <TypeCard type="seoullabor" onClick={() => setModal("seoullabor")} />
+        )}
       </div>
 
       {/* 모달 */}
