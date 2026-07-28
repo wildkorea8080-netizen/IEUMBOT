@@ -6,6 +6,7 @@ import { X, Plus, Loader2 } from "lucide-react";
 
 import { ApiClientError } from "../../lib/api";
 import { readSelectedAdminChatbot, writeSelectedAdminChatbot } from "../../lib/admin-ui/selected-chatbot";
+import { useSelectedChatbot } from "../../lib/admin-ui/use-selected-chatbot";
 import {
   createKnowledgeWebsite,
   createKnowledgeTextToStaging,
@@ -14,7 +15,7 @@ import {
   previewSeoulLaborBoard,
   uploadKnowledgeFileToStaging,
 } from "../../lib/api/admin-operations";
-import type { AdminChatbotItem, KnowledgeApiPreviewItem, KnowledgeSeoulLaborPreviewItem } from "../../lib/api/admin-operations-types";
+import type { KnowledgeApiPreviewItem, KnowledgeSeoulLaborPreviewItem } from "../../lib/api/admin-operations-types";
 import { getOrganizationBranding } from "../../lib/api/organization";
 
 // 서울노동상담 수집은 서울노동권익센터(기관코드 labors)에서만 노출.
@@ -527,13 +528,18 @@ export function KnowledgeRegister() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const [chatbots, setChatbots] = useState<AdminChatbotItem[]>([]);
   const [chatbotId, setChatbotId] = useState("");
   const [modal, setModal] = useState<RegisterType | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [orgSlug, setOrgSlug] = useState<string | null>(null);
+  const selected = useSelectedChatbot();
+
+  // 좌측 상단 '현재 챗봇'이 바뀌면 등록 대상 챗봇도 그 챗봇으로 동기화.
+  useEffect(() => {
+    if (selected?.id) setChatbotId(selected.id);
+  }, [selected?.id]);
 
   useEffect(() => {
     void getOrganizationBranding()
@@ -545,12 +551,11 @@ export function KnowledgeRegister() {
     void (async () => {
       try {
         const res = await getAdminChatbots();
-        setChatbots(res.items);
         // 좌측 상단에서 선택한 챗봇을 기본값으로. 선택이 없을 때만 첫 챗봇으로 bootstrap.
-        const selected = readSelectedAdminChatbot();
-        const preferred = res.items.find((c) => c.id === selected?.id) ?? res.items[0];
+        const globalSel = readSelectedAdminChatbot();
+        const preferred = res.items.find((c) => c.id === globalSel?.id) ?? res.items[0];
         setChatbotId(preferred?.id ?? "");
-        if (preferred && !selected) {
+        if (preferred && !globalSel) {
           writeSelectedAdminChatbot({ id: preferred.id, name: preferred.name });
         }
         if (searchParams.get("type") === "text") setModal("text");
@@ -559,11 +564,6 @@ export function KnowledgeRegister() {
     })();
   }, [searchParams]);
 
-  const handleChatbotChange = (id: string) => {
-    setChatbotId(id);
-    const chatbot = chatbots.find(c => c.id === id);
-    if (chatbot) writeSelectedAdminChatbot({ id: chatbot.id, name: chatbot.name });
-  };
 
   const handleFileSubmit = async (file: File) => {
     if (!chatbotId) { setError("챗봇을 선택해주세요."); return; }
@@ -658,14 +658,7 @@ export function KnowledgeRegister() {
         <div style={{ marginBottom: 16, padding: "10px 14px", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8, fontSize: 13, color: "#dc2626" }}>{error}</div>
       )}
 
-      {/* 챗봇 선택 (복수인 경우) */}
-      {chatbots.length > 1 && (
-        <div style={{ marginBottom: 20 }}>
-          <select value={chatbotId} onChange={e => handleChatbotChange(e.target.value)} className="input-field" style={{ width: 220 }}>
-            {chatbots.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-        </div>
-      )}
+      {/* 챗봇 선택은 좌측 상단 '현재 챗봇' 드롭다운으로 통일 */}
 
       {/* 타입 카드 */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 20 }}>

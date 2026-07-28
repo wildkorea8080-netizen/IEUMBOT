@@ -4,9 +4,8 @@ import { useEffect, useState } from "react";
 import { Plus, Trash2, X, Loader2 } from "lucide-react";
 
 import { ApiClientError } from "../../../lib/api";
-import { getAdminChatbots } from "../../../lib/api/admin-operations";
 import { apiClient } from "../../../lib/api/client";
-import type { AdminChatbotItem } from "../../../lib/api/admin-operations-types";
+import { useSelectedChatbot } from "../../../lib/admin-ui/use-selected-chatbot";
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
@@ -304,8 +303,9 @@ function AddModal({ open, onClose, chatbotId, editItem, onSaved }: {
 // ── 메인 ──────────────────────────────────────────────────────────────────────
 
 export default function ApiConnectPage() {
-  const [chatbots, setChatbots] = useState<AdminChatbotItem[]>([]);
-  const [chatbotId, setChatbotId] = useState("");
+  // 챗봇은 좌측 상단 '현재 챗봇' 전역 선택을 따른다(메뉴 내 별도 선택기 없음).
+  const selected = useSelectedChatbot();
+  const chatbotId = selected?.id ?? "";
   const [items, setItems] = useState<ApiEndpointItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -314,16 +314,6 @@ export default function ApiConnectPage() {
   const [testResult, setTestResult] = useState<{ name: string; ok: boolean; msg: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
-
-  useEffect(() => {
-    void (async () => {
-      try {
-        const r = await getAdminChatbots();
-        setChatbots(r.items);
-        if (r.items[0]) setChatbotId(r.items[0].id);
-      } catch (e) { setError(errMsg(e)); }
-    })();
-  }, []);
 
   useEffect(() => { if (chatbotId) void load(); }, [chatbotId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -384,14 +374,7 @@ export default function ApiConnectPage() {
         </div>
       )}
 
-      {/* 챗봇 선택 (복수인 경우) */}
-      {chatbots.length > 1 && (
-        <div>
-          <select value={chatbotId} onChange={e => setChatbotId(e.target.value)} className="input-field" style={{ width: 220 }}>
-            {chatbots.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-        </div>
-      )}
+      {/* 챗봇 선택은 좌측 상단 '현재 챗봇' 드롭다운으로 통일 */}
 
       {error && (
         <p style={{ fontSize: 13, color: "#dc2626", padding: "8px 12px", background: "#fef2f2", borderRadius: 8, border: "1px solid #fecaca" }}>{error}</p>

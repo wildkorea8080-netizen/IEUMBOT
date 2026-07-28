@@ -27,11 +27,9 @@ type AiSettingsLayoutProps = {
 };
 
 export function AiSettingsLayout({
-  activeHref,
   chatbotOptions,
   selectedChatbotId,
   selectedChatbotName,
-  onSelectChatbot,
   notice,
   children,
 }: AiSettingsLayoutProps) {
@@ -43,29 +41,7 @@ export function AiSettingsLayout({
 
   return (
     <div>
-      {/* 챗봇 선택기 */}
-      <div className="bg-white rounded-xl border border-neutral-200 p-4 mb-6">
-        <label style={{ display: "block", fontSize: 13, fontWeight: 500, color: "#64748b", marginBottom: 6 }}>
-          설정할 챗봇을 선택하세요
-        </label>
-        <select
-          value={selectedChatbotId}
-          onChange={e => onSelectChatbot(e.target.value)}
-          className="input-field"
-          style={{ maxWidth: 320 }}
-        >
-          {chatbotOptions.map(item => (
-            <option key={item.id} value={item.id}>{item.name} ({item.status})</option>
-          ))}
-        </select>
-        {selectedChatbotName && (
-          <p style={{ fontSize: 12, color: "#94a3b8", marginTop: 6 }}>
-            현재 챗봇: <strong style={{ color: "#1e293b" }}>{selectedChatbotName}</strong>
-          </p>
-        )}
-      </div>
-
-
+      {/* 챗봇 선택은 좌측 상단 '현재 챗봇' 드롭다운으로 통일 — 메뉴 내 별도 선택기 제거 */}
       {notice}
 
       {chatbotOptions.length === 0 && (

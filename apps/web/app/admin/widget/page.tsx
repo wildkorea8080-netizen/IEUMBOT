@@ -26,6 +26,7 @@ import {
   starterIconLabel,
 } from "../../../lib/widget/starter-icons";
 import { readSelectedAdminChatbot, writeSelectedAdminChatbot } from "../../../lib/admin-ui/selected-chatbot";
+import { useSelectedChatbot } from "../../../lib/admin-ui/use-selected-chatbot";
 
 // 추천 질문 줄 ↔ {아이콘, 이모지, 제목, 설명, 링크} 파싱/직렬화.
 // 저장 포맷: "[name] 제목 :: 설명 | URL" (설명/링크는 선택).
@@ -230,6 +231,7 @@ function gradientClass(preset: string) {
 export default function WidgetPage() {
   const [chatbots, setChatbots] = useState<AdminChatbotItem[]>([]);
   const [selectedChatbotId, setSelectedChatbotId] = useState("");
+  const globalSelectedChatbot = useSelectedChatbot();
   const [domainsInput, setDomainsInput] = useState("");
   const [launcherLabel, setLauncherLabel] = useState("");
   const [launcherIcon, setLauncherIcon] = useState("chat");
@@ -461,6 +463,11 @@ export default function WidgetPage() {
     debouncedIframeState,
   ]);
 
+  // 좌측 상단 '현재 챗봇'을 바꾸면 위젯 설정도 그 챗봇으로 전환.
+  useEffect(() => {
+    if (globalSelectedChatbot?.id) setSelectedChatbotId(globalSelectedChatbot.id);
+  }, [globalSelectedChatbot?.id]);
+
   useEffect(() => {
     let cancelled = false;
     const boot = async () => {
@@ -685,56 +692,7 @@ export default function WidgetPage() {
         title="위젯 설정"
         description="생성된 챗봇을 선택해 위젯 아이콘, hover 안내 말풍선, 브랜드 설정과 미리보기를 함께 관리합니다."
       >
-        <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-semibold text-slate-900">챗봇 선택</p>
-              <p className="mt-1 text-xs text-slate-500">위젯을 연결할 챗봇을 카드에서 바로 선택하세요.</p>
-            </div>
-            <div className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600">
-              선택된 ID: {selectedChatbotId || "-"}
-            </div>
-          </div>
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {chatbots.map((chatbot) => {
-              const active = chatbot.id === selectedChatbotId;
-              return (
-                <button
-                  key={chatbot.id}
-                  type="button"
-                  onClick={() => {
-                    setSelectedChatbotId(chatbot.id);
-                    writeSelectedAdminChatbot({ id: chatbot.id, name: chatbot.name });
-                  }}
-                  className={[
-                    "rounded-2xl border p-4 text-left transition",
-                    active ? "border-blue-400 bg-blue-50 shadow-sm ring-2 ring-blue-100" : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50",
-                  ].join(" ")}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-slate-900">{chatbot.name}</p>
-                      <p className="mt-1 text-xs text-slate-500">{chatbot.id}</p>
-                    </div>
-                    <span className={["rounded-full px-2.5 py-1 text-[11px] font-medium", chatbot.status === "active" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600"].join(" ")}>
-                      {chatbot.status}
-                    </span>
-                  </div>
-                  <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-slate-600">
-                    <div className="rounded-xl bg-slate-50 px-3 py-2">
-                      <p className="text-[11px] text-slate-500">문서</p>
-                      <p className="mt-1 font-semibold text-slate-900">{chatbot.documentCount}</p>
-                    </div>
-                    <div className="rounded-xl bg-slate-50 px-3 py-2">
-                      <p className="text-[11px] text-slate-500">웹사이트</p>
-                      <p className="mt-1 font-semibold text-slate-900">{chatbot.websiteCount}</p>
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
+        {/* 챗봇 선택은 좌측 상단 '현재 챗봇' 드롭다운으로 통일 */}
 
         {isBooting ? <p className="text-sm text-slate-600">챗봇 목록을 불러오는 중...</p> : null}
         {isLoading ? <p className="text-sm text-slate-600">위젯 설정을 불러오는 중...</p> : null}
