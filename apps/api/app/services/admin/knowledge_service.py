@@ -2428,6 +2428,12 @@ def _guess_file_type_from_url(url: str) -> str:
 def _guess_file_name_from_url(url: str) -> str:
     path = urlparse(url).path or ""
     name = Path(path).name
+    if name:
+        # 퍼센트 인코딩된 한글 파일명(%EA%B1%B0...)을 사람이 읽을 수 있게 디코드.
+        try:
+            name = unquote(name)
+        except Exception:  # noqa: BLE001
+            pass
     return name or url
 
 
@@ -3054,6 +3060,15 @@ def _render_and_store_pdf_page_images(
     return keys
 
 
+# .hwp(OLE 복합문서)를 바이트 스캔으로 훑을 때 함께 딸려오는 내부 스트림/구조 이름.
+# 본문이 아니므로 추출 결과에서 제거한다.
+_HWP_STREAM_NOISE = re.compile(
+    r"(Root Entry|FileHeader|HwpSummaryInformation|DocOptions|DocInfo|BodyText|"
+    r"PrvText|PrvImage|BinData|JScriptVersion|DefaultJScript|HwpDocument|Section\d+)",
+    re.IGNORECASE,
+)
+
+
 def _extract_hwp_text_best_effort(file_bytes: bytes) -> str:
     parts: list[str] = []
     for encoding in ("utf-16le", "utf-8", "cp949", "latin1"):
@@ -3064,6 +3079,8 @@ def _extract_hwp_text_best_effort(file_bytes: bytes) -> str:
         matches = re.findall(r"[가-힣A-Za-z0-9][가-힣A-Za-z0-9\s\-\.,:/()]{8,}", decoded)
         for match in matches:
             cleaned = _strip_binary_noise(match)
+            # OLE 스트림 이름(Root Entry, FileHeader 등) 제거 후 공백 정리.
+            cleaned = re.sub(r"\s+", " ", _HWP_STREAM_NOISE.sub(" ", cleaned)).strip()
             if len(cleaned) >= 8:
                 parts.append(cleaned)
         if parts:
