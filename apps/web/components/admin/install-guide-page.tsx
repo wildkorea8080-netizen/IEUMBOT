@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Check, Copy, Download, Eye, EyeOff, Plus, RefreshCw, Trash2 } from "lucide-react";
 
 import { ApiClientError } from "../../lib/api";
-import { writeSelectedAdminChatbot } from "../../lib/admin-ui/selected-chatbot";
+import { readSelectedAdminChatbot, writeSelectedAdminChatbot } from "../../lib/admin-ui/selected-chatbot";
 import { getAdminInstallGuide } from "../../lib/api/install-guide";
 import { getKnowledgeList } from "../../lib/api/admin-operations";
 import type { AdminInstallGuideItem } from "../../lib/api/install-guide-types";
@@ -120,7 +120,12 @@ export function InstallGuidePage() {
       try {
         const res = await getAdminInstallGuide();
         setItems(res.items);
-        const pref = res.items.find(i => i.hasWidget) ?? res.items[0];
+        // 전역 선택(사이드바 드롭다운)을 우선. 없으면 위젯 있는 챗봇, 그다음 첫 챗봇.
+        const globalId = readSelectedAdminChatbot()?.id;
+        const pref =
+          res.items.find(i => i.chatbotId === globalId) ??
+          res.items.find(i => i.hasWidget) ??
+          res.items[0];
         if (pref) { setSelectedId(pref.chatbotId); writeSelectedAdminChatbot({ id: pref.chatbotId, name: pref.chatbotName }); }
       } catch (e) { setError(getErrorMessage(e)); }
       finally { setIsLoading(false); }

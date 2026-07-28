@@ -7,7 +7,7 @@ import { Plus, Power, PowerOff, TestTube2 } from "lucide-react";
 
 import { AdminModal } from "../../../components/ui/admin-modal";
 import { ApiClientError } from "../../../lib/api";
-import { writeSelectedAdminChatbot } from "../../../lib/admin-ui/selected-chatbot";
+import { readSelectedAdminChatbot, writeSelectedAdminChatbot } from "../../../lib/admin-ui/selected-chatbot";
 import { createAdminChatbot, getAdminChatbots, patchAdminChatbot } from "../../../lib/api/admin-operations";
 import type { AdminChatbotItem } from "../../../lib/api/admin-operations-types";
 
@@ -64,9 +64,11 @@ export default function AdminChatbotsPage() {
         count: res.chatbotCount ?? res.items.length,
         canCreate: res.canCreate ?? true,
       });
+      // 방금 만든 챗봇(preferredId)이 있으면 그걸, 아니면 전역 선택을 유지(메뉴 이동 시
+      // 선택이 items[0]으로 초기화되지 않도록). 선택이 없을 때만 첫 챗봇으로.
       const target = preferredId
         ? res.items.find((i) => i.id === preferredId)
-        : res.items[0];
+        : (res.items.find((i) => i.id === readSelectedAdminChatbot()?.id) ?? res.items[0]);
       if (target) writeSelectedAdminChatbot({ id: target.id, name: target.name });
     } catch (err) {
       setError(getErrorMessage(err));

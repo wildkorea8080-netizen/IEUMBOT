@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Wand2 } from "lucide-react";
 
 import { apiClient } from "../../../../lib/api/client";
@@ -13,6 +13,10 @@ import {
 import { getAdminChatbot, getAdminChatbots, patchAdminChatbot } from "../../../../lib/api/admin-operations";
 import { getAnswerSettings, patchAnswerSettings } from "../../../../lib/api/answer-settings";
 import { markSetupDone } from "../../../../lib/admin-ui/setup-status";
+import {
+  ADMIN_SELECTED_CHATBOT_EVENT,
+  readSelectedAdminChatbot,
+} from "../../../../lib/admin-ui/selected-chatbot";
 import type { AnswerSettings, PrivacyInputMode } from "../../../../lib/api/answer-settings-types";
 import type { AdminChatbotItem, AdminChatbotResponse } from "../../../../lib/api/admin-operations-types";
 
@@ -88,8 +92,9 @@ export default function AdminAiBasicPage() {
   async function loadPage(chatbotId?: string) {
     const chatbotList = await getAdminChatbots();
     setChatbots(chatbotList.items);
-    const stored = window.localStorage.getItem(AI_CHATBOT_STORAGE_KEY) ?? "";
-    const preferred = chatbotList.items.find(it => it.id === (chatbotId || selectedChatbotId || stored)) ?? chatbotList.items[0] ?? null;
+    // 사이드바 드롭다운의 전역 선택을 우선 사용해 챗봇을 정한다(메뉴 이동 시 챗봇이 바뀌지 않도록).
+    const globalId = readSelectedAdminChatbot()?.id ?? "";
+    const preferred = chatbotList.items.find(it => it.id === (chatbotId || globalId)) ?? chatbotList.items[0] ?? null;
     if (!preferred) { setSelectedChatbotId(""); setIsLoading(false); return; }
     setIsLoading(true);
     try {
@@ -112,6 +117,23 @@ export default function AdminAiBasicPage() {
   }
 
   useEffect(() => { void loadPage(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 사이드바에서 현재 챗봇을 바꾸면 이 페이지도 해당 챗봇으로 다시 로드(전역 선택과 동기화).
+  const selectedIdRef = useRef(selectedChatbotId);
+  selectedIdRef.current = selectedChatbotId;
+  useEffect(() => {
+    const handler = () => {
+      const gid = readSelectedAdminChatbot()?.id ?? "";
+      if (gid && gid !== selectedIdRef.current) void loadPage(gid);
+    };
+    window.addEventListener(ADMIN_SELECTED_CHATBOT_EVENT, handler as EventListener);
+    window.addEventListener("storage", handler);
+    return () => {
+      window.removeEventListener(ADMIN_SELECTED_CHATBOT_EVENT, handler as EventListener);
+      window.removeEventListener("storage", handler);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (!toast) return;
     const t = window.setTimeout(() => setToast(null), 2400);
