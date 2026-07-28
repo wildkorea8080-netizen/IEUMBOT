@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, Upload, BookOpen, AlertCircle,
@@ -15,6 +15,7 @@ import { filterNavForMember } from "../../lib/admin-ui/menu-permissions";
 import {
   ADMIN_SELECTED_CHATBOT_EVENT,
   readSelectedAdminChatbot,
+  writeSelectedAdminChatbot,
   type SelectedAdminChatbot,
 } from "../../lib/admin-ui/selected-chatbot";
 import {
@@ -58,8 +59,28 @@ export function AdminSidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const [selectedChatbot, setSelectedChatbot] = useState<SelectedAdminChatbot | null>(null);
+  const [chatbotOptions, setChatbotOptions] = useState<SelectedAdminChatbot[]>([]);
+  const [chatbotMenuOpen, setChatbotMenuOpen] = useState(false);
   const [setupStatus, setSetupStatus] = useState<SetupStatus>({});
   const [branding, setBranding] = useState<OrganizationBranding | null>(null);
+
+  // 현재 챗봇 셀렉터용 챗봇 목록 로드. 선택된 게 없으면 첫 챗봇을 자동 선택.
+  const loadChatbotOptions = useCallback(async () => {
+    try {
+      const res = await getAdminChatbots();
+      const opts = res.items.map((i) => ({ id: i.id, name: i.name }));
+      setChatbotOptions(opts);
+      if (!readSelectedAdminChatbot() && opts.length > 0) {
+        writeSelectedAdminChatbot(opts[0]);
+      }
+    } catch {
+      /* 조회 실패 시 조용히 무시 */
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadChatbotOptions();
+  }, [loadChatbotOptions]);
   // 기관사용자면 부여된 메뉴만 노출. 관리자는 전체(adminNav).
   const [navGroups, setNavGroups] = useState<NavGroup[]>(adminNav);
 
@@ -196,15 +217,24 @@ export function AdminSidebar() {
         )}
       </div>
 
-      {/* 챗봇 선택기 — 플래니 스타일 */}
-      <div style={{ padding: "10px 12px", borderBottom: "1px solid #f3f4f6" }}>
-        <div
+      {/* 챗봇 선택기 — 드롭다운 */}
+      <div style={{ padding: "10px 12px", borderBottom: "1px solid #f3f4f6", position: "relative" }}>
+        <button
+          type="button"
+          onClick={() =>
+            setChatbotMenuOpen((o) => {
+              const next = !o;
+              if (next) void loadChatbotOptions();
+              return next;
+            })
+          }
           style={{
+            width: "100%", textAlign: "left", border: "none",
             display: "flex", alignItems: "center", justifyContent: "space-between",
-            padding: "8px 10px", background: "#f5f7fa", borderRadius: 8, cursor: "default",
+            padding: "8px 10px", background: "#f5f7fa", borderRadius: 8, cursor: "pointer",
           }}
         >
-          <div style={{ display: "flex", flexDirection: "column", minWidth: 0, flex: 1 }}>
+          <span style={{ display: "flex", flexDirection: "column", minWidth: 0, flex: 1 }}>
             <span style={{ fontSize: 10, color: "#9ca3af", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>
               현재 챗봇
             </span>
@@ -214,9 +244,56 @@ export function AdminSidebar() {
             >
               {selectedChatbot?.name ?? "챗봇을 선택하세요"}
             </span>
-          </div>
-          <ChevronDown className="shrink-0 ml-1" style={{ width: 13, height: 13, color: "#9ca3af" }} />
-        </div>
+          </span>
+          <ChevronDown
+            className="shrink-0 ml-1"
+            style={{ width: 13, height: 13, color: "#9ca3af", transform: chatbotMenuOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}
+          />
+        </button>
+
+        {chatbotMenuOpen && (
+          <>
+            <div onClick={() => setChatbotMenuOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+            <div
+              style={{
+                position: "absolute", top: "100%", left: 12, right: 12, marginTop: 4, zIndex: 50,
+                background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8,
+                boxShadow: "0 8px 24px rgba(0,0,0,0.12)", overflow: "hidden", maxHeight: 300, overflowY: "auto",
+              }}
+            >
+              {chatbotOptions.length === 0 ? (
+                <div style={{ padding: "10px 12px", fontSize: 12, color: "#9ca3af" }}>등록된 챗봇이 없습니다.</div>
+              ) : (
+                chatbotOptions.map((cb) => {
+                  const active = cb.id === selectedChatbot?.id;
+                  return (
+                    <button
+                      key={cb.id}
+                      type="button"
+                      onClick={() => { writeSelectedAdminChatbot(cb); setChatbotMenuOpen(false); }}
+                      style={{
+                        width: "100%", textAlign: "left", border: "none", cursor: "pointer",
+                        padding: "8px 12px", background: active ? "#eff6ff" : "#fff",
+                        fontSize: 13, color: active ? "#2563eb" : "#374151", fontWeight: active ? 600 : 400,
+                        display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+                      }}
+                    >
+                      <span className="truncate">{cb.name}</span>
+                      {active ? <span style={{ fontSize: 12, flexShrink: 0 }}>✓</span> : null}
+                    </button>
+                  );
+                })
+              )}
+              <Link
+                href="/admin/chatbots"
+                onClick={() => setChatbotMenuOpen(false)}
+                style={{ display: "block", padding: "8px 12px", borderTop: "1px solid #f1f5f9", fontSize: 12, color: "#6b7280", textDecoration: "none" }}
+              >
+                + 챗봇 관리
+              </Link>
+            </div>
+          </>
+        )}
       </div>
 
       {/* 네비게이션 — 플래니 스타일 */}
