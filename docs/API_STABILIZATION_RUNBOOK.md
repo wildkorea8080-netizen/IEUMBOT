@@ -33,12 +33,20 @@
 **주의**: `USE_ARQ_WORKER=true`로 켜면 API는 색인을 Arq(Redis)로 넘기고 인프로세스 스케줄러를 끔 → **워커가 반드시 떠 있어야** 함(아니면 작업이 큐에 쌓여 처리 안 됨). env와 워커를 **동시에** 적용.
 
 1. **Env**(API·워커 공통): `USE_ARQ_WORKER=true` (`API_REDIS_URL`은 이미 정상)
-2. **워커 컨테이너 실행**: API와 **같은 코드/이미지/env**, 시작 명령만 `arq app.workers.main.WorkerSettings`
-   - Coolify: 같은 저장소로 **두 번째 리소스**를 만들어 Dockerfile을 `infra/docker/worker.Dockerfile`로 지정(또는 compose의 `worker` 서비스 배포)
-3. **검증**
-   - 워커 로그에 시작 메시지
-   - 지식 **재색인** 1회 → 워커 로그에 `[ARQ_TASK] process_reindex_job started` → 목록에서 완료 확인
+2. **⚠️ 공유 볼륨 (필수)**: 파일 저장이 `local`이라 업로드 파일/추출 텍스트가
+   `apps/api/storage/knowledge`(컨테이너 경로 `/app/apps/api/storage/knowledge`)에
+   저장되고 **재색인이 이 파일을 다시 읽음**. 따라서 API와 워커가 **같은 저장소를
+   공유**해야 파일 재색인이 성공한다.
+   - API·워커 **양쪽 모두** 영구 볼륨을 `/app/apps/api/storage` 에 마운트(같은 볼륨).
+   - (웹소스 동기화·크롤은 파일 불필요 → 볼륨 없이도 됨. 볼륨은 **파일 문서 재색인**용.)
+   - 장기적으로는 파일 저장을 오브젝트 스토리지(S3/MinIO)로 옮기면 볼륨 공유 불필요.
+3. **워커 컨테이너 실행**: API와 **같은 코드/이미지/env**, 시작 명령만 `arq app.workers.main.WorkerSettings`
+   - Coolify: 같은 저장소로 **두 번째 리소스**를 만들어 Dockerfile을 `infra/docker/worker.Dockerfile`로 지정(또는 compose의 `worker` 서비스 배포). 도메인·포트 없음.
+4. **검증**
+   - 워커 로그에 arq 시작 메시지 + cron 등록
+   - 지식 **재색인** 1회 → 워커 로그에 `[ARQ_TASK] process_reindex_job started` → 목록에서 완료 확인 (파일 문서로 검증 → 공유 볼륨 확인)
    - 매시 정각 웹동기화가 **워커에서** 도는지(`[ARQ_CRON] sync_due_web_sources`)
+   - API 로그에 `[SCHEDULER] use_arq_worker=true — APScheduler 비활성` (인프로세스 스케줄러 꺼짐)
    - API 프로세스는 이제 요청/응답만 → 무거운 작업으로 안 죽음
 
 ---
