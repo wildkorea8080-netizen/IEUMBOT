@@ -5,6 +5,7 @@ import type { FormEvent, KeyboardEvent } from "react";
 import { RefreshCw, Send } from "lucide-react";
 
 import { looksLikeHtml, sanitizeHtml } from "../../../lib/safe-html";
+import { looksLikeMarkdown, markdownToHtml } from "../../../lib/markdown";
 
 import { ApiClientError } from "../../../lib/api";
 import { getAdminChatbots } from "../../../lib/api/admin-operations";
@@ -56,14 +57,19 @@ function UserBubble({ question, time }: { question: string; time: string }) {
 
 function AssistantBubble({ response, time }: { response: ChatRuntimeResponse; time: string }) {
   const text = response.answer.text || "";
-  const isHtml = looksLikeHtml(text);
+  // 위젯과 동일하게: HTML → sanitize, 마크다운(표·헤딩·굵게 등) → HTML 변환, 그 외 → 평문.
+  const richHtml = looksLikeHtml(text)
+    ? sanitizeHtml(text)
+    : looksLikeMarkdown(text)
+      ? sanitizeHtml(markdownToHtml(text))
+      : null;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 20 }}>
-      {isHtml ? (
+      {richHtml !== null ? (
         <div
           className="ieum-rich-answer"
           style={{ fontSize: 14, color: "#111827", lineHeight: 1.8 }}
-          dangerouslySetInnerHTML={{ __html: sanitizeHtml(text) }}
+          dangerouslySetInnerHTML={{ __html: richHtml }}
         />
       ) : (
         <div style={{ fontSize: 14, color: "#111827", lineHeight: 1.8, whiteSpace: "pre-wrap" }}>

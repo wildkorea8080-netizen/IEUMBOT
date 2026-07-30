@@ -228,3 +228,43 @@
     overflow-x: auto;
   }
 }
+
+/* 챗봇 답변(마크다운/HTML)의 표·헤딩·목록 렌더 스타일 (대화 테스트 등) */
+.ieum-rich-answer > *:first-child { margin-top: 0; }
+.ieum-rich-answer > *:last-child { margin-bottom: 0; }
+.ieum-rich-answer p { margin: 0 0 8px; }
+.ieum-rich-answer h1,
+.ieum-rich-answer h2,
+.ieum-rich-answer h3,
+.ieum-rich-answer h4,
+.ieum-rich-answer h5,
+.ieum-rich-answer h6 { margin: 12px 0 6px; font-weight: 700; line-height: 1.35; }
+.ieum-rich-answer h1 { font-size: 17px; }
+.ieum-rich-answer h2 { font-size: 16px; }
+.ieum-rich-answer h3 { font-size: 15px; }
+.ieum-rich-answer h4,
+.ieum-rich-answer h5,
+.ieum-rich-answer h6 { font-size: 14px; }
+.ieum-rich-answer ul,
+.ieum-rich-answer ol { margin: 4px 0 8px; padding-left: 20px; }
+.ieum-rich-answer li { margin: 2px 0; }
+.ieum-rich-answer a { color: #2563eb; text-decoration: underline; word-break: break-all; }
+.ieum-rich-answer code { background: #f1f5f9; padding: 1px 5px; border-radius: 4px; font-size: 0.9em; }
+.ieum-rich-answer blockquote { margin: 6px 0; padding: 4px 12px; border-left: 3px solid #cbd5e1; color: #475569; }
+.ieum-rich-answer table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 8px 0;
+  font-size: 13px;
+  display: block;
+  overflow-x: auto;
+}
+.ieum-rich-answer th,
+.ieum-rich-answer td {
+  border: 1px solid #e2e8f0;
+  padding: 6px 10px;
+  text-align: left;
+  vertical-align: top;
+  word-break: keep-all;
+}
+.ieum-rich-answer thead th { background: #f8fafc; font-weight: 600; white-space: nowrap; }
