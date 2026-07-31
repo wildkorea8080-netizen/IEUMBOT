@@ -301,15 +301,23 @@
   background:#f1f5f9; padding:8px; border-radius:6px; overflow-x:auto;
   font-size:0.9em; margin:6px 0;
 }
+/* \uD45C\uB294 \uC704\uC82F \uD3ED\uC774 \uC881\uC544 width:100%\uB85C \uB450\uBA74 \uCEEC\uB7FC\uC774 \uC9D3\uB20C\uB824 \uD55C\uAE00\uC774 \uAE00\uC790 \uB2E8\uC704\uB85C
+   \uC138\uB85C \uBD84\uD574\uB41C\uB2E4. \uB0B4\uC6A9 \uD06C\uAE30\uB300\uB85C \uB450\uACE0(inline-block=shrink-to-fit) \uB118\uCE58\uBA74
+   \uAC00\uB85C \uC2A4\uD06C\uB864. \uCEEC\uB7FC\uC774 \uC801\uC740 \uD45C\uB294 \uADF8\uB300\uB85C \uD14C\uB450\uB9AC\uAC00 \uB0B4\uC6A9\uC5D0 \uBD99\uB294\uB2E4. */
 .ieum-bubble-rich table {
-  border-collapse:separate; border-spacing:0; width:100%; margin:8px 0;
-  font-size:0.9em; border:1px solid #e5e7eb; border-radius:8px; overflow:hidden;
+  display:inline-block; vertical-align:top; max-width:100%;
+  overflow-x:auto; -webkit-overflow-scrolling:touch;
+  border-collapse:separate; border-spacing:0; margin:8px 0;
+  font-size:0.86em; border:1px solid #e5e7eb; border-radius:8px;
 }
 .ieum-bubble-rich th, .ieum-bubble-rich td {
   border-bottom:1px solid #eef2f7; padding:7px 10px; text-align:left; vertical-align:top;
+  word-break:keep-all; overflow-wrap:normal;  /* \uD55C\uAE00 \uB2E8\uC5B4 \uC911\uAC04\uC5D0\uC11C \uB04A\uC9C0 \uC54A\uC74C */
 }
 .ieum-bubble-rich tbody tr:last-child td { border-bottom:none; }
-.ieum-bubble-rich th { background:#f8fafc; font-weight:700; color:#374151; }
+.ieum-bubble-rich th {
+  background:#f8fafc; font-weight:700; color:#374151; white-space:nowrap;
+}
 .ieum-bubble-rich tbody tr:nth-child(even) td { background:#fafbfc; }
 .ieum-bubble-rich blockquote {
   border-left:3px solid #cbd5e1; padding-left:10px; color:#475569; margin:6px 0;

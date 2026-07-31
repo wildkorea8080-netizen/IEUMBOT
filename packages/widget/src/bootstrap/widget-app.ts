@@ -664,15 +664,23 @@ function buildScopedStyles(primaryGradient: string): string {
   background:#f1f5f9; padding:8px; border-radius:6px; overflow-x:auto;
   font-size:0.9em; margin:6px 0;
 }
+/* 표는 위젯 폭이 좁아 width:100%로 두면 컬럼이 짓눌려 한글이 글자 단위로
+   세로 분해된다. 내용 크기대로 두고(inline-block=shrink-to-fit) 넘치면
+   가로 스크롤. 컬럼이 적은 표는 그대로 테두리가 내용에 붙는다. */
 .ieum-bubble-rich table {
-  border-collapse:separate; border-spacing:0; width:100%; margin:8px 0;
-  font-size:0.9em; border:1px solid #e5e7eb; border-radius:8px; overflow:hidden;
+  display:inline-block; vertical-align:top; max-width:100%;
+  overflow-x:auto; -webkit-overflow-scrolling:touch;
+  border-collapse:separate; border-spacing:0; margin:8px 0;
+  font-size:0.86em; border:1px solid #e5e7eb; border-radius:8px;
 }
 .ieum-bubble-rich th, .ieum-bubble-rich td {
   border-bottom:1px solid #eef2f7; padding:7px 10px; text-align:left; vertical-align:top;
+  word-break:keep-all; overflow-wrap:normal;  /* 한글 단어 중간에서 끊지 않음 */
 }
 .ieum-bubble-rich tbody tr:last-child td { border-bottom:none; }
-.ieum-bubble-rich th { background:#f8fafc; font-weight:700; color:#374151; }
+.ieum-bubble-rich th {
+  background:#f8fafc; font-weight:700; color:#374151; white-space:nowrap;
+}
 .ieum-bubble-rich tbody tr:nth-child(even) td { background:#fafbfc; }
 .ieum-bubble-rich blockquote {
   border-left:3px solid #cbd5e1; padding-left:10px; color:#475569; margin:6px 0;
