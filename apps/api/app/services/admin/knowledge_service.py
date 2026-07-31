@@ -1,3 +1,4 @@
+import asyncio
 import gzip
 import logging
 import os
@@ -5658,7 +5659,14 @@ async def create_file_knowledge_service(
         organization_id=organization_id,
         chatbot_id=str(chatbot.id),
     )
-    _ingest_document_version_content(
+    # 색인(PDF 텍스트 추출 → OCR → OpenAI 임베딩)은 수십~수백 초 걸리는 blocking 작업이다.
+    # 이 함수는 UploadFile.read() 때문에 async이므로, 동기 함수를 직접 호출하면 그동안
+    # asyncio 이벤트 루프가 통째로 멈춘다 → uvicorn 워커가 1개라 API 전체가 무응답이 되고
+    # 위젯 설정 조회·관리자 로그인·헬스체크까지 함께 정지한다(운영 장애 원인이었음).
+    # 워커(app/workers/main.py)와 동일하게 to_thread로 격리해 이벤트 루프를 비워 둔다.
+    # db 세션은 await 동안 다른 코드가 건드리지 않으므로 스레드 간 순차 사용은 안전.
+    await asyncio.to_thread(
+        _ingest_document_version_content,
         db,
         organization_id=organization_id,
         chatbot_id=str(chatbot.id),
