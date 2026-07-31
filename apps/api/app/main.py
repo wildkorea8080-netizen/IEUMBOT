@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -54,6 +55,32 @@ def _log_schema_status() -> None:
         logger.warning("[SCHEMA] status check skipped: %s", exc)
 
 
+async def _event_loop_watchdog(interval: float = 0.5, threshold_seconds: float = 1.0) -> None:
+    """이벤트 루프가 막힌 시간을 직접 재서 경고 로그를 남긴다.
+
+    uvicorn 워커가 1개라 이벤트 루프가 막히면 API 전체가 무응답이 된다
+    (위젯 설정 조회·관리자 로그인·헬스체크까지 동시 정지). 과거 이 현상의
+    원인 추적에 며칠이 걸렸으므로, 재발 시 즉시 확인 가능하도록 상시 계측한다.
+
+    탐지 방법: 0.5초 sleep 후 실제 경과 시간을 비교 — 초과분이 루프가 막힌 시간.
+    비용: 2초에 1회 타이머, 사실상 0.
+    로그 검색: `grep EVENT_LOOP_STALL`
+    """
+    loop = asyncio.get_running_loop()
+    logger = logging.getLogger(__name__)
+    while True:
+        started = loop.time()
+        await asyncio.sleep(interval)
+        stalled = loop.time() - started - interval
+        if stalled >= threshold_seconds:
+            logger.warning(
+                "[EVENT_LOOP_STALL] blocked_for=%.2fs threshold=%.1fs "
+                "— 이 시간 동안 모든 요청이 정지됨. 동기 blocking 호출을 의심할 것.",
+                stalled,
+                threshold_seconds,
+            )
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     logger = logging.getLogger(__name__)
@@ -96,9 +123,15 @@ async def lifespan(_: FastAPI):
         except Exception as exc:
             print(f"[SCHEDULER] 스케줄러 시작 실패: {exc}", flush=True)
 
+    watchdog_task = asyncio.create_task(_event_loop_watchdog())
+    print("[WATCHDOG] 이벤트 루프 감시 시작 — 1초 이상 정지 시 [EVENT_LOOP_STALL] 경고", flush=True)
+
     yield
 
     # ── Graceful shutdown ─────────────────────────────────────────────────────
+    # 0) 워치독 정리
+    watchdog_task.cancel()
+
     # 1) 스케줄러 정리
     if scheduler is not None:
         try:

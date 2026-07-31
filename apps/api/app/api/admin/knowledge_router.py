@@ -90,7 +90,7 @@ def admin_list_knowledge_diagnostics(
 
 
 @router.post("/knowledge/upload", response_model=KnowledgeDetailResponse)
-async def admin_create_file_knowledge(
+def admin_create_file_knowledge(
     chatbot_id: str = Form(...),
     title: str = Form(...),
     category: str | None = Form(default=None),
@@ -104,7 +104,9 @@ async def admin_create_file_knowledge(
     principal: AdminPrincipal = Depends(require_institution_admin_auth),
     db: Session = Depends(get_db_session),
 ) -> KnowledgeDetailResponse:
-    return await create_file_knowledge_service(
+    # 동기 def — FastAPI가 스레드풀에서 실행해 이벤트 루프를 막지 않는다.
+    # (async로 되돌리면 색인이 도는 동안 API 전체가 무응답이 된다)
+    return create_file_knowledge_service(
         db,
         principal=principal,
         chatbot_id=chatbot_id,

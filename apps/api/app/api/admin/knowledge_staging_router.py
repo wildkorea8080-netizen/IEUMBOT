@@ -251,7 +251,7 @@ def create_staging_from_text(
 
 
 @router.post("/knowledge/staging/file", response_model=StagingSessionResponse, status_code=201)
-async def create_staging_from_file(
+def create_staging_from_file(
     background_tasks: BackgroundTasks,
     chatbot_id: str = Form(...),
     file: UploadFile = File(...),
@@ -262,7 +262,9 @@ async def create_staging_from_file(
     ensure_chatbot_in_scope(db, principal=principal, chatbot_id=chatbot_id)
     org_id = require_institution_organization_id(principal)
 
-    file_bytes = await file.read()
+    # 동기 def — 이벤트 루프를 쓰지 않으므로 UploadFile.read() 대신 하위 파일 객체를 직접 읽는다.
+    file.file.seek(0)
+    file_bytes = file.file.read()
     filename = file.filename or "unknown"
     content_type = file.content_type or ""
 
