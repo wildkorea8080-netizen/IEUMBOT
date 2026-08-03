@@ -744,7 +744,7 @@ function buildScopedStyles(primaryGradient: string): string {
 /* ── Tools API 구조화 응답 ── */
 .ieum-view-card { margin-top:6px; }
 .ieum-view-title { font-size:14px; font-weight:700; color:#111827; margin-bottom:8px; }
-.ieum-view-content { font-size:12.5px; color:#374151; line-height:1.65; margin-bottom:4px; }
+.ieum-view-content { font-size:12.5px; color:#374151; line-height:1.65; margin:0 0 4px; }
 .ieum-more-link {
   display:inline-flex; align-items:center; gap:4px;
   margin-top:10px; font-size:12px; font-weight:600;
@@ -754,7 +754,7 @@ function buildScopedStyles(primaryGradient: string): string {
 .ieum-list { list-style:none; margin:6px 0 0; padding:0; display:flex; flex-direction:column; gap:8px; }
 .ieum-list-item { border:1px solid #e5e7eb; border-radius:12px; padding:11px 13px; background:#fff; }
 .ieum-list-item-title { font-size:13px; font-weight:600; color:#111827; margin-bottom:5px; }
-.ieum-list-item-content { font-size:12px; color:#6b7280; line-height:1.55; }
+.ieum-list-item-content { font-size:12px; color:#6b7280; line-height:1.55; margin:0 0 3px; }
 .ieum-list-item-link { display:inline-block; margin-top:6px; font-size:11.5px; color:#2563eb; text-decoration:none; }
 .ieum-list-item-link:hover { text-decoration:underline; }
 /* ── 피드백 ── */
@@ -1556,7 +1556,10 @@ export class IeumWidgetApp {
       const sr = message.structuredResponse;
       if (sr && message.role === "assistant") {
         if (sr.type === "text") {
-          bubble.textContent = (sr as TextResponse).content;
+          // 반드시 renderMessageText 경유 — textContent로 그리면 LLM이 만든 마크다운
+          // (## 헤딩, | 표 |)이 글자 그대로 노출된다. 조건별 답변 규칙이 매칭된
+          // 질문에서만 이 경로를 타서 "가끔 답변이 깨지는" 증상으로 나타났었다.
+          renderMessageText(bubble, (sr as TextResponse).content);
           if ((sr as TextResponse).moreLink) {
             const a = createElement(document, "a", "ieum-more-link") as HTMLAnchorElement;
             a.href = (sr as TextResponse).moreLink!.url;
@@ -1572,9 +1575,10 @@ export class IeumWidgetApp {
           h.textContent = vr.title;
           wrap.appendChild(h);
           for (const line of vr.content) {
-            const p = createElement(document, "p", "ieum-view-content");
-            p.textContent = line;
-            wrap.appendChild(p);
+            // p가 아닌 div — 마크다운이 표 같은 블록 요소를 만들어도 안전하게 담긴다.
+            const lineNode = createElement(document, "div", "ieum-view-content");
+            renderMessageText(lineNode, line);
+            wrap.appendChild(lineNode);
           }
           if (vr.moreLink) {
             const a = createElement(document, "a", "ieum-more-link") as HTMLAnchorElement;
@@ -1593,9 +1597,9 @@ export class IeumWidgetApp {
             title.textContent = item.title;
             li.appendChild(title);
             for (const c of item.contents.slice(0, 3)) {
-              const p = createElement(document, "p", "ieum-list-item-content");
-              p.textContent = c;
-              li.appendChild(p);
+              const contentNode = createElement(document, "div", "ieum-list-item-content");
+              renderMessageText(contentNode, c);
+              li.appendChild(contentNode);
             }
             if (item.targetLink) {
               const a = createElement(document, "a", "ieum-list-item-link") as HTMLAnchorElement;
