@@ -8,6 +8,7 @@ const ADMIN_ROUTE_META: Array<{ href: string; meta: RouteMeta }> = [
   { href: "/admin/ai/basic", meta: { title: "기본 AI", breadcrumbs: ["기관관리자", "AI 설정", "기본 AI"] } },
   { href: "/admin/ai/style", meta: { title: "스타일 규칙", breadcrumbs: ["기관관리자", "AI 설정", "스타일 규칙"] } },
   { href: "/admin/ai/conditional", meta: { title: "조건부 규칙", breadcrumbs: ["기관관리자", "AI 설정", "조건부 규칙"] } },
+  { href: "/admin/quick-actions", meta: { title: "탐색 메뉴", breadcrumbs: ["기관관리자", "AI 설정", "탐색 메뉴"] } },
   { href: "/admin/knowledge/register", meta: { title: "지식 등록", breadcrumbs: ["기관관리자", "지식 관리", "등록"] } },
   { href: "/admin/knowledge/list", meta: { title: "지식 목록", breadcrumbs: ["기관관리자", "지식 관리", "목록"] } },
   { href: "/admin/conversations", meta: { title: "대화 관리", breadcrumbs: ["기관관리자", "운영", "대화 관리"] } },
