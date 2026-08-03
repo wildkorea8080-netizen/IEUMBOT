@@ -124,10 +124,20 @@ def downgrade() -> None:
     label: Mapped[str] = mapped_column(String(120), nullable=False)
 ```
 
-- [ ] **Step 3: 마이그레이션 적용 확인**
+- [ ] **Step 3: 마이그레이션 검증 (실행하지 말 것)**
 
-Run: `cd apps/api && alembic upgrade head && alembic current`
-Expected: `20260803_0049 (head)` 출력
+로컬 `.env`는 공용 원격 DB(Neon)를 가리킨다. **`alembic upgrade head`를 실행하지 않는다.**
+실제 적용은 배포 시 `apps/api/scripts/start.sh`가 담당한다.
+오프라인 모드로 SQL만 생성해 마이그레이션이 올바른지 확인한다:
+
+Run: `cd apps/api && alembic upgrade 20260716_0048:20260803_0049 --sql`
+Expected: `ALTER TABLE quick_actions ADD COLUMN parent_id UUID` / `ADD COLUMN description VARCHAR(300)` /
+`CREATE INDEX ix_quick_actions_chatbot_parent_order` 를 포함한 SQL이 출력되고 에러가 없을 것
+
+모델과 마이그레이션이 같은 컬럼을 정의하는지도 확인:
+
+Run: `cd apps/api && python -c "from app.models import QuickAction; print(QuickAction.parent_id, QuickAction.description)"`
+Expected: 두 컬럼 객체가 출력되고 에러 없음
 
 - [ ] **Step 4: 커밋**
 
