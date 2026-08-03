@@ -190,10 +190,15 @@ function FormatRulesEditor({ rules, onChange }: { rules: FormatRule[]; onChange:
   const [editKws, setEditKws] = useState<string[]>([]);
   const [adding, setAdding] = useState(false);
 
+  // 입력창에 아직 Enter를 누르지 않고 남아 있는 키워드까지 포함한 최종 목록.
+  // Enter를 안 눌러 버튼이 비활성인 채로 막히는 일이 없도록 한다.
+  const pendingKw = kwInput.trim();
+  const effectiveKws = pendingKw && !editKws.includes(pendingKw) ? [...editKws, pendingKw] : editKws;
+
   function addRule() {
-    if (editKws.length === 0) return;
-    onChange([...rules, { keywords: editKws, format: fmt, moreLink: mlTitle && mlUrl ? { title: mlTitle, url: mlUrl } : null }]);
-    setEditKws([]); setFmt("text"); setMlTitle(""); setMlUrl(""); setAdding(false);
+    if (effectiveKws.length === 0) return;
+    onChange([...rules, { keywords: effectiveKws, format: fmt, moreLink: mlTitle && mlUrl ? { title: mlTitle, url: mlUrl } : null }]);
+    setEditKws([]); setKwInput(""); setFmt("text"); setMlTitle(""); setMlUrl(""); setAdding(false);
   }
 
   function addKw() {
@@ -247,9 +252,14 @@ function FormatRulesEditor({ rules, onChange }: { rules: FormatRule[]; onChange:
             <input value={mlUrl} onChange={e => setMlUrl(e.target.value)} placeholder="더보기 URL (선택)" className="input-field" />
           </div>
           <div style={{ display: "flex", gap: 8 }}>
-            <button type="button" onClick={addRule} disabled={editKws.length === 0} className="btn-primary" style={{ padding: "7px 16px", fontSize: 13, opacity: editKws.length === 0 ? 0.5 : 1 }}>규칙 추가</button>
-            <button type="button" onClick={() => { setAdding(false); setEditKws([]); }} className="btn-secondary" style={{ padding: "7px 12px", fontSize: 13 }}>취소</button>
+            <button type="button" onClick={addRule} disabled={effectiveKws.length === 0} className="btn-primary" style={{ padding: "7px 16px", fontSize: 13, opacity: effectiveKws.length === 0 ? 0.5 : 1 }}>규칙 추가</button>
+            <button type="button" onClick={() => { setAdding(false); setEditKws([]); setKwInput(""); }} className="btn-secondary" style={{ padding: "7px 12px", fontSize: 13 }}>취소</button>
           </div>
+          {effectiveKws.length === 0 && (
+            <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 8 }}>
+              키워드를 1개 이상 입력해야 규칙을 추가할 수 있습니다. (Enter로 여러 개 등록 가능)
+            </div>
+          )}
         </div>
       ) : (
         <button type="button" onClick={() => setAdding(true)} className="btn-secondary"
