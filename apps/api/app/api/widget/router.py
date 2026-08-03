@@ -213,6 +213,8 @@ def get_widget_public_config(
                 url=row.url,
                 display_location=row.display_location,
                 sort_order=row.sort_order,
+                parent_id=str(row.parent_id) if row.parent_id else None,
+                description=row.description,
             )
             for row in quick_action_rows
         ],

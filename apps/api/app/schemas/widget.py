@@ -9,6 +9,8 @@ class WidgetQuickAction(ApiSchema):
     url: str | None = None
     display_location: str
     sort_order: int
+    parent_id: str | None = None
+    description: str | None = None
 
 
 class WidgetOperatingHours(ApiSchema):
