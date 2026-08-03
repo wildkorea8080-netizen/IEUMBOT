@@ -186,6 +186,74 @@ def _split_prose_and_header(line: str, ncols: int) -> tuple[str, str] | None:
     return prose, header
 
 
+def _table_row_cells(row: str) -> list[str]:
+    s = row.strip()
+    if s.startswith("|"):
+        s = s[1:]
+    if s.endswith("|"):
+        s = s[:-1]
+    return [c.strip() for c in s.split("|")]
+
+
+def _flatten_multiline_tables(text: str) -> str:
+    """셀 안에 줄바꿈이 든 표를 '**구분**' + '- 내용' 목록으로 변환.
+
+    마크다운 표는 한 행이 반드시 한 줄이어야 한다. 모델이 셀 안에 '- ' 목록을
+    여러 줄로 넣으면 그 행은 '|'로 끝나지 않아 표가 헤더에서 끊기고, 나머지
+    파이프가 화면에 그대로 노출된다(운영 장애 증상). 표로 표현할 수 없는
+    구조이므로 목록으로 바꾼다 — 좁은 위젯 폭에서 오히려 더 잘 읽힌다.
+
+    각 행이 한 줄로 온전한 정상 표는 건드리지 않는다.
+    """
+    lines = text.split("\n")
+    out: list[str] = []
+    i, n = 0, len(lines)
+    while i < n:
+        if lines[i].strip().startswith("|") and i + 1 < n and _is_separator_row(lines[i + 1]):
+            j = i + 2
+            logical_rows: list[list[str]] = []
+            has_multiline = False
+            while j < n and lines[j].strip().startswith("|"):
+                chunk = [lines[j]]
+                while (
+                    not lines[j].rstrip().endswith("|")
+                    and j + 1 < n
+                    and not lines[j + 1].strip().startswith("|")
+                    and lines[j + 1].strip() != ""
+                ):
+                    j += 1
+                    chunk.append(lines[j])
+                    has_multiline = True
+                logical_rows.append(chunk)
+                j += 1
+            if logical_rows and has_multiline:
+                for chunk in logical_rows:
+                    cells = _table_row_cells(chunk[0])
+                    label = cells[0] if cells else ""
+                    bullets: list[str] = []
+                    rest = " ".join(cells[1:]).strip() if len(cells) > 1 else ""
+                    if rest:
+                        bullets.append(rest)
+                    for extra in chunk[1:]:
+                        e = extra.strip()
+                        if e.endswith("|"):
+                            e = e[:-1].strip()
+                        if e:
+                            bullets.append(e)
+                    if label:
+                        out.append(f"**{label}**")
+                    for bullet in bullets:
+                        cleaned = bullet.lstrip("-").strip()
+                        if cleaned:
+                            out.append(f"- {cleaned}")
+                    out.append("")
+                i = j
+                continue
+        out.append(lines[i])
+        i += 1
+    return "\n".join(out)
+
+
 def _normalize_answer_layout(text: str) -> str:
     """LLM 답변의 마크다운 레이아웃 정규화 — 개행 없이 한 줄로 뭉친 표·소제목을 복원.
 
@@ -216,7 +284,9 @@ def _normalize_answer_layout(text: str) -> str:
                     continue
         out.append(line)
     t = "\n".join(out)
-    # 4) 과도한 빈 줄 정리
+    # 4) 셀 안에 줄바꿈이 든 표는 표로 성립하지 않으므로 목록으로 변환
+    t = _flatten_multiline_tables(t)
+    # 5) 과도한 빈 줄 정리
     t = re.sub(r"\n{3,}", "\n\n", t)
     return t.strip()
 
