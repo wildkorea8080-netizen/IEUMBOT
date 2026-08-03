@@ -1336,6 +1336,8 @@ def _persist_immediate_response(
     citations: list[Any] | None = None,
     follow_up_questions: list[str] | None = None,
     structured_response: Any = None,
+    conditional_actions: list[dict[str, Any]] | None = None,
+    follow_up_source: str | None = None,
 ) -> ChatRuntimeResponse:
     request_id = f"chat_run_{uuid.uuid4().hex[:16]}"
     if session is None:
@@ -1439,6 +1441,7 @@ def _persist_immediate_response(
         follow_up_questions=list(follow_up_questions or []),
         policy_decision={},
         structured_response=structured_response,
+        conditional_actions=list(conditional_actions or []),
         trace=_build_public_runtime_trace(
             normalized_query=normalized_query,
             llm_executed=False,
@@ -1454,7 +1457,7 @@ def _persist_immediate_response(
             classifier_reason=classifier_reason,
             simple_response_applied=True,
             follow_up_questions=list(follow_up_questions or []),
-            follow_up_source=None,
+            follow_up_source=follow_up_source,
         ),
     )
 
@@ -1962,6 +1965,60 @@ def run_final_chat_pipeline(
 
     if faq_match is not None and not force_api:
         logger.info("[FAQ] matched score=%.3f → early return", faq_match["score"])
+        faq_answer_text = _normalize_answer_layout(str(faq_match["answer"]))
+
+        # FAQ 답변도 RAG 답변과 동일하게 추천질문·CTA·구조화 응답을 붙인다.
+        # (이전에는 조기 반환 경로라 이 단계들을 통째로 건너뛰어, FAQ가 매칭되면
+        #  답변만 덩그러니 나오고 다음 질문 추천이 사라졌다.)
+        faq_theme = dict(chatbot.theme or {}) if chatbot.theme else {}
+        faq_question_pool = [
+            q for q in (faq_theme.get("recommendedQuestionsPool") or [])
+            if isinstance(q, str) and q.strip()
+        ]
+        faq_follow_ups = _build_follow_up_questions(
+            body.question,
+            faq_answer_text,
+            "answered",
+            [],  # FAQ 경로는 RAG 후보가 없다 — 풀/LLM/규칙 기반으로 생성
+            db,
+            question_pool=faq_question_pool or None,
+            follow_up_enabled=faq_theme.get("followUpEnabled", True) is not False,
+        )
+        faq_conditional_actions: list[dict[str, Any]] = []
+        try:
+            from app.services.chat.conditional_response_service import (  # noqa: PLC0415
+                match_conditional_responses,
+            )
+            faq_conditional_actions = match_conditional_responses(
+                question=body.question,
+                answer_text=faq_answer_text,
+                chatbot_id=str(chatbot.id),
+                db=db,
+            )
+        except Exception as _faq_cta_exc:
+            logger.warning("[CONDITIONAL] FAQ 경로 매칭 실패: %s", _faq_cta_exc)
+
+        faq_structured_response = None
+        try:
+            from app.services.chat.response_formatter_service import (  # noqa: PLC0415
+                build_structured_response,
+            )
+            faq_structured_response = build_structured_response(
+                question=body.question,
+                answer_text=faq_answer_text,
+                candidates=[],
+                chatbot_id=str(chatbot.id),
+                db=db,
+            )
+        except Exception as _faq_fmt_exc:
+            logger.warning("[RESPONSE_FORMAT] FAQ 경로 변환 실패: %s", _faq_fmt_exc)
+
+        logger.info(
+            "[FAQ] enriched follow_ups=%d conditional_actions=%d structured=%s",
+            len(faq_follow_ups),
+            len(faq_conditional_actions),
+            faq_structured_response is not None,
+        )
         return _persist_immediate_response(
             db,
             body=body,
@@ -1972,12 +2029,19 @@ def run_final_chat_pipeline(
             stream_mode=stream_mode,
             tone_summary=tone_summary,
             outcome="answered",
-            answer_text=faq_match["answer"],
+            answer_text=faq_answer_text,
             reason="faq_match",
             detected_intent=detected_intent or "",
             intent_routing_method=intent_routing_method,
             intent_confidence=intent_confidence,
             classifier_reason=classifier_reason,
+            follow_up_questions=faq_follow_ups,
+            conditional_actions=faq_conditional_actions,
+            structured_response=faq_structured_response,
+            follow_up_source=(
+                "llm_dynamic" if (faq_follow_ups and _USE_DYNAMIC_FOLLOWUP) else
+                ("rule_based" if faq_follow_ups else None)
+            ),
         )
 
     retrieval_start = time.perf_counter()
