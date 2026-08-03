@@ -11,6 +11,7 @@ export type MenuKey =
   | "ai_style"
   | "widget"
   | "conditional"
+  | "guided_menu"
   | "knowledge_register"
   | "knowledge_list"
   | "api_connect"
@@ -27,6 +28,7 @@ export const MENU_CATALOG: { key: MenuKey; label: string; href: string }[] = [
   { key: "ai_style", label: "대화 스타일 설정", href: "/admin/ai/style" },
   { key: "widget", label: "위젯 설정", href: "/admin/widget" },
   { key: "conditional", label: "조건별 답변 설정", href: "/admin/conditional" },
+  { key: "guided_menu", label: "탐색 메뉴", href: "/admin/quick-actions" },
   { key: "knowledge_register", label: "지식등록", href: "/admin/knowledge/register" },
   { key: "knowledge_list", label: "지식관리", href: "/admin/knowledge/list" },
   { key: "api_connect", label: "API 연동", href: "/admin/api-connect" },

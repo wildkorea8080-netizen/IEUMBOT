@@ -13,6 +13,7 @@ MENU_KEYS: tuple[str, ...] = (
     "ai_style",             # 대화 스타일 설정
     "widget",               # 위젯 설정
     "conditional",          # 조건별 답변 설정
+    "guided_menu",          # 탐색 메뉴
     "knowledge_register",   # 지식등록
     "knowledge_list",       # 지식관리
     "api_connect",          # API 연동
