@@ -1242,17 +1242,10 @@ export class IeumWidgetApp {
       this.renderStarterQuestions();
       this.footerNotice.textContent = this.config.privacyNotice?.trim() || DEFAULT_TRUST_NOTICE;
       this.renderQuickActions(this.config.quickActions);
-      // 탐색 메뉴가 설정돼 있으면 인사말 다음에 대분류 카드를 한 번 띄운다.
-      // (이미 대화가 시작된 뒤 config가 다시 로드되는 경우엔 중복으로 넣지 않는다)
-      const hasMenuCategories = (this.config.quickActions ?? []).some(
-        (item) =>
-          item.actionType === "category" &&
-          (this.config?.quickActions ?? []).some((child) => child.parentId === item.id),
-      );
-      const alreadyShown = this.messages.some((m) => m.menuCategoryId);
-      if (hasMenuCategories && !alreadyShown) {
-        this.pushRootMenuCard();
-      }
+      // 시작 화면(초기 안내 문구·대화 시작 추천 질문)은 건드리지 않는다.
+      // 대분류 카드는 사용자가 해당 키워드를 입력했을 때만 대화에 나타난다
+      // (findMenuCategoryByLabel → sendCurrentInput). 시작하자마자 카드를 밀어 넣으면
+      // messages.length가 2가 되어 추천 질문 카드가 즉시 숨겨진다(renderMessages 참조).
       if (this.config.runtime?.chatEndpoint) this.chatEndpoint = this.config.runtime.chatEndpoint;
       if (this.config.runtime?.chatStreamEndpoint) this.chatStreamEndpoint = this.config.runtime.chatStreamEndpoint;
       this.sseEnabled =
@@ -2023,10 +2016,36 @@ export class IeumWidgetApp {
     this.loadingRow.classList.toggle("active", value);
   }
 
+  /** 입력값이 탐색 메뉴 대분류 이름과 정확히 일치하면 그 대분류를 반환.
+   *  추천 질문 카드에 대분류 이름을 그대로 넣어두면 클릭 시 메뉴가 열린다. */
+  private findMenuCategoryByLabel(text: string): WidgetQuickAction | null {
+    const needle = text.trim().toLowerCase();
+    if (!needle) return null;
+    const actions = this.config?.quickActions ?? [];
+    return (
+      actions.find(
+        (item) =>
+          item.actionType === "category" &&
+          item.label.trim().toLowerCase() === needle &&
+          actions.some((child) => child.parentId === item.id),
+      ) ?? null
+    );
+  }
+
   private async sendCurrentInput() {
     if (this.sending) return;
     const question = this.input.value.trim();
     if (!question) return;
+
+    // 대분류 이름이 입력되면 챗봇에 보내지 않고 해당 메뉴 카드를 펼친다.
+    const menuCategory = this.findMenuCategoryByLabel(question);
+    if (menuCategory) {
+      this.input.value = "";
+      this.clearInitialWelcomeForDirectQuestion();
+      await this.handleMenuAction(menuCategory);
+      this.input.focus();
+      return;
+    }
     // 새 질문 전송 시작 — 이전 답변 핀 해제(질문은 맨 아래로 보임). 답변 생성 시 다시 설정.
     this.pinMessageIdToTop = null;
     if (hasPrivacyInput(question)) {
