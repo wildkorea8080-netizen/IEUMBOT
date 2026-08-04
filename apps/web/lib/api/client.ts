@@ -43,11 +43,31 @@ export class ApiClient {
       } catch {
         payload = undefined;
       }
-      const detail = typeof (payload as { detail?: unknown } | undefined)?.detail === "string"
-        ? String((payload as { detail?: string }).detail)
-        : undefined;
-      const errorCode = payload?.error?.code ?? detail ?? `HTTP_${response.status}`;
-      const message = payload?.error?.message ?? detail ?? `API request failed (${response.status})`;
+      // FastAPI의 detail은 두 형태로 온다:
+      //   "FAQ_NOT_FOUND"                     → 코드만 (대부분의 라우터)
+      //   {code, message}                     → 코드 + 사용자에게 보여줄 메시지
+      // 후자를 문자열로만 취급하면 서버가 보낸 안내 문구가 버려지고
+      // "API request failed (400)" 같은 일반 메시지로 덮인다.
+      const rawDetail = (payload as { detail?: unknown } | undefined)?.detail;
+      const detailObject =
+        rawDetail !== null && typeof rawDetail === "object"
+          ? (rawDetail as { code?: unknown; message?: unknown })
+          : undefined;
+      const detailCode =
+        typeof rawDetail === "string"
+          ? rawDetail
+          : typeof detailObject?.code === "string"
+            ? detailObject.code
+            : undefined;
+      const detailMessage =
+        typeof rawDetail === "string"
+          ? rawDetail
+          : typeof detailObject?.message === "string"
+            ? detailObject.message
+            : undefined;
+      const errorCode = payload?.error?.code ?? detailCode ?? `HTTP_${response.status}`;
+      const message =
+        payload?.error?.message ?? detailMessage ?? `API request failed (${response.status})`;
       throw new ApiClientError(message, response.status, errorCode);
     }
 
