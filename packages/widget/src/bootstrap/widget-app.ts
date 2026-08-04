@@ -38,6 +38,8 @@ type Message = {
 type LauncherIconName = "chat" | "heart" | "love-chat" | "custom" | "shield" | "leaf" | "spark";
 
 const LOVE_CHAT_ICON_SRC = "/widget-icons/love-chat-icons.png";
+/** 탐색 메뉴 버튼을 2열로 배치할 라벨 최대 길이. 이보다 길면 1열 전체폭으로 떨어뜨린다. */
+const MENU_TWO_COLUMN_MAX_LABEL = 8;
 const CHAT_RECOVERY_MESSAGE =
   "요청 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.";
 const PRIVACY_INPUT_BLOCK_MESSAGE = "개인정보가 포함된 내용은 입력할 수 없습니다. 개인정보를 제외하고 다시 입력해 주세요.";
@@ -625,8 +627,9 @@ function buildScopedStyles(primaryGradient: string): string {
   font-size:12px; color:#2563eb; cursor:pointer; font-family:inherit;
 }
 .ieum-menu-home:hover { text-decoration:underline; }
-/* 최상위(대분류) 카드는 2열 그리드로 — 항목이 한눈에 들어오게 */
+/* 메뉴 버튼 배치 — 라벨이 짧으면 2열, 길면 1열 전체폭(줄마다 들쭉날쭉해지지 않게 격자 고정) */
 .ieum-menu-card-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.ieum-menu-card-list { display:grid; grid-template-columns:1fr; gap:8px; }
 .ieum-menu-entry {
   width:100%; justify-content:center; text-align:center;
   padding:12px 10px; border-radius:12px; white-space:normal; line-height:1.35;
@@ -1590,18 +1593,19 @@ export class IeumWidgetApp {
       container.appendChild(desc);
     }
 
-    // 최상위는 온다비/구삐처럼 2열 카드 그리드, 하위는 칩 나열
+    // 버튼은 항상 격자로 정렬한다(flex-wrap은 줄마다 개수·너비가 달라져 지저분해진다).
+    // 라벨이 모두 짧으면 2열, 하나라도 길면 1열 전체폭 — 구삐(2열)/온다비(1열) 양쪽을
+    // 라벨 길이에 맞춰 자동으로 따라간다.
+    const useTwoColumns = entries.every(
+      (entry) => entry.label.trim().length <= MENU_TWO_COLUMN_MAX_LABEL,
+    );
     const list = createElement(
       document,
       "div",
-      isRoot ? "ieum-menu-card-actions ieum-menu-card-grid" : "ieum-menu-card-actions",
+      `ieum-menu-card-actions ${useTwoColumns ? "ieum-menu-card-grid" : "ieum-menu-card-list"}`,
     );
     for (const entry of entries) {
-      const button = createElement(
-        document,
-        "button",
-        isRoot ? "ieum-quick-action ieum-menu-entry" : "ieum-quick-action",
-      );
+      const button = createElement(document, "button", "ieum-quick-action ieum-menu-entry");
       button.type = "button";
       button.textContent = entry.label;
       button.title = entry.label;
