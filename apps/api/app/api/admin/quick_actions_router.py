@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.api.dependencies.auth import AdminPrincipal, require_institution_admin_auth
@@ -59,7 +59,9 @@ def _bad_request(code: str, message: str) -> HTTPException:
 
 @router.get("/quick-actions")
 def admin_list_quick_actions(
-    chatbot_id: str,
+    # 프론트엔드는 쿼리스트링을 camelCase로 보낸다(knowledge_router와 동일 관례).
+    # alias 없이 chatbot_id로 두면 FastAPI가 필수 파라미터를 못 찾아 422를 낸다.
+    chatbot_id: str = Query(alias="chatbotId"),
     principal: AdminPrincipal = Depends(require_institution_admin_auth),
     db: Session = Depends(get_db_session),
 ) -> list[dict[str, Any]]:
@@ -117,7 +119,7 @@ def admin_update_quick_action(
 @router.delete("/quick-actions/{node_id}", status_code=204)
 def admin_delete_quick_action(
     node_id: str,
-    chatbot_id: str,
+    chatbot_id: str = Query(alias="chatbotId"),
     principal: AdminPrincipal = Depends(require_institution_admin_auth),
     db: Session = Depends(get_db_session),
 ) -> None:

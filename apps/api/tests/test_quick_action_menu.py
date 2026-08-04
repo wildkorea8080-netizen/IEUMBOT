@@ -99,3 +99,26 @@ def test_resolve_sort_order_keeps_current_when_missing() -> None:
 
 def test_resolve_sort_order_coerces_numeric_string() -> None:
     assert _resolve_sort_order("3", current=5) == 3
+
+
+# ── 라우터 계약 ────────────────────────────────────────────────────────────────
+# 프론트엔드는 쿼리스트링을 camelCase(chatbotId)로 보낸다. 라우터가 alias 없이
+# chatbot_id로 받으면 FastAPI가 필수 파라미터를 못 찾아 422를 내고, 화면에는
+# 원인을 알 수 없는 일반 오류만 뜬다(실제로 운영에서 한 번 발생).
+
+
+def _query_param_names(path: str, method: str) -> set[str]:
+    from app.main import app
+
+    for route in app.routes:
+        if getattr(route, "path", None) == path and method in getattr(route, "methods", set()):
+            return {p.alias for p in route.dependant.query_params}
+    raise AssertionError(f"라우트를 찾지 못함: {method} {path}")
+
+
+def test_list_endpoint_accepts_camel_case_chatbot_id() -> None:
+    assert "chatbotId" in _query_param_names("/api/admin/quick-actions", "GET")
+
+
+def test_delete_endpoint_accepts_camel_case_chatbot_id() -> None:
+    assert "chatbotId" in _query_param_names("/api/admin/quick-actions/{node_id}", "DELETE")
