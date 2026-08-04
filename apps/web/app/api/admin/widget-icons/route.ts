@@ -1,9 +1,27 @@
+import { existsSync } from "node:fs";
 import { mkdir, readdir, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { NextRequest, NextResponse } from "next/server";
 
-const WEB_PUBLIC_ROOT = path.join(process.cwd(), "apps", "web", "public");
+/**
+ * Next가 실제로 정적 파일을 서빙하는 public 디렉터리를 찾는다.
+ *
+ * 운영/개발 모두 `pnpm --filter @ieumbot/web start|dev` 로 실행돼 cwd가 apps/web 이다.
+ * 여기에 "apps/web/public"을 덧붙이면 /app/apps/web/apps/web/public 이 되어,
+ * mkdir이 그 경로를 만들어 버리는 탓에 업로드는 200으로 성공하지만 이미지 URL은
+ * 404가 난다(등록은 됐는데 아이콘이 안 보이는 증상). 저장소 루트에서 직접
+ * 실행되는 경우도 있어 두 후보를 모두 확인한다.
+ */
+function resolveWebPublicRoot(): string {
+  const candidates = [
+    path.join(process.cwd(), "public"),
+    path.join(process.cwd(), "apps", "web", "public"),
+  ];
+  return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
+}
+
+const WEB_PUBLIC_ROOT = resolveWebPublicRoot();
 const WIDGET_ICON_ROOT = path.join(WEB_PUBLIC_ROOT, "widget-icons");
 const CUSTOM_ICON_DIR = path.join(WIDGET_ICON_ROOT, "custom");
 const ALLOWED_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"]);
