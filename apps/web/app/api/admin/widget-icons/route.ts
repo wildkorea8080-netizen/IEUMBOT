@@ -96,8 +96,20 @@ function toLabel(fileName: string): string {
     .trim();
 }
 
+/**
+ * 아이콘 파일 경로 → 브라우저가 실제로 가져갈 수 있는 URL.
+ *
+ * 기본 아이콘(저장소에 커밋된 것)은 빌드에 포함돼 정적 경로로 잘 서빙된다.
+ * 반면 업로드분(custom/)은 실행 중에 생긴 파일이라 Next가 서빙하지 않는다
+ * (디스크에는 있는데 /widget-icons/custom/... 은 404). 그래서 업로드분만
+ * 파일을 직접 읽어 내려주는 /api/widget-icons/{파일명} 으로 연결한다.
+ */
 function toIconUrl(filePath: string): string {
   const relative = path.relative(WEB_PUBLIC_ROOT, filePath).split(path.sep).join("/");
+  const customPrefix = "widget-icons/custom/";
+  if (relative.startsWith(customPrefix)) {
+    return `/api/widget-icons/${encodeURIComponent(relative.slice(customPrefix.length))}`;
+  }
   return `/${relative}`;
 }
 
@@ -142,6 +154,15 @@ async function collectIcons(dirPath: string): Promise<WidgetIconAsset[]> {
 }
 
 function resolveManagedFile(url: string): string | null {
+  // 업로드분은 /api/widget-icons/{파일명} 으로 노출되므로 custom/ 경로로 되돌린다.
+  // 예전에 저장된 /widget-icons/custom/... 형태도 계속 받아준다(하위호환).
+  const apiPrefix = "/api/widget-icons/";
+  if (url.startsWith(apiPrefix)) {
+    const fileName = path.basename(decodeURIComponent(url.slice(apiPrefix.length)));
+    if (!fileName) return null;
+    const absolute = path.resolve(CUSTOM_ICON_DIR, fileName);
+    return absolute.startsWith(path.resolve(CUSTOM_ICON_DIR)) ? absolute : null;
+  }
   if (!url.startsWith("/widget-icons/")) {
     return null;
   }
@@ -199,9 +220,9 @@ export async function POST(request: NextRequest) {
     await writeFile(destination, bytes);
 
     return NextResponse.json({
-      id: `/widget-icons/custom/${fileName}`,
+      id: `/api/widget-icons/${encodeURIComponent(fileName)}`,
       name: toLabel(fileName),
-      url: `/widget-icons/custom/${fileName}`,
+      url: `/api/widget-icons/${encodeURIComponent(fileName)}`,
       deletable: true,
     } satisfies WidgetIconAsset);
   } catch (error) {
