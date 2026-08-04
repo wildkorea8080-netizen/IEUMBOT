@@ -625,6 +625,12 @@ function buildScopedStyles(primaryGradient: string): string {
   font-size:12px; color:#2563eb; cursor:pointer; font-family:inherit;
 }
 .ieum-menu-home:hover { text-decoration:underline; }
+/* 최상위(대분류) 카드는 2열 그리드로 — 항목이 한눈에 들어오게 */
+.ieum-menu-card-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.ieum-menu-entry {
+  width:100%; justify-content:center; text-align:center;
+  padding:12px 10px; border-radius:12px; white-space:normal; line-height:1.35;
+}
 /* ── 힌트 버튼 ── */
 .ieum-hints-row { display:flex; flex-wrap:wrap; gap:6px; padding:4px 0 8px; }
 .ieum-hint-btn {
@@ -1236,6 +1242,17 @@ export class IeumWidgetApp {
       this.renderStarterQuestions();
       this.footerNotice.textContent = this.config.privacyNotice?.trim() || DEFAULT_TRUST_NOTICE;
       this.renderQuickActions(this.config.quickActions);
+      // 탐색 메뉴가 설정돼 있으면 인사말 다음에 대분류 카드를 한 번 띄운다.
+      // (이미 대화가 시작된 뒤 config가 다시 로드되는 경우엔 중복으로 넣지 않는다)
+      const hasMenuCategories = (this.config.quickActions ?? []).some(
+        (item) =>
+          item.actionType === "category" &&
+          (this.config?.quickActions ?? []).some((child) => child.parentId === item.id),
+      );
+      const alreadyShown = this.messages.some((m) => m.menuCategoryId);
+      if (hasMenuCategories && !alreadyShown) {
+        this.pushRootMenuCard();
+      }
       if (this.config.runtime?.chatEndpoint) this.chatEndpoint = this.config.runtime.chatEndpoint;
       if (this.config.runtime?.chatStreamEndpoint) this.chatStreamEndpoint = this.config.runtime.chatStreamEndpoint;
       this.sseEnabled =
@@ -1462,12 +1479,20 @@ export class IeumWidgetApp {
 
   private renderQuickActions(actions: WidgetQuickAction[]) {
     this.quickActionsWrap.innerHTML = "";
-    const categories = actions.filter((item) => item.actionType === "category");
-    // 대분류가 하나도 없으면 기존 평면 퀵액션 동작을 그대로 유지한다(무회귀).
-    // 자식이 없는 대분류는 눌러도 빈 카드만 나오므로 숨긴다.
-    const visible = categories.length
-      ? categories.filter((c) => actions.some((a) => a.parentId === c.id)).slice(0, 8)
-      : actions.filter((item) => item.displayLocation === "welcome").slice(0, 6);
+    // 탐색 메뉴(대분류)를 쓰는 챗봇이면 대분류는 대화 안의 카드로 보여준다
+    // (pushRootMenuCard) — 하단 고정 줄에는 아무것도 두지 않는다.
+    // 그래야 '처음으로'가 돌아갈 대상이 대화 안에 존재하고, 대화가 길어져도
+    // 진입점이 맥락과 함께 남는다.
+    const hasMenu = actions.some(
+      (item) =>
+        item.actionType === "category" && actions.some((child) => child.parentId === item.id),
+    );
+    if (hasMenu) {
+      this.quickActionsWrap.style.display = "none";
+      return;
+    }
+    // 대분류가 없으면 기존 평면 퀵액션 동작을 그대로 유지한다(무회귀).
+    const visible = actions.filter((item) => item.displayLocation === "welcome").slice(0, 6);
     if (visible.length === 0) {
       this.quickActionsWrap.style.display = "none";
       return;
@@ -1517,15 +1542,40 @@ export class IeumWidgetApp {
     await this.sendCurrentInput();
   }
 
-  /** 대분류 카드 콘텐츠(제목/설명/자식 액션/처음으로)를 컨테이너에 채운다.
+  /** 최상위(대분류 목록) 카드를 가리키는 센티널.
+   *  실제 노드 id는 UUID라 이 값과 충돌하지 않는다. */
+  private static readonly MENU_ROOT = "__root__";
+
+  /** 최상위 메뉴 카드를 대화에 띄운다. 위젯을 열었을 때와 '처음으로'를 눌렀을 때 사용. */
+  private pushRootMenuCard(): void {
+    this.pushMessage({
+      id: `menu_root_${Date.now()}`,
+      role: "assistant",
+      text: "",
+      timestamp: Date.now(),
+      menuCategoryId: IeumWidgetApp.MENU_ROOT,
+    });
+  }
+
+  /** 메뉴 카드 콘텐츠를 컨테이너에 채운다.
+   *  categoryId가 MENU_ROOT면 대분류 목록을, 아니면 그 대분류의 질문 목록을 그린다.
    *  renderMessages()가 매 재렌더마다 호출하므로 항상 최신 config 기준으로 다시 그려진다. */
   private fillMenuCard(container: HTMLElement, categoryId: string): void {
     const quickActions = this.config?.quickActions ?? [];
-    const category = quickActions.find((item) => item.id === categoryId);
-    const children = quickActions.filter((item) => item.parentId === categoryId);
-    if (!category || children.length === 0) {
-      // 재로드 등으로 카테고리가 사라진 경우에 대한 방어적 처리(정상 플로우에서는 발생하지 않음:
-      // 자식이 없는 대분류 버튼은 renderQuickActions에서 애초에 노출되지 않는다).
+    const isRoot = categoryId === IeumWidgetApp.MENU_ROOT;
+
+    // 표시 대상: 최상위면 자식이 있는 대분류들, 아니면 해당 대분류의 자식들
+    const entries = isRoot
+      ? quickActions.filter(
+          (item) =>
+            item.actionType === "category" &&
+            quickActions.some((child) => child.parentId === item.id),
+        )
+      : quickActions.filter((item) => item.parentId === categoryId);
+    const category = isRoot ? null : quickActions.find((item) => item.id === categoryId);
+
+    if (entries.length === 0 || (!isRoot && !category)) {
+      // 설정이 바뀌어 대상이 사라진 경우에 대한 방어(정상 플로우에서는 발생하지 않음).
       const empty = createElement(document, "div", "ieum-menu-card-desc");
       empty.textContent = "이 메뉴는 더 이상 사용할 수 없습니다.";
       container.appendChild(empty);
@@ -1533,33 +1583,49 @@ export class IeumWidgetApp {
     }
 
     const title = createElement(document, "div", "ieum-menu-card-title");
-    title.textContent = category.label;
+    title.textContent = isRoot
+      ? "무엇을 도와드릴까요?"
+      : (category as WidgetQuickAction).label;
     container.appendChild(title);
 
-    if (category.description) {
+    const description = isRoot
+      ? "아래에서 원하시는 항목을 선택하거나, 자유롭게 질문해 주세요."
+      : (category as WidgetQuickAction).description;
+    if (description) {
       const desc = createElement(document, "div", "ieum-menu-card-desc");
-      desc.textContent = category.description;
+      desc.textContent = description;
       container.appendChild(desc);
     }
 
-    const list = createElement(document, "div", "ieum-menu-card-actions");
-    for (const child of children) {
-      const button = createElement(document, "button", "ieum-quick-action");
+    // 최상위는 온다비/구삐처럼 2열 카드 그리드, 하위는 칩 나열
+    const list = createElement(
+      document,
+      "div",
+      isRoot ? "ieum-menu-card-actions ieum-menu-card-grid" : "ieum-menu-card-actions",
+    );
+    for (const entry of entries) {
+      const button = createElement(
+        document,
+        "button",
+        isRoot ? "ieum-quick-action ieum-menu-entry" : "ieum-quick-action",
+      );
       button.type = "button";
-      button.textContent = child.label;
-      button.title = child.label;
+      button.textContent = entry.label;
+      button.title = entry.label;
       button.addEventListener("click", () => {
-        void this.handleMenuAction(child);
+        void this.handleMenuAction(entry);
       });
       list.appendChild(button);
     }
     container.appendChild(list);
 
+    // 최상위 카드에는 '처음으로'가 필요 없다(이미 최상위).
+    if (isRoot) return;
     const home = createElement(document, "button", "ieum-menu-home");
     home.type = "button";
     home.textContent = "↑ 처음으로";
     home.addEventListener("click", () => {
-      this.quickActionsWrap.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      this.pushRootMenuCard();
     });
     container.appendChild(home);
   }
