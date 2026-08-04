@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Eye, EyeOff, Plus, Trash2 } from "lucide-react";
+import { Eye, EyeOff, Pencil, Plus, Trash2 } from "lucide-react";
 
 import { PagePanel } from "../../../components/ui/page-panel";
 import { ApiClientError } from "../../../lib/api";
@@ -39,6 +39,9 @@ export default function QuickActionsPage() {
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [childInputs, setChildInputs] = useState<Record<string, string>>({});
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
+  // 이름 수정 — 한 번에 하나만 편집한다(편집 중인 노드 id + 입력값).
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingLabel, setEditingLabel] = useState("");
 
   const load = useCallback(async () => {
     if (!chatbotId) {
@@ -111,6 +114,41 @@ export default function QuickActionsPage() {
       setError(errorMessage(e));
     } finally {
       setBusy(category.id, false);
+    }
+  }
+
+  function startEditing(node: MenuNode) {
+    setEditingId(node.id);
+    setEditingLabel(node.label);
+  }
+
+  function cancelEditing() {
+    setEditingId(null);
+    setEditingLabel("");
+  }
+
+  /** 이름 저장. 질문 노드는 라벨이 곧 챗봇에 전송되는 문구이므로 payload도 함께 맞춘다. */
+  async function handleRename(node: MenuNode, kind: "category" | "question") {
+    if (!chatbotId) return;
+    const label = editingLabel.trim();
+    if (!label || label === node.label) {
+      cancelEditing();
+      return;
+    }
+    setBusy(node.id, true);
+    setError(null);
+    try {
+      await updateMenuNode(node.id, {
+        chatbotId,
+        label,
+        ...(kind === "question" ? { payload: label } : {}),
+      });
+      cancelEditing();
+      await load();
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(node.id, false);
     }
   }
 
@@ -221,12 +259,52 @@ export default function QuickActionsPage() {
               <div key={category.id} className="card" style={{ padding: 16 }}>
                 {/* 대분류 헤더 */}
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 14, fontWeight: 700, color: "#111827" }}>{category.label}</span>
-                  {category.children.length === 0 && (
-                    <span className="badge-warning">질문 없음 — 위젯에 표시되지 않습니다</span>
+                  {editingId === category.id ? (
+                    <>
+                      <input
+                        value={editingLabel}
+                        onChange={(e) => setEditingLabel(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") void handleRename(category, "category");
+                          if (e.key === "Escape") cancelEditing();
+                        }}
+                        autoFocus
+                        className="input-field"
+                        style={{ maxWidth: 280, fontWeight: 700 }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void handleRename(category, "category")}
+                        disabled={busyIds.has(category.id) || !editingLabel.trim()}
+                        className="btn-primary"
+                      >
+                        저장
+                      </button>
+                      <button type="button" onClick={cancelEditing} className="btn-secondary">
+                        취소
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: "#111827" }}>{category.label}</span>
+                      {category.children.length === 0 && (
+                        <span className="badge-warning">질문 없음 — 위젯에 표시되지 않습니다</span>
+                      )}
+                      {!category.isEnabled && <span className="badge-neutral">숨김</span>}
+                    </>
                   )}
-                  {!category.isEnabled && <span className="badge-neutral">숨김</span>}
                   <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+                    {editingId !== category.id && (
+                      <button
+                        type="button"
+                        onClick={() => startEditing(category)}
+                        disabled={busyIds.has(category.id)}
+                        className="btn-secondary"
+                      >
+                        <Pencil style={{ width: 13, height: 13 }} />
+                        이름 수정
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => void handleToggleEnabled(category)}
@@ -272,16 +350,60 @@ export default function QuickActionsPage() {
                           borderRadius: 8,
                         }}
                       >
-                        <span style={{ fontSize: 13, color: "#374151", flex: 1 }}>{question.label}</span>
-                        <button
-                          type="button"
-                          onClick={() => void handleDelete(question, "question")}
-                          disabled={busyIds.has(question.id)}
-                          title="질문 삭제"
-                          style={{ background: "none", border: "none", cursor: "pointer", color: "#d1d5db" }}
-                        >
-                          <Trash2 style={{ width: 14, height: 14 }} />
-                        </button>
+                        {editingId === question.id ? (
+                          <>
+                            <input
+                              value={editingLabel}
+                              onChange={(e) => setEditingLabel(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") void handleRename(question, "question");
+                                if (e.key === "Escape") cancelEditing();
+                              }}
+                              autoFocus
+                              className="input-field"
+                              style={{ flex: 1, fontSize: 13 }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => void handleRename(question, "question")}
+                              disabled={busyIds.has(question.id) || !editingLabel.trim()}
+                              className="btn-primary"
+                              style={{ padding: "5px 12px", fontSize: 12 }}
+                            >
+                              저장
+                            </button>
+                            <button
+                              type="button"
+                              onClick={cancelEditing}
+                              className="btn-secondary"
+                              style={{ padding: "5px 12px", fontSize: 12 }}
+                            >
+                              취소
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <span style={{ fontSize: 13, color: "#374151", flex: 1 }}>{question.label}</span>
+                            <button
+                              type="button"
+                              onClick={() => startEditing(question)}
+                              disabled={busyIds.has(question.id)}
+                              title="이름 수정"
+                              style={{ background: "none", border: "none", cursor: "pointer", color: "#9ca3af" }}
+                            >
+                              <Pencil style={{ width: 14, height: 14 }} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleDelete(question, "question")}
+                              disabled={busyIds.has(question.id)}
+                              title="질문 삭제"
+                              style={{ background: "none", border: "none", cursor: "pointer", color: "#d1d5db" }}
+                            >
+                              <Trash2 style={{ width: 14, height: 14 }} />
+                            </button>
+                          </>
+                        )}
                       </div>
                     ))}
                   </div>
