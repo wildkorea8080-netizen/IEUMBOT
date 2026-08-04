@@ -251,7 +251,10 @@
 }
 .ieum-quick-action:hover { background:#dbeafe; }
 /* \u2500\u2500 \uD0D0\uC0C9 \uBA54\uB274 \uCE74\uB4DC \u2500\u2500 */
-.ieum-menu-card { max-width: 92%; }
+/* \uBA54\uB274 \uCE74\uB4DC\uB294 \uC77C\uBC18 \uB9D0\uD48D\uC120(max-width:82%)\uACFC \uB2EC\uB9AC \uCC44\uD305\uCC3D \uC804\uCCB4 \uD3ED\uC744 \uC4F4\uB2E4.
+   \uBC84\uD2BC\uC774 2\uC5F4\uB85C \uB193\uC77C \uB54C \uAC01 \uCE78\uC774 \uCDA9\uBD84\uD788 \uB113\uC5B4\uC57C \uB77C\uBCA8\uC774 \uC548 \uC798\uB9B0\uB2E4.
+   .ieum-bubble \uADDC\uCE59\uC774 \uC774 \uC544\uB798\uC5D0 \uC788\uC5B4 \uAC19\uC740 \uC6B0\uC120\uC21C\uC704\uB85C\uB294 \uBC00\uB9AC\uBBC0\uB85C \uC120\uD0DD\uC790\uB97C \uACB9\uCCD0 \uC4F4\uB2E4. */
+.ieum-bubble.ieum-menu-card { max-width: 100%; width: 100%; }
 .ieum-menu-card-title { font-size:14.5px; font-weight:700; color:#111827; margin-bottom:4px; }
 .ieum-menu-card-desc { font-size:12.5px; color:#64748b; margin-bottom:10px; }
 .ieum-menu-card-actions { display:flex; flex-wrap:wrap; gap:6px; }

@@ -618,7 +618,10 @@ function buildScopedStyles(primaryGradient: string): string {
 }
 .ieum-quick-action:hover { background:#dbeafe; }
 /* ── 탐색 메뉴 카드 ── */
-.ieum-menu-card { max-width: 92%; }
+/* 메뉴 카드는 일반 말풍선(max-width:82%)과 달리 채팅창 전체 폭을 쓴다.
+   버튼이 2열로 놓일 때 각 칸이 충분히 넓어야 라벨이 안 잘린다.
+   .ieum-bubble 규칙이 이 아래에 있어 같은 우선순위로는 밀리므로 선택자를 겹쳐 쓴다. */
+.ieum-bubble.ieum-menu-card { max-width: 100%; width: 100%; }
 .ieum-menu-card-title { font-size:14.5px; font-weight:700; color:#111827; margin-bottom:4px; }
 .ieum-menu-card-desc { font-size:12.5px; color:#64748b; margin-bottom:10px; }
 .ieum-menu-card-actions { display:flex; flex-wrap:wrap; gap:6px; }

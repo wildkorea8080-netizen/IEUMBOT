@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Eye, EyeOff, Pencil, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Eye, EyeOff, Pencil, Plus, Trash2 } from "lucide-react";
 
 import { PagePanel } from "../../../components/ui/page-panel";
 import { ApiClientError } from "../../../lib/api";
@@ -10,6 +10,7 @@ import {
   createMenuNode,
   deleteMenuNode,
   getMenuTree,
+  reorderMenuNodes,
   updateMenuNode,
 } from "../../../lib/api/quick-actions";
 import type { MenuNode } from "../../../lib/api/quick-actions-types";
@@ -152,6 +153,31 @@ export default function QuickActionsPage() {
     }
   }
 
+  /** 형제 목록 안에서 한 칸 위/아래로 이동. 서버에는 형제 전체의 새 순서를 한 번에 보낸다. */
+  async function handleMove(node: MenuNode, siblings: MenuNode[], direction: -1 | 1) {
+    if (!chatbotId) return;
+    const index = siblings.findIndex((item) => item.id === node.id);
+    const target = index + direction;
+    if (index < 0 || target < 0 || target >= siblings.length) return;
+
+    const reordered = [...siblings];
+    [reordered[index], reordered[target]] = [reordered[target], reordered[index]];
+
+    setBusy(node.id, true);
+    setError(null);
+    try {
+      await reorderMenuNodes(
+        chatbotId,
+        reordered.map((item, i) => ({ id: item.id, sortOrder: i + 1 })),
+      );
+      await load();
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(node.id, false);
+    }
+  }
+
   async function handleToggleEnabled(node: MenuNode) {
     if (!chatbotId) return;
     setBusy(node.id, true);
@@ -255,7 +281,7 @@ export default function QuickActionsPage() {
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            {tree.map((category) => (
+            {tree.map((category, categoryIndex) => (
               <div key={category.id} className="card" style={{ padding: 16 }}>
                 {/* 대분류 헤더 */}
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
@@ -295,15 +321,37 @@ export default function QuickActionsPage() {
                   )}
                   <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
                     {editingId !== category.id && (
-                      <button
-                        type="button"
-                        onClick={() => startEditing(category)}
-                        disabled={busyIds.has(category.id)}
-                        className="btn-secondary"
-                      >
-                        <Pencil style={{ width: 13, height: 13 }} />
-                        이름 수정
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => void handleMove(category, tree, -1)}
+                          disabled={busyIds.has(category.id) || categoryIndex === 0}
+                          title="위로"
+                          className="btn-secondary"
+                          style={{ padding: "6px 9px" }}
+                        >
+                          <ChevronUp style={{ width: 14, height: 14 }} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleMove(category, tree, 1)}
+                          disabled={busyIds.has(category.id) || categoryIndex === tree.length - 1}
+                          title="아래로"
+                          className="btn-secondary"
+                          style={{ padding: "6px 9px" }}
+                        >
+                          <ChevronDown style={{ width: 14, height: 14 }} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => startEditing(category)}
+                          disabled={busyIds.has(category.id)}
+                          className="btn-secondary"
+                        >
+                          <Pencil style={{ width: 13, height: 13 }} />
+                          이름 수정
+                        </button>
+                      </>
                     )}
                     <button
                       type="button"
@@ -338,7 +386,7 @@ export default function QuickActionsPage() {
                 {/* 하위 질문 목록 */}
                 {category.children.length > 0 && (
                   <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
-                    {category.children.map((question) => (
+                    {category.children.map((question, questionIndex) => (
                       <div
                         key={question.id}
                         style={{
@@ -384,6 +432,43 @@ export default function QuickActionsPage() {
                         ) : (
                           <>
                             <span style={{ fontSize: 13, color: "#374151", flex: 1 }}>{question.label}</span>
+                            <button
+                              type="button"
+                              onClick={() => void handleMove(question, category.children, -1)}
+                              disabled={busyIds.has(question.id) || questionIndex === 0}
+                              title="위로"
+                              style={{
+                                background: "none",
+                                border: "none",
+                                cursor: questionIndex === 0 ? "default" : "pointer",
+                                color: questionIndex === 0 ? "#e5e7eb" : "#9ca3af",
+                              }}
+                            >
+                              <ChevronUp style={{ width: 15, height: 15 }} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleMove(question, category.children, 1)}
+                              disabled={
+                                busyIds.has(question.id) ||
+                                questionIndex === category.children.length - 1
+                              }
+                              title="아래로"
+                              style={{
+                                background: "none",
+                                border: "none",
+                                cursor:
+                                  questionIndex === category.children.length - 1
+                                    ? "default"
+                                    : "pointer",
+                                color:
+                                  questionIndex === category.children.length - 1
+                                    ? "#e5e7eb"
+                                    : "#9ca3af",
+                              }}
+                            >
+                              <ChevronDown style={{ width: 15, height: 15 }} />
+                            </button>
                             <button
                               type="button"
                               onClick={() => startEditing(question)}
