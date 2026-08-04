@@ -31,6 +31,8 @@ type Message = {
   conditionalActions?: ConditionalAction[];
   structuredResponse?: StructuredResponse | null;
   timestamp: number;
+  /** 탐색 메뉴 대분류 카드 — 설정 시 renderMessages()가 일반 버블 대신 카드를 렌더한다. */
+  menuCategoryId?: string | null;
 };
 
 type LauncherIconName = "chat" | "heart" | "love-chat" | "custom" | "shield" | "leaf" | "spark";
@@ -613,6 +615,16 @@ function buildScopedStyles(primaryGradient: string): string {
   transition:background .15s;
 }
 .ieum-quick-action:hover { background:#dbeafe; }
+/* ── 탐색 메뉴 카드 ── */
+.ieum-menu-card { max-width: 92%; }
+.ieum-menu-card-title { font-size:14.5px; font-weight:700; color:#111827; margin-bottom:4px; }
+.ieum-menu-card-desc { font-size:12.5px; color:#64748b; margin-bottom:10px; }
+.ieum-menu-card-actions { display:flex; flex-wrap:wrap; gap:6px; }
+.ieum-menu-home {
+  margin-top:10px; background:none; border:none; padding:0;
+  font-size:12px; color:#2563eb; cursor:pointer; font-family:inherit;
+}
+.ieum-menu-home:hover { text-decoration:underline; }
 /* ── 힌트 버튼 ── */
 .ieum-hints-row { display:flex; flex-wrap:wrap; gap:6px; padding:4px 0 8px; }
 .ieum-hint-btn {
@@ -1450,7 +1462,12 @@ export class IeumWidgetApp {
 
   private renderQuickActions(actions: WidgetQuickAction[]) {
     this.quickActionsWrap.innerHTML = "";
-    const visible = actions.filter((item) => item.displayLocation === "welcome").slice(0, 6);
+    const categories = actions.filter((item) => item.actionType === "category");
+    // 대분류가 하나도 없으면 기존 평면 퀵액션 동작을 그대로 유지한다(무회귀).
+    // 자식이 없는 대분류는 눌러도 빈 카드만 나오므로 숨긴다.
+    const visible = categories.length
+      ? categories.filter((c) => actions.some((a) => a.parentId === c.id)).slice(0, 8)
+      : actions.filter((item) => item.displayLocation === "welcome").slice(0, 6);
     if (visible.length === 0) {
       this.quickActionsWrap.style.display = "none";
       return;
@@ -1462,15 +1479,89 @@ export class IeumWidgetApp {
       button.textContent = action.label;
       button.title = action.label;
       button.addEventListener("click", () => {
-        if (action.actionType === "link" && action.url) {
-          window.open(action.url, "_blank", "noopener,noreferrer");
-          return;
-        }
-        this.input.value = action.payload?.trim() || action.label;
-        void this.sendCurrentInput();
+        void this.handleMenuAction(action);
       });
       this.quickActionsWrap.appendChild(button);
     }
+  }
+
+  /** 메뉴 노드 클릭 처리 — 대분류는 트랜스크립트에 선택 에코 + 카드 메시지를 남기고,
+   *  질문/링크 리프는 기존 퀵액션과 동일하게 동작한다(무회귀). */
+  private async handleMenuAction(action: WidgetQuickAction): Promise<void> {
+    if (action.actionType === "link" && action.url) {
+      window.open(action.url, "_blank", "noopener,noreferrer");
+      return;
+    }
+    if (action.actionType === "category") {
+      const now = Date.now();
+      this.pushMessage({
+        id: `user_menu_${action.id}_${now}`,
+        role: "user",
+        text: `# ${action.label}`,
+        timestamp: now,
+      });
+      // 카드 자체는 별도 DOM 조작이 아니라 messages 배열에 항목으로 남긴다.
+      // renderMessages()가 전체 재렌더(innerHTML = "") 방식이라, 배열 밖에서
+      // appendChild로 붙인 카드는 다음 pushMessage/updateMessage(스트리밍 등)에서
+      // 곧바로 사라진다 — 그래서 messages 배열 기반으로 옮겼다(아래 renderMessages 참고).
+      this.pushMessage({
+        id: `menu_card_${action.id}_${now + 1}`,
+        role: "assistant",
+        text: "",
+        timestamp: now + 1,
+        menuCategoryId: action.id,
+      });
+      return;
+    }
+    this.input.value = action.payload?.trim() || action.label;
+    await this.sendCurrentInput();
+  }
+
+  /** 대분류 카드 콘텐츠(제목/설명/자식 액션/처음으로)를 컨테이너에 채운다.
+   *  renderMessages()가 매 재렌더마다 호출하므로 항상 최신 config 기준으로 다시 그려진다. */
+  private fillMenuCard(container: HTMLElement, categoryId: string): void {
+    const quickActions = this.config?.quickActions ?? [];
+    const category = quickActions.find((item) => item.id === categoryId);
+    const children = quickActions.filter((item) => item.parentId === categoryId);
+    if (!category || children.length === 0) {
+      // 재로드 등으로 카테고리가 사라진 경우에 대한 방어적 처리(정상 플로우에서는 발생하지 않음:
+      // 자식이 없는 대분류 버튼은 renderQuickActions에서 애초에 노출되지 않는다).
+      const empty = createElement(document, "div", "ieum-menu-card-desc");
+      empty.textContent = "이 메뉴는 더 이상 사용할 수 없습니다.";
+      container.appendChild(empty);
+      return;
+    }
+
+    const title = createElement(document, "div", "ieum-menu-card-title");
+    title.textContent = category.label;
+    container.appendChild(title);
+
+    if (category.description) {
+      const desc = createElement(document, "div", "ieum-menu-card-desc");
+      desc.textContent = category.description;
+      container.appendChild(desc);
+    }
+
+    const list = createElement(document, "div", "ieum-menu-card-actions");
+    for (const child of children) {
+      const button = createElement(document, "button", "ieum-quick-action");
+      button.type = "button";
+      button.textContent = child.label;
+      button.title = child.label;
+      button.addEventListener("click", () => {
+        void this.handleMenuAction(child);
+      });
+      list.appendChild(button);
+    }
+    container.appendChild(list);
+
+    const home = createElement(document, "button", "ieum-menu-home");
+    home.type = "button";
+    home.textContent = "↑ 처음으로";
+    home.addEventListener("click", () => {
+      this.quickActionsWrap.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    });
+    container.appendChild(home);
   }
 
   private createQuickReplyHintsRow(): HTMLDivElement | null {
@@ -1550,6 +1641,18 @@ export class IeumWidgetApp {
       // 첫 인사말은 더 크고 또렷한 스타일로 표시
       if (message.id.startsWith("assistant_welcome_")) {
         bubble.classList.add("ieum-bubble-welcome");
+      }
+
+      // ── 탐색 메뉴 대분류 카드 ────────────────────────────────────────────
+      // messages 배열에 저장된 menuCategoryId를 매 렌더마다 config에서 다시 조회해
+      // 그린다 — retryRow/hintsRow와 같은 패턴으로, 전체 재렌더(innerHTML = "")에도
+      // 안전하게 살아남는다(외부에서 appendChild로 붙이면 다음 재렌더에 사라짐).
+      if (message.menuCategoryId) {
+        bubble.classList.add("ieum-menu-card");
+        this.fillMenuCard(bubble, message.menuCategoryId);
+        row.appendChild(bubble);
+        this.messagesWrap.appendChild(row);
+        continue;
       }
 
       // ── 구조화 응답 렌더링 (Sprint 3-F) ──────────────────────────────────

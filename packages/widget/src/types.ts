@@ -6,6 +6,8 @@ export type WidgetQuickAction = {
   url?: string | null;
   displayLocation: string;
   sortOrder: number;
+  parentId?: string | null;
+  description?: string | null;
 };
 
 export type WidgetPublicConfig = {
