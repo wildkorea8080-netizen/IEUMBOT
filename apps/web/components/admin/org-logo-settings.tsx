@@ -104,8 +104,10 @@ export function OrgLogoSettings() {
       {/* 미리보기 — 실제 사이드바와 같은 배경(로고 있으면 흰색) */}
       <div className="flex items-center gap-4">
         <div
-          className="flex h-[60px] w-[232px] shrink-0 items-center px-4"
+          className="flex h-[60px] w-[232px] shrink-0 items-center"
           style={{
+            // 실제 사이드바와 동일한 여백·크기를 써야 미리보기가 의미가 있다.
+            padding: preview ? "0 12px" : "0 16px",
             background: preview ? "#fff" : "#2563eb",
             border: "1px solid #e5e7eb",
             borderRadius: 8,
@@ -115,7 +117,7 @@ export function OrgLogoSettings() {
             <img
               src={preview}
               alt="로고 미리보기"
-              style={{ maxHeight: 40, maxWidth: 180, objectFit: "contain" }}
+              style={{ maxHeight: 48, maxWidth: 208, objectFit: "contain" }}
             />
           ) : (
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>

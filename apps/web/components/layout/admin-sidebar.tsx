@@ -189,7 +189,9 @@ export function AdminSidebar() {
       <div
         className="flex items-center shrink-0"
         style={{
-          height: 60, padding: "0 16px",
+          height: 60,
+          // 로고가 있으면 좌우 여백을 줄여 더 큰 로고를 담는다(사이드바 폭 232).
+          padding: branding?.logoUrl ? "0 12px" : "0 16px",
           background: branding?.logoUrl ? "#fff" : "#2563eb",
           borderBottom: branding?.logoUrl ? "1px solid #f0f0f0" : "none",
         }}
@@ -198,7 +200,9 @@ export function AdminSidebar() {
           <img
             src={branding.logoUrl}
             alt={branding.organizationName || "기관 로고"}
-            style={{ maxHeight: 40, maxWidth: 180, objectFit: "contain" }}
+            // 헤더 60px에서 위아래 6px만 남기고 채운다. 가로형·정사각형 로고 모두
+            // objectFit:contain 이라 비율이 찌그러지지 않는다.
+            style={{ maxHeight: 48, maxWidth: 208, objectFit: "contain" }}
           />
         ) : (
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
