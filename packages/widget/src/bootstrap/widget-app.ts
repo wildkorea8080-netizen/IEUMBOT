@@ -40,6 +40,10 @@ type LauncherIconName = "chat" | "heart" | "love-chat" | "custom" | "shield" | "
 const LOVE_CHAT_ICON_SRC = "/widget-icons/love-chat-icons.png";
 /** 탐색 메뉴 버튼을 2열로 배치할 라벨 최대 길이. 이보다 길면 1열 전체폭으로 떨어뜨린다. */
 const MENU_TWO_COLUMN_MAX_LABEL = 8;
+// 카드 한 장에 보여줄 버튼 수. 넘치면 좌우 화살표로 페이지를 넘긴다.
+// 2열 격자는 3줄, 1열 목록은 라벨이 길어 4줄까지만 둔다.
+const MENU_PAGE_SIZE_GRID = 6;
+const MENU_PAGE_SIZE_LIST = 4;
 const CHAT_RECOVERY_MESSAGE =
   "요청 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.";
 const PRIVACY_INPUT_BLOCK_MESSAGE = "개인정보가 포함된 내용은 입력할 수 없습니다. 개인정보를 제외하고 다시 입력해 주세요.";
@@ -630,6 +634,19 @@ function buildScopedStyles(primaryGradient: string): string {
   font-size:12px; color:#2563eb; cursor:pointer; font-family:inherit;
 }
 .ieum-menu-home:hover { text-decoration:underline; }
+/* 항목이 한 카드에 다 안 들어갈 때 좌우로 넘기는 페이저 */
+.ieum-menu-pager {
+  display:flex; align-items:center; justify-content:center; gap:14px; margin-top:10px;
+}
+.ieum-menu-pager-btn {
+  display:flex; align-items:center; justify-content:center;
+  width:28px; height:28px; padding:0; border:1px solid #e5e7eb; border-radius:999px;
+  background:#fff; color:#374151; font-size:16px; line-height:1; cursor:pointer;
+  font-family:inherit;
+}
+.ieum-menu-pager-btn:hover:not(:disabled) { background:#f3f4f6; border-color:#d1d5db; }
+.ieum-menu-pager-btn:disabled { opacity:.35; cursor:default; }
+.ieum-menu-pager-status { font-size:12px; color:#6b7280; min-width:38px; text-align:center; }
 /* 메뉴 버튼 배치 — 라벨이 짧으면 2열, 길면 1열 전체폭(줄마다 들쭉날쭉해지지 않게 격자 고정) */
 .ieum-menu-card-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
 .ieum-menu-card-list { display:grid; grid-template-columns:1fr; gap:8px; }
@@ -1518,6 +1535,9 @@ export class IeumWidgetApp {
     }
     if (action.actionType === "category") {
       const now = Date.now();
+      // 대분류를 새로 열 때는 항상 첫 페이지부터 — 지난번에 넘겨둔 페이지가 남으면
+      // 카드를 열자마자 중간부터 보이게 된다.
+      this.menuPages.set(action.id, 0);
       this.pushMessage({
         id: `user_menu_${action.id}_${now}`,
         role: "user",
@@ -1544,6 +1564,9 @@ export class IeumWidgetApp {
   /** 최상위(대분류 목록) 카드를 가리키는 센티널.
    *  실제 노드 id는 UUID라 이 값과 충돌하지 않는다. */
   private static readonly MENU_ROOT = "__root__";
+
+  /** 메뉴 카드별 현재 페이지. 카드는 매 재렌더마다 다시 그려지므로 여기에 따로 둔다. */
+  private readonly menuPages = new Map<string, number>();
 
   /** 최상위 메뉴 카드를 대화에 띄운다. 위젯을 열었을 때와 '처음으로'를 눌렀을 때 사용. */
   private pushRootMenuCard(): void {
@@ -1602,12 +1625,18 @@ export class IeumWidgetApp {
     const useTwoColumns = entries.every(
       (entry) => entry.label.trim().length <= MENU_TWO_COLUMN_MAX_LABEL,
     );
+    const pageSize = useTwoColumns ? MENU_PAGE_SIZE_GRID : MENU_PAGE_SIZE_LIST;
+    const pageCount = Math.max(1, Math.ceil(entries.length / pageSize));
+    // 항목이 늘거나 줄어도 빈 페이지를 보여주지 않도록 범위를 다시 맞춘다.
+    const page = Math.min(this.menuPages.get(categoryId) ?? 0, pageCount - 1);
+    this.menuPages.set(categoryId, page);
+
     const list = createElement(
       document,
       "div",
       `ieum-menu-card-actions ${useTwoColumns ? "ieum-menu-card-grid" : "ieum-menu-card-list"}`,
     );
-    for (const entry of entries) {
+    for (const entry of entries.slice(page * pageSize, (page + 1) * pageSize)) {
       const button = createElement(document, "button", "ieum-quick-action ieum-menu-entry");
       button.type = "button";
       button.textContent = entry.label;
@@ -1619,6 +1648,10 @@ export class IeumWidgetApp {
     }
     container.appendChild(list);
 
+    if (pageCount > 1) {
+      container.appendChild(this.createMenuPager(container, categoryId, page, pageCount));
+    }
+
     // 최상위 카드에는 '처음으로'가 필요 없다(이미 최상위).
     if (isRoot) return;
     const home = createElement(document, "button", "ieum-menu-home");
@@ -1628,6 +1661,50 @@ export class IeumWidgetApp {
       this.pushRootMenuCard();
     });
     container.appendChild(home);
+  }
+
+  /**
+   * 메뉴 카드의 좌우 화살표 페이저.
+   *
+   * 화살표를 누르면 전체 재렌더(renderMessages) 대신 이 카드만 다시 그린다 —
+   * 전체 재렌더는 스크롤 위치가 튀고, 페이지 상태는 messages 배열이 아니라
+   * menuPages 맵에 들어 있어 카드 단위 갱신으로 충분하다.
+   */
+  private createMenuPager(
+    container: HTMLElement,
+    categoryId: string,
+    page: number,
+    pageCount: number,
+  ): HTMLElement {
+    const pager = createElement(document, "div", "ieum-menu-pager");
+
+    const go = (next: number) => {
+      this.menuPages.set(categoryId, next);
+      container.innerHTML = "";
+      this.fillMenuCard(container, categoryId);
+    };
+
+    const prev = createElement(document, "button", "ieum-menu-pager-btn") as HTMLButtonElement;
+    prev.type = "button";
+    prev.textContent = "‹";
+    prev.setAttribute("aria-label", "이전 항목 보기");
+    prev.disabled = page <= 0;
+    prev.addEventListener("click", () => go(page - 1));
+
+    const status = createElement(document, "span", "ieum-menu-pager-status");
+    status.textContent = `${page + 1} / ${pageCount}`;
+
+    const next = createElement(document, "button", "ieum-menu-pager-btn") as HTMLButtonElement;
+    next.type = "button";
+    next.textContent = "›";
+    next.setAttribute("aria-label", "다음 항목 보기");
+    next.disabled = page >= pageCount - 1;
+    next.addEventListener("click", () => go(page + 1));
+
+    pager.appendChild(prev);
+    pager.appendChild(status);
+    pager.appendChild(next);
+    return pager;
   }
 
   private createQuickReplyHintsRow(): HTMLDivElement | null {

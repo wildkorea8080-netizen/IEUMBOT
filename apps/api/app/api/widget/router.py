@@ -25,6 +25,10 @@ router = APIRouter(tags=["widget"])
 
 _DAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 
+# 위젯에 내려보낼 탐색 메뉴 항목 수 상한. 대분류·소분류를 모두 합친 값이며,
+# 페이로드가 커지는 것만 막는 안전장치다(2단 메뉴 기준 넉넉한 여유).
+_WIDGET_QUICK_ACTION_LIMIT = 200
+
 
 def _abs_url(url: str | None) -> str | None:
     """상대경로(/ 시작)를 widget_public_web_base_url 기준 절대 URL로 변환한다."""
@@ -126,7 +130,10 @@ def get_widget_public_config(
             QuickAction.is_deleted.is_(False),
         )
         .order_by(QuickAction.sort_order.asc(), QuickAction.created_at.asc())
-        .limit(10)
+        # 탐색 메뉴는 대분류 + 소분류가 한 목록에 섞여 내려간다. 예전 상한(10)은
+        # 버튼이 평면 목록이던 시절 값이라, 대분류 몇 개만으로도 한도를 채워
+        # 소분류가 통째로 잘려 나갔다("소분류 등록한 게 안 나옴").
+        .limit(_WIDGET_QUICK_ACTION_LIMIT)
     )
     quick_action_rows = list(db.execute(quick_actions_stmt).scalars().all())
 
