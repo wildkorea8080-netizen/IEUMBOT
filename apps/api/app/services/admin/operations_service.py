@@ -1,3 +1,4 @@
+import logging
 import uuid
 from collections import Counter
 from datetime import UTC, date, datetime, timedelta
@@ -73,6 +74,20 @@ from app.services.settings.answer_settings_service import get_effective_answer_s
 from app.services.widget_install_script import build_widget_install_script
 
 RECOMMENDED_OPENAI_MODELS = {"gpt-4.1-mini", "gpt-4.1"}
+
+logger = logging.getLogger(__name__)
+
+
+def _invalidate_chatbot_answer_cache(chatbot_id: str | None) -> None:
+    """설정이 바뀌면 그 챗봇의 답변 캐시를 버린다. 실패해도 저장은 성공 처리."""
+    if not chatbot_id:
+        return
+    try:
+        from app.services.chat.answer_cache import invalidate_chatbot  # noqa: PLC0415
+
+        invalidate_chatbot(str(chatbot_id))
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("[ANSWER_CACHE_INVALIDATE_FAILED] %s", exc)
 
 
 def _normalize_quick_reply_hints(value: object) -> list[str]:
@@ -1041,6 +1056,9 @@ def patch_chatbot_service(
 
     db.commit()
     db.refresh(row)
+    # 톤·맞춤 지시문·응답 형식 규칙은 모두 답변 생성에 쓰인다. 캐시를 비우지 않으면
+    # TTL(기본 10분) 동안 예전 답변이 나와 설정이 안 먹는 것처럼 보인다.
+    _invalidate_chatbot_answer_cache(str(row.id))
     return AdminChatbotResponse(
         id=str(row.id),
         name=row.name,

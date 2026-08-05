@@ -1,3 +1,4 @@
+import logging
 from copy import deepcopy
 from typing import Any
 
@@ -20,6 +21,20 @@ DEFAULT_LOW_EVIDENCE_MESSAGE = (
 )
 DEFAULT_ESCALATION_MESSAGE = "정확한 확인이 필요한 내용입니다. 필요하시면 담당 부서 연결을 안내해드릴 수 있습니다."
 DEFAULT_AFTER_HOURS_MESSAGE = "현재 운영 시간이 아니어서 즉시 연결은 어렵습니다. 운영 시간에 다시 문의해 주세요."
+
+logger = logging.getLogger(__name__)
+
+
+def _invalidate_answer_cache(chatbot_id: str | None) -> None:
+    """설정이 바뀌면 그 챗봇의 답변 캐시를 버린다. 실패해도 저장은 성공 처리."""
+    if not chatbot_id:
+        return
+    try:
+        from app.services.chat.answer_cache import invalidate_chatbot  # noqa: PLC0415
+
+        invalidate_chatbot(str(chatbot_id))
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("[ANSWER_CACHE_INVALIDATE_FAILED] %s", exc)
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -243,6 +258,11 @@ def update_answer_settings(
     )
     db.commit()
     db.refresh(row)
+
+    # 답변 캐시를 비운다. 이게 없으면 톤·길이·형식을 바꿔도 TTL(기본 10분) 동안
+    # 예전 답변이 그대로 나와서 "설정이 작동하지 않는다"로 보인다.
+    # FAQ·지식 변경 경로에는 이미 있었지만 설정 변경 경로에는 빠져 있었다.
+    _invalidate_answer_cache(str(row.id))
 
     defaults_applied = _collect_missing_defaults_paths(defaults, payload)
     return _to_response(row, defaults_applied=defaults_applied, effective_dict=new_flat)
