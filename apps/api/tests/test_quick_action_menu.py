@@ -13,35 +13,43 @@ from app.services.admin.quick_action_service import (
 )
 
 
-def test_category_cannot_have_parent() -> None:
-    with pytest.raises(MenuValidationError) as exc:
-        validate_node_shape(action_type="category", parent_is_child=False, has_parent=True)
-    assert exc.value.code == "CATEGORY_CANNOT_HAVE_PARENT"
+def test_mid_level_category_is_allowed() -> None:
+    """3단 구조의 핵심 — 1단 분류 아래 2단 분류를 둘 수 있어야 한다."""
+    validate_node_shape(action_type="category", parent_depth=1, has_parent=True)
 
 
-def test_child_of_child_is_rejected() -> None:
-    """부모로 지정한 노드가 이미 자식이면 3단이 된다 → 거부."""
+def test_category_at_last_depth_is_rejected() -> None:
+    """분류는 하위를 담는 그릇이므로 마지막 단계에는 올 수 없다."""
     with pytest.raises(MenuValidationError) as exc:
-        validate_node_shape(action_type="question", parent_is_child=True, has_parent=True)
+        validate_node_shape(action_type="category", parent_depth=2, has_parent=True)
+    assert exc.value.code == "CATEGORY_TOO_DEEP"
+
+
+def test_fourth_level_is_rejected() -> None:
+    with pytest.raises(MenuValidationError) as exc:
+        validate_node_shape(action_type="question", parent_depth=3, has_parent=True)
     assert exc.value.code == "MENU_DEPTH_EXCEEDED"
 
 
-def test_question_under_category_is_allowed() -> None:
-    validate_node_shape(action_type="question", parent_is_child=False, has_parent=True)
+def test_question_at_every_allowed_depth() -> None:
+    """질문은 1·2·3단 어디에나 올 수 있다(중간 단계에 바로 질문을 둬도 된다)."""
+    validate_node_shape(action_type="question", parent_depth=0, has_parent=False)
+    validate_node_shape(action_type="question", parent_depth=1, has_parent=True)
+    validate_node_shape(action_type="question", parent_depth=2, has_parent=True)
 
 
 def test_top_level_category_is_allowed() -> None:
-    validate_node_shape(action_type="category", parent_is_child=False, has_parent=False)
+    validate_node_shape(action_type="category", parent_depth=0, has_parent=False)
 
 
 def test_link_without_parent_is_allowed() -> None:
     """기존 평면 퀵액션(부모 없는 link/question)은 계속 허용 — 무회귀."""
-    validate_node_shape(action_type="link", parent_is_child=False, has_parent=False)
+    validate_node_shape(action_type="link", parent_depth=0, has_parent=False)
 
 
 def test_unknown_action_type_is_rejected() -> None:
     with pytest.raises(MenuValidationError) as exc:
-        validate_node_shape(action_type="banana", parent_is_child=False, has_parent=False)
+        validate_node_shape(action_type="banana", parent_depth=0, has_parent=False)
     assert exc.value.code == "INVALID_ACTION_TYPE"
 
 
@@ -71,6 +79,20 @@ def test_build_menu_tree_nests_children_under_category() -> None:
     assert [n["label"] for n in tree] == ["주차시설", "체육시설"]
     assert [c["label"] for c in tree[0]["children"]] == ["주차요금", "정기권"]
     assert tree[1]["children"] == []
+
+
+def test_build_menu_tree_nests_three_levels() -> None:
+    """3단 — 자식이 부모보다 앞에 와도 올바르게 조립돼야 한다."""
+    nodes = [
+        _FakeNode("q1", "요금표", "question", parent_id="c2", sort_order=1),
+        _FakeNode("c2", "주차요금", "category", parent_id="c1", sort_order=1),
+        _FakeNode("c1", "주차시설", "category", sort_order=1),
+    ]
+    tree = build_menu_tree(nodes)
+    assert [n["label"] for n in tree] == ["주차시설"]
+    mid = tree[0]["children"]
+    assert [n["label"] for n in mid] == ["주차요금"]
+    assert [n["label"] for n in mid[0]["children"]] == ["요금표"]
 
 
 def test_build_menu_tree_keeps_flat_legacy_nodes_at_top() -> None:

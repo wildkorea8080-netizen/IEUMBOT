@@ -25,20 +25,48 @@ class MenuValidationError(Exception):
         self.message = message
 
 
-def validate_node_shape(*, action_type: str, parent_is_child: bool, has_parent: bool) -> None:
-    """노드 하나의 모양이 2단 규칙에 맞는지 검사.
+MAX_MENU_DEPTH = 3
 
-    parent_is_child: 부모로 지정한 노드가 이미 다른 노드의 자식인가
-                     (True면 이 노드는 3단이 되므로 거부)
+
+def validate_node_shape(*, action_type: str, parent_depth: int, has_parent: bool) -> None:
+    """노드 하나의 모양이 깊이 규칙에 맞는지 검사.
+
+    parent_depth: 부모 노드의 깊이(최상위=1). 부모가 없으면 무시된다.
+                  새 노드의 깊이는 parent_depth + 1 이 된다.
+
+    분류(category)는 하위를 담는 그릇이므로 마지막 단계에 올 수 없다.
+    질문·링크는 어느 단계에나 올 수 있다(중간 단계에 바로 질문을 두어도 된다).
     """
     if action_type not in ACTION_TYPES:
         raise MenuValidationError("INVALID_ACTION_TYPE", f"허용되지 않는 유형입니다: {action_type}")
-    if action_type == "category" and has_parent:
+
+    depth = parent_depth + 1 if has_parent else 1
+    if depth > MAX_MENU_DEPTH:
         raise MenuValidationError(
-            "CATEGORY_CANNOT_HAVE_PARENT", "대분류는 다른 항목의 하위로 둘 수 없습니다."
+            "MENU_DEPTH_EXCEEDED", f"메뉴는 {MAX_MENU_DEPTH}단까지만 만들 수 있습니다."
         )
-    if has_parent and parent_is_child:
-        raise MenuValidationError("MENU_DEPTH_EXCEEDED", "메뉴는 2단까지만 만들 수 있습니다.")
+    if action_type == "category" and depth >= MAX_MENU_DEPTH:
+        raise MenuValidationError(
+            "CATEGORY_TOO_DEEP",
+            f"{MAX_MENU_DEPTH}단째에는 분류를 만들 수 없습니다. 질문이나 링크로 등록해 주세요.",
+        )
+
+
+def _node_depth(db: Session, *, node: Any, chatbot_id: str) -> int:
+    """노드의 깊이(최상위=1). 부모 사슬을 거슬러 올라가며 센다.
+
+    MAX_MENU_DEPTH를 넘는 순간 멈춘다 — 데이터가 손상돼 사슬이 순환해도
+    무한 루프에 빠지지 않게 하기 위한 안전장치다.
+    """
+    depth = 1
+    current = node
+    while current.parent_id is not None and depth < MAX_MENU_DEPTH + 1:
+        parent = get_node(db, node_id=str(current.parent_id), chatbot_id=chatbot_id)
+        if parent is None:
+            break
+        depth += 1
+        current = parent
+    return depth
 
 
 def _to_dict(node: Any) -> dict[str, Any]:
@@ -56,21 +84,22 @@ def _to_dict(node: Any) -> dict[str, Any]:
 
 
 def build_menu_tree(nodes: list[Any]) -> list[dict[str, Any]]:
-    """평면 노드 목록 → 2단 트리. 부모가 없는 자식은 버린다."""
-    by_id: dict[str, dict[str, Any]] = {}
+    """평면 노드 목록 → 최대 MAX_MENU_DEPTH 단 트리. 부모가 없는 자식은 버린다.
+
+    입력 순서가 부모보다 자식이 먼저일 수 있으므로, 전체를 먼저 dict로 만든 뒤
+    부모에 연결한다(2단 시절에는 최상위를 먼저 훑는 방식이라 3단을 담지 못했다).
+    """
+    by_id: dict[str, dict[str, Any]] = {str(node.id): _to_dict(node) for node in nodes}
     roots: list[dict[str, Any]] = []
     for node in nodes:
+        item = by_id[str(node.id)]
         if node.parent_id is None:
-            item = _to_dict(node)
-            by_id[str(node.id)] = item
             roots.append(item)
-    for node in nodes:
-        if node.parent_id is None:
             continue
         parent = by_id.get(str(node.parent_id))
         if parent is None:
             continue  # 고아 노드
-        parent["children"].append(_to_dict(node))
+        parent["children"].append(item)
     return roots
 
 
@@ -91,14 +120,14 @@ def create_menu_node(
     url: str | None,
     sort_order: int,
 ) -> dict[str, Any]:
-    parent_is_child = False
+    parent_depth = 0
     if parent_id:
         parent = get_node(db, node_id=parent_id, chatbot_id=chatbot_id)
         if parent is None:
             raise MenuValidationError("PARENT_NOT_FOUND", "상위 항목을 찾을 수 없습니다.")
-        parent_is_child = parent.parent_id is not None
+        parent_depth = _node_depth(db, node=parent, chatbot_id=chatbot_id)
     validate_node_shape(
-        action_type=action_type, parent_is_child=parent_is_child, has_parent=bool(parent_id)
+        action_type=action_type, parent_depth=parent_depth, has_parent=bool(parent_id)
     )
     node = QuickAction(
         organization_id=uuid.UUID(organization_id),

@@ -1543,9 +1543,6 @@ export class IeumWidgetApp {
     }
     if (action.actionType === "category") {
       const now = Date.now();
-      // 대분류를 새로 열 때는 항상 첫 페이지부터 — 지난번에 넘겨둔 페이지가 남으면
-      // 카드를 열자마자 중간부터 보이게 된다.
-      this.menuPages.set(action.id, 0);
       this.pushMessage({
         id: `user_menu_${action.id}_${now}`,
         role: "user",
@@ -1556,13 +1553,7 @@ export class IeumWidgetApp {
       // renderMessages()가 전체 재렌더(innerHTML = "") 방식이라, 배열 밖에서
       // appendChild로 붙인 카드는 다음 pushMessage/updateMessage(스트리밍 등)에서
       // 곧바로 사라진다 — 그래서 messages 배열 기반으로 옮겼다(아래 renderMessages 참고).
-      this.pushMessage({
-        id: `menu_card_${action.id}_${now + 1}`,
-        role: "assistant",
-        text: "",
-        timestamp: now + 1,
-        menuCategoryId: action.id,
-      });
+      this.pushMenuCard(action.id);
       return;
     }
     this.input.value = action.payload?.trim() || action.label;
@@ -1576,15 +1567,23 @@ export class IeumWidgetApp {
   /** 메뉴 카드별 현재 페이지. 카드는 매 재렌더마다 다시 그려지므로 여기에 따로 둔다. */
   private readonly menuPages = new Map<string, number>();
 
-  /** 최상위 메뉴 카드를 대화에 띄운다. 위젯을 열었을 때와 '처음으로'를 눌렀을 때 사용. */
-  private pushRootMenuCard(): void {
+  /** 메뉴 카드를 대화에 띄운다. MENU_ROOT면 최상위 목록. '상위메뉴'에서도 사용. */
+  private pushMenuCard(categoryId: string): void {
+    // 다시 열 때는 첫 페이지부터 — 지난번에 넘겨둔 페이지가 남으면 중간부터 보인다.
+    this.menuPages.set(categoryId, 0);
+    const now = Date.now();
     this.pushMessage({
-      id: `menu_root_${Date.now()}`,
+      id: `menu_card_${categoryId}_${now}`,
       role: "assistant",
       text: "",
-      timestamp: Date.now(),
-      menuCategoryId: IeumWidgetApp.MENU_ROOT,
+      timestamp: now,
+      menuCategoryId: categoryId,
     });
+  }
+
+  /** 최상위 메뉴 카드를 대화에 띄운다. 위젯을 열었을 때 사용. */
+  private pushRootMenuCard(): void {
+    this.pushMenuCard(IeumWidgetApp.MENU_ROOT);
   }
 
   /** 메뉴 카드 콘텐츠를 컨테이너에 채운다.
@@ -1599,6 +1598,9 @@ export class IeumWidgetApp {
       ? quickActions.filter(
           (item) =>
             item.actionType === "category" &&
+            // 3단 구조에서는 중간 분류도 actionType이 category다. parentId가 없는
+            // 최상위만 걸러내지 않으면 중간 분류까지 첫 화면에 쏟아진다.
+            !item.parentId &&
             quickActions.some((child) => child.parentId === item.id),
         )
       : quickActions.filter((item) => item.parentId === categoryId);
@@ -1660,15 +1662,18 @@ export class IeumWidgetApp {
       container.appendChild(this.createMenuPager(container, categoryId, page, pageCount));
     }
 
-    // 최상위 카드에는 '처음으로'가 필요 없다(이미 최상위).
+    // 최상위 카드에는 올라갈 곳이 없다.
     if (isRoot) return;
-    const home = createElement(document, "button", "ieum-menu-home");
-    home.type = "button";
-    home.textContent = "↑ 처음으로";
-    home.addEventListener("click", () => {
-      this.pushRootMenuCard();
+    // 한 단계 위로. 3단 구조에서는 최상위가 아니라 바로 위 분류로 가야 한다
+    // (2단 시절에는 위가 곧 최상위라 '처음으로'와 같은 뜻이었다).
+    const parentId = (category as WidgetQuickAction).parentId || IeumWidgetApp.MENU_ROOT;
+    const up = createElement(document, "button", "ieum-menu-home");
+    up.type = "button";
+    up.textContent = "↑ 상위메뉴";
+    up.addEventListener("click", () => {
+      this.pushMenuCard(parentId);
     });
-    container.appendChild(home);
+    container.appendChild(up);
   }
 
   /**
