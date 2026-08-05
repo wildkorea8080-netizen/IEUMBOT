@@ -29,6 +29,7 @@ const EXCLUDED_FILES = new Set([
   "appswebpublicwidget-icons.png",
 ]);
 const DEFAULT_ICON_NAME_MAP: Record<string, string> = {
+  "13.png": "이음봇 캐릭터",
   "love-chat-icons.png": "기본 아이콘",
   "1.png": "위젯 아이콘 1",
   "2.png": "위젯 아이콘 2",
@@ -44,6 +45,8 @@ const DEFAULT_ICON_NAME_MAP: Record<string, string> = {
   "12.png": "위젯 아이콘 12",
 };
 const DEFAULT_ICON_ORDER: Record<string, number> = {
+  // 브랜드 캐릭터를 목록 맨 앞에 둔다. 음수를 써서 기존 번호를 다시 매기지 않는다.
+  "13.png": -1,
   "love-chat-icons.png": 0,
   "1.png": 1,
   "2.png": 2,
