@@ -52,6 +52,8 @@ export default function QuickActionsPage() {
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingLabel, setEditingLabel] = useState("");
+  // 질문 노드는 버튼에 보이는 글자(label)와 실제로 챗봇에 보내는 문구(payload)가 다를 수 있다.
+  const [editingPayload, setEditingPayload] = useState("");
 
   const load = useCallback(async () => {
     if (!chatbotId) {
@@ -135,18 +137,25 @@ export default function QuickActionsPage() {
   function startEditing(node: MenuNode) {
     setEditingId(node.id);
     setEditingLabel(node.label);
+    setEditingPayload(node.payload ?? node.label);
   }
 
   function cancelEditing() {
     setEditingId(null);
     setEditingLabel("");
+    setEditingPayload("");
   }
 
-  /** 이름 저장. 질문 노드는 라벨이 곧 챗봇에 전송되는 문구이므로 payload도 함께 맞춘다. */
+  /** 이름·질문 문구 저장. 질문 문구를 비워두면 버튼 글자를 그대로 보낸다. */
   async function handleRename(node: MenuNode) {
     if (!chatbotId) return;
     const label = editingLabel.trim();
-    if (!label || label === node.label) {
+    if (!label) {
+      cancelEditing();
+      return;
+    }
+    const payload = node.actionType === "question" ? editingPayload.trim() || label : null;
+    if (label === node.label && (payload === null || payload === (node.payload ?? node.label))) {
       cancelEditing();
       return;
     }
@@ -156,7 +165,7 @@ export default function QuickActionsPage() {
       await updateMenuNode(node.id, {
         chatbotId,
         label,
-        ...(node.actionType === "question" ? { payload: label } : {}),
+        ...(payload !== null ? { payload } : {}),
       });
       cancelEditing();
       await load();
@@ -225,21 +234,17 @@ export default function QuickActionsPage() {
     }
   }
 
-  /** 이름 편집 중일 때 쓰는 입력줄. 분류·질문 어느 단계에서나 같은 모양. */
+  /**
+   * 이름 편집 입력줄. 질문 노드에는 '질문 문구'가 하나 더 붙는다.
+   *
+   * 버튼 글자를 그대로 검색어로 쓰면("인력양성" 같은 짧은 명사) 관련 자료가 폭넓게
+   * 걸려 다른 사업 내용까지 섞인 답변이 나온다. 버튼은 짧게 두고 실제 질문은
+   * 구체적으로 적을 수 있게 분리한다.
+   */
   function renderEditor(node: MenuNode, compact: boolean) {
-    return (
+    const isQuestion = node.actionType === "question";
+    const buttons = (
       <>
-        <input
-          value={editingLabel}
-          onChange={(e) => setEditingLabel(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") void handleRename(node);
-            if (e.key === "Escape") cancelEditing();
-          }}
-          autoFocus
-          className="input-field"
-          style={compact ? { flex: 1, fontSize: 13 } : { maxWidth: 280, fontWeight: 700 }}
-        />
         <button
           type="button"
           onClick={() => void handleRename(node)}
@@ -258,6 +263,54 @@ export default function QuickActionsPage() {
           취소
         </button>
       </>
+    );
+
+    const labelInput = (
+      <input
+        value={editingLabel}
+        onChange={(e) => setEditingLabel(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") void handleRename(node);
+          if (e.key === "Escape") cancelEditing();
+        }}
+        autoFocus
+        placeholder="버튼에 보일 글자"
+        className="input-field"
+        style={compact ? { flex: 1, fontSize: 13 } : { maxWidth: 280, fontWeight: 700 }}
+      />
+    );
+
+    if (!isQuestion) {
+      return (
+        <>
+          {labelInput}
+          {buttons}
+        </>
+      );
+    }
+
+    return (
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          {labelInput}
+          {buttons}
+        </div>
+        <input
+          value={editingPayload}
+          onChange={(e) => setEditingPayload(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void handleRename(node);
+            if (e.key === "Escape") cancelEditing();
+          }}
+          placeholder="실제로 챗봇에 보낼 질문 (예: 인력양성 교육의 대상과 기간은?)"
+          className="input-field"
+          style={{ fontSize: 12 }}
+        />
+        <span style={{ fontSize: 11, color: "#9ca3af" }}>
+          비워두면 버튼 글자를 그대로 보냅니다. 짧은 단어만 보내면 관련 자료가 넓게 걸려
+          다른 사업 내용이 섞일 수 있습니다.
+        </span>
+      </div>
     );
   }
 
@@ -384,7 +437,12 @@ export default function QuickActionsPage() {
             renderEditor(node, true)
           ) : (
             <>
-              <span style={{ fontSize: 13, color: "#374151", flex: 1 }}>{node.label}</span>
+              <span style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1, minWidth: 0 }}>
+                <span style={{ fontSize: 13, color: "#374151" }}>{node.label}</span>
+                {node.payload && node.payload !== node.label && (
+                  <span style={{ fontSize: 11, color: "#9ca3af" }}>→ {node.payload}</span>
+                )}
+              </span>
               {!node.isEnabled && <span className="badge-neutral">숨김</span>}
               {moveButtons(true)}
               <button

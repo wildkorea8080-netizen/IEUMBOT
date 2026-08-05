@@ -215,19 +215,38 @@ function FormatRulesEditor({ rules, onChange }: { rules: FormatRule[]; onChange:
         <div style={{ fontSize: 13, color: "#94a3b8", marginBottom: 10 }}>등록된 규칙이 없습니다.</div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
-          {rules.map((rule, i) => (
+          {rules.map((rule, i) => {
+            // 서버는 위에서부터 훑어 '처음 걸린 규칙 하나'만 적용한다. 같은 키워드가
+            // 앞 규칙에 이미 있으면 이 규칙은 영원히 쓰이지 않는다.
+            const shadowedBy = rules.findIndex(
+              (other, j) => j < i && other.keywords.some(k => rule.keywords.includes(k))
+            );
+            // 텍스트 형식은 일반 답변과 렌더링이 같다 — 더보기 링크가 있을 때만 의미가 있다.
+            const isNoop = rule.format === "text" && !rule.moreLink;
+            return (
             <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8 }}>
               <div style={{ flex: 1, fontSize: 13 }}>
                 <span className="badge-neutral" style={{ marginRight: 6 }}>{FORMAT_LABELS[rule.format]}</span>
                 {rule.keywords.map(k => <span key={k} style={{ fontSize: 11, background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 4, padding: "1px 6px", marginRight: 4, color: "#1d4ed8" }}>{k}</span>)}
                 {rule.moreLink && <span style={{ fontSize: 11, color: "#64748b", marginLeft: 4 }}>→ {rule.moreLink.title}</span>}
+                {shadowedBy >= 0 && (
+                  <div style={{ fontSize: 11, color: "#b45309", marginTop: 4 }}>
+                    ⚠ 위 {shadowedBy + 1}번 규칙에 같은 키워드가 있어 이 규칙은 적용되지 않습니다.
+                  </div>
+                )}
+                {shadowedBy < 0 && isNoop && (
+                  <div style={{ fontSize: 11, color: "#b45309", marginTop: 4 }}>
+                    ⚠ 텍스트 형식은 일반 답변과 똑같이 표시됩니다. 더보기 링크를 넣거나 카드형·리스트를 선택하세요.
+                  </div>
+                )}
               </div>
               <button type="button" onClick={() => onChange(rules.filter((_, j) => j !== i))}
                 style={{ background: "none", border: "none", cursor: "pointer", color: "#94a3b8" }}>
                 <X style={{ width: 14, height: 14 }} />
               </button>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
       {adding ? (
