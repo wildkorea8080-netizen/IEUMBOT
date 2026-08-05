@@ -428,7 +428,15 @@ function buildScopedStyles(primaryGradient: string): string {
 :host { all: initial; }
 .ieum-root, .ieum-root * {
   box-sizing: border-box;
-  font-family: "Pretendard", "Noto Sans KR", "Apple SD Gothic Neo", -apple-system, Arial, sans-serif;
+  /* 호스트 페이지에 좌우되지 않는 글꼴만 쓴다.
+     @font-face는 Shadow DOM으로 격리되지 않고 문서 전역에 적용된다. 그래서 예전 스택처럼
+     "Pretendard"·"Noto Sans KR" 같은 웹폰트 이름을 적어두면, 같은 이름을 @font-face로
+     선언한 호스트(공공기관 사이트에 흔하다)가 그 이름을 가로채 위젯 글꼴이 사이트마다
+     달라진다. 정작 우리는 그 폰트를 배포하지도 않아 얻는 것도 없었다.
+     system-ui / sans-serif 같은 generic 키워드는 @font-face 이름으로 쓸 수 없어 가로채기가
+     불가능하고, 한글은 브라우저가 OS 기본 글꼴(윈도우 맑은 고딕, macOS Apple SD Gothic Neo)로
+     알아서 대체한다. */
+  font-family: system-ui, -apple-system, sans-serif;
   letter-spacing: -0.01em;
 }
 .ieum-root {
