@@ -191,15 +191,28 @@ def reembed_chatbot_faqs(db: Session, *, chatbot_id: str, organization_id: str) 
         ).scalars()
     )
 
+    if not rows:
+        return {"total": 0, "updated": 0, "failed": 0}
+
+    # 건당 호출하면 FAQ 수만큼 API 왕복이 생겨 요청이 길어진다 — 배치로 묶는다.
+    from app.services.embedding_service import generate_embeddings_batch  # noqa: PLC0415
+
+    texts = [
+        compose_faq_embedding_text(
+            question=row.question, category=row.category, field=row.field, tags=row.tags
+        )
+        for row in rows
+    ]
+    embeddings = generate_embeddings_batch(
+        db,
+        organization_id=organization_id,
+        chatbot_id=chatbot_id,
+        texts=texts,
+    )
+
     updated = 0
     failed = 0
-    for row in rows:
-        embedding = _generate_faq_embedding(
-            db,
-            compose_faq_embedding_text(
-                question=row.question, category=row.category, field=row.field, tags=row.tags
-            ),
-        )
+    for row, embedding in zip(rows, embeddings, strict=False):
         if embedding is None:
             failed += 1
             continue
