@@ -510,11 +510,15 @@ export default function AdminAiStylePage() {
                   badge: "베타",
                 },
                 {
+                  // 백엔드가 theme.multilingualEnabled 를 읽지 않는다(답변 파이프라인에
+                  // 언어 지시가 없음). 값만 저장되고 동작하지 않아 오해를 부르므로
+                  // 실제 구현 전까지 '음성 답변 지원'과 동일하게 비활성 처리한다.
                   key: "multilingualEnabled" as const,
-                  checked: form.multilingualEnabled,
-                  disabled: false,
+                  checked: false,
+                  disabled: true,
                   label: "다국어 지원",
                   desc: "영어, 중국어, 일본어 등 주요 언어로 자동 응대합니다.",
+                  badge: "준비중",
                 },
               ].map(({ key, checked, disabled, label, desc, badge }) => (
                 <label
