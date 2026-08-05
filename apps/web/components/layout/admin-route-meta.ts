@@ -20,6 +20,7 @@ const ADMIN_ROUTE_META: Array<{ href: string; meta: RouteMeta }> = [
   { href: "/admin/users", meta: { title: "사용자", breadcrumbs: ["기관관리자", "운영", "사용자"] } },
   { href: "/admin/audit", meta: { title: "접속기록", breadcrumbs: ["기관관리자", "운영", "접속기록"] } },
   { href: "/admin/chatbots", meta: { title: "챗봇 관리", breadcrumbs: ["기관관리자", "워크스페이스", "챗봇"] } },
+  { href: "/admin/settings", meta: { title: "일반 설정", breadcrumbs: ["기관관리자", "기관 설정", "일반 설정"] } },
   { href: "/admin/answer-settings", meta: { title: "답변 설정", breadcrumbs: ["기관관리자", "고급", "답변 설정"] } },
   { href: "/admin/guardrails", meta: { title: "가드레일", breadcrumbs: ["기관관리자", "고급", "가드레일"] } },
   { href: "/admin/search-control", meta: { title: "검색 제어", breadcrumbs: ["기관관리자", "고급", "검색 제어"] } },

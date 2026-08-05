@@ -64,6 +64,9 @@ export const adminNav: NavGroup[] = [
     items: [
       { label: "챗봇 관리", href: "/admin/chatbots", icon: "BotMessageSquare" },
       { label: "관리자 관리", href: "/admin/team", icon: "Users" },
+      // 기관 로고·IP 접근제어·비밀번호 변경. 페이지는 있었지만 메뉴에 없어
+      // 주소를 직접 입력하지 않으면 들어갈 수 없었다.
+      { label: "일반 설정", href: "/admin/settings", icon: "Settings2" },
     ],
   },
 ];
