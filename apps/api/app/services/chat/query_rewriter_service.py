@@ -29,6 +29,8 @@ _FOLLOWUP_PATTERNS = [
 ]
 
 _REWRITE_TIMEOUT_SEC = 8
+# 재작성 결과로 허용할 최대 길이. 이보다 길면 질문이 아니라 설명문일 가능성이 높다.
+_MAX_REWRITTEN_CHARS = 120
 
 
 def _field(msg: Any, key: str) -> str:
@@ -98,8 +100,10 @@ def rewrite_query(
     if not rewritten:
         return current_query, False
 
-    # 원본보다 3배 이상 길면 비정상 응답으로 간주
-    if len(rewritten) > len(current_query) * 3:
+    # 설명문을 늘어놓은 비정상 응답 차단.
+    # 배수만으로 판정하면 "네"(1자)·"그건?"(3자) 같은 짧은 후속 질문은 상한이 3~9자가 돼
+    # 정상적인 재작성 결과까지 전부 버려진다. 절대 상한을 함께 만족할 때만 비정상으로 본다.
+    if len(rewritten) > _MAX_REWRITTEN_CHARS and len(rewritten) > len(current_query) * 3:
         logger.warning("[QUERY_REWRITE] 리라이팅 결과가 너무 길어 원본 사용: %s", rewritten[:80])
         return current_query, False
 

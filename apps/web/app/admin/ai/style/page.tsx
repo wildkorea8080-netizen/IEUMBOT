@@ -36,6 +36,7 @@ type StyleForm = {
   citationDisplay: "always" | "bottom" | "folded";
   limitDefinitiveExpression: boolean;
   showFreshnessNotice: boolean;
+  suggestNextQuestion: boolean;
   customInstructions: string;
   // 추천 질문 풀
   recommendedQuestionsPool: string[];
@@ -51,7 +52,8 @@ type StyleForm = {
 
 const DEFAULT_FORM: StyleForm = {
   tonePreset: "public", responseLength: "medium", citationDisplay: "always",
-  limitDefinitiveExpression: true, showFreshnessNotice: true, customInstructions: "",
+  limitDefinitiveExpression: true, showFreshnessNotice: true, suggestNextQuestion: false,
+  customInstructions: "",
   recommendedQuestionsPool: [],
   followUpEnabled: true, sentimentAnalysis: false, multilingualEnabled: false,
   autoLinkify: false, autoBold: false,
@@ -306,6 +308,7 @@ export default function AdminAiStylePage() {
         citationDisplay: deriveCitationDisplay(chatbot, settings.settings),
         limitDefinitiveExpression: settings.settings.answerPolicy.disallowDefinitiveClaims,
         showFreshnessNotice: settings.settings.answerPolicy.requireLatestSourceCheckWarningWhenRelevant,
+        suggestNextQuestion: settings.settings.answerPolicy.suggestNextQuestion ?? false,
         customInstructions: chatbot.customInstructions ?? "",
         recommendedQuestionsPool: pool,
         followUpEnabled:    theme.followUpEnabled !== false,
@@ -378,6 +381,7 @@ export default function AdminAiStylePage() {
       next.answerFormat.citationDisplayMode = citationDisplayMode;
       next.answerPolicy.disallowDefinitiveClaims = form.limitDefinitiveExpression;
       next.answerPolicy.requireLatestSourceCheckWarningWhenRelevant = form.showFreshnessNotice;
+      next.answerPolicy.suggestNextQuestion = form.suggestNextQuestion;
       await patchAnswerSettings(selectedChatbotId, { settings: next });
       await loadPage(selectedChatbotId);
       setToast({ tone: "success", message: "응답 스타일 설정이 저장되었습니다." });
@@ -450,6 +454,7 @@ export default function AdminAiStylePage() {
             <div>
               <ToggleField label="확정 표현 제한" description="지원 대상 확정, 결과 보장처럼 단정적인 표현을 기본적으로 제한합니다." checked={form.limitDefinitiveExpression} onChange={v => setForm(p => ({ ...p, limitDefinitiveExpression: v }))} />
               <ToggleField label="최신성 주의문 표시" description="최신 공고나 변경 가능성이 있는 정보에는 확인 안내 문구를 우선 표시합니다." checked={form.showFreshnessNotice} onChange={v => setForm(p => ({ ...p, showFreshnessNotice: v }))} />
+              <ToggleField label="이어서 안내 제안 문장" description="답변 끝에 '원하시면 신청 방법도 이어서 안내해 드릴까요?' 같은 되묻는 문장을 붙입니다. 켜면 이용자가 '네'라고만 답할 때 답변 품질이 떨어질 수 있어 기본은 꺼짐이며, 아래 추천 질문 버튼이 같은 역할을 대신합니다." checked={form.suggestNextQuestion} onChange={v => setForm(p => ({ ...p, suggestNextQuestion: v }))} />
             </div>
           </SectionCard>
 

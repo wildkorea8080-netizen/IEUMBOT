@@ -51,8 +51,17 @@ def _build_policy_instruction(settings: AnswerSettings) -> list[str]:
         "답변 첫 문장은 '네, 요청하신 내용을 안내해 드릴게요.'처럼 부드러운 확인 문장으로 시작하세요.",
         "근거 문서에 있는 내용만 사실로 말하고, 근거에 없는 세부 일정/자격/신청 링크는 만들어내지 마세요.",
         "근거가 일부만 있으면 확인 가능한 범위와 추가 확인이 필요한 범위를 분리해 말하세요.",
-        "답변 끝에는 '원하시면 신청 방법도 이어서 안내해 드릴까요?'처럼 사용자가 다음으로 물어볼 만한 한 가지 선택지를 자연스럽게 제안하세요.",
     ]
+    if settings.answer_policy.suggest_next_question:
+        lines.append(
+            "답변 끝에는 '원하시면 신청 방법도 이어서 안내해 드릴까요?'처럼 "
+            "사용자가 다음으로 물어볼 만한 한 가지 선택지를 자연스럽게 제안하세요."
+        )
+    else:
+        lines.append(
+            "답변 끝에 '원하시면 ~도 안내해 드릴까요?'처럼 되묻는 제안은 붙이지 마세요. "
+            "필요한 내용을 안내하고 마무리하세요."
+        )
     if settings.answer_policy.disallow_definitive_claims:
         lines.append("'무조건', '반드시', '100%' 같은 단정 표현은 피하고, 조건과 예외를 함께 안내하세요.")
     if settings.answer_policy.disallow_outcome_prediction:
@@ -300,6 +309,12 @@ def build_answer_prompt(
         if api_context and api_context.strip()
         else "근거가 질문 대상과 일치하면, 아래 근거만 사용해 질문에 직접 답하세요.\n"
     )
+    # 되묻는 마무리 문장은 정책 토글을 따른다 (끄면 답변 본문에 제안이 붙지 않음).
+    closing_hint = (
+        "- 필요하면 더 궁금한 점을 물어보라는 친근한 한 문장으로 마무리해도 좋습니다.\n"
+        if settings.answer_policy.suggest_next_question
+        else "- 되묻는 제안이나 '~해 드릴까요?' 문장 없이 안내를 마무리하세요.\n"
+    )
     user_prompt = (
         history_block
         + entity_block
@@ -330,8 +345,8 @@ def build_answer_prompt(
         "| 대상 | 관련 법인 |\n"
         "| 방법 | 온라인 접수 |\n"
         "- 관련 웹페이지·신청·문의 링크가 있으면 [표시할 텍스트](URL) 형식의 마크다운 링크로, 핵심어는 **굵게** 강조하세요.\n"
-        "- 필요하면 더 궁금한 점을 물어보라는 친근한 한 문장으로 마무리해도 좋습니다.\n"
-        "본문에 [S1], [S2] 같은 출처 번호 표기는 넣지 마세요 — 출처는 답변과 별도로 화면에 자동 표시됩니다.\n\n"
+        + closing_hint
+        + "본문에 [S1], [S2] 같은 출처 번호 표기는 넣지 마세요 — 출처는 답변과 별도로 화면에 자동 표시됩니다.\n\n"
         + "\n".join(source_lines)
     )
 

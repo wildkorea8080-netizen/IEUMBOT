@@ -30,6 +30,7 @@ export type AnswerPolicySettings = {
   fallbackMessageWhenInsufficientEvidence: string;
   clarificationStrategyMode: ClarificationStrategyMode;
   privacyInputMode: PrivacyInputMode;
+  suggestNextQuestion: boolean;
 };
 
 export type AnswerFormatSettings = {

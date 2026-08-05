@@ -42,6 +42,10 @@ class AnswerPolicySettings(ApiSchema):
     # 질의 내 개인정보 처리: "mask"=자동 마스킹 후 답변 계속(권장, 공공 특화),
     # "block"=개인정보 포함 시 답변 차단(기존 동작)
     privacy_input_mode: PrivacyInputMode = "mask"
+    # 답변 끝에 "원하시면 ~도 안내해 드릴까요?" 식 제안을 붙일지.
+    # 기본 False — 제안을 받은 이용자가 "네"라고만 답하면 그 한 글자로는 검색이 되지 않아
+    # 답변 품질이 떨어진다. 같은 역할은 화면의 추천 질문 버튼이 안정적으로 대신한다.
+    suggest_next_question: bool = False
 
 
 class AnswerFormatSettings(ApiSchema):
