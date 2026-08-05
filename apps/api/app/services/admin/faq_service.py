@@ -51,7 +51,10 @@ def create_faq_item(
 
     commit=False 로 호출하면 flush만 하고 커밋하지 않음 — 배치 등록 시 사용.
     """
-    embedding = _generate_faq_embedding(db, question)
+    embedding = _generate_faq_embedding(
+        db,
+        compose_faq_embedding_text(question=question, category=category, field=field, tags=tags),
+    )
 
     row = FaqItem(
         chatbot_id=uuid.UUID(chatbot_id),
@@ -128,21 +131,38 @@ def update_faq_item(
     if row is None:
         return None
 
+    # 임베딩에 들어가는 값(질문·대분류·소분류·태그)이 하나라도 바뀌면 임베딩을 다시 만든다.
+    # 분류만 고쳐도 검색 결과가 달라져야 하므로 질문 변경만 보고 판단하면 안 된다.
+    embedding_dirty = False
     if question is not None and question != row.question:
         row.question = question[:500]
-        row.embedding = _generate_faq_embedding(db, question)
+        embedding_dirty = True
     if answer is not None:
         row.answer = answer
     if tags is not None:
+        if list(tags) != list(row.tags or []):
+            embedding_dirty = True
         row.tags = tags
     if is_active is not None:
         row.is_active = is_active
     if sort_order is not None:
         row.sort_order = sort_order
     if category is not None:
+        if category != row.category:
+            embedding_dirty = True
         row.category = category
     if field is not None:
+        if field != row.field:
+            embedding_dirty = True
         row.field = field
+
+    if embedding_dirty:
+        row.embedding = _generate_faq_embedding(
+            db,
+            compose_faq_embedding_text(
+                question=row.question, category=row.category, field=row.field, tags=row.tags
+            ),
+        )
     if memo is not None:
         row.memo = memo
     if youtube_url is not None:
@@ -152,6 +172,47 @@ def update_faq_item(
     db.refresh(row)
     _invalidate_chatbot_answer_cache(str(row.chatbot_id))
     return row
+
+
+def reembed_chatbot_faqs(db: Session, *, chatbot_id: str, organization_id: str) -> dict[str, int]:
+    """챗봇의 모든 FAQ 임베딩을 분류·태그 포함 형태로 다시 만든다.
+
+    기존 FAQ는 질문 문장만으로 임베딩돼 있어 대분류·소분류·태그가 검색에 반영되지 않는다.
+    분류 반영 방식으로 바꾼 뒤 한 번 돌려야 이미 등록된 FAQ에도 적용된다.
+
+    반환: {"total": 전체, "updated": 갱신 성공, "failed": 임베딩 실패}
+    """
+    rows = list(
+        db.execute(
+            select(FaqItem).where(
+                FaqItem.chatbot_id == uuid.UUID(chatbot_id),
+                FaqItem.organization_id == uuid.UUID(organization_id),
+            )
+        ).scalars()
+    )
+
+    updated = 0
+    failed = 0
+    for row in rows:
+        embedding = _generate_faq_embedding(
+            db,
+            compose_faq_embedding_text(
+                question=row.question, category=row.category, field=row.field, tags=row.tags
+            ),
+        )
+        if embedding is None:
+            failed += 1
+            continue
+        row.embedding = embedding
+        updated += 1
+
+    db.commit()
+    _invalidate_chatbot_answer_cache(chatbot_id)
+    logger.info(
+        "[FAQ_REEMBED] chatbot_id=%s total=%d updated=%d failed=%d",
+        chatbot_id, len(rows), updated, failed,
+    )
+    return {"total": len(rows), "updated": updated, "failed": failed}
 
 
 def delete_faq_item(db: Session, *, faq_id: str, organization_id: str) -> bool:
@@ -271,6 +332,27 @@ def _search_faq_by_keyword(
 
 
 # ── 내부 헬퍼 ─────────────────────────────────────────────────────────────────
+
+def compose_faq_embedding_text(
+    *,
+    question: str,
+    category: str | None = None,
+    field: str | None = None,
+    tags: list | None = None,
+) -> str:
+    """FAQ 임베딩에 쓸 텍스트. 질문 앞에 대분류·소분류를, 뒤에 태그를 붙인다.
+
+    질문 문장만 임베딩하면 분류가 검색에 전혀 반영되지 않아, 서로 다른 대분류의
+    FAQ가 같은 태그(예: '이용요금')를 공유할 때 엉뚱한 쪽이 매칭된다.
+    ('거주자주차'를 보다 '이용요금'을 물었는데 '정기주차' 요금이 나오는 문제)
+    분류를 앞에 두어 같은 표현이라도 소속이 다르면 벡터가 갈라지게 한다.
+    """
+    parts = [str(value).strip() for value in (category, field, question) if value and str(value).strip()]
+    tag_text = " ".join(str(tag).strip() for tag in (tags or []) if str(tag).strip())
+    if tag_text:
+        parts.append(tag_text)
+    return " ".join(parts)
+
 
 def _generate_faq_embedding(db: Session, text: str) -> list[float] | None:
     try:

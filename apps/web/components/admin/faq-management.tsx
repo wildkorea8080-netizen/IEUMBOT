@@ -15,6 +15,7 @@ import {
   deleteFaqItem,
   getAdminChatbots,
   listFaqItems,
+  reembedFaqItems,
   updateFaqItem,
 } from "../../lib/api/admin-operations";
 import type { FaqManagementItem } from "../../lib/api/admin-operations-types";
@@ -454,6 +455,7 @@ export function FaqManagement({ onCountLoaded }: { onCountLoaded?: (count: numbe
   const [notice, setNotice] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [isReembedding, setIsReembedding] = useState(false);
 
   // null = 닫힘, "new" = 신규 추가, FaqManagementItem = 수정
   const [modalTarget, setModalTarget] = useState<FaqManagementItem | "new" | null>(null);
@@ -515,6 +517,24 @@ export function FaqManagement({ onCountLoaded }: { onCountLoaded?: (count: numbe
     setSelectedIds(prev =>
       prev.size === items.length ? new Set() : new Set(items.map(i => i.id))
     );
+  }
+
+  async function handleReembed() {
+    if (!chatbotId || isReembedding) return;
+    setIsReembedding(true);
+    setError(null);
+    try {
+      const result = await reembedFaqItems(chatbotId);
+      setNotice(
+        result.failed > 0
+          ? `${result.updated}개 재색인 완료, ${result.failed}개 실패했습니다.`
+          : `${result.updated}개 FAQ의 검색 색인을 다시 만들었습니다.`
+      );
+    } catch (e) {
+      setError(getErrorMessage(e));
+    } finally {
+      setIsReembedding(false);
+    }
   }
 
   async function handleBulkDelete() {
@@ -599,6 +619,16 @@ export function FaqManagement({ onCountLoaded }: { onCountLoaded?: (count: numbe
               {isBulkDeleting ? "삭제 중..." : `선택 삭제 (${selectedIds.size})`}
             </button>
           )}
+          <button
+            type="button"
+            onClick={() => void handleReembed()}
+            disabled={!chatbotId || isReembedding || items.length === 0}
+            title="대분류·소분류·태그를 검색에 반영하도록 FAQ 검색 색인을 다시 만듭니다."
+            style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 14px", border: "1px solid #e5e7eb", borderRadius: 8, background: "#fff", color: "#374151", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: isReembedding || items.length === 0 ? 0.6 : 1 }}
+          >
+            <span style={{ fontSize: 14 }}>🔄</span>
+            {isReembedding ? "재색인 중..." : "검색 색인 재생성"}
+          </button>
           <button type="button" onClick={() => setModalTarget("new")} disabled={!chatbotId}
             style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 14px", border: "none", borderRadius: 8, background: "#111827", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
             <Plus style={{ width: 14, height: 14 }} />

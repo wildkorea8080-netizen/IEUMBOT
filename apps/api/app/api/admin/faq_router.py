@@ -13,6 +13,7 @@ from app.services.admin.faq_service import (
     create_faq_item,
     delete_faq_item,
     list_faq_items,
+    reembed_chatbot_faqs,
     update_faq_item,
 )
 from app.services.admin.scope_service import (
@@ -169,6 +170,28 @@ def delete_faq(
     deleted = delete_faq_item(db, faq_id=faq_id, organization_id=org_id)
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="FAQ_NOT_FOUND")
+
+
+class FaqReembedResponse(ApiSchema):
+    total: int
+    updated: int
+    failed: int
+
+
+@router.post("/faq/reembed", response_model=FaqReembedResponse)
+def reembed_faq(
+    chatbot_id: str,
+    principal: AdminPrincipal = Depends(require_institution_admin_auth),
+    db: Session = Depends(get_db_session),
+) -> FaqReembedResponse:
+    """등록된 FAQ 전체의 임베딩을 대분류·소분류·태그가 포함된 형태로 재생성.
+
+    질문 문장만 임베딩하던 시절에 등록된 FAQ에 분류를 반영하려면 한 번 실행해야 한다.
+    """
+    ensure_chatbot_in_scope(db, principal=principal, chatbot_id=chatbot_id)
+    org_id = require_institution_organization_id(principal)
+    result = reembed_chatbot_faqs(db, chatbot_id=chatbot_id, organization_id=org_id)
+    return FaqReembedResponse(**result)
 
 
 @router.post("/faq/bulk-create", response_model=FaqBulkCreateResponse, status_code=201)

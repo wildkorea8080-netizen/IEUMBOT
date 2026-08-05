@@ -29,6 +29,8 @@ _FOLLOWUP_PATTERNS = [
 ]
 
 _REWRITE_TIMEOUT_SEC = 8
+# 이 길이 이하의 질의는 주어가 생략된 후속 질문으로 보고 맥락을 붙인다.
+_SHORT_QUERY_MAX_LEN = 12
 # 재작성 결과로 허용할 최대 길이. 이보다 길면 질문이 아니라 설명문일 가능성이 높다.
 _MAX_REWRITTEN_CHARS = 120
 
@@ -44,7 +46,13 @@ def needs_rewriting(query: str, history: list[Any]) -> bool:
     """후속 질문 패턴이 감지되고 이전 대화가 충분할 때 True."""
     if not history or len(history) < 2:
         return False
-    return any(re.search(p, query) for p in _FOLLOWUP_PATTERNS)
+    if any(re.search(p, query) for p in _FOLLOWUP_PATTERNS):
+        return True
+    # 주어가 빠진 짧은 명사구도 후속 질문이다.
+    # 예: '거주자주차'를 보다 '이용요금'만 입력 → 대상이 없어 '정기주차 이용요금'이 매칭될 수 있다.
+    # 기존 패턴은 물음표나 지시어가 있어야 걸려서 이런 질의를 전부 놓쳤다.
+    # 첫 턴에는 history가 없어 여기까지 오지 않으므로 새 주제 질문을 망치지 않는다.
+    return 0 < len(query.strip()) <= _SHORT_QUERY_MAX_LEN
 
 
 def rewrite_query(
@@ -86,6 +94,9 @@ def rewrite_query(
         "대화 이력을 참고해서 마지막 질문을 검색에 최적화된\n"
         "독립적인 한국어 질문으로 재작성하세요.\n"
         "대명사(그것, 아까 등)를 구체적인 명사로 바꾸세요.\n"
+        "'이용요금'처럼 대상이 빠진 질문이면 직전에 다루던 대상을 앞에 붙이세요.\n"
+        "단, 마지막 질문이 이미 새로운 주제를 명확히 가리키면 그대로 두세요. "
+        "이력에 있는 대상을 억지로 붙이지 마세요.\n"
         "질문 하나만 출력하세요.\n\n"
         f"대화 이력:\n{formatted_history}\n\n"
         f"마지막 질문: {current_query}"

@@ -727,6 +727,19 @@ export async function deleteFaqItem(faqId: string): Promise<void> {
   await apiClient.request(`/admin/faq/${faqId}`, { method: "DELETE" });
 }
 
+export type FaqReembedResult = { total: number; updated: number; failed: number };
+
+/**
+ * 등록된 FAQ 전체의 검색용 임베딩을 다시 생성한다.
+ *
+ * 예전에는 FAQ의 "질문" 문장만 임베딩해 대분류·소분류·태그가 검색에 반영되지 않았다.
+ * 분류를 포함하도록 바꾼 뒤 기존 FAQ에도 적용하려면 한 번 실행해야 한다.
+ */
+export async function reembedFaqItems(chatbotId: string): Promise<FaqReembedResult> {
+  const params = new URLSearchParams({ chatbot_id: chatbotId });
+  return apiClient.request<FaqReembedResult>(`/admin/faq/reembed?${params}`, { method: "POST" });
+}
+
 // ── 웹소스 자동 업데이트 ─────────────────────────────────────────────────────
 
 export async function triggerWebSourceSync(webSourceId: string): Promise<void> {
