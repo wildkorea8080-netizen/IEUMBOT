@@ -1,0 +1,454 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>여주세종문화관광재단 (챗봇 테스트 페이지)</title>
+  <style>
+    :root {
+      --teal: #22b6bf;        /* 본 사이트 주색 */
+      --teal-dark: #1f534f;   /* 짙은 녹색 */
+      --blue: #0071b5;
+      --orange: #e38510;
+      --ink: #222;
+      --muted: #666;
+      --line: #e5e7eb;
+      --soft: #f7f9f9;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: "Pretendard", "Pretendard Variable", -apple-system, "Malgun Gothic", "맑은 고딕", "Noto Sans KR", sans-serif;
+      color: var(--ink); background: #fff; line-height: 1.55; letter-spacing: -0.01em;
+    }
+    a { color: inherit; text-decoration: none; }
+    ul, ol { list-style: none; }
+    .wrap { max-width: 1200px; margin: 0 auto; padding: 0 20px; }
+    .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+    .skip a {
+      position: absolute; left: -9999px; top: 0; z-index: 100;
+      background: var(--teal-dark); color: #fff; padding: 10px 18px; font-size: 14px;
+    }
+    .skip a:focus { left: 0; }
+
+    /* 상단 유틸 */
+    .util { background: var(--soft); border-bottom: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+    .util .wrap { display: flex; justify-content: space-between; align-items: center; height: 38px; }
+    .util-left, .util-right { display: flex; gap: 16px; align-items: center; }
+    .util a:hover { color: var(--teal); }
+    .util-badge { color: var(--teal-dark); font-weight: 700; }
+
+    /* 헤더 */
+    header { border-bottom: 1px solid var(--line); position: sticky; top: 0; background: #fff; z-index: 40; }
+    .head { display: flex; align-items: center; justify-content: space-between; height: 84px; }
+    .logo { display: flex; align-items: center; gap: 11px; }
+    .logo-mark {
+      width: 44px; height: 44px; border-radius: 12px;
+      background: linear-gradient(135deg, var(--teal), var(--teal-dark));
+      display: flex; align-items: center; justify-content: center;
+      color: #fff; font-weight: 800; font-size: 16px; letter-spacing: -0.05em;
+    }
+    .logo-text { font-size: 20px; font-weight: 800; letter-spacing: -0.03em; white-space: nowrap; }
+    .logo-text span { color: var(--teal); }
+    /* 메뉴 라벨이 길어(공연·축제·행사 등) 좁은 폭에서 줄바꿈되며 헤더가 무너진다. nowrap + 여백 축소. */
+    .gnb { display: flex; gap: 26px; }
+    .gnb > li > a { display: inline-block; font-size: 16px; font-weight: 600; padding: 30px 0; white-space: nowrap; }
+    .gnb > li > a:hover { color: var(--teal); }
+    .head-util { display: flex; gap: 8px; }
+    .btn-ghost {
+      border: 1px solid var(--line); border-radius: 999px; padding: 8px 15px;
+      font-size: 13px; font-weight: 600; color: var(--muted);
+    }
+    .btn-ghost:hover { border-color: var(--teal); color: var(--teal); }
+
+    /* 히어로 */
+    .hero {
+      background: linear-gradient(135deg, var(--teal-dark) 0%, var(--teal) 100%);
+      color: #fff; padding: 74px 0 66px;
+    }
+    .hero-badge {
+      display: inline-block; background: rgba(255,255,255,.18); border: 1px solid rgba(255,255,255,.3);
+      border-radius: 999px; padding: 5px 14px; font-size: 13px; font-weight: 600; margin-bottom: 16px;
+    }
+    .hero h2 { font-size: 40px; font-weight: 800; letter-spacing: -0.04em; line-height: 1.25; }
+    .hero p { margin-top: 12px; font-size: 17px; opacity: .92; }
+    .hero-search { margin-top: 28px; display: flex; max-width: 560px; }
+    .hero-search input {
+      flex: 1; border: none; border-radius: 999px 0 0 999px; padding: 15px 22px; font-size: 15px; outline: none;
+      font-family: inherit;
+    }
+    .hero-search button {
+      border: none; border-radius: 0 999px 999px 0; padding: 0 30px; font-size: 15px; font-weight: 700;
+      background: var(--ink); color: #fff; cursor: pointer; font-family: inherit;
+    }
+
+    /* 퀵메뉴 */
+    .quick { border-bottom: 1px solid var(--line); background: #fff; }
+    .quick ul { display: grid; grid-template-columns: repeat(6, 1fr); }
+    .quick li + li { border-left: 1px solid var(--line); }
+    .quick a {
+      display: flex; flex-direction: column; align-items: center; gap: 9px;
+      padding: 26px 8px; font-size: 14px; font-weight: 600;
+    }
+    .quick a:hover { background: var(--soft); color: var(--teal); }
+    .quick .ico { font-size: 26px; }
+
+    /* 섹션 공통 */
+    section { padding: 58px 0; }
+    section + section { border-top: 1px solid var(--line); }
+    .sec-head { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 26px; }
+    .sec-head h3 { font-size: 26px; font-weight: 800; letter-spacing: -0.03em; }
+    .sec-head p { color: var(--muted); font-size: 14px; margin-top: 6px; }
+    .more { font-size: 13px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 7px 15px; }
+    .more:hover { border-color: var(--teal); color: var(--teal); }
+
+    /* 일정 카드 */
+    .tabs { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+    .tab {
+      border: 1px solid var(--line); border-radius: 999px; padding: 7px 16px;
+      font-size: 13px; font-weight: 600; color: var(--muted); cursor: pointer; background: #fff;
+      font-family: inherit;
+    }
+    .tab.on { background: var(--teal-dark); border-color: var(--teal-dark); color: #fff; }
+    .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; }
+    .card { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: #fff; }
+    .card:hover { border-color: var(--teal); }
+    .card-thumb {
+      height: 132px; background: linear-gradient(135deg, #dff3f4, #eef7f2);
+      display: flex; align-items: center; justify-content: center; font-size: 34px;
+    }
+    .card-body { padding: 15px 16px 18px; }
+    .chip {
+      display: inline-block; font-size: 11px; font-weight: 700; border-radius: 5px;
+      padding: 3px 8px; margin-bottom: 8px;
+    }
+    .chip-perf { background: #e8f4ff; color: var(--blue); }
+    .chip-exhi { background: #eef7f2; color: var(--teal-dark); }
+    .chip-event { background: #fff3e2; color: var(--orange); }
+    .chip-edu { background: #f0f0fb; color: #5b58c9; }
+    .card h4 { font-size: 15px; font-weight: 700; line-height: 1.45; letter-spacing: -0.02em; }
+    .card .date { margin-top: 9px; font-size: 13px; color: var(--muted); }
+
+    /* 테마여행 */
+    .themes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; }
+    .theme {
+      border-radius: 14px; padding: 26px 22px; color: #fff; min-height: 168px;
+      display: flex; flex-direction: column; justify-content: flex-end;
+    }
+    .theme span { font-size: 12px; font-weight: 700; opacity: .9; }
+    .theme strong { display: block; margin-top: 6px; font-size: 19px; font-weight: 800; letter-spacing: -0.03em; }
+    .t1 { background: linear-gradient(140deg, #1f534f, #3d8b7f); }
+    .t2 { background: linear-gradient(140deg, #0071b5, #45a8d8); }
+    .t3 { background: linear-gradient(140deg, #7a5c2e, #c0a065); }
+    .t4 { background: linear-gradient(140deg, #2f6b3a, #6cae62); }
+
+    /* 소식 */
+    .news { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+    .news-item { border: 1px solid var(--line); border-radius: 14px; padding: 22px; }
+    .news-item:hover { border-color: var(--teal); }
+    .news-item .chip { margin-bottom: 10px; }
+    .news-item h4 { font-size: 15px; font-weight: 700; line-height: 1.5; }
+    .news-item .date { margin-top: 12px; font-size: 13px; color: var(--muted); }
+
+    /* 시설 */
+    .places { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+    .place {
+      border: 1px solid var(--line); border-radius: 12px; padding: 18px 12px; text-align: center;
+      font-size: 14px; font-weight: 600;
+    }
+    .place:hover { border-color: var(--teal); color: var(--teal); }
+    .place .ico { display: block; font-size: 22px; margin-bottom: 8px; }
+
+    /* 푸터 */
+    footer { background: #2b2f33; color: #b9bec4; padding: 40px 0 46px; font-size: 13px; }
+    .foot-links { display: flex; gap: 20px; padding-bottom: 20px; border-bottom: 1px solid #3c4147; }
+    .foot-links a { font-weight: 600; color: #dfe3e7; }
+    .foot-links a.em { color: #ffd479; }
+    .foot-body { margin-top: 20px; line-height: 1.9; }
+
+    /* 안내 배너 (테스트 페이지 표시) */
+    .notice-bar {
+      background: #fffbe6; border-bottom: 1px solid #ffe58f; color: #8a6d1f;
+      font-size: 13px; text-align: center; padding: 9px 20px;
+    }
+
+    /* 6개 메뉴 + 로고 + 버튼이 한 줄에 들어가려면 1180px는 있어야 한다. */
+    @media (max-width: 1180px) {
+      .cards, .themes { grid-template-columns: repeat(2, 1fr); }
+      .news, .places { grid-template-columns: repeat(2, 1fr); }
+      .quick ul { grid-template-columns: repeat(3, 1fr); }
+      .gnb { display: none; }
+      .hero h2 { font-size: 30px; }
+    }
+    @media (max-width: 600px) {
+      .cards, .themes, .news, .places { grid-template-columns: 1fr; }
+      .quick ul { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+  <div class="skip"><a href="#main">본문 바로가기</a></div>
+
+  <div class="notice-bar">
+    이 페이지는 <strong>AI 챗봇 테스트용</strong>으로 만든 화면입니다. 실제 여주세종문화관광재단 홈페이지가 아닙니다.
+    (원본: <a href="https://www.yjcf.or.kr/yjcf" target="_blank" rel="noopener">www.yjcf.or.kr</a>)
+  </div>
+
+  <!-- 상단 유틸 -->
+  <div class="util">
+    <div class="wrap">
+      <div class="util-left">
+        <span class="util-badge">세종대왕의 도시, 여주</span>
+      </div>
+      <div class="util-right">
+        <a href="#">로그인</a>
+        <a href="#">사이트맵</a>
+        <a href="#">ENGLISH</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- 헤더 -->
+  <header>
+    <div class="wrap head">
+      <a href="#" class="logo">
+        <span class="logo-mark">여주</span>
+        <span class="logo-text">여주세종<span>문화관광재단</span></span>
+      </a>
+      <nav id="gnb" aria-label="주메뉴">
+        <ul class="gnb">
+          <li><a href="#">공연·축제·행사</a></li>
+          <li><a href="#">교육·지원·생활</a></li>
+          <li><a href="#">문화관광공간</a></li>
+          <li><a href="#">관광포털</a></li>
+          <li><a href="#">알림마당</a></li>
+          <li><a href="#">기관소개</a></li>
+        </ul>
+      </nav>
+      <div class="head-util">
+        <a href="#" class="btn-ghost">통합예약</a>
+        <a href="#" class="btn-ghost">채용정보</a>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+    <!-- 히어로 -->
+    <div class="hero">
+      <div class="wrap">
+        <span class="hero-badge">여주세종문화관광재단</span>
+        <h2>문화로 여는 여주,<br />세종의 숨결이 흐르는 도시</h2>
+        <p>공연·전시·교육부터 여주 곳곳의 여행지까지 한 곳에서 만나보세요.</p>
+        <form class="hero-search" onsubmit="return false;">
+          <label for="q" class="sr">통합검색</label>
+          <input id="q" type="search" placeholder="공연, 전시, 교육, 관광지를 검색해 보세요" />
+          <button type="submit">검색</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- 퀵메뉴 -->
+    <div class="quick">
+      <div class="wrap">
+        <ul>
+          <li><a href="#"><span class="ico">🎭</span>공연예매</a></li>
+          <li><a href="#"><span class="ico">🖼️</span>전시안내</a></li>
+          <li><a href="#"><span class="ico">📚</span>교육신청</a></li>
+          <li><a href="#"><span class="ico">🏛️</span>시설대관</a></li>
+          <li><a href="#"><span class="ico">🗺️</span>여주여행</a></li>
+          <li><a href="#"><span class="ico">📢</span>공지사항</a></li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- 주요일정 -->
+    <section>
+      <div class="wrap">
+        <div class="sec-head">
+          <div>
+            <h3>주요일정</h3>
+            <p>여주세종문화관광재단의 주요일정 정보를 빠르게 확인하실 수 있습니다.</p>
+          </div>
+          <a href="#" class="more">전체보기</a>
+        </div>
+        <div class="tabs">
+          <button type="button" class="tab on">전체일정</button>
+          <button type="button" class="tab">공연일정</button>
+          <button type="button" class="tab">전시일정</button>
+          <button type="button" class="tab">행사일정</button>
+          <button type="button" class="tab">교육일정</button>
+          <button type="button" class="tab">지원사업일정</button>
+        </div>
+        <div class="cards">
+          <a href="#" class="card">
+            <div class="card-thumb">🎤</div>
+            <div class="card-body">
+              <span class="chip chip-perf">공연</span>
+              <h4>떼창데이 VOL.2 &lt;김경호 X 포지션 콘서트&gt;</h4>
+              <p class="date">2026.08.08 ~ 2026.08.08</p>
+            </div>
+          </a>
+          <a href="#" class="card">
+            <div class="card-thumb">🎪</div>
+            <div class="card-body">
+              <span class="chip chip-perf">공연</span>
+              <h4>8월 기획공연 가족뮤지컬 &lt;어린이 캣&gt;</h4>
+              <p class="date">2026.08.22 ~ 2026.08.22</p>
+            </div>
+          </a>
+          <a href="#" class="card">
+            <div class="card-thumb">📱</div>
+            <div class="card-body">
+              <span class="chip chip-exhi">전시</span>
+              <h4>[2026 폰박물관 기획전] '전화기, 다르게 보다'</h4>
+              <p class="date">2026.04.26 ~ 2028.07.02</p>
+            </div>
+          </a>
+          <a href="#" class="card">
+            <div class="card-thumb">🌉</div>
+            <div class="card-body">
+              <span class="chip chip-event">행사</span>
+              <h4>여주 남한강 출렁다리 별빛극장</h4>
+              <p class="date">2026.08.15 ~ 2026.08.16</p>
+            </div>
+          </a>
+          <a href="#" class="card">
+            <div class="card-thumb">🎨</div>
+            <div class="card-body">
+              <span class="chip chip-edu">교육</span>
+              <h4>아트뮤지엄 려 유아 대상 교육 &lt;생각이 말랑말랑, 미술관 나들이&gt;</h4>
+              <p class="date">2026.08.04 ~ 2026.10.28</p>
+            </div>
+          </a>
+          <a href="#" class="card">
+            <div class="card-thumb">🕺</div>
+            <div class="card-body">
+              <span class="chip chip-edu">교육</span>
+              <h4>시민예술학교 &lt;함께 만드는 리듬 탭댄스 교실&gt;</h4>
+              <p class="date">2026.08.22 ~ 2026.09.19</p>
+            </div>
+          </a>
+          <a href="#" class="card">
+            <div class="card-thumb">🍠</div>
+            <div class="card-body">
+              <span class="chip chip-event">행사</span>
+              <h4>여주 군고구마빵 '여고빵'</h4>
+              <p class="date">2026.04.26 ~ 2026.12.31</p>
+            </div>
+          </a>
+          <a href="#" class="card">
+            <div class="card-thumb">🎼</div>
+            <div class="card-body">
+              <span class="chip chip-perf">공연</span>
+              <h4>8월 문화가 있는 날 &lt;살롱 드 쿠바 : 라틴팩토리 콘서트&gt;</h4>
+              <p class="date">2026.08.26 ~ 2026.08.26</p>
+            </div>
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <!-- 테마여행 -->
+    <section>
+      <div class="wrap">
+        <div class="sec-head">
+          <div>
+            <h3>함께 떠나는 힐링 테마여행</h3>
+            <p>테마가 있는 여주여행! 고풍스러운 도시 여주에서 힐링의 시간을 가져보세요.</p>
+          </div>
+          <a href="#" class="more">관광포털</a>
+        </div>
+        <div class="themes">
+          <a href="#" class="theme t1"><span># 역사의 숨결</span><strong>영릉(세종대왕릉)</strong></a>
+          <a href="#" class="theme t2"><span># 여주팔경</span><strong>천년고찰 신륵사</strong></a>
+          <a href="#" class="theme t3"><span># 여주도보여행</span><strong>길따라 여강따라</strong></a>
+          <a href="#" class="theme t4"><span># 여행의 기술</span><strong>강천섬 즐기기</strong></a>
+        </div>
+      </div>
+    </section>
+
+    <!-- 재단소식 -->
+    <section>
+      <div class="wrap">
+        <div class="sec-head">
+          <div>
+            <h3>재단소식</h3>
+            <p>여주세종문화관광재단의 새로운 소식을 빠르게 확인하실 수 있습니다.</p>
+          </div>
+          <a href="#" class="more">알림마당</a>
+        </div>
+        <div class="news">
+          <a href="#" class="news-item">
+            <span class="chip chip-event">채용</span>
+            <h4>(재)여주세종문화관광재단 이사장 공개모집 공고</h4>
+            <p class="date">2026-08-03</p>
+          </a>
+          <a href="#" class="news-item">
+            <span class="chip chip-exhi">입찰</span>
+            <h4>2026 강천섬 로컬관광 조성 및 운영대행 용역 제안서 평가 결과 공고</h4>
+            <p class="date">2026-07-31</p>
+          </a>
+          <a href="#" class="news-item">
+            <span class="chip chip-perf">공지</span>
+            <h4>여주관광순환버스 임시정류장(오학 물놀이장, 파크골프장) 운영 안내</h4>
+            <p class="date">2026-07-29</p>
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <!-- 문화관광공간 -->
+    <section>
+      <div class="wrap">
+        <div class="sec-head">
+          <div>
+            <h3>문화관광공간</h3>
+            <p>재단이 운영하는 문화·관광 시설을 안내합니다.</p>
+          </div>
+          <a href="#" class="more">전체보기</a>
+        </div>
+        <div class="places">
+          <a href="#" class="place"><span class="ico">🎵</span>세종국악당</a>
+          <a href="#" class="place"><span class="ico">🏯</span>명성황후생가유적지</a>
+          <a href="#" class="place"><span class="ico">🎨</span>빈집 예술공간</a>
+          <a href="#" class="place"><span class="ico">⛺</span>강천섬 캠핑장</a>
+          <a href="#" class="place"><span class="ico">🌿</span>강천섬 힐링센터</a>
+          <a href="#" class="place"><span class="ico">🖼️</span>금은모래 작은미술관</a>
+          <a href="#" class="place"><span class="ico">📱</span>폰박물관</a>
+          <a href="#" class="place"><span class="ico">🏛️</span>아트뮤지엄 려</a>
+          <a href="#" class="place"><span class="ico">🛍️</span>퍼블릭마켓</a>
+          <a href="#" class="place"><span class="ico">🏺</span>도자나날센터</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- 푸터 -->
+  <footer>
+    <div class="wrap">
+      <div class="foot-links">
+        <a href="#" class="em">개인정보처리방침</a>
+        <a href="#">저작권정책</a>
+        <a href="#">이메일주소 무단 수집거부</a>
+        <a href="#">찾아오시는 길</a>
+      </div>
+      <div class="foot-body">
+        [12636] 경기도 여주시 신륵사길 7-1 (천송동) / 대표전화 : 031-881-9690 / 팩스 : 031-881-0211<br />
+        Copyright © YJCF. All right reserved.
+      </div>
+    </div>
+  </footer>
+
+  <!-- 이음봇 AI 대화 에이전트 -->
+  <script
+    src="https://chat.deepsecu.co.kr/widget.js"
+    data-chatbot-id="ceceab09-783c-4061-9a86-2d801c85aa2d"
+    data-api-base-url="https://api.deepsecu.co.kr/api"
+    data-open-on-load="false"
+    data-launcher-icon="custom"
+    data-launcher-icon-url="https://chat.deepsecu.co.kr/api/widget-icons/1785854363832-ieumbot_icon_2.png"
+    charset="UTF-8"
+  ></script>
+</body>
+</html>
