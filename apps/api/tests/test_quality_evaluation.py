@@ -96,3 +96,85 @@ def test_normal_case_defers_to_llm() -> None:
     )
     assert verdict.decided_fully is False
     assert verdict.groundedness_score is None
+
+
+# ── Task 5: 채점 프롬프트 조립 + 응답 파싱 ──────────────────────────────────
+
+from app.services.quality.evaluation_prompt import (  # noqa: E402
+    PROMPT_VERSION,
+    build_evaluation_prompt,
+    parse_evaluation_response,
+)
+
+
+def test_prompt_includes_question_answer_and_sources() -> None:
+    prompt = build_evaluation_prompt(
+        question="거주자주차 이용요금",
+        answer="월 4만원입니다.",
+        sources=[{"textPreview": "거주자주차 월 40,000원"}],
+        previous_turn=None,
+        followups=["신청 방법은?"],
+    )
+    assert "거주자주차 이용요금" in prompt
+    assert "월 4만원입니다." in prompt
+    assert "거주자주차 월 40,000원" in prompt
+    assert "신청 방법은?" in prompt
+
+
+def test_prompt_sends_only_cited_sources() -> None:
+    """검색 전체가 아니라 인용분만 보낸다 — 입력 토큰의 절반을 줄이는 최적화."""
+    prompt = build_evaluation_prompt(
+        question="q",
+        answer="a",
+        sources=[{"textPreview": "인용된 근거"}],
+        previous_turn=None,
+        followups=[],
+    )
+    assert "인용된 근거" in prompt
+
+
+def test_prompt_omits_context_section_on_first_turn() -> None:
+    prompt = build_evaluation_prompt(
+        question="q", answer="a", sources=[], previous_turn=None, followups=[]
+    )
+    assert "직전 대화" not in prompt
+
+
+def test_parse_valid_response() -> None:
+    raw = """{
+      "relevance": {"reason": "질문에 직접 답함", "score": 92},
+      "groundedness": {"reason": "근거와 일치", "score": 88},
+      "context": {"reason": "해당 없음", "score": null},
+      "topicDrift": {"reason": "업무 범위 내", "drift": false},
+      "followup": {"reason": "맥락에 맞음", "score": 80}
+    }"""
+    parsed = parse_evaluation_response(raw)
+    assert parsed.relevance_score == 92
+    assert parsed.groundedness_score == 88
+    assert parsed.context_score is None
+    assert parsed.topic_drift is False
+    assert parsed.followup_score == 80
+    assert parsed.reasons["relevance"] == "질문에 직접 답함"
+
+
+def test_parse_response_wrapped_in_code_fence() -> None:
+    """모델이 ```json 으로 감싸는 경우가 흔하다."""
+    raw = '```json\n{"relevance": {"reason": "r", "score": 70}}\n```'
+    parsed = parse_evaluation_response(raw)
+    assert parsed.relevance_score == 70
+
+
+def test_parse_broken_json_returns_none() -> None:
+    assert parse_evaluation_response("설명만 하고 JSON이 없음") is None
+
+
+def test_parse_clamps_out_of_range_scores() -> None:
+    raw = '{"relevance": {"reason": "r", "score": 130}, "groundedness": {"reason": "r", "score": -5}}'
+    parsed = parse_evaluation_response(raw)
+    assert parsed.relevance_score == 100
+    assert parsed.groundedness_score == 0
+
+
+def test_prompt_version_is_recorded() -> None:
+    """기준이 바뀌면 전후 수치를 그대로 비교하면 안 된다."""
+    assert PROMPT_VERSION == "v1"
