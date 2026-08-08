@@ -46,6 +46,10 @@ class AnswerPolicySettings(ApiSchema):
     # 기본 False — 제안을 받은 이용자가 "네"라고만 답하면 그 한 글자로는 검색이 되지 않아
     # 답변 품질이 떨어진다. 같은 역할은 화면의 추천 질문 버튼이 안정적으로 대신한다.
     suggest_next_question: bool = False
+    # 답변 품질 자동 평가(야간 배치 LLM 채점) 사용 여부.
+    # 기본 False — 켠 기관에만 평가 비용이 발생한다. 경영평가·품질관리가
+    # 필요한 기관만 켜면 된다.
+    quality_evaluation_enabled: bool = False
 
 
 class AnswerFormatSettings(ApiSchema):
