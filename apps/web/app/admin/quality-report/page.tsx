@@ -5,7 +5,12 @@ import { useEffect, useMemo, useState } from "react";
 import { FileEdit } from "lucide-react";
 
 import { ApiClientError } from "../../../lib/api";
-import { getAdminChatbots, getAdminQualityReport } from "../../../lib/api/admin-operations";
+import {
+  estimateQualityBackfill,
+  getAdminChatbots,
+  getAdminQualityReport,
+  runQualityBackfill,
+} from "../../../lib/api/admin-operations";
 import type {
   AdminChatbotItem,
   AdminQualityQuestionItem,
@@ -134,6 +139,8 @@ export default function AdminQualityReportPage() {
   const [fallbackOnly, setFallbackOnly] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [backfillInfo, setBackfillInfo] = useState<string | null>(null);
+  const [isBackfilling, setIsBackfilling] = useState(false);
 
   async function loadReport() {
     setIsLoading(true); setError(null);
@@ -173,6 +180,9 @@ export default function AdminQualityReportPage() {
 
       {report && report.totalConversations > 0 && (
         <>
+          <p style={{ fontSize: 12, color: "#94a3b8", marginBottom: 8 }}>
+            아래 지표는 챗봇이 스스로 남긴 처리 결과 기준입니다.
+          </p>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
             <MetricCard label="총 대화 수" value={fmt(report.totalConversations)} />
             <MetricCard label="답변 성공률" value={fmtPct(answeredRate)} helper={`${fmt(report.answeredCount)}건 답변`} color={answeredRate >= 70 ? "green" : answeredRate >= 50 ? "orange" : "red"} />
@@ -204,6 +214,147 @@ export default function AdminQualityReportPage() {
             </div>
           </div>
         </>
+      )}
+
+      {report?.answerQuality && (
+        <section style={{ marginTop: 28 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 4 }}>
+            <h2 style={{ fontSize: 18, fontWeight: 800 }}>AI 답변 품질</h2>
+            <span style={{ fontSize: 12, color: "#64748b" }}>
+              {report.answerQuality.evaluatorModel ?? "-"} · 기준 {report.answerQuality.promptVersion ?? "-"} · n={report.answerQuality.total}
+            </span>
+          </div>
+
+          <div style={{ display: "flex", gap: 8, alignItems: "center", margin: "10px 0 16px" }}>
+            <button
+              type="button"
+              className="btn-secondary"
+              disabled={!chatbotId || isBackfilling}
+              onClick={async () => {
+                if (!chatbotId) return;
+                setIsBackfilling(true);
+                try {
+                  const est = await estimateQualityBackfill(chatbotId, startDate, endDate);
+                  if (est.targetCount === 0) {
+                    setBackfillInfo("이 기간에 평가할 대화가 없습니다.");
+                    return;
+                  }
+                  const won = Math.round(est.estimatedCostUsd * 1400).toLocaleString();
+                  if (!confirm(`${est.targetCount}건을 평가합니다. 예상 비용 약 ${won}원. 진행할까요?`)) return;
+                  const result = await runQualityBackfill(chatbotId, startDate, endDate);
+                  setBackfillInfo(`평가 완료 — ${result.evaluated}건 채점, ${result.skipped}건 제외, ${result.failed}건 실패`);
+                  await loadReport();
+                } catch (e) {
+                  setBackfillInfo(errorMessage(e));
+                } finally {
+                  setIsBackfilling(false);
+                }
+              }}
+            >
+              {isBackfilling ? "평가 중..." : "과거 구간 평가"}
+            </button>
+            {backfillInfo && <span style={{ fontSize: 12, color: "#64748b" }}>{backfillInfo}</span>}
+          </div>
+
+          {!report.answerQuality.enabled ? (
+            <div style={{ padding: 20, background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 10, fontSize: 13, color: "#475569" }}>
+              아직 평가 결과가 없습니다. <strong>대화 스타일 설정 → 답변 품질 자동 평가</strong>를 켜면
+              다음 날 새벽부터 채점이 시작됩니다. 과거 구간은 위 &ldquo;과거 구간 평가&rdquo;로 채울 수 있습니다.
+            </div>
+          ) : (
+            <>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+                {([
+                  ["답변 적합성", report.answerQuality.relevance],
+                  ["문서 근거성", report.answerQuality.groundedness],
+                  ["대화 맥락 유지", report.answerQuality.context],
+                  ["추천질문 적합성", report.answerQuality.followup],
+                ] as const).map(([label, metric]) => (
+                  <div key={label} style={{ border: "1px solid #e2e8f0", borderRadius: 10, padding: 16 }}>
+                    <div style={{ fontSize: 13, color: "#64748b" }}>{label}</div>
+                    <div style={{ fontSize: 26, fontWeight: 800, marginTop: 6 }}>
+                      {metric.passRate === null ? "데이터 없음" : `${metric.passRate}%`}
+                    </div>
+                    <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>
+                      {metric.average === null ? "—" : `평균 ${metric.average}점`} · n={metric.sampleSize}
+                    </div>
+                  </div>
+                ))}
+                <div style={{ border: "1px solid #e2e8f0", borderRadius: 10, padding: 16 }}>
+                  <div style={{ fontSize: 13, color: "#64748b" }}>주제 이탈</div>
+                  <div style={{ fontSize: 26, fontWeight: 800, marginTop: 6 }}>
+                    {report.answerQuality.topicDriftRate === null ? "데이터 없음" : `${report.answerQuality.topicDriftRate}%`}
+                  </div>
+                  <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>낮을수록 좋음</div>
+                </div>
+                <div style={{ border: "1px solid #e2e8f0", borderRadius: 10, padding: 16 }}>
+                  <div style={{ fontSize: 13, color: "#64748b" }}>검토 필요</div>
+                  <div style={{ fontSize: 26, fontWeight: 800, marginTop: 6 }}>{report.answerQuality.needsReviewCount}건</div>
+                </div>
+              </div>
+
+              <p style={{ fontSize: 12, color: "#94a3b8", marginTop: 10 }}>
+                판정 구성: AI 채점 {report.answerQuality.llmCount}건 · 규칙 확정 {report.answerQuality.ruleCount}건 · 실패 {report.answerQuality.failedCount}건 · 지출 약 {Math.round(report.answerQuality.costUsdTotal * 1400).toLocaleString()}원
+              </p>
+
+              {report.answerQuality.weekly.length > 0 && (
+                <div style={{ marginTop: 18 }}>
+                  <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 8 }}>주간 추이</h3>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ textAlign: "left", color: "#64748b", borderBottom: "1px solid #e2e8f0" }}>
+                        <th style={{ padding: "6px 8px" }}>주 시작</th>
+                        <th style={{ padding: "6px 8px" }}>건수</th>
+                        <th style={{ padding: "6px 8px" }}>적합성</th>
+                        <th style={{ padding: "6px 8px" }}>근거성</th>
+                        <th style={{ padding: "6px 8px" }}>맥락</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {report.answerQuality.weekly.map(week => (
+                        <tr
+                          key={week.bucketStart}
+                          style={{ borderBottom: "1px solid #f1f5f9", opacity: week.reliable ? 1 : 0.45 }}
+                          title={week.reliable ? undefined : "표본 30건 미만 — 신뢰하기 어려운 값입니다"}
+                        >
+                          <td style={{ padding: "6px 8px" }}>{week.bucketStart}</td>
+                          <td style={{ padding: "6px 8px" }}>{week.total}</td>
+                          <td style={{ padding: "6px 8px" }}>{week.relevancePassRate === null ? "—" : `${week.relevancePassRate}%`}</td>
+                          <td style={{ padding: "6px 8px" }}>{week.groundednessPassRate === null ? "—" : `${week.groundednessPassRate}%`}</td>
+                          <td style={{ padding: "6px 8px" }}>{week.contextPassRate === null ? "—" : `${week.contextPassRate}%`}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <p style={{ fontSize: 11, color: "#94a3b8", marginTop: 6 }}>
+                    흐리게 표시된 주는 표본이 30건 미만이라 수치가 흔들립니다.
+                  </p>
+                </div>
+              )}
+
+              {report.answerQuality.reviewItems.length > 0 && (
+                <div style={{ marginTop: 18 }}>
+                  <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 8 }}>검토 필요 목록</h3>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {report.answerQuality.reviewItems.map(item => (
+                      <div key={item.messageId} style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: "10px 14px" }}>
+                        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                          <span style={{ fontSize: 13, fontWeight: 600 }}>{item.question || "(질문 미기록)"}</span>
+                          {item.failedMetrics.map(m => (
+                            <span key={m} className="badge-warning" style={{ fontSize: 11 }}>{m}</span>
+                          ))}
+                        </div>
+                        <div style={{ fontSize: 12, color: "#64748b", marginTop: 5 }}>
+                          {Object.values(item.reasons).join(" · ")}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </section>
       )}
     </div>
   );
