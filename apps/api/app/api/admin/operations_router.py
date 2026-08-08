@@ -148,9 +148,11 @@ class QualityBackfillResult(ApiSchema):
 
 @router.get("/quality-report/backfill/estimate", response_model=QualityBackfillEstimate)
 def admin_quality_backfill_estimate(
-    chatbot_id: str,
-    start_date: str,
-    end_date: str,
+    # 같은 라우터의 /quality-report 가 camelCase alias를 쓴다. 규약이 갈리면
+    # 프론트가 한쪽만 맞춰 422가 난다(과거 실제 발생).
+    chatbot_id: str = Query(alias="chatbotId"),
+    start_date: str = Query(alias="startDate"),
+    end_date: str = Query(alias="endDate"),
     principal: AdminPrincipal = Depends(require_institution_admin_auth),
     db: Session = Depends(get_db_session),
 ) -> QualityBackfillEstimate:
@@ -179,9 +181,9 @@ def admin_quality_backfill_estimate(
 
 @router.post("/quality-report/backfill", response_model=QualityBackfillResult)
 def admin_quality_backfill(
-    chatbot_id: str,
-    start_date: str,
-    end_date: str,
+    chatbot_id: str = Query(alias="chatbotId"),
+    start_date: str = Query(alias="startDate"),
+    end_date: str = Query(alias="endDate"),
     principal: AdminPrincipal = Depends(require_institution_admin_auth),
     db: Session = Depends(get_db_session),
 ) -> QualityBackfillResult:
