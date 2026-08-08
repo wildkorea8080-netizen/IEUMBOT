@@ -34,6 +34,7 @@ from app.repositories.super_admin.chatbots_widgets_repository import (
     get_chatbot_by_org_name,
 )
 from app.schemas.admin_operations import (
+    AdminAnswerQualityBlock,
     AdminChatbotCreateRequest,
     AdminChatbotItem,
     AdminChatbotResponse,
@@ -50,8 +51,11 @@ from app.schemas.admin_operations import (
     AdminKnowledgeGapItem,
     AdminKnowledgeGapResponse,
     AdminQualityFallbackReasonItem,
+    AdminQualityMetricItem,
     AdminQualityQuestionItem,
     AdminQualityReportResponse,
+    AdminQualityReviewItem,
+    AdminQualityWeeklyItem,
     AdminRoiDailyTrendItem,
     AdminRoiDashboardResponse,
     AdminRoiTopicItem,
@@ -511,6 +515,13 @@ def get_quality_report_service(
             _quality_question_item(db, message=row, user_cache=user_cache)
             for row in no_citation_rows
         ],
+        answer_quality=_build_answer_quality_block(
+            db,
+            organization_id=organization_id,
+            chatbot_id=chatbot_id,
+            start_dt=start_dt,
+            end_dt=end_dt,
+        ),
     )
 
 
@@ -1357,4 +1368,98 @@ def patch_widget_service(
         install_script=install_script,
         created_at=widget.created_at.isoformat(),
         updated_at=widget.updated_at.isoformat(),
+    )
+
+
+def _build_answer_quality_block(
+    db: Session,
+    *,
+    organization_id: str,
+    chatbot_id: str | None,
+    start_dt: datetime,
+    end_dt: datetime,
+) -> AdminAnswerQualityBlock:
+    """AI 채점 집계. 평가 결과가 없으면 enabled=False 로 내려 화면이 안내를 띄운다."""
+    from app.repositories.quality.answer_evaluation_repository import (  # noqa: PLC0415
+        list_evaluations,
+        list_review_needed,
+    )
+    from app.services.quality.evaluation_aggregate import (  # noqa: PLC0415
+        PASS_THRESHOLD,
+        summarize,
+        summarize_by_week,
+    )
+
+    rows = list_evaluations(
+        db,
+        organization_id=organization_id,
+        chatbot_id=chatbot_id,
+        start_at=start_dt,
+        end_at=end_dt,
+    )
+    summary = summarize(rows)
+
+    def _metric(item) -> AdminQualityMetricItem:
+        return AdminQualityMetricItem(
+            sample_size=item.sample_size, pass_rate=item.pass_rate, average=item.average
+        )
+
+    weekly = [
+        AdminQualityWeeklyItem(
+            bucket_start=b.bucket_start,
+            total=b.total,
+            reliable=b.reliable,
+            relevance_pass_rate=b.relevance.pass_rate,
+            groundedness_pass_rate=b.groundedness.pass_rate,
+            context_pass_rate=b.context.pass_rate,
+        )
+        for b in summarize_by_week(rows)
+    ]
+
+    review_rows = list_review_needed(
+        db,
+        organization_id=organization_id,
+        chatbot_id=chatbot_id,
+        start_at=start_dt,
+        end_at=end_dt,
+    )
+    review_items: list[AdminQualityReviewItem] = []
+    for row in review_rows:
+        failed: list[str] = []
+        if row.relevance_score is not None and row.relevance_score < PASS_THRESHOLD:
+            failed.append(f"적합성 {row.relevance_score}")
+        if row.groundedness_score is not None and row.groundedness_score < PASS_THRESHOLD:
+            failed.append(f"근거성 {row.groundedness_score}")
+        if row.topic_drift:
+            failed.append("주제 이탈")
+        message = db.get(ChatMessage, row.message_id)
+        review_items.append(
+            AdminQualityReviewItem(
+                message_id=str(row.message_id),
+                session_id=str(row.session_id) if row.session_id else None,
+                evaluated_at=row.evaluated_at.isoformat(),
+                question=(message.normalized_query if message else "") or "",
+                failed_metrics=failed,
+                reasons={str(k): str(v) for k, v in (row.verdict_json or {}).items()},
+            )
+        )
+
+    latest = rows[-1] if rows else None
+    return AdminAnswerQualityBlock(
+        enabled=bool(rows),
+        total=summary.total,
+        weekly=weekly,
+        relevance=_metric(summary.relevance),
+        groundedness=_metric(summary.groundedness),
+        context=_metric(summary.context),
+        followup=_metric(summary.followup),
+        topic_drift_rate=summary.topic_drift_rate,
+        needs_review_count=summary.needs_review_count,
+        llm_count=summary.llm_count,
+        rule_count=summary.rule_count,
+        failed_count=summary.failed_count,
+        evaluator_model=latest.evaluator_model if latest else None,
+        prompt_version=latest.prompt_version if latest else None,
+        cost_usd_total=float(sum((r.cost_usd or 0) for r in rows)),
+        review_items=review_items,
     )

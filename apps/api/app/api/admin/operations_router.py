@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.api.dependencies.auth import AdminPrincipal, require_institution_admin_auth
 from app.db import get_db_session
+from app.schemas import ApiSchema
 from app.schemas.admin_operations import (
     AdminChatbotCreateRequest,
     AdminChatbotResponse,
@@ -47,7 +48,10 @@ from app.services.admin.operations_service import (
     patch_document_service,
     patch_widget_service,
 )
-from app.services.admin.scope_service import ensure_chatbot_in_scope
+from app.services.admin.scope_service import (
+    ensure_chatbot_in_scope,
+    require_institution_organization_id,
+)
 from app.services.chat.final_chat_pipeline_service import build_chat_pipeline_error_response, run_final_chat_pipeline
 
 router = APIRouter(tags=["admin-operations"])
@@ -128,6 +132,75 @@ def admin_quality_report(
         start_date_raw=start_date,
         end_date_raw=end_date,
         fallback_only=fallback_only,
+    )
+
+
+class QualityBackfillEstimate(ApiSchema):
+    target_count: int
+    estimated_cost_usd: float
+
+
+class QualityBackfillResult(ApiSchema):
+    evaluated: int
+    skipped: int
+    failed: int
+
+
+@router.get("/quality-report/backfill/estimate", response_model=QualityBackfillEstimate)
+def admin_quality_backfill_estimate(
+    chatbot_id: str,
+    start_date: str,
+    end_date: str,
+    principal: AdminPrincipal = Depends(require_institution_admin_auth),
+    db: Session = Depends(get_db_session),
+) -> QualityBackfillEstimate:
+    """소급 평가 대상 건수와 예상 비용. 실행 전에 반드시 보여준다."""
+    from datetime import datetime  # noqa: PLC0415
+
+    from app.repositories.quality.answer_evaluation_repository import (  # noqa: PLC0415
+        list_unevaluated_messages,
+    )
+    from app.services.quality.evaluation_service import DAILY_LIMIT_PER_ORG  # noqa: PLC0415
+
+    ensure_chatbot_in_scope(db, principal=principal, chatbot_id=chatbot_id)
+    rows = list_unevaluated_messages(
+        db,
+        chatbot_id=chatbot_id,
+        start_at=datetime.fromisoformat(start_date),
+        end_at=datetime.fromisoformat(end_date),
+        limit=DAILY_LIMIT_PER_ORG,
+    )
+    # 건당 입력 2,500 / 출력 300 토큰 가정 (상위 모델 단가)
+    per_item = 2500 / 1_000_000 * 2.00 + 300 / 1_000_000 * 8.00
+    return QualityBackfillEstimate(
+        target_count=len(rows), estimated_cost_usd=round(len(rows) * per_item, 2)
+    )
+
+
+@router.post("/quality-report/backfill", response_model=QualityBackfillResult)
+def admin_quality_backfill(
+    chatbot_id: str,
+    start_date: str,
+    end_date: str,
+    principal: AdminPrincipal = Depends(require_institution_admin_auth),
+    db: Session = Depends(get_db_session),
+) -> QualityBackfillResult:
+    """지정 기간 소급 평가. 이미 평가된 건은 UNIQUE 제약으로 자동 제외된다."""
+    from datetime import datetime  # noqa: PLC0415
+
+    from app.services.quality.evaluation_service import evaluate_chatbot_range  # noqa: PLC0415
+
+    ensure_chatbot_in_scope(db, principal=principal, chatbot_id=chatbot_id)
+    organization_id = require_institution_organization_id(principal)
+    result = evaluate_chatbot_range(
+        db,
+        organization_id=organization_id,
+        chatbot_id=chatbot_id,
+        start_at=datetime.fromisoformat(start_date),
+        end_at=datetime.fromisoformat(end_date),
+    )
+    return QualityBackfillResult(
+        evaluated=result["evaluated"], skipped=result["skipped"], failed=result["failed"]
     )
 
 

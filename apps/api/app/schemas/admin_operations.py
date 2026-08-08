@@ -45,6 +45,51 @@ class AdminQualityQuestionItem(ApiSchema):
     latency_ms: int | None = None
 
 
+class AdminQualityMetricItem(ApiSchema):
+    sample_size: int
+    pass_rate: float | None = None   # 표본 0이면 None ("데이터 없음")
+    average: float | None = None
+
+
+class AdminQualityWeeklyItem(ApiSchema):
+    bucket_start: str
+    total: int
+    reliable: bool           # false면 표본 부족 — 화면에서 흐리게
+    relevance_pass_rate: float | None = None
+    groundedness_pass_rate: float | None = None
+    context_pass_rate: float | None = None
+
+
+class AdminQualityReviewItem(ApiSchema):
+    message_id: str
+    session_id: str | None = None
+    evaluated_at: str
+    question: str
+    failed_metrics: list[str]
+    reasons: dict[str, str]
+
+
+class AdminAnswerQualityBlock(ApiSchema):
+    """AI 채점 결과. 위쪽 운영 지표(챗봇 자체 판정)와 성격이 다르다."""
+
+    enabled: bool
+    total: int
+    weekly: list[AdminQualityWeeklyItem] = []
+    relevance: AdminQualityMetricItem
+    groundedness: AdminQualityMetricItem
+    context: AdminQualityMetricItem
+    followup: AdminQualityMetricItem
+    topic_drift_rate: float | None = None
+    needs_review_count: int
+    llm_count: int
+    rule_count: int
+    failed_count: int
+    evaluator_model: str | None = None
+    prompt_version: str | None = None
+    cost_usd_total: float = 0.0
+    review_items: list[AdminQualityReviewItem] = []
+
+
 class AdminQualityReportResponse(ApiSchema):
     total_conversations: int
     answered_count: int
@@ -59,6 +104,7 @@ class AdminQualityReportResponse(ApiSchema):
     recent_failed_questions: list[AdminQualityQuestionItem]
     low_score_questions: list[AdminQualityQuestionItem]
     no_citation_answers: list[AdminQualityQuestionItem]
+    answer_quality: AdminAnswerQualityBlock | None = None
 
 
 class AdminKnowledgeGapItem(ApiSchema):
