@@ -5,6 +5,7 @@ LLM 호출은 모킹하고, 순수 함수의 판정·집계 로직을 고정한�
 """
 
 from app.schemas.answer_settings import AnswerSettings
+from app.services.quality.evaluation_rules import apply_rules
 from app.services.quality.evaluation_selector import SkipReason, should_evaluate
 
 
@@ -56,3 +57,42 @@ def test_simple_greeting_is_skipped() -> None:
 def test_cache_hit_is_skipped() -> None:
     msg = _Msg(final_decision={"outcome": "answered", "reason": "answer_cache_hit"})
     assert should_evaluate(msg) is SkipReason.CACHE_HIT
+
+
+def test_no_citation_means_zero_groundedness() -> None:
+    """근거 없이 답했으면 환각 위험. LLM에 물을 것도 없다."""
+    verdict = apply_rules(selected_sources=[], is_faq=False, followups=[], is_out_of_scope=False)
+    assert verdict.groundedness_score == 0
+    assert verdict.needs_review is True
+    assert verdict.decided_fully is True
+
+
+def test_faq_answer_is_grounded_by_definition() -> None:
+    """FAQ는 등록 답변 자체가 근거다. 다만 적합성은 LLM이 봐야 한다."""
+    verdict = apply_rules(selected_sources=[], is_faq=True, followups=["a"], is_out_of_scope=False)
+    assert verdict.groundedness_score == 100
+    assert verdict.decided_fully is False
+
+
+def test_no_followup_scores_null_not_zero() -> None:
+    """추천질문이 없으면 적합성도 없다. 0점은 평균을 왜곡한다."""
+    verdict = apply_rules(
+        selected_sources=[{"id": "s1"}], is_faq=False, followups=[], is_out_of_scope=False
+    )
+    assert verdict.followup_score is None
+    assert verdict.followup_decided is True
+
+
+def test_out_of_scope_sets_topic_drift() -> None:
+    verdict = apply_rules(
+        selected_sources=[{"id": "s1"}], is_faq=False, followups=["a"], is_out_of_scope=True
+    )
+    assert verdict.topic_drift is True
+
+
+def test_normal_case_defers_to_llm() -> None:
+    verdict = apply_rules(
+        selected_sources=[{"id": "s1"}], is_faq=False, followups=["a"], is_out_of_scope=False
+    )
+    assert verdict.decided_fully is False
+    assert verdict.groundedness_score is None
