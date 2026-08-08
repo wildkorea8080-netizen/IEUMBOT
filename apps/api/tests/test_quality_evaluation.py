@@ -178,3 +178,120 @@ def test_parse_clamps_out_of_range_scores() -> None:
 def test_prompt_version_is_recorded() -> None:
     """기준이 바뀌면 전후 수치를 그대로 비교하면 안 된다."""
     assert PROMPT_VERSION == "v1"
+
+
+# ── Task 6: 충족률 집계 + 주간 버킷 ──────────────────────────────────────────
+
+from app.services.quality.evaluation_aggregate import PASS_THRESHOLD, summarize  # noqa: E402
+
+
+class _Eval:
+    def __init__(self, **kw):
+        self.relevance_score = kw.get("relevance_score")
+        self.groundedness_score = kw.get("groundedness_score")
+        self.context_score = kw.get("context_score")
+        self.followup_score = kw.get("followup_score")
+        self.topic_drift = kw.get("topic_drift", False)
+        self.needs_review = kw.get("needs_review", False)
+        self.method = kw.get("method", "llm")
+
+
+def test_pass_threshold_is_seventy() -> None:
+    """임계값은 고정이다. 기관마다 다르면 기관 간·연도 간 비교가 무너진다."""
+    assert PASS_THRESHOLD == 70
+
+
+def test_pass_rate_counts_scores_at_or_above_threshold() -> None:
+    rows = [_Eval(relevance_score=s) for s in (69, 70, 71, 100)]
+    summary = summarize(rows)
+    assert summary.relevance.sample_size == 4
+    assert summary.relevance.pass_rate == 75.0  # 70,71,100
+
+
+def test_null_scores_are_excluded_from_denominator() -> None:
+    """첫 턴 맥락·추천질문 없음은 NULL이다. 0점으로 세면 평균이 왜곡된다."""
+    rows = [_Eval(context_score=90), _Eval(context_score=None), _Eval(context_score=None)]
+    summary = summarize(rows)
+    assert summary.context.sample_size == 1
+    assert summary.context.pass_rate == 100.0
+
+
+def test_empty_sample_reports_none_not_zero() -> None:
+    """표본이 없으면 0%가 아니라 '데이터 없음'이다."""
+    summary = summarize([])
+    assert summary.relevance.sample_size == 0
+    assert summary.relevance.pass_rate is None
+    assert summary.relevance.average is None
+
+
+def test_average_is_reported_alongside_pass_rate() -> None:
+    rows = [_Eval(relevance_score=60), _Eval(relevance_score=100)]
+    summary = summarize(rows)
+    assert summary.relevance.average == 80.0
+    assert summary.relevance.pass_rate == 50.0
+
+
+def test_topic_drift_is_a_rate_not_a_pass_rate() -> None:
+    """이탈은 낮을수록 좋다. 발생 비율로 센다."""
+    rows = [_Eval(topic_drift=True), _Eval(), _Eval(), _Eval()]
+    summary = summarize(rows)
+    assert summary.topic_drift_rate == 25.0
+
+
+def test_review_count_and_method_breakdown() -> None:
+    rows = [
+        _Eval(needs_review=True, method="rule"),
+        _Eval(method="llm"),
+        _Eval(method="failed"),
+    ]
+    summary = summarize(rows)
+    assert summary.needs_review_count == 1
+    assert summary.llm_count == 1
+    assert summary.rule_count == 1
+    assert summary.failed_count == 1
+    assert summary.total == 3
+
+
+# ── 주간 버킷 ────────────────────────────────────────────────────────────────
+
+from datetime import UTC, datetime  # noqa: E402
+
+from app.services.quality.evaluation_aggregate import (  # noqa: E402
+    MIN_RELIABLE_SAMPLE,
+    summarize_by_week,
+)
+
+
+class _TimedEval(_Eval):
+    def __init__(self, evaluated_at, **kw):
+        super().__init__(**kw)
+        self.evaluated_at = evaluated_at
+
+
+def test_weekly_buckets_group_by_monday() -> None:
+    """2026-08-05(수)와 2026-08-07(금)은 같은 주(월요일 08-03)에 묶인다."""
+    rows = [
+        _TimedEval(datetime(2026, 8, 5, 10, tzinfo=UTC), relevance_score=90),
+        _TimedEval(datetime(2026, 8, 7, 10, tzinfo=UTC), relevance_score=50),
+        _TimedEval(datetime(2026, 8, 11, 10, tzinfo=UTC), relevance_score=90),
+    ]
+    buckets = summarize_by_week(rows)
+    assert [b.bucket_start for b in buckets] == ["2026-08-03", "2026-08-10"]
+    assert buckets[0].relevance.sample_size == 2
+    assert buckets[0].relevance.pass_rate == 50.0
+
+
+def test_small_bucket_is_flagged_unreliable() -> None:
+    """표본이 적으면 수치가 흔들린다. 화면에서 흐리게 처리하도록 표시한다."""
+    rows = [_TimedEval(datetime(2026, 8, 5, tzinfo=UTC), relevance_score=90)]
+    buckets = summarize_by_week(rows)
+    assert buckets[0].reliable is False
+    assert MIN_RELIABLE_SAMPLE == 30
+
+
+def test_large_bucket_is_reliable() -> None:
+    rows = [
+        _TimedEval(datetime(2026, 8, 5, tzinfo=UTC), relevance_score=90)
+        for _ in range(MIN_RELIABLE_SAMPLE)
+    ]
+    assert summarize_by_week(rows)[0].reliable is True
