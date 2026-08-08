@@ -1,4 +1,5 @@
 from app.models.admins import Admin
+from app.models.answer_evaluations import AnswerEvaluation
 from app.models.api_endpoint import ApiEndpoint
 from app.models.audit_logs import AuditLog
 from app.models.auto_enforcement_logs import AutoEnforcementLog
@@ -74,4 +75,5 @@ __all__ = [
     "UnansweredLog",
     "User",
     "ProductInquiry",
+    "AnswerEvaluation",
 ]
