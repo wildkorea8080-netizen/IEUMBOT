@@ -51,6 +51,51 @@ async def sync_due_web_sources(ctx: dict) -> dict[str, Any]:
         raise
 
 
+async def evaluate_answer_quality(ctx: dict) -> dict[str, Any]:
+    """전날 답변의 품질을 채점한다(cron). 품질 평가를 켠 챗봇만 대상.
+
+    평가 서비스는 동기 함수다 — LLM 클라이언트가 동기라 이벤트 루프에서 직접
+    부르면 워커 전체가 멈춘다. 반드시 to_thread로 감싼다.
+    """
+    import asyncio
+    from datetime import UTC, datetime, timedelta
+
+    from app.db import SessionLocal
+    from app.services.quality.evaluation_service import (
+        enabled_chatbot_ids,
+        evaluate_chatbot_range,
+    )
+
+    def _run() -> dict[str, int]:
+        end_at = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+        start_at = end_at - timedelta(days=1)
+        totals = {"evaluated": 0, "skipped": 0, "failed": 0}
+        db = SessionLocal()
+        try:
+            for organization_id, chatbot_id in enabled_chatbot_ids(db):
+                result = evaluate_chatbot_range(
+                    db,
+                    organization_id=organization_id,
+                    chatbot_id=chatbot_id,
+                    start_at=start_at,
+                    end_at=end_at,
+                )
+                for key in totals:
+                    totals[key] += result.get(key, 0)
+        finally:
+            db.close()
+        return totals
+
+    logger.info("[ARQ_CRON] evaluate_answer_quality started")
+    try:
+        totals = await asyncio.to_thread(_run)
+        logger.info("[ARQ_CRON] evaluate_answer_quality done %s", totals)
+        return {"status": "ok", **totals}
+    except Exception as exc:
+        logger.exception("[ARQ_CRON] evaluate_answer_quality failed: %s", exc)
+        return {"status": "error"}
+
+
 async def process_reindex_job(
     ctx: dict,
     principal_dict: dict[str, Any],
@@ -116,7 +161,7 @@ def _safe_redis_dsn() -> str:
 
 
 class WorkerSettings:
-    functions = [process_reindex_job, sync_due_web_sources]
+    functions = [process_reindex_job, sync_due_web_sources, evaluate_answer_quality]
     on_startup = startup
     on_shutdown = shutdown
     # Redis 연결 — settings.api_redis_url 사용
@@ -133,4 +178,6 @@ class WorkerSettings:
     cron_jobs = [
         # 매시간 정각: 만료 웹 소스 동기화 (APScheduler 대체)
         cron(sync_due_web_sources, minute=0, run_at_startup=False),
+        # 매일 새벽 3시 10분(KST, TZ=Asia/Seoul 컨테이너): 전날 답변 품질 채점
+        cron(evaluate_answer_quality, hour=3, minute=10, run_at_startup=False),
     ]
