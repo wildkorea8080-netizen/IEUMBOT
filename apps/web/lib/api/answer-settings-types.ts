@@ -31,6 +31,7 @@ export type AnswerPolicySettings = {
   clarificationStrategyMode: ClarificationStrategyMode;
   privacyInputMode: PrivacyInputMode;
   suggestNextQuestion: boolean;
+  qualityEvaluationEnabled: boolean;
 };
 
 export type AnswerFormatSettings = {
