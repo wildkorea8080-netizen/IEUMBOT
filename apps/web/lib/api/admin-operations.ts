@@ -128,6 +128,33 @@ export async function getAdminQualityReport(params?: {
   return apiClient.request<AdminQualityReportResponse>(`/admin/quality-report${query ? `?${query}` : ""}`);
 }
 
+export type QualityBackfillEstimate = { targetCount: number; estimatedCostUsd: number };
+export type QualityBackfillResult = { evaluated: number; skipped: number; failed: number };
+
+/** 소급 평가 대상 건수와 예상 비용. 실행 전 확인용 — 비용이 실제로 나가므로 먼저 보여준다. */
+export async function estimateQualityBackfill(
+  chatbotId: string,
+  startDate: string,
+  endDate: string,
+): Promise<QualityBackfillEstimate> {
+  const params = new URLSearchParams({ chatbotId, startDate, endDate });
+  return apiClient.request<QualityBackfillEstimate>(
+    `/admin/quality-report/backfill/estimate?${params}`,
+  );
+}
+
+/** 지정 기간 소급 평가 실행. 이미 평가된 건은 서버에서 건너뛴다. */
+export async function runQualityBackfill(
+  chatbotId: string,
+  startDate: string,
+  endDate: string,
+): Promise<QualityBackfillResult> {
+  const params = new URLSearchParams({ chatbotId, startDate, endDate });
+  return apiClient.request<QualityBackfillResult>(`/admin/quality-report/backfill?${params}`, {
+    method: "POST",
+  });
+}
+
 export async function getAdminKnowledgeGap(params?: {
   chatbotId?: string;
   startDate?: string;

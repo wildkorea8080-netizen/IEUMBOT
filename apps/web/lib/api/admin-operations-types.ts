@@ -42,6 +42,49 @@ export type AdminQualityQuestionItem = {
   latencyMs?: number | null;
 };
 
+export type AdminQualityMetricItem = {
+  sampleSize: number;
+  passRate: number | null; // 표본 0이면 null — 0%가 아니라 "데이터 없음"
+  average: number | null;
+};
+
+export type AdminQualityWeeklyItem = {
+  bucketStart: string;
+  total: number;
+  reliable: boolean; // false면 표본 30건 미만 — 흐리게 표시
+  relevancePassRate: number | null;
+  groundednessPassRate: number | null;
+  contextPassRate: number | null;
+};
+
+export type AdminQualityReviewItem = {
+  messageId: string;
+  sessionId: string | null;
+  evaluatedAt: string;
+  question: string;
+  failedMetrics: string[];
+  reasons: Record<string, string>;
+};
+
+export type AdminAnswerQualityBlock = {
+  enabled: boolean;
+  total: number;
+  weekly: AdminQualityWeeklyItem[];
+  relevance: AdminQualityMetricItem;
+  groundedness: AdminQualityMetricItem;
+  context: AdminQualityMetricItem;
+  followup: AdminQualityMetricItem;
+  topicDriftRate: number | null;
+  needsReviewCount: number;
+  llmCount: number;
+  ruleCount: number;
+  failedCount: number;
+  evaluatorModel: string | null;
+  promptVersion: string | null;
+  costUsdTotal: number;
+  reviewItems: AdminQualityReviewItem[];
+};
+
 export type AdminQualityReportResponse = {
   totalConversations: number;
   answeredCount: number;
@@ -56,6 +99,7 @@ export type AdminQualityReportResponse = {
   recentFailedQuestions: AdminQualityQuestionItem[];
   lowScoreQuestions: AdminQualityQuestionItem[];
   noCitationAnswers: AdminQualityQuestionItem[];
+  answerQuality?: AdminAnswerQualityBlock | null;
 };
 
 export type AdminKnowledgeGapItem = {
