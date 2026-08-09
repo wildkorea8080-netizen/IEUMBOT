@@ -366,3 +366,56 @@ def enabled_chatbot_ids(db: Session) -> list[tuple[str, str]]:
         if policy.get("qualityEvaluationEnabled") is True:
             result.append((str(row.organization_id), str(row.id)))
     return result
+
+
+def run_nightly_evaluation(db: Session) -> dict[str, int]:
+    """전날 답변 채점의 핵심 루프.
+
+    Arq 크론(evaluate_answer_quality)과 USE_ARQ_WORKER=false일 때의 APScheduler
+    폴백이 이 함수를 함께 쓴다. 이전에는 이 루프가 워커 태스크 안에만 있어서,
+    Arq를 켜지 않은 기본 배포에서는 관리자가 품질 평가를 켜도 아무 것도 돌지
+    않는 채로 조용히 방치됐다.
+
+    세션 하나를 활성 챗봇 전체가 공유한다. 한 챗봇에서 터진 예외가 그날 밤
+    나머지 전 기관 평가를 막으면 안 되므로 챗봇 단위로 rollback 후 계속한다.
+    """
+    end_at = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    start_at = end_at - timedelta(days=1)
+    totals = {"evaluated": 0, "skipped": 0, "failed": 0}
+    for organization_id, chatbot_id in enabled_chatbot_ids(db):
+        try:
+            result = evaluate_chatbot_range(
+                db,
+                organization_id=organization_id,
+                chatbot_id=chatbot_id,
+                start_at=start_at,
+                end_at=end_at,
+            )
+            for key in totals:
+                totals[key] += result.get(key, 0)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "[QUALITY_EVAL] chatbot skipped org=%s chatbot=%s error=%s",
+                organization_id,
+                chatbot_id,
+                exc,
+            )
+            db.rollback()
+    return totals
+
+
+def run_nightly_evaluation_sync() -> dict[str, int]:
+    """세션을 직접 열고 닫는 no-arg 래퍼.
+
+    USE_ARQ_WORKER=false일 때 app/main.py의 APScheduler 폴백이 이 함수를 그대로
+    등록해 쓴다. APScheduler는 코루틴이 아닌 함수를 자체 스레드풀 executor에서
+    돌리므로(sync_all_due_web_sources와 동일 패턴) 이벤트 루프를 막지 않는다 —
+    여기서 asyncio.to_thread로 다시 감쌀 필요가 없다.
+    """
+    from app.db import SessionLocal  # noqa: PLC0415
+
+    db = SessionLocal()
+    try:
+        return run_nightly_evaluation(db)
+    finally:
+        db.close()

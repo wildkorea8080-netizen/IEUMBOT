@@ -789,3 +789,97 @@ def test_batch_level_failure_records_tokens_from_exception(monkeypatch) -> None:
 
     assert result["failed"] == 1
     assert recorded == [(777, 33)]
+
+
+# ── FIX D(리뷰): USE_ARQ_WORKER=false여도 야간 평가가 돌아야 한다 ─────────────
+# Arq를 켜지 않은 기본 배포에서 관리자가 품질 평가 토글을 켜면, 이전에는
+# workers/main.py의 Arq 크론 안에만 활성 챗봇 순회 루프가 있어서 아무 것도
+# 채점되지 않은 채 방치됐다("다음 날 새벽부터 채점이 시작됩니다"라고 안내하고
+# 조용히 방치). run_nightly_evaluation()이 그 루프의 유일한 사본이어야 하고,
+# Arq 크론과 APScheduler 폴백이 이 함수 하나를 공유해야 한다.
+
+
+class _FakeSessionWithClose:
+    """close()만 관찰하면 되는 최소 세션 스텁 — SessionLocal() 자리를 대신한다."""
+
+    def __init__(self) -> None:
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_run_nightly_evaluation_sums_totals_across_enabled_chatbots(monkeypatch) -> None:
+    chatbots = [("org-1", "bot-1"), ("org-2", "bot-2")]
+    monkeypatch.setattr(evaluation_service, "enabled_chatbot_ids", lambda db: chatbots)
+
+    calls: list[tuple[str, str]] = []
+
+    def fake_range(db, *, organization_id, chatbot_id, start_at, end_at):
+        calls.append((organization_id, chatbot_id))
+        return {"evaluated": 1, "skipped": 2, "failed": 0}
+
+    monkeypatch.setattr(evaluation_service, "evaluate_chatbot_range", fake_range)
+
+    totals = evaluation_service.run_nightly_evaluation(_FakeRangeDB())
+
+    assert calls == chatbots
+    assert totals == {"evaluated": 2, "skipped": 4, "failed": 0}
+
+
+def test_run_nightly_evaluation_survives_one_chatbot_failing(monkeypatch) -> None:
+    """세션 하나를 조직 전체가 공유한다 — 한 기관이 터져도 나머지는 그날 밤 계속 평가돼야 한다."""
+    chatbots = [("org-1", "bot-1"), ("org-2", "bot-2"), ("org-3", "bot-3")]
+    monkeypatch.setattr(evaluation_service, "enabled_chatbot_ids", lambda db: chatbots)
+
+    seen: list[str] = []
+
+    def fake_range(db, *, organization_id, chatbot_id, start_at, end_at):
+        seen.append(chatbot_id)
+        if chatbot_id == "bot-2":
+            raise RuntimeError("boom")
+        return {"evaluated": 1, "skipped": 0, "failed": 0}
+
+    monkeypatch.setattr(evaluation_service, "evaluate_chatbot_range", fake_range)
+
+    db = _FakeRangeDB()
+    totals = evaluation_service.run_nightly_evaluation(db)
+
+    assert seen == ["bot-1", "bot-2", "bot-3"]
+    assert totals == {"evaluated": 2, "skipped": 0, "failed": 0}
+    assert db.rollback_calls == 1
+
+
+def test_run_nightly_evaluation_sync_opens_and_closes_own_session(monkeypatch) -> None:
+    """APScheduler 폴백은 인자를 못 받는 no-arg 잡이다 — 래퍼가 세션을 직접 열고 닫아야 한다."""
+    monkeypatch.setattr(evaluation_service, "enabled_chatbot_ids", lambda db: [])
+
+    session = _FakeSessionWithClose()
+    import app.db as app_db  # noqa: PLC0415
+
+    monkeypatch.setattr(app_db, "SessionLocal", lambda: session)
+
+    totals = evaluation_service.run_nightly_evaluation_sync()
+
+    assert totals == {"evaluated": 0, "skipped": 0, "failed": 0}
+    assert session.closed is True
+
+
+def test_apscheduler_fallback_registers_quality_evaluation() -> None:
+    """USE_ARQ_WORKER=false 배포에서 품질 평가가 아예 안 도는 회귀를 막는다."""
+    import ast
+    from pathlib import Path
+
+    main_path = Path(__file__).resolve().parents[1] / "app" / "main.py"
+    source = main_path.read_text(encoding="utf-8")
+    assert "run_nightly_evaluation_sync" in source
+
+    tree = ast.parse(source, filename=str(main_path))
+    add_job_calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "add_job"
+    ]
+    assert len(add_job_calls) == 2, "지식 동기화 + 품질 평가, 두 건이 스케줄러에 등록돼야 한다"

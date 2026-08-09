@@ -56,46 +56,22 @@ async def evaluate_answer_quality(ctx: dict) -> dict[str, Any]:
 
     평가 서비스는 동기 함수다 — LLM 클라이언트가 동기라 이벤트 루프에서 직접
     부르면 워커 전체가 멈춘다. 반드시 to_thread로 감싼다.
+
+    핵심 루프는 run_nightly_evaluation()에 있다 — USE_ARQ_WORKER=false일 때의
+    APScheduler 폴백(app/main.py)도 같은 함수를 쓴다. 여기 두 번 적으면 한쪽만
+    고치는 사고가 난다.
     """
     import asyncio
-    from datetime import UTC, datetime, timedelta
 
     from app.db import SessionLocal
-    from app.services.quality.evaluation_service import (
-        enabled_chatbot_ids,
-        evaluate_chatbot_range,
-    )
+    from app.services.quality.evaluation_service import run_nightly_evaluation
 
     def _run() -> dict[str, int]:
-        end_at = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
-        start_at = end_at - timedelta(days=1)
-        totals = {"evaluated": 0, "skipped": 0, "failed": 0}
         db = SessionLocal()
         try:
-            for organization_id, chatbot_id in enabled_chatbot_ids(db):
-                # 한 기관(챗봇)에서 터진 예외가 그날 밤 나머지 전 기관 평가를
-                # 막으면 안 된다 — 세션 하나를 조직 전체가 공유하는 구조다.
-                try:
-                    result = evaluate_chatbot_range(
-                        db,
-                        organization_id=organization_id,
-                        chatbot_id=chatbot_id,
-                        start_at=start_at,
-                        end_at=end_at,
-                    )
-                    for key in totals:
-                        totals[key] += result.get(key, 0)
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning(
-                        "[QUALITY_EVAL] chatbot skipped org=%s chatbot=%s error=%s",
-                        organization_id,
-                        chatbot_id,
-                        exc,
-                    )
-                    db.rollback()
+            return run_nightly_evaluation(db)
         finally:
             db.close()
-        return totals
 
     logger.info("[ARQ_CRON] evaluate_answer_quality started")
     try:

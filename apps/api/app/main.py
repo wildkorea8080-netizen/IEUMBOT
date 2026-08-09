@@ -113,6 +113,44 @@ async def lifespan(_: FastAPI):
                 id="knowledge_sync",
                 replace_existing=True,
             )
+
+            # ── AI 답변 품질 야간 평가 폴백 ────────────────────────────────────
+            # USE_ARQ_WORKER=true면 Arq cron(evaluate_answer_quality, 03:10)이 처리한다.
+            # 그게 꺼진 기본 배포에서는 이 등록이 없으면 관리자가 품질 평가 토글을
+            # 켜도 아무 것도 돌지 않는다 — "다음 날 새벽부터 채점이 시작됩니다"라고
+            # 안내하고 조용히 방치하는 상태였다.
+            #
+            # 이 스케줄러(scheduler)는 timezone="UTC"로 만들어져 있다. 그대로 hour=3을
+            # 쓰면 03:10 UTC(KST 낮 12:10)에 실행돼 "야간 배치"라는 전제가 깨진다.
+            # Arq cron은 timezone 인자가 없으면 datetime.now().astimezone().tzinfo,
+            # 즉 컨테이너의 시스템 로컬 타임존을 쓴다(TZ=Asia/Seoul 컨테이너 전제) —
+            # 이 잡에도 같은 로컬 타임존을 명시해 두 경로가 같은 벽시계 시각에 돈다.
+            try:
+                from datetime import datetime as _datetime  # noqa: PLC0415
+
+                from app.services.quality.evaluation_service import (  # noqa: PLC0415
+                    run_nightly_evaluation_sync,
+                )
+
+                local_tz = _datetime.now().astimezone().tzinfo
+                scheduler.add_job(
+                    run_nightly_evaluation_sync,
+                    trigger="cron",
+                    hour=3,
+                    minute=10,
+                    timezone=local_tz,
+                    id="quality_evaluation",
+                    replace_existing=True,
+                )
+                print(
+                    "[SCHEDULER] AI 답변 품질 야간 평가 등록 "
+                    "(in-process APScheduler — 03:10 로컬시간, 단일 인스턴스 전용)",
+                    flush=True,
+                )
+            except Exception as exc:
+                # 품질 평가 등록 실패가 지식 동기화 스케줄러 시작까지 막으면 안 된다.
+                print(f"[SCHEDULER] 품질 평가 스케줄러 등록 실패: {exc}", flush=True)
+
             scheduler.start()
             print(
                 "[SCHEDULER] 지식 자동 동기화 스케줄러 시작 (in-process APScheduler — 단일 인스턴스 전용)",
