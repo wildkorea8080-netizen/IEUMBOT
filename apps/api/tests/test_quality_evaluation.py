@@ -791,6 +791,64 @@ def test_batch_level_failure_records_tokens_from_exception(monkeypatch) -> None:
     assert recorded == [(777, 33)]
 
 
+# ── FIX C(리뷰): 소급 평가 견적은 실제로 채점될 건수만 센다 ───────────────────
+# list_unevaluated_messages는 selector 규칙(인사말·캐시히트·미답변 등)을 모른다.
+# 그 원시 건수를 그대로 견적에 쓰면 관리자가 부풀려진 금액을 보고 승인한다.
+# count_evaluable_messages가 should_evaluate로 걸러야 견적과 실제 처리 건수가
+# 맞고, 일일 상한에서 잘렸을 때도 조용히 자르지 않고 알려야 한다.
+
+
+def test_count_evaluable_messages_excludes_non_evaluable_rows(monkeypatch) -> None:
+    """인사말·테스트 메시지까지 세면 승인 금액이 부풀려진다."""
+    evaluable = [_Msg() for _ in range(3)]
+    skipped = [_Msg(is_test=True) for _ in range(2)]
+    monkeypatch.setattr(
+        evaluation_service, "list_unevaluated_messages", lambda *a, **kw: evaluable + skipped
+    )
+
+    count, capped = evaluation_service.count_evaluable_messages(
+        None,
+        chatbot_id="bot-1",
+        start_at=datetime(2026, 8, 1, tzinfo=UTC),
+        end_at=datetime(2026, 8, 2, tzinfo=UTC),
+    )
+
+    assert count == 3
+    assert capped is False
+
+
+def test_count_evaluable_messages_flags_when_hitting_limit(monkeypatch) -> None:
+    """일일 상한에서 잘리면 '조용히' 자르지 않고 capped=True로 알려야 한다."""
+    rows = [_Msg() for _ in range(4)]  # limit(3) + 1 만큼 존재 → 상한을 넘었다는 뜻
+    monkeypatch.setattr(evaluation_service, "list_unevaluated_messages", lambda *a, **kw: rows)
+
+    count, capped = evaluation_service.count_evaluable_messages(
+        None,
+        chatbot_id="bot-1",
+        start_at=datetime(2026, 8, 1, tzinfo=UTC),
+        end_at=datetime(2026, 8, 2, tzinfo=UTC),
+        limit=3,
+    )
+
+    assert count == 3  # limit까지만 센다
+    assert capped is True
+
+
+def test_pricing_constants_have_single_source_of_truth() -> None:
+    """견적 라우터가 단가를 하드코딩하면 가격이 바뀔 때 한쪽만 고쳐지는 사고가 난다."""
+    assert evaluation_service.USD_PER_1M_INPUT == Decimal("2.00")
+    assert evaluation_service.USD_PER_1M_OUTPUT == Decimal("8.00")
+
+
+def test_estimate_backfill_cost_usd_uses_average_token_assumption() -> None:
+    per_item = evaluation_service._cost_usd(
+        evaluation_service.AVG_INPUT_TOKENS_ESTIMATE,
+        evaluation_service.AVG_OUTPUT_TOKENS_ESTIMATE,
+    )
+    assert evaluation_service.estimate_backfill_cost_usd(10) == float(round(per_item * 10, 2))
+    assert evaluation_service.estimate_backfill_cost_usd(0) == 0.0
+
+
 # ── FIX D(리뷰): USE_ARQ_WORKER=false여도 야간 평가가 돌아야 한다 ─────────────
 # Arq를 켜지 않은 기본 배포에서 관리자가 품질 평가 토글을 켜면, 이전에는
 # workers/main.py의 Arq 크론 안에만 활성 챗봇 순회 루프가 있어서 아무 것도

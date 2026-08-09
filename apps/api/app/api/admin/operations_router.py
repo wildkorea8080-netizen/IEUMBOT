@@ -138,6 +138,9 @@ def admin_quality_report(
 class QualityBackfillEstimate(ApiSchema):
     target_count: int
     estimated_cost_usd: float
+    # target_count가 일일 처리 상한(DAILY_LIMIT_PER_ORG)에서 잘렸는지. 조용히
+    # 자르면 관리자가 승인한 건수보다 실제 처리 건수가 적어도 알 방법이 없다.
+    capped: bool
 
 
 class QualityBackfillResult(ApiSchema):
@@ -156,26 +159,30 @@ def admin_quality_backfill_estimate(
     principal: AdminPrincipal = Depends(require_institution_admin_auth),
     db: Session = Depends(get_db_session),
 ) -> QualityBackfillEstimate:
-    """소급 평가 대상 건수와 예상 비용. 실행 전에 반드시 보여준다."""
+    """소급 평가 대상 건수와 예상 비용. 실행 전에 반드시 보여준다.
+
+    list_unevaluated_messages의 원시 건수가 아니라 count_evaluable_messages로
+    should_evaluate 필터를 적용한 실제 채점 대상만 센다 — 인사말·캐시히트·
+    미답변 건까지 세면 관리자가 부풀려진 금액을 보고 승인하게 된다.
+    """
     from datetime import datetime  # noqa: PLC0415
 
-    from app.repositories.quality.answer_evaluation_repository import (  # noqa: PLC0415
-        list_unevaluated_messages,
+    from app.services.quality.evaluation_service import (  # noqa: PLC0415
+        count_evaluable_messages,
+        estimate_backfill_cost_usd,
     )
-    from app.services.quality.evaluation_service import DAILY_LIMIT_PER_ORG  # noqa: PLC0415
 
     ensure_chatbot_in_scope(db, principal=principal, chatbot_id=chatbot_id)
-    rows = list_unevaluated_messages(
+    target_count, capped = count_evaluable_messages(
         db,
         chatbot_id=chatbot_id,
         start_at=datetime.fromisoformat(start_date),
         end_at=datetime.fromisoformat(end_date),
-        limit=DAILY_LIMIT_PER_ORG,
     )
-    # 건당 입력 2,500 / 출력 300 토큰 가정 (상위 모델 단가)
-    per_item = 2500 / 1_000_000 * 2.00 + 300 / 1_000_000 * 8.00
     return QualityBackfillEstimate(
-        target_count=len(rows), estimated_cost_usd=round(len(rows) * per_item, 2)
+        target_count=target_count,
+        estimated_cost_usd=estimate_backfill_cost_usd(target_count),
+        capped=capped,
     )
 
 

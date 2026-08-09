@@ -128,7 +128,12 @@ export async function getAdminQualityReport(params?: {
   return apiClient.request<AdminQualityReportResponse>(`/admin/quality-report${query ? `?${query}` : ""}`);
 }
 
-export type QualityBackfillEstimate = { targetCount: number; estimatedCostUsd: number };
+export type QualityBackfillEstimate = {
+  targetCount: number;
+  estimatedCostUsd: number;
+  /** target_count가 일일 처리 상한에서 잘렸는지. true면 실제 대상은 이보다 많을 수 있다. */
+  capped: boolean;
+};
 export type QualityBackfillResult = { evaluated: number; skipped: number; failed: number };
 
 /** 소급 평가 대상 건수와 예상 비용. 실행 전 확인용 — 비용이 실제로 나가므로 먼저 보여준다. */

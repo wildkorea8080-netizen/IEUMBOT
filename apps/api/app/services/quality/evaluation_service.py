@@ -40,8 +40,14 @@ DAILY_LIMIT_PER_ORG = 5000
 _MAX_CALL_RETRY = 3
 _CALL_TIMEOUT_SEC = 30.0
 # 상위 모델 단가(1M 토큰당 USD). 모델 가격이 바뀌면 여기만 고친다.
-_USD_PER_1M_INPUT = Decimal("2.00")
-_USD_PER_1M_OUTPUT = Decimal("8.00")
+# 언더스코어 없이 공개 이름을 쓴다 — 소급 평가 견적 라우터가 이 값을 그대로 import해
+# 쓴다. 라우터에 같은 값을 하드코딩해두면 가격이 바뀔 때 한쪽만 고치는 사고가 난다.
+USD_PER_1M_INPUT = Decimal("2.00")
+USD_PER_1M_OUTPUT = Decimal("8.00")
+# 소급 평가 사전 견적에 쓰는 평균 토큰 가정치. 실제 지출은 건별 토큰 기록이
+# 권위 있는 값이고, 이건 승인 전 대략적 추정치일 뿐이다.
+AVG_INPUT_TOKENS_ESTIMATE = 2500
+AVG_OUTPUT_TOKENS_ESTIMATE = 300
 
 
 class _EvaluationCallFailed(RuntimeError):
@@ -60,9 +66,19 @@ class _EvaluationCallFailed(RuntimeError):
 
 def _cost_usd(input_tokens: int, output_tokens: int) -> Decimal:
     return (
-        Decimal(input_tokens) / Decimal(1_000_000) * _USD_PER_1M_INPUT
-        + Decimal(output_tokens) / Decimal(1_000_000) * _USD_PER_1M_OUTPUT
+        Decimal(input_tokens) / Decimal(1_000_000) * USD_PER_1M_INPUT
+        + Decimal(output_tokens) / Decimal(1_000_000) * USD_PER_1M_OUTPUT
     ).quantize(Decimal("0.000001"))
+
+
+def estimate_backfill_cost_usd(target_count: int) -> float:
+    """소급 평가 사전 견적. 평균 토큰 가정치 × 실제 채점 대상 건수.
+
+    라우터가 이 함수 대신 단가를 하드코딩하면, 모델 가격이 바뀔 때 한쪽만
+    고쳐지는 사고가 난다(과거 실제 발생 유형).
+    """
+    per_item = _cost_usd(AVG_INPUT_TOKENS_ESTIMATE, AVG_OUTPUT_TOKENS_ESTIMATE)
+    return float(round(per_item * target_count, 2))
 
 
 def _is_faq(message: Any) -> bool:
@@ -285,6 +301,34 @@ def _evaluate_one(db: Session, *, organization_id: str, message: Any) -> None:
     row.output_tokens = total_output_tokens
     row.cost_usd = _cost_usd(total_input_tokens, total_output_tokens)
     insert_evaluation(db, row=row)
+
+
+def count_evaluable_messages(
+    db: Session,
+    *,
+    chatbot_id: str,
+    start_at: datetime,
+    end_at: datetime,
+    limit: int = DAILY_LIMIT_PER_ORG,
+) -> tuple[int, bool]:
+    """기간 내 실제로 채점될 건수 (target_count, capped) 소급 평가 견적·실행 엔드포인트가
+    함께 쓴다 — 두 곳이 각자 세면 견적과 실제 처리 건수가 어긋난다.
+
+    list_unevaluated_messages는 selector 규칙(인사말·캐시히트·미답변 등)을 모른다.
+    거기에 should_evaluate를 적용하지 않으면 평가되지 않을 건까지 세어 견적이
+    부풀려지고, 관리자가 부풀려진 금액을 보고 승인하게 된다.
+
+    limit에서 잘렸는지도 함께 알려준다 — 조용히 자르면 "승인한 건수보다 적게
+    채점됐다"는 걸 관리자가 알 방법이 없다.
+    """
+    rows = list_unevaluated_messages(
+        db, chatbot_id=chatbot_id, start_at=start_at, end_at=end_at, limit=limit + 1
+    )
+    capped = len(rows) > limit
+    if capped:
+        rows = rows[:limit]
+    evaluable = sum(1 for message in rows if should_evaluate(message) is None)
+    return evaluable, capped
 
 
 def evaluate_chatbot_range(

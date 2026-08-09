@@ -240,7 +240,10 @@ export default function AdminQualityReportPage() {
                     return;
                   }
                   const won = Math.round(est.estimatedCostUsd * 1400).toLocaleString();
-                  if (!confirm(`${est.targetCount}건을 평가합니다. 예상 비용 약 ${won}원. 진행할까요?`)) return;
+                  const cappedNote = est.capped
+                    ? "\n\n주의: 대상 건수가 일일 처리 상한(5,000건)에서 잘린 값입니다. 실제 대상은 이보다 많을 수 있습니다."
+                    : "";
+                  if (!confirm(`${est.targetCount}건을 평가합니다. 예상 비용 약 ${won}원.${cappedNote}\n진행할까요?`)) return;
                   const result = await runQualityBackfill(chatbotId, startDate, endDate);
                   setBackfillInfo(`평가 완료 — ${result.evaluated}건 채점, ${result.skipped}건 제외, ${result.failed}건 실패`);
                   await loadReport();
