@@ -33,6 +33,10 @@ from app.services.quality.evaluation_selector import should_evaluate
 logger = logging.getLogger(__name__)
 
 DAILY_LIMIT_PER_ORG = 5000
+# 건당 최대 _MAX_CALL_RETRY 회 호출되므로 실제 호출 상한은 이 값의 3배다.
+# 상한을 '행 수'로 두는 이유는 과금이 아니라 폭주 방지가 목적이기 때문이다.
+# (동시 실행 간 트랜잭션 잠금까지는 이 범위에서 다루지 않는다 — count_evaluated_since는
+# 실행 시점 스냅샷이라 여러 배치가 겹치면 상한을 살짝 넘을 수 있다.)
 _MAX_CALL_RETRY = 3
 _CALL_TIMEOUT_SEC = 30.0
 # 상위 모델 단가(1M 토큰당 USD). 모델 가격이 바뀌면 여기만 고친다.
