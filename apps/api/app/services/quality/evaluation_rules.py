@@ -43,10 +43,12 @@ def apply_rules(
         return verdict
 
     if not selected_sources:
-        # 근거 없이 답했다 — 환각 위험이 가장 큰 경우다.
+        # 근거 없이 답했다 — 환각 위험이 가장 큰 경우다. 근거성은 여기서 0으로
+        # 확정하지만, decided_fully는 세우지 않는다. LLM을 계속 불러 적합성은
+        # 채점해야 한다 — 그러지 않으면 가장 의심스러운 답변이 적합성 충족률
+        # 분모에서 통째로 빠져 지표가 실제보다 좋게 나온다.
         verdict.groundedness_score = 0
         verdict.needs_review = True
-        verdict.decided_fully = True
         verdict.reasons["groundedness"] = "인용 근거 없음"
 
     return verdict

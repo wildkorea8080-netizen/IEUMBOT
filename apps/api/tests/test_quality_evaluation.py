@@ -60,11 +60,16 @@ def test_cache_hit_is_skipped() -> None:
 
 
 def test_no_citation_means_zero_groundedness() -> None:
-    """근거 없이 답했으면 환각 위험. LLM에 물을 것도 없다."""
+    """근거 없이 답했으면 환각 위험 — 근거성은 규칙으로 0점 확정.
+
+    다만 decided_fully는 세우지 않는다. LLM 호출까지 건너뛰면 적합성이 NULL로
+    남아, 가장 의심스러운 답변(근거 없음)이 적합성 충족률 분모에서 빠진다.
+    적합성은 여전히 LLM이 채점해야 한다.
+    """
     verdict = apply_rules(selected_sources=[], is_faq=False, followups=[], is_out_of_scope=False)
     assert verdict.groundedness_score == 0
     assert verdict.needs_review is True
-    assert verdict.decided_fully is True
+    assert verdict.decided_fully is False
 
 
 def test_faq_answer_is_grounded_by_definition() -> None:
@@ -430,8 +435,14 @@ def _patch_call_evaluator(
     return calls
 
 
-def test_no_citation_skips_llm_call(monkeypatch) -> None:
-    """근거가 0개면 규칙만으로 확정된다. LLM을 부르면 비용만 나가고 판정은 그대로다."""
+def test_no_citation_still_calls_llm_for_relevance(monkeypatch) -> None:
+    """근거가 0개여도 적합성은 LLM이 채점해야 한다 (FIX 7).
+
+    이전에는 근거 0건이면 규칙만으로 완전히 확정하고 LLM을 아예 부르지 않아
+    적합성(relevance)이 NULL로 남았다. 가장 의심스러운 답변(근거 없이 답함)이
+    적합성 충족률 분모에서 통째로 빠지는 결과였다. 근거성 0점은 규칙이
+    지키고, 적합성만 LLM에 새로 묻는다.
+    """
     calls = _patch_call_evaluator(monkeypatch, _LLM_MERGE_RESPONSE)
     _patch_previous_turn(monkeypatch)
 
@@ -439,11 +450,13 @@ def test_no_citation_skips_llm_call(monkeypatch) -> None:
     message = _make_eval_message(selected_sources=[])
     evaluation_service._evaluate_one(db, organization_id=str(uuid.uuid4()), message=message)
 
-    assert len(calls) == 0
+    assert len(calls) == 1
     assert len(db.added) == 1
     row = db.added[0]
-    assert row.method == "rule"
+    assert row.method == "llm"
+    # 규칙의 0점을 지킨다 — LLM 응답(_LLM_MERGE_RESPONSE)의 groundedness=40을 무시.
     assert row.groundedness_score == 0
+    assert row.relevance_score == 92
     assert row.needs_review is True
 
 
