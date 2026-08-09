@@ -132,4 +132,11 @@ def parse_evaluation_response(raw: str) -> ParsedEvaluation | None:
         if reason:
             result.reasons["topicDrift"] = reason
 
+    # 두 핵심 지표가 모두 없으면 채점으로 볼 수 없다(거부 응답·빈 JSON).
+    # None을 돌려줘야 호출부가 재시도하고, 끝내 실패하면 method='failed'로 남는다.
+    # 그러지 않으면 {"error": "..."} 같은 거부 응답도 method='llm'·전체 비용·
+    # needs_review=False로 저장돼 표본이 조용히 줄면서 llmCount만 늘어난다.
+    if result.relevance_score is None and result.groundedness_score is None:
+        return None
+
     return result

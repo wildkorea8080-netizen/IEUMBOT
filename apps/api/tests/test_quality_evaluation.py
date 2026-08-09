@@ -180,6 +180,28 @@ def test_prompt_version_is_recorded() -> None:
     assert PROMPT_VERSION == "v1"
 
 
+def test_parse_empty_json_is_not_a_valid_evaluation() -> None:
+    """빈 JSON({})은 채점이 아니다. None을 돌려줘야 호출부가 재시도한다."""
+    assert parse_evaluation_response("{}") is None
+
+
+def test_parse_refusal_response_is_not_a_valid_evaluation() -> None:
+    """거부 응답이 all-NULL 점수로 파싱되면 method='llm'·전체 비용으로 조용히 저장된다.
+
+    두 핵심 지표(relevance, groundedness)가 모두 없으면 채점으로 보지 않는다.
+    """
+    raw = '{"error": "I cannot evaluate this content"}'
+    assert parse_evaluation_response(raw) is None
+
+
+def test_parse_keeps_result_when_only_one_core_metric_present() -> None:
+    """relevance만 있어도(근거 0건 규칙 케이스 등) 유효한 채점으로 본다."""
+    raw = '{"relevance": {"reason": "질문에 답함", "score": 80}}'
+    parsed = parse_evaluation_response(raw)
+    assert parsed is not None
+    assert parsed.relevance_score == 80
+
+
 # ── Task 6: 충족률 집계 + 주간 버킷 ──────────────────────────────────────────
 
 from app.services.quality.evaluation_aggregate import PASS_THRESHOLD, summarize  # noqa: E402
