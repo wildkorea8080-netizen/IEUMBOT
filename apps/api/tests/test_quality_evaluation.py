@@ -609,7 +609,7 @@ def test_unexpected_failure_on_one_message_does_not_abort_remaining_batch(monkey
     monkeypatch.setattr(
         evaluation_service,
         "_record_failed",
-        lambda db, *, organization_id, message: recorded_failed.append(message.id),
+        lambda db, *, organization_id, message, **_kw: recorded_failed.append(message.id),
     )
 
     db = _FakeRangeDB()
@@ -625,3 +625,110 @@ def test_unexpected_failure_on_one_message_does_not_abort_remaining_batch(monkey
     assert len(recorded_failed) == 1
     # 처음 두 메시지에서 멈추지 않고 세 번째까지 봤다.
     assert len(seen) == 3
+
+
+# ── FIX 4: 재시도 토큰을 누락 없이 합산한다 ──────────────────────────────────
+# 건당 최대 3회까지 과금될 수 있는데 마지막 시도 값만 남기면 지출이 최대 3배
+# 과소 표시된다. 파싱에 실패한 시도도 실제로는 과금된 호출이다.
+
+import pytest  # noqa: E402
+
+
+def test_llm_path_accumulates_tokens_across_failed_retries(monkeypatch) -> None:
+    """1차는 파싱 실패(그래도 과금), 2차는 성공. 두 시도 토큰을 합산해야 한다."""
+    _patch_previous_turn(monkeypatch)
+    responses = [
+        ("설명만 있고 JSON 없음", 1000, 50, "gpt-5-quality-eval"),
+        (_LLM_MERGE_RESPONSE, 2500, 300, "gpt-5-quality-eval"),
+    ]
+    calls: list = []
+
+    def fake_call_evaluator(db, *, system, user):
+        calls.append((system, user))
+        return responses[len(calls) - 1]
+
+    monkeypatch.setattr(evaluation_service, "_call_evaluator", fake_call_evaluator)
+
+    db = _FakeDB()
+    message = _make_eval_message(selected_sources=[{"id": "s1", "textPreview": "근거 내용"}])
+    evaluation_service._evaluate_one(db, organization_id=str(uuid.uuid4()), message=message)
+
+    row = db.added[0]
+    assert len(calls) == 2
+    assert row.input_tokens == 1000 + 2500
+    assert row.output_tokens == 50 + 300
+
+
+def test_all_retries_failing_still_carries_accumulated_tokens(monkeypatch) -> None:
+    """3회 모두 파싱 실패해도 각 시도가 과금한 토큰은 예외에 실려야 한다.
+
+    이게 없으면 evaluate_chatbot_range가 실패 건을 지출 0으로 기록해
+    '이번 달 지출'이 실제보다 적게 보인다.
+    """
+    _patch_previous_turn(monkeypatch)
+
+    def fake_call_evaluator(db, *, system, user):
+        return "JSON이 아닌 응답", 500, 20, "gpt-5-quality-eval"
+
+    monkeypatch.setattr(evaluation_service, "_call_evaluator", fake_call_evaluator)
+
+    db = _FakeDB()
+    message = _make_eval_message(selected_sources=[{"id": "s1", "textPreview": "근거 내용"}])
+
+    with pytest.raises(evaluation_service._EvaluationCallFailed) as excinfo:
+        evaluation_service._evaluate_one(db, organization_id=str(uuid.uuid4()), message=message)
+
+    assert excinfo.value.input_tokens == 500 * 3
+    assert excinfo.value.output_tokens == 20 * 3
+
+
+def test_record_failed_persists_accumulated_cost() -> None:
+    """실패 건도 토큰이 있으면 cost_usd를 남겨야 지출 집계가 실제와 맞는다."""
+    db = _FakeDB()
+    message = _make_eval_message()
+    evaluation_service._record_failed(
+        db,
+        organization_id=str(uuid.uuid4()),
+        message=message,
+        input_tokens=1500,
+        output_tokens=90,
+    )
+
+    row = db.added[0]
+    assert row.method == "failed"
+    assert row.input_tokens == 1500
+    assert row.output_tokens == 90
+    assert row.cost_usd == evaluation_service._cost_usd(1500, 90)
+
+
+def test_batch_level_failure_records_tokens_from_exception(monkeypatch) -> None:
+    """evaluate_chatbot_range가 실패 예외에 실린 토큰을 _record_failed로 넘겨야 한다."""
+    messages = [_make_eval_message()]
+    _patch_range_dependencies(monkeypatch, messages)
+
+    def fake_evaluate_one(db, *, organization_id, message):
+        raise evaluation_service._EvaluationCallFailed(
+            "EVALUATION_PARSE_FAILED", input_tokens=777, output_tokens=33
+        )
+
+    recorded: list = []
+    monkeypatch.setattr(evaluation_service, "_evaluate_one", fake_evaluate_one)
+    monkeypatch.setattr(
+        evaluation_service,
+        "_record_failed",
+        lambda db, *, organization_id, message, input_tokens=0, output_tokens=0: recorded.append(
+            (input_tokens, output_tokens)
+        ),
+    )
+
+    db = _FakeRangeDB()
+    result = evaluation_service.evaluate_chatbot_range(
+        db,
+        organization_id=str(uuid.uuid4()),
+        chatbot_id=str(uuid.uuid4()),
+        start_at=datetime(2026, 8, 1, tzinfo=UTC),
+        end_at=datetime(2026, 8, 2, tzinfo=UTC),
+    )
+
+    assert result["failed"] == 1
+    assert recorded == [(777, 33)]

@@ -40,6 +40,20 @@ _USD_PER_1M_INPUT = Decimal("2.00")
 _USD_PER_1M_OUTPUT = Decimal("8.00")
 
 
+class _EvaluationCallFailed(RuntimeError):
+    """모든 재시도가 실패했을 때 발생.
+
+    파싱 실패로 끝난 시도도 실제로는 과금된 호출이다(JSON이 깨졌을 뿐 토큰은
+    나갔다). 그 누적 토큰을 들고 다녀 _record_failed가 실 지출을 남기게 한다 —
+    그러지 않으면 실패 건은 지출이 0으로 보여 '이번 달 지출'이 실제보다 적게 나온다.
+    """
+
+    def __init__(self, message: str, *, input_tokens: int = 0, output_tokens: int = 0) -> None:
+        super().__init__(message)
+        self.input_tokens = input_tokens
+        self.output_tokens = output_tokens
+
+
 def _cost_usd(input_tokens: int, output_tokens: int) -> Decimal:
     return (
         Decimal(input_tokens) / Decimal(1_000_000) * _USD_PER_1M_INPUT
@@ -157,11 +171,26 @@ def _base_row(organization_id: str, message: Any) -> AnswerEvaluation:
     )
 
 
-def _record_failed(db: Session, *, organization_id: str, message: Any) -> None:
-    """실패를 조용히 넘기지 않는다. 표본 수가 몰래 줄면 통계가 왜곡된다."""
+def _record_failed(
+    db: Session,
+    *,
+    organization_id: str,
+    message: Any,
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+) -> None:
+    """실패를 조용히 넘기지 않는다. 표본 수가 몰래 줄면 통계가 왜곡된다.
+
+    최대 _MAX_CALL_RETRY회까지 시도했을 수 있으므로 실패해도 과금된 토큰이 있을
+    수 있다. 0으로 남기면 지출 화면이 실제보다 적게 보인다.
+    """
     row = _base_row(organization_id, message)
     row.method = "failed"
     row.verdict_json = {"error": "evaluation_failed"}
+    row.input_tokens = input_tokens
+    row.output_tokens = output_tokens
+    if input_tokens or output_tokens:
+        row.cost_usd = _cost_usd(input_tokens, output_tokens)
     insert_evaluation(db, row=row)
 
 
@@ -199,7 +228,10 @@ def _evaluate_one(db: Session, *, organization_id: str, message: Any) -> None:
 
     parsed = None
     last_error: Exception | None = None
-    input_tokens = output_tokens = 0
+    # 재시도 전체의 누적치 — 성공 직전 실패한 시도도 과금된 호출이라 합산해야
+    # 실 지출과 맞는다. 마지막 시도 값만 남기면 최대 3배까지 과소 표시된다.
+    total_input_tokens = 0
+    total_output_tokens = 0
     model: str | None = None
     for _attempt in range(_MAX_CALL_RETRY):
         try:
@@ -209,6 +241,8 @@ def _evaluate_one(db: Session, *, organization_id: str, message: Any) -> None:
         except Exception as exc:  # noqa: BLE001
             last_error = exc
             continue
+        total_input_tokens += input_tokens
+        total_output_tokens += output_tokens
         parsed = parse_evaluation_response(text)
         if parsed is not None:
             break
@@ -216,7 +250,11 @@ def _evaluate_one(db: Session, *, organization_id: str, message: Any) -> None:
         last_error = RuntimeError("EVALUATION_PARSE_FAILED")
 
     if parsed is None:
-        raise last_error or RuntimeError("EVALUATION_PARSE_FAILED")
+        raise _EvaluationCallFailed(
+            str(last_error or "EVALUATION_PARSE_FAILED"),
+            input_tokens=total_input_tokens,
+            output_tokens=total_output_tokens,
+        )
 
     row.method = "llm"
     row.evaluator_model = model
@@ -239,9 +277,9 @@ def _evaluate_one(db: Session, *, organization_id: str, message: Any) -> None:
 
     verdict.update(parsed.reasons)
     row.verdict_json = verdict
-    row.input_tokens = input_tokens
-    row.output_tokens = output_tokens
-    row.cost_usd = _cost_usd(input_tokens, output_tokens)
+    row.input_tokens = total_input_tokens
+    row.output_tokens = total_output_tokens
+    row.cost_usd = _cost_usd(total_input_tokens, total_output_tokens)
     insert_evaluation(db, row=row)
 
 
@@ -286,8 +324,17 @@ def evaluate_chatbot_range(
         except Exception as exc:  # noqa: BLE001
             logger.warning("[QUALITY_EVAL] failed message=%s: %s", message.id, exc)
             db.rollback()
+            # _EvaluationCallFailed면 재시도 중 과금된 토큰이 실려 있다.
+            input_tokens = getattr(exc, "input_tokens", 0)
+            output_tokens = getattr(exc, "output_tokens", 0)
             try:
-                _record_failed(db, organization_id=organization_id, message=message)
+                _record_failed(
+                    db,
+                    organization_id=organization_id,
+                    message=message,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                )
                 db.commit()
             except Exception:  # noqa: BLE001
                 # 실패 기록 자체가 실패해도 다음 건 처리를 막지 않는다.
