@@ -76,9 +76,13 @@ def summarize(rows: list[Any]) -> EvaluationSummary:
     summary.context = _summarize_metric(_collect(rows, "context_score"))
     summary.followup = _summarize_metric(_collect(rows, "followup_score"))
 
-    if rows:
-        drifted = sum(1 for r in rows if getattr(r, "topic_drift", False))
-        summary.topic_drift_rate = round(drifted / len(rows) * 100, 1)
+    # 판정이 실제로 일어난 건만 분모에 넣는다. method='failed'는 topic_drift가
+    # 기본값 False로 남을 뿐 판정된 적이 없다 — 분모에 넣으면 이탈률이 실제보다
+    # 낮게 나온다(판정 안 된 건이 전부 '이탈 아님'으로 세어짐).
+    assessed = [r for r in rows if getattr(r, "method", "") != "failed"]
+    if assessed:
+        drifted = sum(1 for r in assessed if getattr(r, "topic_drift", False))
+        summary.topic_drift_rate = round(drifted / len(assessed) * 100, 1)
 
     summary.needs_review_count = sum(1 for r in rows if getattr(r, "needs_review", False))
     summary.llm_count = sum(1 for r in rows if getattr(r, "method", "") == "llm")

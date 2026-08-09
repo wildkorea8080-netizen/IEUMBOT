@@ -260,6 +260,28 @@ def test_topic_drift_is_a_rate_not_a_pass_rate() -> None:
     assert summary.topic_drift_rate == 25.0
 
 
+def test_topic_drift_denominator_excludes_failed_rows() -> None:
+    """실패 건은 판정된 적이 없다. 분모에 넣으면 이탈률이 실제보다 낮게 나온다.
+
+    1건 이탈 / 8건 판정 + 2건 실패 → 진짜 이탈률은 12.5%다. 실패 2건을 분모에
+    넣으면(1/10) 10.0%로 낮게 나와 실제보다 품질이 좋아 보인다.
+    """
+    rows = (
+        [_Eval(topic_drift=True, method="llm")]
+        + [_Eval(method="llm") for _ in range(7)]
+        + [_Eval(method="failed") for _ in range(2)]
+    )
+    summary = summarize(rows)
+    assert summary.topic_drift_rate == 12.5
+
+
+def test_topic_drift_rate_is_none_when_nothing_was_assessed() -> None:
+    """전부 실패 건이면 이탈률은 0%가 아니라 '데이터 없음'이어야 한다."""
+    rows = [_Eval(method="failed"), _Eval(method="failed")]
+    summary = summarize(rows)
+    assert summary.topic_drift_rate is None
+
+
 def test_review_count_and_method_breakdown() -> None:
     rows = [
         _Eval(needs_review=True, method="rule"),
