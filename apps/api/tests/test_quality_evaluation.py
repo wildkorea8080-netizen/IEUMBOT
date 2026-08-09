@@ -530,3 +530,98 @@ def test_context_score_kept_when_previous_turn_exists(monkeypatch) -> None:
 
     row = db.added[0]
     assert row.context_score == 88
+
+
+# ── FIX 3: commit 실패가 배치 전체를 죽이면 안 된다 ───────────────────────────
+# 야간 배치는 세션 하나를 조직 전체가 공유한다. 한 건의 UNIQUE 위반(소급 평가와
+# 겹침)이나 원인불명 실패가 나머지 모든 기관의 남은 건 처리를 막으면 안 된다.
+
+from sqlalchemy.exc import IntegrityError  # noqa: E402
+
+
+class _FakeRangeDB:
+    """evaluate_chatbot_range의 commit/rollback 흐름만 검증하는 스텁.
+
+    add()는 evaluate_service._evaluate_one/_record_failed가 모킹되므로 쓰이지 않는다.
+    """
+
+    def __init__(self, fail_commits_on: set[int] | None = None) -> None:
+        self.commit_calls = 0
+        self.rollback_calls = 0
+        self._fail_commits_on = fail_commits_on or set()
+
+    def add(self, row) -> None:  # pragma: no cover - 모킹 경로에서는 호출되지 않는다
+        pass
+
+    def commit(self) -> None:
+        self.commit_calls += 1
+        if self.commit_calls in self._fail_commits_on:
+            raise IntegrityError("INSERT ...", {}, Exception("uq_answer_evaluations_message"))
+
+    def rollback(self) -> None:
+        self.rollback_calls += 1
+
+
+def _patch_range_dependencies(monkeypatch, messages: list) -> None:
+    monkeypatch.setattr(evaluation_service, "count_evaluated_since", lambda *a, **kw: 0)
+    monkeypatch.setattr(
+        evaluation_service, "list_unevaluated_messages", lambda *a, **kw: messages
+    )
+    monkeypatch.setattr(evaluation_service, "should_evaluate", lambda message: None)
+
+
+def test_duplicate_message_does_not_abort_remaining_batch(monkeypatch) -> None:
+    """두 번째 건 커밋에서 UNIQUE 위반이 나도 세 번째 건은 계속 처리돼야 한다."""
+    messages = [_make_eval_message() for _ in range(3)]
+    _patch_range_dependencies(monkeypatch, messages)
+    monkeypatch.setattr(
+        evaluation_service, "_evaluate_one", lambda db, *, organization_id, message: None
+    )
+
+    db = _FakeRangeDB(fail_commits_on={2})
+    result = evaluation_service.evaluate_chatbot_range(
+        db,
+        organization_id=str(uuid.uuid4()),
+        chatbot_id=str(uuid.uuid4()),
+        start_at=datetime(2026, 8, 1, tzinfo=UTC),
+        end_at=datetime(2026, 8, 2, tzinfo=UTC),
+    )
+
+    # 1번째: 성공, 2번째: 커밋 시 UNIQUE 위반 → 중복으로 건너뜀, 3번째: 성공
+    assert result == {"evaluated": 2, "skipped": 1, "failed": 0, "limited": 0}
+    assert db.rollback_calls == 1
+
+
+def test_unexpected_failure_on_one_message_does_not_abort_remaining_batch(monkeypatch) -> None:
+    """원인불명 예외가 나도 나머지 건은 계속 평가되고, 실패는 기록만 된다."""
+    messages = [_make_eval_message() for _ in range(3)]
+    _patch_range_dependencies(monkeypatch, messages)
+
+    seen: list = []
+
+    def fake_evaluate_one(db, *, organization_id, message):
+        seen.append(message.id)
+        if len(seen) == 2:
+            raise RuntimeError("boom")
+
+    recorded_failed: list = []
+    monkeypatch.setattr(evaluation_service, "_evaluate_one", fake_evaluate_one)
+    monkeypatch.setattr(
+        evaluation_service,
+        "_record_failed",
+        lambda db, *, organization_id, message: recorded_failed.append(message.id),
+    )
+
+    db = _FakeRangeDB()
+    result = evaluation_service.evaluate_chatbot_range(
+        db,
+        organization_id=str(uuid.uuid4()),
+        chatbot_id=str(uuid.uuid4()),
+        start_at=datetime(2026, 8, 1, tzinfo=UTC),
+        end_at=datetime(2026, 8, 2, tzinfo=UTC),
+    )
+
+    assert result == {"evaluated": 2, "skipped": 0, "failed": 1, "limited": 0}
+    assert len(recorded_failed) == 1
+    # 처음 두 메시지에서 멈추지 않고 세 번째까지 봤다.
+    assert len(seen) == 3

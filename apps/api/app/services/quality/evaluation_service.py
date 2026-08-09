@@ -11,6 +11,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
+from sqlalchemy.exc import IntegrityError  # top-level import
 from sqlalchemy.orm import Session
 
 from app.models import AnswerEvaluation, ChatbotSetting
@@ -273,14 +274,25 @@ def evaluate_chatbot_range(
             continue
         try:
             _evaluate_one(db, organization_id=organization_id, message=message)
+            # 커밋도 try 안에 둔다. UNIQUE 위반은 commit 시점에 터지는데, 밖에 두면
+            # 그 예외가 루프를 뚫고 나가 남은 건이 통째로 처리되지 않는다
+            # (한 세션을 조직 전체가 공유하는 야간 배치라 영향이 전 기관으로 번진다).
+            db.commit()
             evaluated += 1
+        except IntegrityError:
+            # 이미 평가된 건(소급 평가와 야간 배치가 겹칠 때). 실패가 아니라 중복이다.
+            db.rollback()
+            skipped += 1
         except Exception as exc:  # noqa: BLE001
             logger.warning("[QUALITY_EVAL] failed message=%s: %s", message.id, exc)
             db.rollback()
-            _record_failed(db, organization_id=organization_id, message=message)
+            try:
+                _record_failed(db, organization_id=organization_id, message=message)
+                db.commit()
+            except Exception:  # noqa: BLE001
+                # 실패 기록 자체가 실패해도 다음 건 처리를 막지 않는다.
+                db.rollback()
             failed += 1
-        # 건별 커밋 — 중간에 끊겨도 재실행 시 이어서 진행한다.
-        db.commit()
 
     logger.info(
         "[QUALITY_EVAL] chatbot=%s evaluated=%d skipped=%d failed=%d",

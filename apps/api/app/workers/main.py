@@ -73,15 +73,26 @@ async def evaluate_answer_quality(ctx: dict) -> dict[str, Any]:
         db = SessionLocal()
         try:
             for organization_id, chatbot_id in enabled_chatbot_ids(db):
-                result = evaluate_chatbot_range(
-                    db,
-                    organization_id=organization_id,
-                    chatbot_id=chatbot_id,
-                    start_at=start_at,
-                    end_at=end_at,
-                )
-                for key in totals:
-                    totals[key] += result.get(key, 0)
+                # 한 기관(챗봇)에서 터진 예외가 그날 밤 나머지 전 기관 평가를
+                # 막으면 안 된다 — 세션 하나를 조직 전체가 공유하는 구조다.
+                try:
+                    result = evaluate_chatbot_range(
+                        db,
+                        organization_id=organization_id,
+                        chatbot_id=chatbot_id,
+                        start_at=start_at,
+                        end_at=end_at,
+                    )
+                    for key in totals:
+                        totals[key] += result.get(key, 0)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "[QUALITY_EVAL] chatbot skipped org=%s chatbot=%s error=%s",
+                        organization_id,
+                        chatbot_id,
+                        exc,
+                    )
+                    db.rollback()
         finally:
             db.close()
         return totals
