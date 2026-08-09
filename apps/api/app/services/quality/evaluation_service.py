@@ -150,6 +150,8 @@ def _base_row(organization_id: str, message: Any) -> AnswerEvaluation:
         message_id=message.id,
         session_id=message.session_id,
         evaluated_at=datetime.now(UTC),
+        # 조회·집계는 이 값을 쓴다(evaluated_at은 채점 시각이라 소급 평가 시 오늘 날짜로 쏠린다).
+        message_created_at=message.created_at,
         prompt_version=PROMPT_VERSION,
     )
 

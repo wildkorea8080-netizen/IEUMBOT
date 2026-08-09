@@ -263,9 +263,15 @@ from app.services.quality.evaluation_aggregate import (  # noqa: E402
 
 
 class _TimedEval(_Eval):
-    def __init__(self, evaluated_at, **kw):
+    """message_created_at(답변 발생 시각) 기준으로 버킷을 나눈다.
+
+    evaluated_at(채점 시각)으로 나누면 소급 평가·야간 배치가 전부 같은 날짜에
+    몰려 주간 경계가 실제 대화 시점과 어긋난다.
+    """
+
+    def __init__(self, message_created_at, **kw):
         super().__init__(**kw)
-        self.evaluated_at = evaluated_at
+        self.message_created_at = message_created_at
 
 
 def test_weekly_buckets_group_by_monday() -> None:
@@ -295,6 +301,20 @@ def test_large_bucket_is_reliable() -> None:
         for _ in range(MIN_RELIABLE_SAMPLE)
     ]
     assert summarize_by_week(rows)[0].reliable is True
+
+
+def test_weekly_bucket_uses_kst_monday_boundary() -> None:
+    """UTC로 자르면 한국 월요일 새벽이 전주로 밀린다.
+
+    2026-08-10(월) 01:00+09:00(KST)는 UTC로는 2026-08-09(일) 16:00이라
+    UTC 기준이면 08-03주로 잘못 묶인다. KST로 변환한 뒤 잘라야 08-10주가 맞다.
+    """
+    from datetime import timedelta, timezone  # noqa: PLC0415
+
+    kst = timezone(timedelta(hours=9))
+    rows = [_TimedEval(datetime(2026, 8, 10, 1, tzinfo=kst), relevance_score=90)]
+    buckets = summarize_by_week(rows)
+    assert buckets[0].bucket_start == "2026-08-10"
 
 
 # ── _evaluate_one: 규칙·LLM 병합 ────────────────────────────────────────────

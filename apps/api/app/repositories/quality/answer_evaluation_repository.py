@@ -19,8 +19,10 @@ def list_evaluations(
 ) -> list[AnswerEvaluation]:
     stmt = select(AnswerEvaluation).where(
         AnswerEvaluation.organization_id == uuid.UUID(organization_id),
-        AnswerEvaluation.evaluated_at >= start_at,
-        AnswerEvaluation.evaluated_at < end_at,
+        # message_created_at(답변이 발생한 시각) 기준. evaluated_at(채점 시각)으로
+        # 필터하면 소급 평가한 과거 구간이 화면 날짜 필터에서 조회되지 않는다.
+        AnswerEvaluation.message_created_at >= start_at,
+        AnswerEvaluation.message_created_at < end_at,
     )
     if chatbot_id:
         stmt = stmt.where(AnswerEvaluation.chatbot_id == uuid.UUID(chatbot_id))
@@ -41,10 +43,10 @@ def list_review_needed(
         .where(
             AnswerEvaluation.organization_id == uuid.UUID(organization_id),
             AnswerEvaluation.needs_review.is_(True),
-            AnswerEvaluation.evaluated_at >= start_at,
-            AnswerEvaluation.evaluated_at < end_at,
+            AnswerEvaluation.message_created_at >= start_at,
+            AnswerEvaluation.message_created_at < end_at,
         )
-        .order_by(AnswerEvaluation.evaluated_at.desc())
+        .order_by(AnswerEvaluation.message_created_at.desc())
         .limit(limit)
     )
     if chatbot_id:

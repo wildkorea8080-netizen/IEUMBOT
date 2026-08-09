@@ -34,6 +34,9 @@ class AnswerEvaluation(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         UniqueConstraint("message_id", name="uq_answer_evaluations_message"),
         Index("ix_answer_evaluations_chatbot_time", "chatbot_id", "evaluated_at"),
         Index("ix_answer_evaluations_review", "chatbot_id", "needs_review"),
+        # 조직 전체 리포트(chatbot_id=None)는 기존 두 인덱스 모두 chatbot_id로
+        # 시작해 시퀀셜 스캔이 된다. 이 인덱스가 그 경로를 받는다.
+        Index("ix_answer_evaluations_org_message_time", "organization_id", "message_created_at"),
     )
 
     organization_id: Mapped[uuid.UUID] = mapped_column(
@@ -47,6 +50,10 @@ class AnswerEvaluation(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     session_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # 답변이 발생한 시각. 조회·집계는 반드시 이 값을 쓴다.
+    # evaluated_at(채점한 시각)으로 필터하면 소급 평가한 과거 구간이 조회되지 않고,
+    # 야간 배치는 전날 답변을 오늘 날짜로 집계해 주간 경계가 계속 밀린다.
+    message_created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     relevance_score: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
     groundedness_score: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)

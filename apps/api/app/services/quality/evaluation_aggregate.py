@@ -6,8 +6,12 @@
 """
 
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, timedelta, timezone
 from typing import Any
+
+# 한국시간(KST, UTC+9). 월요일 경계를 UTC로 자르면 한국 월요일 오전(00~09시)이
+# UTC로는 아직 일요일이라 전주로 밀린다.
+_KST = timezone(timedelta(hours=9))
 
 # 고정값. 기관별 설정으로 두면 임계값을 낮춰 점수를 올릴 수 있어 비교가 무너진다.
 PASS_THRESHOLD = 70
@@ -84,14 +88,19 @@ def summarize(rows: list[Any]) -> EvaluationSummary:
 
 
 def _week_start(value: Any) -> str:
+    """그 주 월요일(한국시간 기준). UTC로 자르면 한국 월요일 오전이 전주로 밀린다."""
+    if hasattr(value, "astimezone"):
+        value = value.astimezone(_KST)
     d: date = value.date() if hasattr(value, "date") else value
     return (d - timedelta(days=d.weekday())).isoformat()
 
 
 def summarize_by_week(rows: list[Any]) -> list[WeeklyBucket]:
+    # message_created_at(답변 발생 시각) 기준으로 묶는다. evaluated_at(채점 시각)으로
+    # 묶으면 야간 배치가 전날 답변을 오늘 날짜 버킷에 넣어 주간 경계가 계속 밀린다.
     grouped: dict[str, list[Any]] = {}
     for row in rows:
-        grouped.setdefault(_week_start(row.evaluated_at), []).append(row)
+        grouped.setdefault(_week_start(row.message_created_at), []).append(row)
 
     buckets: list[WeeklyBucket] = []
     for start in sorted(grouped):
