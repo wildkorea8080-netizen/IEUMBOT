@@ -244,9 +244,12 @@ export default function AdminQualityReportPage() {
                     ? "\n\n주의: 대상 건수가 일일 처리 상한(5,000건)에서 잘린 값입니다. 실제 대상은 이보다 많을 수 있습니다."
                     : "";
                   if (!confirm(`${est.targetCount}건을 평가합니다. 예상 비용 약 ${won}원.${cappedNote}\n진행할까요?`)) return;
+                  // 실행은 즉시 끝나지 않는다 — 서버가 워커 큐에 넣기만 하고 반환한다.
+                  // 채점 자체는 백그라운드에서 진행되므로 여기서 완료 건수를 알 수 없다.
                   const result = await runQualityBackfill(chatbotId, startDate, endDate);
-                  setBackfillInfo(`평가 완료 — ${result.evaluated}건 채점, ${result.skipped}건 제외, ${result.failed}건 실패`);
-                  await loadReport();
+                  setBackfillInfo(
+                    `평가를 시작했습니다 — ${result.targetCount}건. 완료되면 이 화면에 반영됩니다. 잠시 후 새로고침해 주세요.`,
+                  );
                 } catch (e) {
                   setBackfillInfo(errorMessage(e));
                 } finally {

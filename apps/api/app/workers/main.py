@@ -83,6 +83,33 @@ async def evaluate_answer_quality(ctx: dict) -> dict[str, Any]:
         return {"status": "error"}
 
 
+async def backfill_answer_quality(
+    ctx: dict, organization_id: str, chatbot_id: str, start_iso: str, end_iso: str
+) -> dict[str, Any]:
+    """지정 기간 소급 평가(관리자 수동 실행).
+
+    야간 크론과 같은 서비스를 쓴다. 동기 함수이므로 to_thread 필수 —
+    이벤트 루프에서 직접 부르면 워커 전체가 멈춘다. 이전에는 관리자 라우터가
+    이 작업을 HTTP 요청 안에서 동기로 직접 실행했다 — 최악 5,000건 × 최대 3회
+    LLM 호출 × 30초 타임아웃을 요청 하나가 붙들고 있어 프록시가 끊고, 관리자가
+    재시도해 겹친 두 배치가 충돌했다.
+    """
+    import asyncio
+
+    from app.services.quality.evaluation_service import run_backfill_batch
+
+    logger.info("[ARQ_TASK] backfill_answer_quality chatbot=%s", chatbot_id)
+    try:
+        result = await asyncio.to_thread(
+            run_backfill_batch, organization_id, chatbot_id, start_iso, end_iso
+        )
+        logger.info("[ARQ_TASK] backfill_answer_quality done %s", result)
+        return {"status": "ok", **result}
+    except Exception as exc:
+        logger.exception("[ARQ_TASK] backfill_answer_quality failed: %s", exc)
+        return {"status": "error"}
+
+
 async def process_reindex_job(
     ctx: dict,
     principal_dict: dict[str, Any],
@@ -148,7 +175,12 @@ def _safe_redis_dsn() -> str:
 
 
 class WorkerSettings:
-    functions = [process_reindex_job, sync_due_web_sources, evaluate_answer_quality]
+    functions = [
+        process_reindex_job,
+        sync_due_web_sources,
+        evaluate_answer_quality,
+        backfill_answer_quality,
+    ]
     on_startup = startup
     on_shutdown = shutdown
     # Redis 연결 — settings.api_redis_url 사용

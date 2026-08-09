@@ -331,6 +331,34 @@ def count_evaluable_messages(
     return evaluable, capped
 
 
+def run_backfill_batch(
+    organization_id: str, chatbot_id: str, start_iso: str, end_iso: str
+) -> dict[str, int]:
+    """소급 평가 실행 본체 — 자체 DB 세션을 연다.
+
+    HTTP 요청 밖(Arq 워커 또는 BackgroundTasks)에서 도는 것을 전제로 한다. 관리자가
+    누른 순간 이 함수가 아니라 워커가 이 함수를 부른다 — 최악 5,000건 × 최대 3회
+    LLM 호출 × 30초 타임아웃을 HTTP 요청 하나가 붙들고 있으면 프록시가 끊고,
+    관리자가 재시도해 겹친 두 배치가 충돌한다.
+
+    ARQ 태스크(workers/main.py, to_thread로 감싸 호출)와 BackgroundTasks 폴백이
+    이 함수를 공유한다 — 로직이 두 곳에 따로 있으면 한쪽만 고치는 사고가 난다.
+    """
+    from app.db import SessionLocal  # noqa: PLC0415
+
+    db = SessionLocal()
+    try:
+        return evaluate_chatbot_range(
+            db,
+            organization_id=organization_id,
+            chatbot_id=chatbot_id,
+            start_at=datetime.fromisoformat(start_iso),
+            end_at=datetime.fromisoformat(end_iso),
+        )
+    finally:
+        db.close()
+
+
 def evaluate_chatbot_range(
     db: Session,
     *,

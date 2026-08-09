@@ -134,7 +134,13 @@ export type QualityBackfillEstimate = {
   /** target_count가 일일 처리 상한에서 잘렸는지. true면 실제 대상은 이보다 많을 수 있다. */
   capped: boolean;
 };
-export type QualityBackfillResult = { evaluated: number; skipped: number; failed: number };
+/**
+ * 실행(POST) 응답. 채점은 여기서 끝나지 않는다 — 워커 큐에 넣었을 뿐이다.
+ * 이전에는 evaluated/skipped/failed 건수를 즉시 돌려줬지만, 그건 서버가 HTTP
+ * 요청 안에서 동기로 채점을 끝냈을 때 얘기다(대량 구간에서 타임아웃의 원인이었다).
+ * 지금은 큐잉 여부와 대상 건수만 안다 — 완료 여부는 화면 새로고침으로 확인한다.
+ */
+export type QualityBackfillQueued = { queued: boolean; targetCount: number };
 
 /** 소급 평가 대상 건수와 예상 비용. 실행 전 확인용 — 비용이 실제로 나가므로 먼저 보여준다. */
 export async function estimateQualityBackfill(
@@ -148,14 +154,14 @@ export async function estimateQualityBackfill(
   );
 }
 
-/** 지정 기간 소급 평가 실행. 이미 평가된 건은 서버에서 건너뛴다. */
+/** 지정 기간 소급 평가를 큐에 넣는다. 이미 평가된 건은 서버에서 건너뛴다. */
 export async function runQualityBackfill(
   chatbotId: string,
   startDate: string,
   endDate: string,
-): Promise<QualityBackfillResult> {
+): Promise<QualityBackfillQueued> {
   const params = new URLSearchParams({ chatbotId, startDate, endDate });
-  return apiClient.request<QualityBackfillResult>(`/admin/quality-report/backfill?${params}`, {
+  return apiClient.request<QualityBackfillQueued>(`/admin/quality-report/backfill?${params}`, {
     method: "POST",
   });
 }

@@ -791,6 +791,102 @@ def test_batch_level_failure_records_tokens_from_exception(monkeypatch) -> None:
     assert recorded == [(777, 33)]
 
 
+# ── FIX A(리뷰): 소급 평가는 HTTP 요청 밖(워커)에서 실행된다 ──────────────────
+# POST 핸들러가 evaluate_chatbot_range를 요청 안에서 직접 동기 호출하면, 최악
+# 5,000건 × 최대 3회 LLM 호출 × 30초 타임아웃이 요청 하나를 붙잡아 프록시가
+# 끊는다 — 관리자는 에러를 보고 재시도하고, 겹친 두 배치가 충돌한다.
+# run_backfill_batch는 자체 세션을 열어 워커(Arq 태스크 또는 BackgroundTasks)
+# 컨텍스트에서 실행되는 걸 전제로 한다 — 두 경로가 이 함수 하나를 공유한다.
+
+from app.workers import dispatch as worker_dispatch  # noqa: E402
+
+
+class _FakeSessionWithClose:
+    """close()만 관찰하면 되는 최소 세션 스텁 — SessionLocal() 자리를 대신한다."""
+
+    def __init__(self) -> None:
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_run_backfill_batch_opens_own_session_and_delegates(monkeypatch) -> None:
+    calls: list[dict] = []
+
+    def fake_range(db, *, organization_id, chatbot_id, start_at, end_at):
+        calls.append(
+            {
+                "db": db,
+                "organization_id": organization_id,
+                "chatbot_id": chatbot_id,
+                "start_at": start_at,
+                "end_at": end_at,
+            }
+        )
+        return {"evaluated": 3, "skipped": 1, "failed": 0}
+
+    monkeypatch.setattr(evaluation_service, "evaluate_chatbot_range", fake_range)
+
+    session = _FakeSessionWithClose()
+    import app.db as app_db  # noqa: PLC0415
+
+    monkeypatch.setattr(app_db, "SessionLocal", lambda: session)
+
+    result = evaluation_service.run_backfill_batch(
+        "org-1", "bot-1", "2026-07-01T00:00:00+00:00", "2026-08-01T00:00:00+00:00"
+    )
+
+    assert result == {"evaluated": 3, "skipped": 1, "failed": 0}
+    assert session.closed is True
+    assert calls[0]["db"] is session
+    assert calls[0]["organization_id"] == "org-1"
+    assert calls[0]["chatbot_id"] == "bot-1"
+    assert calls[0]["start_at"] == datetime.fromisoformat("2026-07-01T00:00:00+00:00")
+    assert calls[0]["end_at"] == datetime.fromisoformat("2026-08-01T00:00:00+00:00")
+
+
+def test_run_backfill_batch_closes_session_even_on_failure(monkeypatch) -> None:
+    """세션 누수는 커넥션 풀을 말려 죽인다 — 실패해도 close()는 반드시 불려야 한다."""
+
+    def boom(db, *, organization_id, chatbot_id, start_at, end_at):
+        raise RuntimeError("evaluation blew up")
+
+    monkeypatch.setattr(evaluation_service, "evaluate_chatbot_range", boom)
+
+    session = _FakeSessionWithClose()
+    import app.db as app_db  # noqa: PLC0415
+
+    monkeypatch.setattr(app_db, "SessionLocal", lambda: session)
+
+    with pytest.raises(RuntimeError):
+        evaluation_service.run_backfill_batch(
+            "org-1", "bot-1", "2026-07-01T00:00:00+00:00", "2026-08-01T00:00:00+00:00"
+        )
+
+    assert session.closed is True
+
+
+def test_backfill_task_is_registered_as_on_demand_not_cron() -> None:
+    """소급 평가는 관리자가 누를 때만 실행돼야 한다 — cron에 넣으면 매일 자동 실행된다."""
+    from app.workers.main import WorkerSettings
+
+    function_names = {fn.__name__ for fn in WorkerSettings.functions}
+    assert "backfill_answer_quality" in function_names
+    assert len(WorkerSettings.cron_jobs) == 2
+
+
+def test_enqueue_quality_backfill_returns_false_when_arq_disabled(monkeypatch) -> None:
+    """USE_ARQ_WORKER=false면 라우터가 BackgroundTasks로 폴백해야 한다 — enqueue는 시도조차 안 한다."""
+    monkeypatch.setattr(worker_dispatch.settings, "use_arq_worker", False)
+    assert (
+        worker_dispatch.enqueue_quality_backfill(
+            "org-1", "bot-1", "2026-07-01T00:00:00+00:00", "2026-08-01T00:00:00+00:00"
+        )
+        is False
+    )
+
+
 # ── FIX B(리뷰): 소급 평가 기간은 리포트 화면과 같은 함수로 정규화한다 ────────
 # 이전에는 datetime.fromisoformat(date)를 그대로 썼다 — naive datetime이 종료일을
 # 배타(exclusive)로 취급해 마지막 날짜가 빠지고, DB 세션 타임존(Asia/Seoul)에서
@@ -874,16 +970,7 @@ def test_estimate_backfill_cost_usd_uses_average_token_assumption() -> None:
 # 채점되지 않은 채 방치됐다("다음 날 새벽부터 채점이 시작됩니다"라고 안내하고
 # 조용히 방치). run_nightly_evaluation()이 그 루프의 유일한 사본이어야 하고,
 # Arq 크론과 APScheduler 폴백이 이 함수 하나를 공유해야 한다.
-
-
-class _FakeSessionWithClose:
-    """close()만 관찰하면 되는 최소 세션 스텁 — SessionLocal() 자리를 대신한다."""
-
-    def __init__(self) -> None:
-        self.closed = False
-
-    def close(self) -> None:
-        self.closed = True
+# (_FakeSessionWithClose는 위 FIX A 섹션에서 이미 정의했다 — 재사용한다.)
 
 
 def test_run_nightly_evaluation_sums_totals_across_enabled_chatbots(monkeypatch) -> None:

@@ -28,6 +28,35 @@ def is_arq_enabled() -> bool:
     return bool(settings.use_arq_worker and settings.api_redis_url)
 
 
+def _enqueue_sync(job_name: str, *args: Any) -> None:
+    """sync 호출자를 위한 단발성 Arq enqueue. enqueue_reindex/enqueue_quality_backfill이 공유한다.
+
+    "이미 도는 이벤트 루프가 있는가"를 판별해 처리 방식을 나눈다 — 없으면
+    (정상 sync 컨텍스트) 새 루프를 바로 돌리고, 있으면(비정상 — sync 호출자가
+    async 컨텍스트에서 불렸다는 뜻) to_thread로 격리해 새 루프에서 실행한다.
+    """
+
+    async def _go() -> None:
+        from arq.connections import RedisSettings, create_pool  # noqa: PLC0415
+
+        pool = await create_pool(RedisSettings.from_dsn(settings.api_redis_url))
+        try:
+            await pool.enqueue_job(job_name, *args)
+        finally:
+            await pool.close()
+
+    try:
+        asyncio.get_running_loop()
+        # 러닝 루프가 있으면 이 함수를 sync에서 호출한 게 아니라는 뜻 — 비정상.
+        # 안전하게 to_thread로 격리해서 새 루프에서 실행.
+        import concurrent.futures  # noqa: PLC0415
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool_exec:
+            pool_exec.submit(lambda: asyncio.run(_go())).result(timeout=10)
+    except RuntimeError:
+        # 러닝 루프 없음 — 정상 sync 컨텍스트
+        asyncio.run(_go())
+
+
 def enqueue_reindex(
     principal: AdminPrincipal,
     knowledge_id: str,
@@ -37,30 +66,8 @@ def enqueue_reindex(
     if not is_arq_enabled():
         return False
 
-    payload = (_principal_to_dict(principal), knowledge_id, job_id)
-
-    async def _go() -> None:
-        from arq.connections import RedisSettings, create_pool  # noqa: PLC0415
-
-        pool = await create_pool(RedisSettings.from_dsn(settings.api_redis_url))
-        try:
-            await pool.enqueue_job("process_reindex_job", *payload)
-        finally:
-            await pool.close()
-
     try:
-        # threadpool에서 호출되는 경우(sync route) — 새 이벤트 루프 OK
-        # 이미 이벤트 루프가 도는 컨텍스트(async route)면 asyncio.run이 RuntimeError
-        try:
-            asyncio.get_running_loop()
-            # 러닝 루프가 있으면 이 함수를 sync에서 호출한 게 아니라는 뜻 — 비정상.
-            # 안전하게 to_thread로 격리해서 새 루프에서 실행.
-            import concurrent.futures  # noqa: PLC0415
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool_exec:
-                pool_exec.submit(lambda: asyncio.run(_go())).result(timeout=10)
-        except RuntimeError:
-            # 러닝 루프 없음 — 정상 sync 컨텍스트
-            asyncio.run(_go())
+        _enqueue_sync("process_reindex_job", _principal_to_dict(principal), knowledge_id, job_id)
         logger.info(
             "[ARQ_DISPATCH] enqueued reindex knowledge_id=%s job_id=%s",
             knowledge_id, job_id,
@@ -70,5 +77,30 @@ def enqueue_reindex(
         logger.error(
             "[ARQ_DISPATCH_FAILED] knowledge_id=%s job_id=%s error=%s — falling back",
             knowledge_id, job_id, exc,
+        )
+        return False
+
+
+def enqueue_quality_backfill(
+    organization_id: str,
+    chatbot_id: str,
+    start_iso: str,
+    end_iso: str,
+) -> bool:
+    """소급 평가 enqueue 헬퍼. 실패 시 False 반환(호출자는 BackgroundTasks로 fallback)."""
+    if not is_arq_enabled():
+        return False
+
+    try:
+        _enqueue_sync("backfill_answer_quality", organization_id, chatbot_id, start_iso, end_iso)
+        logger.info(
+            "[ARQ_DISPATCH] enqueued quality backfill chatbot_id=%s",
+            chatbot_id,
+        )
+        return True
+    except Exception as exc:
+        logger.error(
+            "[ARQ_DISPATCH_FAILED] quality backfill chatbot_id=%s error=%s — falling back",
+            chatbot_id, exc,
         )
         return False

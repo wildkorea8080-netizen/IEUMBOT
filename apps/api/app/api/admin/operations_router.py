@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.dependencies.auth import AdminPrincipal, require_institution_admin_auth
@@ -143,10 +143,17 @@ class QualityBackfillEstimate(ApiSchema):
     capped: bool
 
 
-class QualityBackfillResult(ApiSchema):
-    evaluated: int
-    skipped: int
-    failed: int
+class QualityBackfillQueued(ApiSchema):
+    """실행(POST)의 응답. 채점은 여기서 끝나지 않았다 — 워커에 넣었을 뿐이다.
+
+    이전에는 이 엔드포인트가 evaluate_chatbot_range를 HTTP 요청 안에서 동기로
+    돌려 evaluated/skipped/failed 건수를 즉시 돌려줬다. 최악 5,000건 × 최대 3회
+    LLM 호출 × 30초 타임아웃을 요청 하나가 붙들면 프록시가 끊는다 — 그래서 이제
+    건수를 셀 뿐 실행은 워커가 한다. 완료 건수를 이 응답에 담을 수 없는 이유다.
+    """
+
+    queued: bool
+    target_count: int
 
 
 @router.get("/quality-report/backfill/estimate", response_model=QualityBackfillEstimate)
@@ -189,39 +196,69 @@ def admin_quality_backfill_estimate(
     )
 
 
-@router.post("/quality-report/backfill", response_model=QualityBackfillResult)
+@router.post(
+    "/quality-report/backfill",
+    response_model=QualityBackfillQueued,
+    status_code=status.HTTP_202_ACCEPTED,
+)
 def admin_quality_backfill(
+    background_tasks: BackgroundTasks,
     chatbot_id: str = Query(alias="chatbotId"),
     start_date: str = Query(alias="startDate"),
     end_date: str = Query(alias="endDate"),
     principal: AdminPrincipal = Depends(require_institution_admin_auth),
     db: Session = Depends(get_db_session),
-) -> QualityBackfillResult:
-    """지정 기간 소급 평가. 이미 평가된 건은 UNIQUE 제약으로 자동 제외된다.
+) -> QualityBackfillQueued:
+    """지정 기간 소급 평가를 큐에 넣는다 — HTTP 요청 안에서 동기로 돌리지 않는다.
 
-    /quality-report·견적 엔드포인트와 같은 _normalize_quality_date_range를 써서
-    기간 경계를 맞춘다 — naive datetime.fromisoformat은 종료일을 배타(exclusive)로
-    취급해 마지막 날짜가 빠지고, DB 세션 타임존(Asia/Seoul)에서 재해석되며 한 번 더
-    밀렸다.
+    이전에는 이 핸들러가 evaluate_chatbot_range를 직접(동기) 호출했다. 최악
+    5,000건 × 최대 3회 LLM 호출 × 30초 타임아웃이 요청 하나 안에서 DB 커넥션과
+    스레드풀 슬롯을 붙잡는다. 프록시가 커넥션을 끊으면 관리자는 에러를 보고
+    다시 누르고, 겹친 두 배치가 충돌한다.
+
+    knowledge_service._dispatch_reindex와 같은 구조: Arq가 켜져 있으면 enqueue,
+    아니면 BackgroundTasks로 폴백. 실제 채점은 워커가 하고, 완료되면 품질
+    리포트 화면에 반영된다. 이미 평가된 건은 message_id UNIQUE로 자동 제외.
     """
     from app.services.admin.operations_service import (  # noqa: PLC0415
         _normalize_quality_date_range,
     )
-    from app.services.quality.evaluation_service import evaluate_chatbot_range  # noqa: PLC0415
+    from app.services.quality.evaluation_service import (  # noqa: PLC0415
+        count_evaluable_messages,
+        run_backfill_batch,
+    )
+    from app.workers.dispatch import enqueue_quality_backfill, is_arq_enabled  # noqa: PLC0415
 
     ensure_chatbot_in_scope(db, principal=principal, chatbot_id=chatbot_id)
     organization_id = require_institution_organization_id(principal)
     start_at, end_at = _normalize_quality_date_range(start_date, end_date)
-    result = evaluate_chatbot_range(
-        db,
-        organization_id=organization_id,
-        chatbot_id=chatbot_id,
-        start_at=start_at,
-        end_at=end_at,
+    # 견적(estimate) 엔드포인트와 동일한 함수로 세야 화면에 보여준 건수와
+    # 실제로 워커에 넘기는 대상이 어긋나지 않는다.
+    target_count, _capped = count_evaluable_messages(
+        db, chatbot_id=chatbot_id, start_at=start_at, end_at=end_at
     )
-    return QualityBackfillResult(
-        evaluated=result["evaluated"], skipped=result["skipped"], failed=result["failed"]
-    )
+
+    if is_arq_enabled() and enqueue_quality_backfill(
+        organization_id, chatbot_id, start_at.isoformat(), end_at.isoformat()
+    ):
+        logger.info(
+            "[QUALITY_BACKFILL_DISPATCH] path=arq chatbot_id=%s target_count=%d",
+            chatbot_id, target_count,
+        )
+    else:
+        background_tasks.add_task(
+            run_backfill_batch,
+            organization_id,
+            chatbot_id,
+            start_at.isoformat(),
+            end_at.isoformat(),
+        )
+        logger.info(
+            "[QUALITY_BACKFILL_DISPATCH] path=background_tasks chatbot_id=%s target_count=%d",
+            chatbot_id, target_count,
+        )
+
+    return QualityBackfillQueued(queued=True, target_count=target_count)
 
 
 @router.get("/knowledge-gap", response_model=AdminKnowledgeGapResponse)
