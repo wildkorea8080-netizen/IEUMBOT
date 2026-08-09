@@ -27,10 +27,17 @@ from app.services.llm_api_config_runtime_service import resolve_runtime_api_conf
 logger = logging.getLogger(__name__)
 
 # ── 상수 ───────────────────────────────────────────────────────────────────────
-_TOPIC_SAMPLE_CHARS_PER_CHUNK = 200   # 주제 분석용 청크 샘플 길이
-_TOPIC_MAX_TOTAL_CHARS = 6000         # 주제 분석 프롬프트 최대 길이
-_FAQ_CHUNK_CHARS = 600                # FAQ 생성 시 청크당 최대 길이
-_FAQ_MAX_CONTEXT_CHARS = 4000         # FAQ 생성 프롬프트 최대 길이
+# 예전 값(청크당 200자·총 6,000자)은 컨텍스트가 좁던 시절 설계다. 그 결과 10만 자
+# 문서에서 앞 29청크의 앞 200자, 즉 전체의 6%만 보고 주제를 뽑았다 — 사실상
+# 표지·목차·인사말만 읽은 셈이라 비슷한 주제가 중복으로 나오고, 문장 중간에서
+# 잘린 조각 탓에 내용도 어긋났다. 상위 모델은 컨텍스트가 넉넉하므로 전문을 넣는다.
+#
+# 12만 자로 잡은 이유: 한국어는 토큰당 글자 수가 적어 12만 자면 대략 10만 토큰이다.
+# gpt-4.1(1M)은 물론 컨텍스트가 200k인 Claude 계열에서도 출력 여유를 남기고 들어간다.
+# 컨텍스트를 넘기면 호출이 통째로 실패해 FAQ가 하나도 안 나오므로, 커버리지를 조금
+# 포기하더라도 어느 provider에서든 도는 값을 쓴다. 50페이지 문서(약 10만 자)는 전문이 들어간다.
+_TOPIC_MAX_TOTAL_CHARS = 120_000      # 주제 분석 프롬프트 최대 길이
+_FAQ_MAX_CONTEXT_CHARS = 30_000       # 주제별 FAQ 생성 프롬프트 최대 길이
 
 # ── 프롬프트: 주제 추출 ────────────────────────────────────────────────────────
 _TOPIC_EXTRACTION_SYSTEM = """당신은 공공기관 문서를 분석해 핵심 주제를 추출하는 전문가입니다.
@@ -40,7 +47,11 @@ _TOPIC_EXTRACTION_SYSTEM = """당신은 공공기관 문서를 분석해 핵심 
 1. 문서 내용에 존재하는 주제만 추출 (추측 금지)
 2. 각 주제는 독립적이고 실질적 내용을 가져야 함
 3. 너무 세부적이거나 너무 광범위하지 않게
-4. 반드시 JSON 배열만 반환"""
+4. **주제끼리 겹치면 안 된다.** 같은 내용을 표현만 바꿔 두 번 넣지 말고,
+   서로 다른 질문에 답하는 주제로 나눌 것
+5. 표지·목차·인사말·연혁처럼 시민이 질문하지 않을 부분은 주제로 잡지 말 것
+6. 문서 전체에 걸쳐 고르게 뽑을 것 — 앞부분에만 쏠리지 않게
+7. 반드시 JSON 배열만 반환"""
 
 _TOPIC_EXTRACTION_USER = """다음은 문서 "{title}"의 청크 샘플입니다.
 
@@ -177,20 +188,46 @@ def _call_llm(runtime_api, system_prompt: str, user_prompt: str, max_tokens: int
         return ""
 
 
+def _select_sample_indices(chunk_texts: list[str], budget_chars: int) -> list[int]:
+    """예산 안에 담을 청크 번호를 고른다.
+
+    전부 들어가면 전부 쓴다. 넘칠 때는 앞에서 자르지 않고 **문서 전체에 걸쳐
+    균등 간격으로** 고른다 — 앞에서만 자르면 표지·목차만 읽고 주제를 뽑게 되어
+    비슷한 주제가 반복되고 문서 뒷부분(신청 자격·기간·구비서류 등)이 통째로 빠진다.
+
+    청크는 자르지 않고 통째로 담는다. 문장 중간에서 끊긴 조각은 맥락이 무너져
+    많이 담는 것보다 온전한 것을 적게 담는 편이 낫다.
+    """
+    if not chunk_texts:
+        return []
+
+    total = sum(len(t.strip()) for t in chunk_texts)
+    if total <= budget_chars:
+        return list(range(len(chunk_texts)))
+
+    average = max(1, total // len(chunk_texts))
+    affordable = max(1, budget_chars // average)
+    if affordable >= len(chunk_texts):
+        return list(range(len(chunk_texts)))
+
+    step = len(chunk_texts) / affordable
+    return sorted({min(len(chunk_texts) - 1, int(i * step)) for i in range(affordable)})
+
+
 def _build_chunk_samples(chunk_texts: list[str]) -> tuple[str, int]:
     """
-    전체 청크에서 주제 분석용 샘플 텍스트를 구성.
-    반환: (샘플 텍스트, 실제 포함된 청크 수)
+    전체 청크에서 주제 분석용 텍스트를 구성.
+    반환: (텍스트, 실제 포함된 청크 수)
     """
     samples: list[str] = []
     total_chars = 0
-    for i, text in enumerate(chunk_texts):
-        if total_chars >= _TOPIC_MAX_TOTAL_CHARS:
-            break
-        snippet = text.strip()[:_TOPIC_SAMPLE_CHARS_PER_CHUNK]
-        if not snippet:
+    for i in _select_sample_indices(chunk_texts, _TOPIC_MAX_TOTAL_CHARS):
+        text = chunk_texts[i].strip()
+        if not text:
             continue
-        line = f"[청크 {i}] {snippet}"
+        line = f"[청크 {i}] {text}"
+        if total_chars + len(line) > _TOPIC_MAX_TOTAL_CHARS and samples:
+            break
         samples.append(line)
         total_chars += len(line)
     return "\n\n".join(samples), len(samples)
@@ -215,7 +252,9 @@ def _extract_topics(
         chunk_samples=chunk_samples,
         max_topics=max_topics,
     )
-    raw = _call_llm(runtime_api, _TOPIC_EXTRACTION_SYSTEM, user_prompt, max_tokens=1200)
+    # 문서 전문을 보게 됐으니 주제마다 인용 청크 번호도 길어진다. 출력이 잘리면
+    # JSON이 깨져 주제가 통째로 사라지므로 여유를 준다.
+    raw = _call_llm(runtime_api, _TOPIC_EXTRACTION_SYSTEM, user_prompt, max_tokens=4000)
     topics = _parse_json_list(raw)
 
     validated: list[dict] = []
@@ -241,19 +280,24 @@ def _extract_topics(
 
 
 def _select_chunks_for_topic(chunk_texts: list[str], chunk_indices: list[int]) -> str:
-    """주제에 관련된 청크를 연결해 컨텍스트 문자열 반환."""
-    # chunk_indices가 비어있으면 전체에서 균등 샘플
+    """주제에 관련된 청크를 연결해 컨텍스트 문자열 반환.
+
+    청크는 자르지 않는다. 예전에는 600자로 잘라 넣어 답변이 문장 중간에서
+    끊기거나 근거를 놓쳤다.
+    """
+    # chunk_indices가 비어 있으면 문서 전체에서 균등 추출한다(앞부분 편중 방지).
     if not chunk_indices:
-        step = max(1, len(chunk_texts) // 5)
-        chunk_indices = list(range(0, len(chunk_texts), step))[:5]
+        chunk_indices = _select_sample_indices(chunk_texts, _FAQ_MAX_CONTEXT_CHARS)
 
     parts: list[str] = []
     total = 0
     for idx in chunk_indices:
         if idx >= len(chunk_texts):
             continue
-        text = chunk_texts[idx].strip()[:_FAQ_CHUNK_CHARS]
-        if total + len(text) > _FAQ_MAX_CONTEXT_CHARS:
+        text = chunk_texts[idx].strip()
+        if not text:
+            continue
+        if total + len(text) > _FAQ_MAX_CONTEXT_CHARS and parts:
             break
         parts.append(text)
         total += len(text)
@@ -282,7 +326,7 @@ def _generate_faqs_for_topic(
         content=context,
         count=faqs_per_topic,
     )
-    raw = _call_llm(runtime_api, _FAQ_PER_TOPIC_SYSTEM, user_prompt, max_tokens=800)
+    raw = _call_llm(runtime_api, _FAQ_PER_TOPIC_SYSTEM, user_prompt, max_tokens=2000)
     items = _parse_json_list(raw)
 
     result: list[dict] = []
