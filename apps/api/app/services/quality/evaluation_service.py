@@ -187,11 +187,12 @@ def _evaluate_one(db: Session, *, organization_id: str, message: Any) -> None:
         insert_evaluation(db, row=row)
         return
 
+    previous_turn = _previous_turn(db, message=message)
     user_prompt = build_evaluation_prompt(
         question=message.normalized_query or "",
         answer=message.content or "",
         sources=sources,
-        previous_turn=_previous_turn(db, message=message),
+        previous_turn=previous_turn,
         followups=followups,
     )
 
@@ -219,7 +220,9 @@ def _evaluate_one(db: Session, *, organization_id: str, message: Any) -> None:
     row.method = "llm"
     row.evaluator_model = model
     row.relevance_score = parsed.relevance_score
-    row.context_score = parsed.context_score
+    # 직전 대화가 없으면 맥락 유지는 성립하지 않는다. 모델이 점수를 줘도 버린다.
+    # 프롬프트가 null을 요청할 뿐 강제하지 못하므로 여기서 게이트를 건다.
+    row.context_score = parsed.context_score if previous_turn is not None else None
     if pre.groundedness_score is None:
         row.groundedness_score = parsed.groundedness_score
     if not pre.followup_decided:

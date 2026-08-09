@@ -488,3 +488,45 @@ def test_faq_rule_groundedness_wins_over_llm_guess(monkeypatch) -> None:
     row = db.added[0]
     assert row.method == "llm"
     assert row.groundedness_score == 100
+
+
+# ── FIX 2: 첫 턴에는 맥락 유지 점수를 저장하지 않는다 ─────────────────────────
+# 프롬프트는 모델에게 null을 "요청"할 뿐 강제하지 못한다. 모델이 점수를 줘도
+# 직전 대화가 없으면 호출부가 버려야 한다 — 그렇지 않으면 성립하지 않는 지표에
+# 값이 채워져 충족률이 오염된다.
+
+_LLM_RESPONSE_WITH_CONTEXT_SCORE = (
+    '{"relevance": {"reason": "질문에 답함", "score": 92},'
+    '"groundedness": {"reason": "근거와 일치", "score": 88},'
+    '"context": {"reason": "직전 대화를 잘 이어받음", "score": 88},'
+    '"topicDrift": {"reason": "업무 범위 내", "drift": false},'
+    '"followup": {"reason": "맥락에 맞음", "score": 80}}'
+)
+
+
+def test_context_score_discarded_when_no_previous_turn(monkeypatch) -> None:
+    """첫 턴인데 모델이 88점을 줘도 저장하면 안 된다 — 성립하지 않는 지표다."""
+    _patch_call_evaluator(monkeypatch, _LLM_RESPONSE_WITH_CONTEXT_SCORE)
+    monkeypatch.setattr(evaluation_service, "_previous_turn", lambda db, *, message: None)
+
+    db = _FakeDB()
+    message = _make_eval_message(selected_sources=[{"id": "s1", "textPreview": "근거 내용"}])
+    evaluation_service._evaluate_one(db, organization_id=str(uuid.uuid4()), message=message)
+
+    row = db.added[0]
+    assert row.context_score is None
+
+
+def test_context_score_kept_when_previous_turn_exists(monkeypatch) -> None:
+    """직전 대화가 있으면 모델 점수를 그대로 저장한다."""
+    _patch_call_evaluator(monkeypatch, _LLM_RESPONSE_WITH_CONTEXT_SCORE)
+    monkeypatch.setattr(
+        evaluation_service, "_previous_turn", lambda db, *, message: "직전 질문 내용"
+    )
+
+    db = _FakeDB()
+    message = _make_eval_message(selected_sources=[{"id": "s1", "textPreview": "근거 내용"}])
+    evaluation_service._evaluate_one(db, organization_id=str(uuid.uuid4()), message=message)
+
+    row = db.added[0]
+    assert row.context_score == 88
