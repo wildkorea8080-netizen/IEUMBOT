@@ -791,6 +791,25 @@ def test_batch_level_failure_records_tokens_from_exception(monkeypatch) -> None:
     assert recorded == [(777, 33)]
 
 
+# ── FIX B(리뷰): 소급 평가 기간은 리포트 화면과 같은 함수로 정규화한다 ────────
+# 이전에는 datetime.fromisoformat(date)를 그대로 썼다 — naive datetime이 종료일을
+# 배타(exclusive)로 취급해 마지막 날짜가 빠지고, DB 세션 타임존(Asia/Seoul)에서
+# 재해석되며 한 번 더 밀렸다. _normalize_quality_date_range는 tz-aware +
+# 종료일 포함이다 — 리포트 화면과 소급 평가가 정확히 같은 기간을 봐야 한다.
+
+from app.services.admin.operations_service import _normalize_quality_date_range  # noqa: E402
+
+
+def test_backfill_date_range_matches_report_semantics() -> None:
+    start_at, end_at = _normalize_quality_date_range("2026-07-01", "2026-07-31")
+
+    assert start_at.tzinfo is not None
+    assert end_at.tzinfo is not None
+    assert start_at == datetime(2026, 7, 1, tzinfo=UTC)
+    # 07-31이 끝(exclusive)나는 경계는 08-01 00:00 — 07-31 하루 전체가 포함된다.
+    assert end_at == datetime(2026, 8, 1, tzinfo=UTC)
+
+
 # ── FIX C(리뷰): 소급 평가 견적은 실제로 채점될 건수만 센다 ───────────────────
 # list_unevaluated_messages는 selector 규칙(인사말·캐시히트·미답변 등)을 모른다.
 # 그 원시 건수를 그대로 견적에 쓰면 관리자가 부풀려진 금액을 보고 승인한다.

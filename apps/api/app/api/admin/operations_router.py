@@ -161,23 +161,26 @@ def admin_quality_backfill_estimate(
 ) -> QualityBackfillEstimate:
     """소급 평가 대상 건수와 예상 비용. 실행 전에 반드시 보여준다.
 
+    /quality-report와 같은 _normalize_quality_date_range를 써서 기간 경계를 맞춘다
+    (종료일 포함·KST 타임존 부여) — naive datetime을 그대로 쓰면 하루가 모자라고,
+    화면에 보이는 기간과 실제로 채점되는 기간이 어긋난다.
+
     list_unevaluated_messages의 원시 건수가 아니라 count_evaluable_messages로
     should_evaluate 필터를 적용한 실제 채점 대상만 센다 — 인사말·캐시히트·
     미답변 건까지 세면 관리자가 부풀려진 금액을 보고 승인하게 된다.
     """
-    from datetime import datetime  # noqa: PLC0415
-
+    from app.services.admin.operations_service import (  # noqa: PLC0415
+        _normalize_quality_date_range,
+    )
     from app.services.quality.evaluation_service import (  # noqa: PLC0415
         count_evaluable_messages,
         estimate_backfill_cost_usd,
     )
 
     ensure_chatbot_in_scope(db, principal=principal, chatbot_id=chatbot_id)
+    start_at, end_at = _normalize_quality_date_range(start_date, end_date)
     target_count, capped = count_evaluable_messages(
-        db,
-        chatbot_id=chatbot_id,
-        start_at=datetime.fromisoformat(start_date),
-        end_at=datetime.fromisoformat(end_date),
+        db, chatbot_id=chatbot_id, start_at=start_at, end_at=end_at
     )
     return QualityBackfillEstimate(
         target_count=target_count,
@@ -194,19 +197,27 @@ def admin_quality_backfill(
     principal: AdminPrincipal = Depends(require_institution_admin_auth),
     db: Session = Depends(get_db_session),
 ) -> QualityBackfillResult:
-    """지정 기간 소급 평가. 이미 평가된 건은 UNIQUE 제약으로 자동 제외된다."""
-    from datetime import datetime  # noqa: PLC0415
+    """지정 기간 소급 평가. 이미 평가된 건은 UNIQUE 제약으로 자동 제외된다.
 
+    /quality-report·견적 엔드포인트와 같은 _normalize_quality_date_range를 써서
+    기간 경계를 맞춘다 — naive datetime.fromisoformat은 종료일을 배타(exclusive)로
+    취급해 마지막 날짜가 빠지고, DB 세션 타임존(Asia/Seoul)에서 재해석되며 한 번 더
+    밀렸다.
+    """
+    from app.services.admin.operations_service import (  # noqa: PLC0415
+        _normalize_quality_date_range,
+    )
     from app.services.quality.evaluation_service import evaluate_chatbot_range  # noqa: PLC0415
 
     ensure_chatbot_in_scope(db, principal=principal, chatbot_id=chatbot_id)
     organization_id = require_institution_organization_id(principal)
+    start_at, end_at = _normalize_quality_date_range(start_date, end_date)
     result = evaluate_chatbot_range(
         db,
         organization_id=organization_id,
         chatbot_id=chatbot_id,
-        start_at=datetime.fromisoformat(start_date),
-        end_at=datetime.fromisoformat(end_date),
+        start_at=start_at,
+        end_at=end_at,
     )
     return QualityBackfillResult(
         evaluated=result["evaluated"], skipped=result["skipped"], failed=result["failed"]
