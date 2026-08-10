@@ -217,6 +217,14 @@ PDF_TEXT_ALLOWED_CHAR_REGEX = re.compile(r"[0-9A-Za-z가-힣\s\.,:/()%\-·&]")
 # 환경변수로 운영 중 튜닝 가능 (로그 [INGEST_FLOW] *_score 관찰 후 조정).
 PDF_EXTRACTION_CLEAN_QUALITY = float(os.getenv("PDF_EXTRACTION_CLEAN_QUALITY", "0.78"))
 PDF_EXTRACTION_MIN_QUALITY = float(os.getenv("PDF_EXTRACTION_MIN_QUALITY", "0.62"))
+# Vision 추출 상한. 예전 20페이지 고정값은 긴 스캔본(수십~수백 쪽 매뉴얼/사례집)의
+# 뒷부분을 통째로 버려서, 목차만 읽고 본문을 놓치는 원인이었다.
+# 페이지당 LLM 1콜이므로 상한은 비용 가드 역할만 하고, 실제 지연은 아래 병렬도로 흡수한다.
+PDF_VISION_MAX_PAGES = int(os.getenv("PDF_VISION_MAX_PAGES", "200"))
+PDF_VISION_CONCURRENCY = max(1, int(os.getenv("PDF_VISION_CONCURRENCY", "6")))
+# 페이지 이미지는 장당 수 MB라 전체를 한 번에 들고 있으면 안 된다. 렌더 단위를 쪼갠다.
+_VISION_RENDER_BATCH_PAGES = 20
+_OCR_RENDER_BATCH_PAGES = 10
 MOJIBAKE_MARKER_REGEX = re.compile(r"(?:�|ì|ë|í|ê|ä|å|æ|媛|蹂|諛|쒖|섏|덈|듬)")
 
 # ── BM25 한국어 bigram 색인 ────────────────────────────────────────────────────
@@ -2739,31 +2747,57 @@ def _extract_pdf_text_via_ocr(file_bytes: bytes) -> str:
     except Exception:  # noqa: BLE001
         return ""
 
+    # 220dpi 페이지 이미지는 장당 10MB를 넘는다. 전체를 한 번에 렌더링하면
+    # 긴 스캔본에서 메모리가 터지므로 배치로 나눠 렌더·인식·해제한다.
     try:
-        images = convert_from_bytes(
-            file_bytes,
-            dpi=PDF_OCR_DPI,
-            fmt="png",
-            thread_count=1,
-        )
+        from pypdf import PdfReader  # type: ignore
+
+        total_pages = len(PdfReader(BytesIO(file_bytes)).pages)
     except Exception:  # noqa: BLE001
-        return ""
+        total_pages = 0
 
     parts: list[str] = []
-    for image in images:
-        prepared = ImageOps.autocontrast(ImageOps.grayscale(image))
-        binary = prepared.point(lambda value: 255 if value > 170 else 0)
-        recognized = ""
-        for lang in ("kor+eng", "eng"):
-            try:
-                recognized = pytesseract.image_to_string(binary, lang=lang)
-            except Exception:  # noqa: BLE001
-                continue
-            if _strip_binary_noise(recognized):
-                break
-        cleaned = _strip_binary_noise(recognized)
-        if cleaned:
-            parts.append(cleaned)
+
+    def _recognize(images) -> None:
+        for image in images:
+            prepared = ImageOps.autocontrast(ImageOps.grayscale(image))
+            binary = prepared.point(lambda value: 255 if value > 170 else 0)
+            recognized = ""
+            for lang in ("kor+eng", "eng"):
+                try:
+                    recognized = pytesseract.image_to_string(binary, lang=lang)
+                except Exception:  # noqa: BLE001
+                    continue
+                if _strip_binary_noise(recognized):
+                    break
+            cleaned = _strip_binary_noise(recognized)
+            if cleaned:
+                parts.append(cleaned)
+
+    if total_pages <= 0:
+        # 페이지 수를 못 구하면 기존 동작(일괄 렌더)으로 폴백한다.
+        try:
+            images = convert_from_bytes(file_bytes, dpi=PDF_OCR_DPI, fmt="png", thread_count=1)
+        except Exception:  # noqa: BLE001
+            return ""
+        _recognize(images)
+        return _normalize_text_blocks(parts)
+
+    for batch_start in range(1, total_pages + 1, _OCR_RENDER_BATCH_PAGES):
+        batch_end = min(batch_start + _OCR_RENDER_BATCH_PAGES - 1, total_pages)
+        try:
+            images = convert_from_bytes(
+                file_bytes,
+                dpi=PDF_OCR_DPI,
+                fmt="png",
+                first_page=batch_start,
+                last_page=batch_end,
+                thread_count=1,
+            )
+        except Exception:  # noqa: BLE001
+            continue
+        _recognize(images)
+        images.clear()
 
     return _normalize_text_blocks(parts)
 
@@ -2772,13 +2806,14 @@ def _extract_pdf_text_via_vision(
     file_bytes: bytes,
     db,
     *,
-    max_pages: int = 20,
+    max_pages: int = PDF_VISION_MAX_PAGES,
 ) -> str:
     """
     PDF를 페이지별 이미지로 변환 후 LLM Vision으로 텍스트 추출.
     표/다단 레이아웃/스캔 문서에 효과적.
     """
     import base64
+    import concurrent.futures  # noqa: PLC0415
     import io as _io
 
     try:
@@ -2787,18 +2822,21 @@ def _extract_pdf_text_via_vision(
         logger.warning("pdf2image not available for vision extraction")
         return ""
 
+    # 전체 페이지를 한 번에 렌더링하면 페이지 수에 비례해 메모리가 늘어난다
+    # (150dpi A4 ≈ 6MB/장 → 200장이면 1GB+). 배치로 나눠 렌더·추출·해제한다.
     try:
-        images = convert_from_bytes(
-            file_bytes,
-            dpi=150,
-            fmt="png",
-            first_page=1,
-            last_page=max_pages,
-            thread_count=1,
+        from pypdf import PdfReader  # type: ignore
+
+        total_pages = len(PdfReader(_io.BytesIO(file_bytes)).pages)
+    except Exception:  # noqa: BLE001
+        total_pages = max_pages
+    page_count = max(1, min(total_pages or max_pages, max_pages))
+    if total_pages > page_count:
+        logger.warning(
+            "[INGEST_FLOW] phase=vision_page_cap total_pages=%s capped_to=%s",
+            total_pages,
+            page_count,
         )
-    except Exception as e:
-        logger.warning(f"pdf2image conversion failed for vision: {e}")
-        return ""
 
     from app.services.chat.answer_generation_service import (  # noqa: PLC0415
         _build_anthropic_client,
@@ -2842,9 +2880,7 @@ def _extract_pdf_text_via_vision(
         logger.warning(f"Vision not supported for provider: {provider}")
         return ""
 
-    extracted_pages: list[str] = []
-
-    for i, img in enumerate(images):
+    def _extract_one_page(index: int, img) -> str:
         buf = _io.BytesIO()
         img.save(buf, format="PNG")
         img_b64 = base64.b64encode(buf.getvalue()).decode()
@@ -2902,12 +2938,53 @@ def _extract_pdf_text_via_vision(
                             break
 
             if page_text:
-                extracted_pages.append(f"[페이지 {i + 1}]\n{page_text}")
+                return f"[페이지 {index + 1}]\n{page_text}"
+            return ""
 
         except Exception as e:
-            logger.warning(f"Vision extraction failed page {i + 1}: {e}")
+            logger.warning(f"Vision extraction failed page {index + 1}: {e}")
+            return ""
+
+    # 페이지당 LLM 1콜이라 순차 실행하면 페이지 수에 비례해 몇 분씩 늘어난다.
+    # 페이지 간 의존이 없으므로 스레드로 병렬 처리하고, 결과는 페이지 순서대로 되돌린다.
+    workers = max(1, min(PDF_VISION_CONCURRENCY, page_count))
+    extracted_pages: list[str] = []
+    rendered = 0
+
+    for batch_start in range(1, page_count + 1, _VISION_RENDER_BATCH_PAGES):
+        batch_end = min(batch_start + _VISION_RENDER_BATCH_PAGES - 1, page_count)
+        try:
+            images = convert_from_bytes(
+                file_bytes,
+                dpi=150,
+                fmt="png",
+                first_page=batch_start,
+                last_page=batch_end,
+                thread_count=1,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                f"pdf2image conversion failed for vision (p{batch_start}-{batch_end}): {e}"
+            )
             continue
 
+        rendered += len(images)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+            page_texts = list(
+                pool.map(
+                    lambda pair: _extract_one_page(*pair),
+                    enumerate(images, start=batch_start - 1),
+                )
+            )
+        extracted_pages.extend(text for text in page_texts if text)
+        images.clear()
+
+    logger.info(
+        "[INGEST_FLOW] phase=vision_done pages_rendered=%s pages_extracted=%s concurrency=%s",
+        rendered,
+        len(extracted_pages),
+        workers,
+    )
     return "\n\n".join(extracted_pages)
 
 

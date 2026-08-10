@@ -14,6 +14,7 @@
 
 import json
 import logging
+import os
 import re
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -36,8 +37,10 @@ logger = logging.getLogger(__name__)
 
 _CHUNK_SIZE = 1200
 _CHUNK_OVERLAP = 150
-_MAX_CHUNKS_PER_SESSION = 20
-_ANALYZE_CONCURRENCY = 4  # 청크 LLM 분석 병렬도 (DB 풀·LLM rate limit 고려한 보수적 값)
+# 20청크 = 약 24,000자. 수십 쪽짜리 매뉴얼·사례집이면 앞 몇 쪽(대개 일러두기·목차)만
+# 분석하고 본문을 통째로 버리게 되어, 추천 주제가 중복되고 내용이 잘리는 원인이었다.
+_MAX_CHUNKS_PER_SESSION = int(os.getenv("STAGING_MAX_CHUNKS", "200"))
+_ANALYZE_CONCURRENCY = max(1, int(os.getenv("STAGING_ANALYZE_CONCURRENCY", "6")))
 
 # 섹션 헤딩으로 인식할 패턴 (짧은 줄 + 특정 접두사)
 _HEADING_RE = re.compile(
