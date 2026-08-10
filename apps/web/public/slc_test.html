@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>수도권매립지관리공사 (챗봇 테스트 페이지)</title>
+  <style>
+    :root {
+      --blue: #0086e5;        /* 본 사이트 주색 */
+      --blue-dark: #00539c;
+      --green: #2e8b57;       /* 자원순환·친환경 */
+      --ink: #333;
+      --muted: #666;
+      --line: #e5e7eb;
+      --soft: #f5f7fa;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: "Pretendard", "Pretendard Variable", -apple-system, "Malgun Gothic", "맑은 고딕", "Noto Sans KR", sans-serif;
+      color: var(--ink); background: #fff; line-height: 1.55; letter-spacing: -0.01em;
+    }
+    a { color: inherit; text-decoration: none; }
+    ul { list-style: none; }
+    .wrap { max-width: 1200px; margin: 0 auto; padding: 0 20px; }
+    .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+    .notice-bar {
+      background: #fffbe6; border-bottom: 1px solid #ffe58f; color: #8a6d1f;
+      font-size: 13px; text-align: center; padding: 9px 20px;
+    }
+    .skip a { position: absolute; left: -9999px; }
+    .skip a:focus { left: 0; top: 0; z-index: 100; background: var(--blue-dark); color: #fff; padding: 10px 18px; }
+
+    /* 상단 유틸 */
+    .util { background: var(--soft); border-bottom: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+    .util .wrap { display: flex; justify-content: flex-end; align-items: center; height: 36px; gap: 16px; }
+    .util a:hover { color: var(--blue); }
+
+    /* 헤더 */
+    header { border-bottom: 1px solid var(--line); position: sticky; top: 0; background: #fff; z-index: 40; }
+    .head { display: flex; align-items: center; justify-content: space-between; height: 82px; }
+    .logo { display: flex; align-items: center; gap: 11px; }
+    .logo-mark {
+      width: 44px; height: 44px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--blue), var(--green));
+      display: flex; align-items: center; justify-content: center;
+      color: #fff; font-weight: 800; font-size: 13px;
+    }
+    .logo-text { font-size: 19px; font-weight: 800; letter-spacing: -0.03em; white-space: nowrap; }
+    .logo-text span { color: var(--blue); }
+    .gnb { display: flex; gap: 30px; }
+    .gnb > li > a { display: inline-block; font-size: 16px; font-weight: 600; padding: 29px 0; white-space: nowrap; }
+    .gnb > li > a:hover { color: var(--blue); }
+    .head-util { display: flex; gap: 8px; }
+    .btn-ghost {
+      border: 1px solid var(--line); border-radius: 999px; padding: 8px 15px;
+      font-size: 13px; font-weight: 600; color: var(--muted);
+    }
+    .btn-ghost:hover { border-color: var(--blue); color: var(--blue); }
+
+    /* 히어로 */
+    .hero { background: linear-gradient(120deg, var(--blue-dark), var(--blue) 55%, var(--green)); color: #fff; padding: 72px 0 64px; }
+    .hero-badge {
+      display: inline-block; background: rgba(255,255,255,.18); border: 1px solid rgba(255,255,255,.3);
+      border-radius: 999px; padding: 5px 14px; font-size: 13px; font-weight: 600; margin-bottom: 16px;
+    }
+    .hero h2 { font-size: 38px; font-weight: 800; letter-spacing: -0.04em; line-height: 1.28; }
+    .hero p { margin-top: 12px; font-size: 17px; opacity: .93; }
+    .hero-search { margin-top: 28px; display: flex; max-width: 540px; }
+    .hero-search input { flex: 1; border: none; border-radius: 999px 0 0 999px; padding: 15px 22px; font-size: 15px; outline: none; font-family: inherit; }
+    .hero-search button { border: none; border-radius: 0 999px 999px 0; padding: 0 30px; font-size: 15px; font-weight: 700; background: var(--ink); color: #fff; cursor: pointer; font-family: inherit; }
+
+    /* 퀵메뉴 */
+    .quick { border-bottom: 1px solid var(--line); }
+    .quick ul { display: grid; grid-template-columns: repeat(7, 1fr); }
+    .quick li + li { border-left: 1px solid var(--line); }
+    .quick a { display: flex; flex-direction: column; align-items: center; gap: 9px; padding: 24px 6px; font-size: 13px; font-weight: 600; text-align: center; }
+    .quick a:hover { background: var(--soft); color: var(--blue); }
+    .quick .ico { font-size: 25px; }
+
+    section { padding: 54px 0; }
+    section + section { border-top: 1px solid var(--line); }
+    .sec-head { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 24px; }
+    .sec-head h3 { font-size: 25px; font-weight: 800; letter-spacing: -0.03em; }
+    .sec-head p { color: var(--muted); font-size: 14px; margin-top: 6px; }
+    .more { font-size: 13px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 7px 15px; }
+    .more:hover { border-color: var(--blue); color: var(--blue); }
+
+    /* 공지 2단 */
+    .board-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 34px; }
+    .board h4 { font-size: 17px; font-weight: 800; margin-bottom: 12px; }
+    .board li { border-bottom: 1px solid #f1f5f9; }
+    .board li a { display: flex; justify-content: space-between; gap: 16px; padding: 12px 2px; font-size: 14px; }
+    .board li a:hover { color: var(--blue); }
+    .board .date { color: #9ca3af; font-size: 13px; flex-shrink: 0; }
+    .badge-notice { display: inline-block; font-size: 11px; font-weight: 700; color: var(--blue); background: #e6f3fd; border-radius: 4px; padding: 2px 7px; margin-right: 7px; }
+
+    /* 주요사업 */
+    .biz { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; }
+    .biz-card { border: 1px solid var(--line); border-radius: 14px; padding: 24px 20px; }
+    .biz-card:hover { border-color: var(--blue); }
+    .biz-card .ico { font-size: 28px; }
+    .biz-card strong { display: block; margin-top: 12px; font-size: 16px; font-weight: 800; }
+    .biz-card p { margin-top: 7px; font-size: 13px; color: var(--muted); line-height: 1.5; }
+
+    /* 시설 */
+    .places { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+    .place { border: 1px solid var(--line); border-radius: 12px; padding: 18px 12px; text-align: center; font-size: 14px; font-weight: 600; }
+    .place:hover { border-color: var(--green); color: var(--green); }
+    .place .ico { display: block; font-size: 22px; margin-bottom: 8px; }
+
+    footer { background: #2b3138; color: #b9bec4; padding: 38px 0 44px; font-size: 13px; }
+    .foot-links { display: flex; gap: 20px; padding-bottom: 18px; border-bottom: 1px solid #3c4147; flex-wrap: wrap; }
+    .foot-links a { font-weight: 600; color: #dfe3e7; }
+    .foot-links a.em { color: #ffd479; }
+    .foot-body { margin-top: 18px; line-height: 1.9; }
+
+    @media (max-width: 1180px) {
+      .gnb { display: none; }
+      .quick ul { grid-template-columns: repeat(4, 1fr); }
+      .biz { grid-template-columns: repeat(2, 1fr); }
+      .places { grid-template-columns: repeat(3, 1fr); }
+      .board-grid { grid-template-columns: 1fr; }
+      .hero h2 { font-size: 29px; }
+    }
+    @media (max-width: 600px) {
+      .quick ul { grid-template-columns: repeat(2, 1fr); }
+      .biz, .places { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="skip"><a href="#main">본문 바로가기</a></div>
+
+  <div class="notice-bar">
+    이 페이지는 <strong>AI 챗봇 테스트용</strong>으로 만든 화면입니다. 실제 수도권매립지관리공사 홈페이지가 아닙니다.
+    (원본: <a href="https://www.slc.or.kr/main.do" target="_blank" rel="noopener">www.slc.or.kr</a>)
+  </div>
+
+  <div class="util">
+    <div class="wrap">
+      <a href="#">ENGLISH</a>
+      <a href="#">개인정보처리방침</a>
+      <a href="#">정보공개</a>
+    </div>
+  </div>
+
+  <header>
+    <div class="wrap head">
+      <a href="#" class="logo">
+        <span class="logo-mark">SLC</span>
+        <span class="logo-text">수도권<span>매립지관리공사</span></span>
+      </a>
+      <nav aria-label="주메뉴">
+        <ul class="gnb">
+          <li><a href="#">주요사업</a></li>
+          <li><a href="#">고객서비스</a></li>
+          <li><a href="#">열린경영</a></li>
+          <li><a href="#">공사소개</a></li>
+        </ul>
+      </nav>
+      <div class="head-util">
+        <a href="#" class="btn-ghost">견학 예약</a>
+        <a href="#" class="btn-ghost">전자민원</a>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+    <div class="hero">
+      <div class="wrap">
+        <span class="hero-badge">자원순환 전문기관</span>
+        <h2>지역과 상생하며<br />탄소중립과 친환경에너지를 만듭니다</h2>
+        <p>폐기물 처리부터 드림파크 시설 이용까지, 궁금하신 내용을 안내해 드립니다.</p>
+        <form class="hero-search" onsubmit="return false;">
+          <label for="q" class="sr">통합검색</label>
+          <input id="q" type="search" placeholder="공지사항, 예약, 폐기물 반입 등을 검색해 보세요" />
+          <button type="submit">검색</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="quick">
+      <div class="wrap">
+        <ul>
+          <li><a href="#"><span class="ico">🚌</span>견학/교육 예약</a></li>
+          <li><a href="#"><span class="ico">⚽</span>체육시설 예약</a></li>
+          <li><a href="#"><span class="ico">🌸</span>야생화단지</a></li>
+          <li><a href="#"><span class="ico">♻️</span>폐기물 고객센터</a></li>
+          <li><a href="#"><span class="ico">⛳</span>드림파크 CC</a></li>
+          <li><a href="#"><span class="ico">🏃</span>스포츠센터</a></li>
+          <li><a href="#"><span class="ico">📄</span>전자민원</a></li>
+        </ul>
+      </div>
+    </div>
+
+    <section>
+      <div class="wrap">
+        <div class="board-grid">
+          <div class="board">
+            <h4>공지사항</h4>
+            <ul>
+              <li><a href="#"><span><span class="badge-notice">공고</span>수도권매립지관리공사 사장 초빙 공고</span><span class="date">2026-08-06</span></a></li>
+              <li><a href="#"><span><span class="badge-notice">공고</span>발전사업 허가신청 공고</span><span class="date">2026-08-06</span></a></li>
+              <li><a href="#"><span>제19회 폐기물·자원순환산업전(RE-WASTE) 안내</span><span class="date">2026-08-04</span></a></li>
+              <li><a href="#"><span>제18회 자원순환의 날 기념 탈플라스틱 행사</span><span class="date">2026-08-04</span></a></li>
+              <li><a href="#"><span>기간제근로자 채용 공고</span><span class="date">2026-07-30</span></a></li>
+            </ul>
+          </div>
+          <div class="board">
+            <h4>보도자료 · 공사소식</h4>
+            <ul>
+              <li><a href="#"><span>매립지 발생 바이오황 활용 교량 상판 보수용 콘크리트 기술 녹색기술 인증 획득</span><span class="date">2026-08-03</span></a></li>
+              <li><a href="#"><span>아시아 국회의원 물협의회 초청 발표 및 업무협약 체결</span><span class="date">2026-07-30</span></a></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="wrap">
+        <div class="sec-head">
+          <div>
+            <h3>주요사업</h3>
+            <p>자원순환과 친환경에너지 분야의 핵심 사업을 소개합니다.</p>
+          </div>
+          <a href="#" class="more">전체보기</a>
+        </div>
+        <div class="biz">
+          <a href="#" class="biz-card"><span class="ico">🗑️</span><strong>폐기물 매립</strong><p>수도권 폐기물의 안정적 처리와 매립지 운영·관리</p></a>
+          <a href="#" class="biz-card"><span class="ico">⚡</span><strong>친환경에너지</strong><p>매립가스 자원화, 발전사업을 통한 신재생에너지 생산</p></a>
+          <a href="#" class="biz-card"><span class="ico">🌱</span><strong>탄소중립</strong><p>온실가스 감축과 자원순환 기술 연구·실증</p></a>
+          <a href="#" class="biz-card"><span class="ico">🤝</span><strong>지역 상생</strong><p>주민지원사업과 드림파크 시설 개방·운영</p></a>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="wrap">
+        <div class="sec-head">
+          <div>
+            <h3>열린경영</h3>
+            <p>공사의 경영 정보를 투명하게 공개합니다.</p>
+          </div>
+          <a href="#" class="more">전체보기</a>
+        </div>
+        <div class="places">
+          <a href="#" class="place"><span class="ico">📊</span>경영공시</a>
+          <a href="#" class="place"><span class="ico">⚖️</span>윤리경영</a>
+          <a href="#" class="place"><span class="ico">📢</span>사전정보공표</a>
+          <a href="#" class="place"><span class="ico">🌿</span>환경경영</a>
+          <a href="#" class="place"><span class="ico">🏢</span>조직도</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <div class="foot-links">
+        <a href="#" class="em">개인정보처리방침</a>
+        <a href="#">영상정보처리기기 운영 관리방침</a>
+        <a href="#">저작권정책</a>
+        <a href="#">찾아오시는 길</a>
+      </div>
+      <div class="foot-body">
+        인천광역시 검단구 자원순환로 170 (우편번호 23592)<br />
+        대표전화 032-560-9300 / 야간·휴일 032-560-9402~3 / ARS 032-568-7123<br />
+        폐기물고객센터 032-560-9830 · 홈페이지 담당 032-560-9438<br />
+        ⓒ 2020. SUDOKWON LANDFILL SITE MANAGEMENT CORPORATION. All Rights Reserved.
+      </div>
+    </div>
+  </footer>
+
+  <!-- 이음봇 AI 대화 에이전트 -->
+  <script
+    src="https://chat.deepsecu.co.kr/widget.js"
+    data-chatbot-id="02368f97-1074-4451-8e4f-df2fe6153326"
+    data-api-base-url="https://api.deepsecu.co.kr/api"
+    data-open-on-load="false"
+    data-launcher-icon="custom"
+    data-launcher-icon-url="https://chat.deepsecu.co.kr/api/widget-icons/1785854363832-ieumbot_icon_2.png"
+    charset="UTF-8"
+  ></script>
+</body>
+</html>

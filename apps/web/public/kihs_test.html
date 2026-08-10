@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>한국수자원조사기술원 (챗봇 테스트 페이지)</title>
+  <style>
+    :root {
+      --navy: #005dab;        /* 본 사이트 주색 */
+      --navy-dark: #003f75;
+      --sky: #5597d1;
+      --ink: #222;
+      --muted: #666;
+      --line: #e5e7eb;
+      --soft: #f5f8fb;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: "Pretendard", "Pretendard Variable", -apple-system, "Malgun Gothic", "맑은 고딕", "Noto Sans KR", sans-serif;
+      color: var(--ink); background: #fff; line-height: 1.55; letter-spacing: -0.01em;
+    }
+    a { color: inherit; text-decoration: none; }
+    ul { list-style: none; }
+    .wrap { max-width: 1200px; margin: 0 auto; padding: 0 20px; }
+    .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+    .notice-bar {
+      background: #fffbe6; border-bottom: 1px solid #ffe58f; color: #8a6d1f;
+      font-size: 13px; text-align: center; padding: 9px 20px;
+    }
+    .skip a { position: absolute; left: -9999px; }
+    .skip a:focus { left: 0; top: 0; z-index: 100; background: var(--navy-dark); color: #fff; padding: 10px 18px; }
+
+    .util { background: var(--soft); border-bottom: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+    .util .wrap { display: flex; justify-content: flex-end; align-items: center; height: 36px; gap: 16px; }
+    .util a:hover { color: var(--navy); }
+
+    header { border-bottom: 1px solid var(--line); position: sticky; top: 0; background: #fff; z-index: 40; }
+    .head { display: flex; align-items: center; justify-content: space-between; height: 82px; }
+    .logo { display: flex; align-items: center; gap: 11px; }
+    .logo-mark {
+      width: 46px; height: 46px; border-radius: 12px;
+      background: linear-gradient(135deg, var(--navy-dark), var(--sky));
+      display: flex; align-items: center; justify-content: center;
+      color: #fff; font-weight: 800; font-size: 13px; letter-spacing: -0.03em;
+    }
+    .logo-text { font-size: 19px; font-weight: 800; letter-spacing: -0.03em; white-space: nowrap; }
+    .logo-text span { color: var(--navy); }
+    .gnb { display: flex; gap: 30px; }
+    .gnb > li > a { display: inline-block; font-size: 16px; font-weight: 600; padding: 29px 0; white-space: nowrap; }
+    .gnb > li > a:hover { color: var(--navy); }
+    .head-util { display: flex; gap: 8px; }
+    .btn-ghost { border: 1px solid var(--line); border-radius: 999px; padding: 8px 15px; font-size: 13px; font-weight: 600; color: var(--muted); }
+    .btn-ghost:hover { border-color: var(--navy); color: var(--navy); }
+
+    .hero { background: linear-gradient(120deg, var(--navy-dark), var(--navy) 60%, var(--sky)); color: #fff; padding: 72px 0 64px; }
+    .hero-badge { display: inline-block; background: rgba(255,255,255,.18); border: 1px solid rgba(255,255,255,.3); border-radius: 999px; padding: 5px 14px; font-size: 13px; font-weight: 600; margin-bottom: 16px; }
+    .hero h2 { font-size: 38px; font-weight: 800; letter-spacing: -0.04em; line-height: 1.28; }
+    .hero p { margin-top: 12px; font-size: 17px; opacity: .93; }
+    .hero-search { margin-top: 28px; display: flex; max-width: 540px; }
+    .hero-search input { flex: 1; border: none; border-radius: 999px 0 0 999px; padding: 15px 22px; font-size: 15px; outline: none; font-family: inherit; }
+    .hero-search button { border: none; border-radius: 0 999px 999px 0; padding: 0 30px; font-size: 15px; font-weight: 700; background: var(--ink); color: #fff; cursor: pointer; font-family: inherit; }
+
+    .quick { border-bottom: 1px solid var(--line); }
+    .quick ul { display: grid; grid-template-columns: repeat(6, 1fr); }
+    .quick li + li { border-left: 1px solid var(--line); }
+    .quick a { display: flex; flex-direction: column; align-items: center; gap: 9px; padding: 24px 6px; font-size: 13px; font-weight: 600; text-align: center; }
+    .quick a:hover { background: var(--soft); color: var(--navy); }
+    .quick .ico { font-size: 25px; }
+
+    section { padding: 54px 0; }
+    section + section { border-top: 1px solid var(--line); }
+    .sec-head { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 24px; }
+    .sec-head h3 { font-size: 25px; font-weight: 800; letter-spacing: -0.03em; }
+    .sec-head p { color: var(--muted); font-size: 14px; margin-top: 6px; }
+    .more { font-size: 13px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 7px 15px; }
+    .more:hover { border-color: var(--navy); color: var(--navy); }
+
+    /* 주요업무 */
+    .biz { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+    .biz-card { border: 1px solid var(--line); border-radius: 14px; padding: 24px 20px; }
+    .biz-card:hover { border-color: var(--navy); }
+    .biz-card .ico { font-size: 28px; }
+    .biz-card strong { display: block; margin-top: 12px; font-size: 16px; font-weight: 800; }
+    .biz-card p { margin-top: 7px; font-size: 13px; color: var(--muted); line-height: 1.5; }
+
+    /* 교육·검정 2단 */
+    .duo { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .duo-box { border: 1px solid var(--line); border-radius: 14px; padding: 24px; }
+    .duo-box h4 { font-size: 17px; font-weight: 800; margin-bottom: 4px; }
+    .duo-box .lead { font-size: 13px; color: var(--muted); margin-bottom: 14px; }
+    .duo-links { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+    .duo-links a { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font-size: 13px; font-weight: 600; text-align: center; }
+    .duo-links a:hover { border-color: var(--navy); color: var(--navy); }
+
+    /* 공지 */
+    .board li { border-bottom: 1px solid #f1f5f9; }
+    .board li a { display: flex; justify-content: space-between; gap: 16px; padding: 12px 2px; font-size: 14px; }
+    .board li a:hover { color: var(--navy); }
+    .board .date { color: #9ca3af; font-size: 13px; flex-shrink: 0; }
+    .badge-notice { display: inline-block; font-size: 11px; font-weight: 700; color: var(--navy); background: #e6f0f9; border-radius: 4px; padding: 2px 7px; margin-right: 7px; }
+
+    footer { background: #23303c; color: #b9c2cb; padding: 38px 0 44px; font-size: 13px; }
+    .foot-links { display: flex; gap: 20px; padding-bottom: 18px; border-bottom: 1px solid #364656; flex-wrap: wrap; }
+    .foot-links a { font-weight: 600; color: #dfe6ed; }
+    .foot-links a.em { color: #ffd479; }
+    .foot-body { margin-top: 18px; line-height: 1.9; }
+
+    @media (max-width: 1180px) {
+      .gnb { display: none; }
+      .quick ul { grid-template-columns: repeat(3, 1fr); }
+      .biz { grid-template-columns: repeat(2, 1fr); }
+      .duo { grid-template-columns: 1fr; }
+      .hero h2 { font-size: 29px; }
+    }
+    @media (max-width: 600px) {
+      .quick ul { grid-template-columns: repeat(2, 1fr); }
+      .biz { grid-template-columns: 1fr; }
+      .duo-links { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="skip"><a href="#main">본문 바로가기</a></div>
+
+  <div class="notice-bar">
+    이 페이지는 <strong>AI 챗봇 테스트용</strong>으로 만든 화면입니다. 실제 한국수자원조사기술원 홈페이지가 아닙니다.
+    (원본: <a href="https://www.kihs.re.kr/kor_main/main/main.do" target="_blank" rel="noopener">www.kihs.re.kr</a>)
+  </div>
+
+  <div class="util">
+    <div class="wrap">
+      <a href="#">사이트맵</a>
+      <a href="#">개인정보처리방침</a>
+      <a href="#">관련사이트</a>
+    </div>
+  </div>
+
+  <header>
+    <div class="wrap head">
+      <a href="#" class="logo">
+        <span class="logo-mark">KIHS</span>
+        <span class="logo-text">한국수자원<span>조사기술원</span></span>
+      </a>
+      <nav aria-label="주메뉴">
+        <ul class="gnb">
+          <li><a href="#">기관소개</a></li>
+          <li><a href="#">주요업무</a></li>
+          <li><a href="#">알림마당</a></li>
+          <li><a href="#">열린경영</a></li>
+          <li><a href="#">홍보마당</a></li>
+        </ul>
+      </nav>
+      <div class="head-util">
+        <a href="#" class="btn-ghost">교육 신청</a>
+        <a href="#" class="btn-ghost">기기검정 신청</a>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+    <div class="hero">
+      <div class="wrap">
+        <span class="hero-badge">수문조사 전문기관</span>
+        <h2>물의 가치를 보존하며<br />&ldquo;국민과 함께&rdquo; 합니다</h2>
+        <p>수문조사·하천유역조사부터 교육 신청과 기기검정까지 안내해 드립니다.</p>
+        <form class="hero-search" onsubmit="return false;">
+          <label for="q" class="sr">통합검색</label>
+          <input id="q" type="search" placeholder="공지사항, 교육, 기기검정 등을 검색해 보세요" />
+          <button type="submit">검색</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="quick">
+      <div class="wrap">
+        <ul>
+          <li><a href="#"><span class="ico">📋</span>사전정보공표</a></li>
+          <li><a href="#"><span class="ico">🧪</span>기기검정 신청</a></li>
+          <li><a href="#"><span class="ico">📜</span>검정증명서 발급</a></li>
+          <li><a href="#"><span class="ico">🔓</span>정보공개</a></li>
+          <li><a href="#"><span class="ico">🛡️</span>클린신고센터</a></li>
+          <li><a href="#"><span class="ico">📍</span>오시는 길</a></li>
+        </ul>
+      </div>
+    </div>
+
+    <section>
+      <div class="wrap">
+        <div class="sec-head">
+          <div>
+            <h3>주요업무</h3>
+            <p>수자원 조사·연구와 국제협력 분야의 핵심 업무입니다.</p>
+          </div>
+          <a href="#" class="more">전체보기</a>
+        </div>
+        <div class="biz">
+          <a href="#" class="biz-card"><span class="ico">🌊</span><strong>수문조사</strong><p>하천 수위·유량 관측과 수문 자료의 생산·품질관리</p></a>
+          <a href="#" class="biz-card"><span class="ico">🗺️</span><strong>전국 하천유역조사</strong><p>유역 단위 수자원 현황 조사 및 이용 실태 분석</p></a>
+          <a href="#" class="biz-card"><span class="ico">🌧️</span><strong>홍수피해 상황조사</strong><p>홍수 발생 시 피해 현황 조사와 원인 분석</p></a>
+          <a href="#" class="biz-card"><span class="ico">🤝</span><strong>국제협력</strong><p>수자원 분야 국제 교류와 개발도상국 기술 지원</p></a>
+          <a href="#" class="biz-card"><span class="ico">🔬</span><strong>연구사업</strong><p>수문 관측 기술과 자료 분석 방법 연구·개발</p></a>
+          <a href="#" class="biz-card"><span class="ico">💡</span><strong>수문조사 컨설팅</strong><p>기관·기업 대상 수문조사 기술 자문과 지원</p></a>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="wrap">
+        <div class="sec-head">
+          <div>
+            <h3>교육 및 기기검정</h3>
+            <p>수문조사 종사자 교육과 기기검정 절차를 안내합니다.</p>
+          </div>
+        </div>
+        <div class="duo">
+          <div class="duo-box">
+            <h4>수문조사 종사자 교육</h4>
+            <p class="lead">교육제도 안내부터 수료증 발급까지</p>
+            <div class="duo-links">
+              <a href="#">교육제도</a>
+              <a href="#">교육 신청</a>
+              <a href="#">진행현황</a>
+              <a href="#">수료증 발급</a>
+            </div>
+          </div>
+          <div class="duo-box">
+            <h4>수문조사 기기 검정</h4>
+            <p class="lead">검정제도 안내부터 증명서 발급까지</p>
+            <div class="duo-links">
+              <a href="#">검정제도</a>
+              <a href="#">기기검정 신청</a>
+              <a href="#">진행현황</a>
+              <a href="#">증명서 발급</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="wrap">
+        <div class="sec-head">
+          <div>
+            <h3>KIHS 소식</h3>
+            <p>공지사항과 홍보 자료를 확인하실 수 있습니다.</p>
+          </div>
+          <a href="#" class="more">알림마당</a>
+        </div>
+        <div class="board">
+          <ul>
+            <li><a href="#"><span><span class="badge-notice">공지</span>한국수자원조사기술원 대회의실 시설 무료개방(무료대여) 안내</span><span class="date">공지</span></a></li>
+            <li><a href="#"><span><span class="badge-notice">공지</span>국가정보시스템 장애로 인한 정보공개 청구 처리기간 지연 안내</span><span class="date">공지</span></a></li>
+            <li><a href="#"><span><span class="badge-notice">공지</span>2025년도 탄소중립 사업화 지원사업 알림</span><span class="date">공지</span></a></li>
+            <li><a href="#"><span>수자원분야 진로탐색을 위한 원데이클래스 프로그램 안내</span><span class="date">2026-06-23</span></a></li>
+            <li><a href="#"><span>2026년 한국수자원조사기술원 주요업무 추진계획</span><span class="date">2026-05-29</span></a></li>
+            <li><a href="#"><span>[뉴스레터] 2026년 2분기 한국수자원조사기술원 뉴스레터</span><span class="date">2026-07-29</span></a></li>
+          </ul>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <div class="foot-links">
+        <a href="#" class="em">개인정보처리방침</a>
+        <a href="#">저작권정책</a>
+        <a href="#">이용약관</a>
+        <a href="#">사이트맵</a>
+      </div>
+      <div class="foot-body">
+        [10390] 경기도 고양시 일산서구 킨텍스로 217-59 킨텍스 제2전시장 오피스동 11층·12층·13층<br />
+        Tel 031-929-0800 / Fax 031-929-0890<br />
+        COPYRIGHT © 2020 KOREA INSTITUTE OF HYDROLOGICAL SURVEY INC. ALL RIGHTS RESERVED
+      </div>
+    </div>
+  </footer>
+
+  <!-- 이음봇 AI 대화 에이전트 -->
+  <script
+    src="https://chat.deepsecu.co.kr/widget.js"
+    data-chatbot-id="4dd2c0e8-5f99-4f47-a034-34b528f8d377"
+    data-api-base-url="https://api.deepsecu.co.kr/api"
+    data-open-on-load="false"
+    data-launcher-icon="custom"
+    data-launcher-icon-url="https://chat.deepsecu.co.kr/api/widget-icons/1785854363832-ieumbot_icon_2.png"
+    charset="UTF-8"
+  ></script>
+</body>
+</html>
