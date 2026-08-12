@@ -31,6 +31,17 @@ class KnowledgeStagingSession(Base):
         Text, nullable=True,
         comment="추출된 원본 텍스트 — 분석 실패 시 재분석(reanalyze)에 재사용",
     )
+    # 자동 판별 결과와 관리자가 고친 값을 나란히 남긴다. 판별은 반드시 틀리므로
+    # 이 두 줄이 쌓여야 "실제로 어떤 문서가 들어오는지"를 데이터로 알 수 있다.
+    detected_doc_type: Mapped[str | None] = mapped_column(
+        String(20), nullable=True, comment="general | qa | form"
+    )
+    admin_doc_type: Mapped[str | None] = mapped_column(
+        String(20), nullable=True, comment="관리자가 바꾼 유형 — 자동 판별을 이긴다"
+    )
+    doc_type_reason: Mapped[str | None] = mapped_column(
+        String(300), nullable=True, comment="자동 판별 근거 (관리자에게 보여 준다)"
+    )
     is_duplicate_file: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false",
         comment="True이면 동일 파일명 기존 문서 존재 → RAG 재등록 없이 FAQ만 생성",

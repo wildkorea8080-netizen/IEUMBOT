@@ -55,6 +55,12 @@ class StagingSessionResponse(ApiSchema):
     status: str
     total_chunks: int
     is_duplicate_file: bool = False
+    # 문서 유형 판별(2계층). effective_doc_type이 실제로 적용된 값이고,
+    # detected/admin을 함께 내려 화면이 "AI 판별 · 다르면 바꿔주세요"를 보여 준다.
+    detected_doc_type: str | None = None
+    admin_doc_type: str | None = None
+    effective_doc_type: str | None = None
+    doc_type_reason: str | None = None
     chunks: list[StagingChunkItem]
 
 
@@ -146,6 +152,10 @@ def _get_session_with_chunks(
         status=session_row.status,
         total_chunks=session_row.total_chunks,
         is_duplicate_file=session_row.is_duplicate_file,
+        detected_doc_type=session_row.detected_doc_type,
+        admin_doc_type=session_row.admin_doc_type,
+        effective_doc_type=session_row.admin_doc_type or session_row.detected_doc_type,
+        doc_type_reason=session_row.doc_type_reason,
         chunks=[_chunk_to_item(c) for c in chunks],
     )
 

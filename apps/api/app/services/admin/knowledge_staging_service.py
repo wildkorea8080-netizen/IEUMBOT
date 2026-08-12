@@ -26,6 +26,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.knowledge_staging import KnowledgeStagingChunk, KnowledgeStagingSession
+from app.services.admin.document_type import DocType, detect_document_type
 from app.services.admin.pii_detector_service import detect_pii
 from app.services.chat.answer_generation_service import (
     _call_anthropic,
@@ -1188,9 +1189,34 @@ def analyze_staging_session_background(
 
         # 재분석(reanalyze)에서 재사용하도록 원본 텍스트 보관
         session_row.extracted_text = text
-        # ① Q&A 형식 우선 감지 — 이미 질의응답 문서면 LLM 재작성 없이 원문 그대로 추출.
-        #    (일반 문서용 주제추출·재작성이 Q&A를 쪼개고 답변을 날조하던 문제 회피)
-        qa_pairs = _parse_qa_pairs(text)
+        # ① 문서 유형 판별(2계층) — 공통 경로가 망가뜨리는 문서만 따로 다룬다.
+        #    관리자가 유형을 바꿔 재분석한 경우 그 선택이 자동 판별을 이긴다.
+        verdict = detect_document_type(text)
+        session_row.detected_doc_type = verdict.doc_type.value
+        session_row.doc_type_reason = verdict.reason[:300] or None
+        effective_type = (
+            DocType(session_row.admin_doc_type)
+            if session_row.admin_doc_type
+            else verdict.doc_type
+        )
+        logger.info(
+            "[STAGING] doc_type id=%s detected=%s admin=%s effective=%s reason=%s",
+            session_id, verdict.doc_type.value, session_row.admin_doc_type,
+            effective_type.value, verdict.reason,
+        )
+
+        # 빈 서식·신청서는 라벨과 빈 칸뿐이라 지식이 되지 않는다. 공통 경로에 넣으면
+        # "성명 주소 연락처"가 FAQ 주제로 등록되고 관리자가 전부 지워야 한다.
+        if effective_type is DocType.FORM:
+            session_row.total_chunks = 0
+            session_row.status = "ready"
+            db.commit()
+            logger.info("[STAGING] form skipped id=%s reason=%s", session_id, verdict.reason)
+            return
+
+        # Q&A 문서는 LLM 재작성 없이 원문 그대로 추출한다.
+        # (일반 문서용 주제추출·재작성이 Q&A를 쪼개고 답변을 날조하던 문제 회피)
+        qa_pairs = _parse_qa_pairs(text) if effective_type is DocType.QA else None
         results: list[dict | None]
         if qa_pairs:
             # PDF 평탄화로 생긴 단어중간 공백 교정(가드 있음) 후 재파싱 — 내용은 그대로.
