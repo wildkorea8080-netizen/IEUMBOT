@@ -62,6 +62,11 @@ _HEADING_LEVELS: list[tuple[int, re.Pattern[str]]] = [
     (3, re.compile(r"^[가-힣]{2,15}(?:\s+[가-힣A-Za-z0-9()·]{1,12}){0,3}$")),
 ]
 
+# 헤딩 앞에 붙는 번호·기호. FAQ 질문으로 쓸 때는 떼어 낸다.
+_HEADING_MARKER_RE = re.compile(
+    r"^(?:제\s*\d+\s*[장절조항]|\d{1,2}(?:[-.]\d{1,2})?\s*[.)]?|[①-⑳⑴-⑽]|[□■▶▷◆◇●○★☆])\s*"
+)
+
 # 종결어미로 끝나면 제목이 아니라 문장이다. 기존 규칙은 이 구분이 없어
 # "이용료는 무료입니다" 같은 평범한 문장을 제목으로 잡아 섹션을 잘못 끊었다.
 _SENTENCE_TAIL_RE = re.compile(r"(?:다|요|임|함|음|까|죠|네|오)[.!?]?$")
@@ -866,11 +871,11 @@ def _call_llm_raw(
 
 
 def _llm_analyze_chunk(
-    text: str, db: Session
+    text: str, db: Session, *, heading: str | None = None
 ) -> tuple[str, list[str], str]:
     """
-    GPT-4.1(quality_model)로 청크를 종합 분석:
-    - title: 고유 주제명
+    청크를 종합 분석:
+    - title: 사용자가 실제로 물어볼 법한 질문 (heading이 범위를 고정한다)
     - tags: 구체적 키워드
     - content: PDF 아티팩트 제거 + 마크다운으로 정리된 내용
 
@@ -888,18 +893,25 @@ def _llm_analyze_chunk(
             "업로드된 문서의 섹션을 분석해 챗봇이 사용자 질문에 정확히 답할 수 있도록 정리합니다.\n"
             "반드시 순수 JSON만 출력하세요. 코드블록(```) 마크업이나 설명 문장을 JSON 앞뒤에 절대 붙이지 마세요."
         )
+        heading_line = f"[섹션 제목]\n{heading}\n\n" if heading else ""
         user_prompt = (
             "다음 문서 섹션을 분석해 JSON으로 응답하세요:\n\n"
+            f"{heading_line}"
             f"[원본 텍스트]\n{text[:2000]}\n\n"
             "응답 JSON 형식:\n"
             "{\n"
-            '  "title": "이 섹션의 고유 주제명 (25자 이내)",\n'
+            '  "title": "이 섹션을 찾는 사용자가 입력할 법한 질문 한 문장",\n'
             '  "tags": ["키워드1", "키워드2", "키워드3"],\n'
             '  "content": "정리된 내용 (마크다운)"\n'
             "}\n\n"
-            "=== title 규칙 ===\n"
-            "- 이 섹션만의 핵심을 담은 구체적 제목 (예: '인턴십 지원자격 및 선발절차')\n"
-            "- '지원/안내/정보' 같은 모호한 단어만으로 구성 금지\n\n"
+            "=== title 규칙 (매우 중요) ===\n"
+            "- 제목이 아니라 **질문**을 쓴다. 물음표로 끝낸다. 60자 이내.\n"
+            "- 섹션 제목이 주어졌으면 그 범위 안에서 질문을 만든다 — 옆 섹션과\n"
+            "  겹치는 일반적인 질문(예: '어떻게 신청하나요?')은 금지.\n"
+            "- 섹션 제목의 번호·기호(1., □, 제2장)는 질문에 넣지 않는다.\n"
+            "- 예: 섹션 제목 '1. 반입 절차' → '폐기물 반입 절차가 어떻게 되나요?'\n"
+            "- 예: 섹션 제목 '□ 제출 서류' → '반입 신청 시 어떤 서류를 내야 하나요?'\n"
+            "- 기관 담당자가 아니라 민원인의 말투로 쓴다.\n\n"
             "=== tags 규칙 ===\n"
             "- 원문에 직접 등장하는 명사·고유명사 위주 3~5개\n\n"
             "=== content 규칙 (매우 중요) ===\n"
@@ -934,7 +946,9 @@ def _llm_analyze_chunk(
             return "", [], ""
 
         parsed = json.loads(m.group(0))
-        title = str(parsed.get("title") or "")[:50]
+        # 질문 한 문장은 25자 제목보다 길다. 50자에서 자르면 물음표가 날아가
+        # "폐기물 반입 절차가 어떻게 되" 같은 잘린 문장이 FAQ 질문이 된다.
+        title = str(parsed.get("title") or "")[:80]
         tags = [str(t) for t in (parsed.get("tags") or [])][:5]
         content = str(parsed.get("content") or "").strip()
         return title, tags, content
@@ -1046,18 +1060,35 @@ def create_staging_session_immediate(
     return session_row
 
 
-def _section_title(section: DocumentSection, fallback: str) -> str:
-    """섹션 제목. 문서에 적힌 헤딩이 있으면 그대로 쓴다.
+def _strip_heading_marker(heading: str) -> str:
+    """헤딩에서 번호·기호 접두사를 뗀다.
 
-    LLM이 청크 내용을 보고 제목을 새로 지으면 인접 섹션끼리 비슷한 이름이 나와
-    추천 주제가 중복됐다. 문서가 이미 붙여 놓은 제목이 가장 정확하다.
-    긴 섹션이 여러 조각으로 나뉜 경우에만 (1/3) 꼬리를 붙여 구분한다.
+    "1. 반입 절차" 가 FAQ 질문으로 그대로 들어가면 번호가 임베딩 노이즈가 되어
+    시맨틱 매칭 점수를 떨어뜨린다. 내용어만 남긴다.
+    번호를 떼면 남는 게 없는 경우(예: "1.")는 원본을 그대로 둔다.
     """
+    stripped = _HEADING_MARKER_RE.sub("", heading.strip(), count=1).strip()
+    return stripped or heading.strip()
+
+
+def _section_title(section: DocumentSection, llm_title: str, rule_title: str) -> str:
+    """추천 주제명. 사용자가 실제로 물어볼 법한 질문을 우선한다.
+
+    LLM에게 헤딩을 함께 주고 질문을 만들게 한다 — 헤딩이 범위를 고정해 주므로
+    인접 섹션끼리 같은 질문이 나오지 않는다. LLM이 실패하면 헤딩에서 번호만
+    떼어 쓰고, 헤딩도 없으면 규칙 기반 제목으로 내려간다.
+    """
+    question = llm_title.strip()
+    if question:
+        # 조각별 내용으로 만든 질문은 서로 다르므로 (1/3) 꼬리표가 필요 없다.
+        return question
     if not section.heading:
-        return fallback
+        return rule_title
+    base = _strip_heading_marker(section.heading)
+    # 폴백은 조각마다 같은 제목이 되므로 구분자를 붙인다.
     if section.part_count > 1:
-        return f"{section.heading} ({section.part}/{section.part_count})"
-    return section.heading
+        return f"{base} ({section.part}/{section.part_count})"
+    return base
 
 
 def _analyze_one_chunk(sort_order: int, section: DocumentSection, chatbot_id: str) -> dict:
@@ -1073,8 +1104,10 @@ def _analyze_one_chunk(sort_order: int, section: DocumentSection, chatbot_id: st
     chunk_text = section.text
     tdb = SessionLocal()
     try:
-        llm_title, llm_tags, llm_content = _llm_analyze_chunk(chunk_text, tdb)
-        topic_title = _section_title(section, llm_title or _rule_based_title(chunk_text))
+        llm_title, llm_tags, llm_content = _llm_analyze_chunk(
+            chunk_text, tdb, heading=section.heading
+        )
+        topic_title = _section_title(section, llm_title, _rule_based_title(chunk_text))
         final_content = llm_content if llm_content else chunk_text
         pii_found, pii_regions = detect_pii(final_content)
 
@@ -1111,7 +1144,7 @@ def _analyze_one_chunk(sort_order: int, section: DocumentSection, chatbot_id: st
         )
         pii_found, pii_regions = detect_pii(chunk_text)
         return {
-            "topic_title": _section_title(section, _rule_based_title(chunk_text)),
+            "topic_title": _section_title(section, "", _rule_based_title(chunk_text)),
             "content": chunk_text,
             "tags": [],
             "pii_detected": pii_found,
