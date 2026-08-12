@@ -68,6 +68,10 @@ _HEADING_MARKER_RE = re.compile(
     r"^(?:제\s*\d+\s*[장절조항]|\d{1,2}(?:[-.]\d{1,2})?\s*[.)]?|[①-⑳⑴-⑽]|[□■▶▷◆◇●○★☆])\s*"
 )
 
+# 목차 표제와 점선 리더('····· 12', '..... 3')
+_TOC_HEADING_RE = re.compile(r"^(?:목\s*차|차\s*례|CONTENTS|목록)\s*$", re.IGNORECASE)
+_TOC_LEADER_RE = re.compile(r"(?:[·⋯…]{3,}|\.{4,}|_{4,})\s*\d{1,4}\s*$")
+
 # 종결어미로 끝나면 제목이 아니라 문장이다. 기존 규칙은 이 구분이 없어
 # "이용료는 무료입니다" 같은 평범한 문장을 제목으로 잡아 섹션을 잘못 끊었다.
 _SENTENCE_TAIL_RE = re.compile(r"(?:다|요|임|함|음|까|죠|네|오)[.!?]?$")
@@ -100,6 +104,47 @@ class DocumentSection:
     field: str | None = None  # 바로 위 제목 — FAQ 세부분야로 쓴다
     part: int = 1  # 긴 섹션이 나뉜 경우 몇 번째 조각인지
     part_count: int = 1
+
+
+def _looks_like_table_of_contents(body: str) -> bool:
+    """목차·차례 블록인지 판단한다.
+
+    목차는 매뉴얼·지침서·사례집에 거의 항상 있고, 항목만 나열돼 있어 답변이 되지
+    않는다. 그런데 LLM은 그 나열을 보고도 그럴듯한 질문 제목을 지어 주기 때문에
+    관리자는 열어 보고 나서야 쓸모없다는 걸 안다. 여기서 미리 버린다.
+
+    신호는 셋이다 — 짧은 줄이 대부분이고, 문장으로 끝나는 줄이 거의 없고,
+    점선 리더('····· 12')나 '목차' 표제가 있다. 본문 안의 짧은 나열은 앞뒤에
+    문장이 섞이므로 두 번째 조건에서 걸러진다.
+    """
+    lines = [ln.strip() for ln in body.splitlines() if ln.strip()]
+    if len(lines) < 6:
+        return False
+
+    if _TOC_HEADING_RE.match(lines[0]):
+        return True
+
+    short = sum(1 for ln in lines if len(ln) <= 40)
+    sentence_ended = sum(1 for ln in lines if _SENTENCE_TAIL_RE.search(ln))
+    leaders = sum(1 for ln in lines if _TOC_LEADER_RE.search(ln))
+
+    if leaders / len(lines) >= 0.5:
+        return True
+    return short / len(lines) >= 0.7 and sentence_ended / len(lines) <= 0.15
+
+
+def _strip_table_of_contents(text: str) -> str:
+    """헤딩 분할 전에 목차 블록을 통째로 걷어낸다.
+
+    섹션으로 쪼갠 뒤에 거르면 늦다 — 목차 줄 하나하나가 짧은 한글 제목이라
+    헤딩으로 인식돼 목차가 여러 조각으로 흩어지고, 조각 단위로는 목차처럼
+    보이지 않는다. 그래서 단락 단위로 먼저 훑는다.
+    """
+    blocks = re.split(r"\n{2,}", text)
+    kept = [b for b in blocks if not _looks_like_table_of_contents(b)]
+    # 문서 전체가 목차로 판정되면(표지·목차만 추출된 경우) 원본을 그대로 둔다 —
+    # 다 버리면 관리자는 빈 화면만 보고 이유를 모른다.
+    return "\n\n".join(kept) if kept else text
 
 
 def _split_sentences(text: str) -> list[str]:
@@ -151,6 +196,7 @@ def _split_semantic_chunks(text: str) -> list[DocumentSection]:
     헤딩은 제목으로 그대로 쓰고(LLM이 새로 짓지 않는다), 상위 헤딩은
     분류·세부분야로 넘긴다. 헤딩이 없으면 단락 기반으로 폴백한다.
     """
+    text = _strip_table_of_contents(text)
     lines = text.splitlines()
     # (계층, 제목) 스택 — 현재 위치의 상위 경로를 담는다.
     trail: list[tuple[int, str]] = []
@@ -200,6 +246,11 @@ def _split_semantic_chunks(text: str) -> list[DocumentSection]:
         # 한 줄짜리 항목을 길이만 보고 버리면 관리자는 누락 사실조차 모른다.
         floor = _MIN_TITLED_BODY if block_heading else _MIN_UNTITLED_BODY
         if len(body) < floor:
+            continue
+        if _looks_like_table_of_contents(body):
+            logger.info(
+                "[STAGING] toc skipped heading=%s lines=%d", block_heading, body.count("\n") + 1
+            )
             continue
         pieces = _split_body(body, _CHUNK_SIZE)
         for index, piece in enumerate(pieces, start=1):
