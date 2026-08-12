@@ -33,6 +33,9 @@ class StagingChunkItem(ApiSchema):
     topic_title: str
     content: str
     tags: list[str]
+    # 문서 헤딩 계층에서 뽑은 분류 — 등록 시 FAQ 분류·세부분야가 된다.
+    category: str | None = None
+    field: str | None = None
     pii_detected: bool
     pii_regions: list[dict[str, Any]]
     merge_candidate_title: str | None
@@ -85,6 +88,8 @@ def _chunk_to_item(row: KnowledgeStagingChunk) -> StagingChunkItem:
         topic_title=row.topic_title,
         content=row.content,
         tags=list(row.tags or []),
+        category=row.category,
+        field=row.field,
         pii_detected=row.pii_detected,
         pii_regions=list(row.pii_regions or []),
         merge_candidate_title=row.merge_candidate_title,

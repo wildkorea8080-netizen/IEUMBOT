@@ -53,6 +53,10 @@ class KnowledgeStagingChunk(Base):
     topic_title: Mapped[str] = mapped_column(String(500), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     tags: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
+    # 문서의 헤딩 계층에서 뽑은 분류. 예전에는 tags[0]/tags[1]을 분류로 썼는데,
+    # 태그 순서는 LLM이 정하는 값이라 같은 장의 항목들이 서로 다른 분류로 흩어졌다.
+    category: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    field: Mapped[str | None] = mapped_column(String(200), nullable=True)
     # 민감정보
     pii_detected: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     pii_regions: Mapped[list] = mapped_column(

@@ -3,8 +3,8 @@
 
 흐름:
   파일/텍스트 업로드
-    → _split_semantic_chunks()   : 단락 기반 청킹
-    → _generate_topic_title()    : LLM 주제명 생성 (실패 시 규칙 기반 폴백)
+    → _split_semantic_chunks()   : 헤딩 계층 기반 섹션 분할 (헤딩 없으면 단락 폴백)
+    → 제목은 문서 헤딩을 그대로 사용 (헤딩 없을 때만 LLM/규칙 기반 생성)
     → detect_pii()               : 민감정보 감지
     → _find_faq_merge_candidate(): 기존 등록 주제(FAQ)와 유사도 검사 → 같으면 등록 시 갱신
     → KnowledgeStagingSession/Chunk 저장
@@ -18,6 +18,7 @@ import os
 import re
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from html import escape as _html_escape
 from typing import Any
 
@@ -40,75 +41,175 @@ _CHUNK_OVERLAP = 150
 # 20청크 = 약 24,000자. 수십 쪽짜리 매뉴얼·사례집이면 앞 몇 쪽(대개 일러두기·목차)만
 # 분석하고 본문을 통째로 버리게 되어, 추천 주제가 중복되고 내용이 잘리는 원인이었다.
 _MAX_CHUNKS_PER_SESSION = int(os.getenv("STAGING_MAX_CHUNKS", "200"))
+# 섹션을 청크로 남길 최소 본문 길이. 제목이 있으면 짧아도 하나의 항목이므로 살린다
+# ("무료입니다."는 6자다). 4자 미만은 쪽번호·OCR 잔여물로 보고 버린다.
+_MIN_TITLED_BODY = 4
+_MIN_UNTITLED_BODY = 60
 _ANALYZE_CONCURRENCY = max(1, int(os.getenv("STAGING_ANALYZE_CONCURRENCY", "6")))
 
-# 섹션 헤딩으로 인식할 패턴 (짧은 줄 + 특정 접두사)
-_HEADING_RE = re.compile(
-    r"^(?:"
-    r"\d{1,2}[\.\)]\s+.{2,60}"          # 1. 제목 / 1) 제목
-    r"|[①-⑳⑴-⑽]\s*.{2,40}"              # ① 제목
-    r"|제\s*\d+\s*[장절조항].*"           # 제1장 / 제2절
-    r"|[□■▶▷◆◇●○★☆]\s*.{2,50}"         # 기호 + 제목
-    r"|[A-Z][A-Z ]{3,30}$"              # ALL CAPS 영문
-    r"|[가-힣]{2,15}(?:\s+[가-힣]{2,10}){0,3}$"  # 짧은 한글 (제목형)
-    r")$",
-    re.MULTILINE,
-)
+# 섹션 헤딩 패턴 — (계층, 정규식). 앞에 오는 것이 우선한다.
+# 계층 1은 문서 대분류(장), 2는 중분류, 3은 그 아래 항목이다.
+_HEADING_LEVELS: list[tuple[int, re.Pattern[str]]] = [
+    (1, re.compile(r"^제\s*\d+\s*장\b")),                     # 제1장
+    (1, re.compile(r"^[IVX]{1,5}\.\s+\S")),                   # I. II. III.
+    (2, re.compile(r"^제\s*\d+\s*[절조항]\b")),                # 제1절 / 제2조
+    (2, re.compile(r"^\d{1,2}[.)]\s+\S")),                    # 1. 제목 / 1) 제목
+    (3, re.compile(r"^\d{1,2}[-.]\d{1,2}[.)]?\s+\S")),        # 1-1 / 1.1
+    (3, re.compile(r"^[①-⑳⑴-⑽]\s*\S")),                       # ① 제목
+    (3, re.compile(r"^[□■▶▷◆◇●○★☆]\s*\S")),                  # □ 제목
+    (3, re.compile(r"^[A-Z][A-Z ]{3,30}$")),                  # ALL CAPS 영문
+    # 번호·기호 없는 짧은 한글 제목. 가장 느슨하므로 마지막에 둔다.
+    (3, re.compile(r"^[가-힣]{2,15}(?:\s+[가-힣A-Za-z0-9()·]{1,12}){0,3}$")),
+]
+
+# 종결어미로 끝나면 제목이 아니라 문장이다. 기존 규칙은 이 구분이 없어
+# "이용료는 무료입니다" 같은 평범한 문장을 제목으로 잡아 섹션을 잘못 끊었다.
+_SENTENCE_TAIL_RE = re.compile(r"(?:다|요|임|함|음|까|죠|네|오)[.!?]?$")
+
+
+def _heading_level(line: str) -> int | None:
+    """제목이면 계층(1~3), 아니면 None."""
+    line = line.strip()
+    if not line or len(line) > 80:
+        return None
+    if _SENTENCE_TAIL_RE.search(line):
+        return None
+    for level, pattern in _HEADING_LEVELS:
+        if pattern.match(line):
+            return level
+    return None
 
 
 def _is_heading(line: str) -> bool:
-    line = line.strip()
-    if not line or len(line) > 80:
-        return False
-    return bool(_HEADING_RE.match(line))
+    return _heading_level(line) is not None
 
 
-def _split_semantic_chunks(text: str) -> list[str]:
+@dataclass
+class DocumentSection:
+    """문서에서 잘라낸 한 조각 + 그 조각이 놓인 위치."""
+
+    text: str
+    heading: str | None = None  # 이 조각의 제목(문서에 적힌 그대로)
+    category: str | None = None  # 상위 계층 제목 — FAQ 분류로 쓴다
+    field: str | None = None  # 바로 위 제목 — FAQ 세부분야로 쓴다
+    part: int = 1  # 긴 섹션이 나뉜 경우 몇 번째 조각인지
+    part_count: int = 1
+
+
+def _split_sentences(text: str) -> list[str]:
+    """문장 경계로 나눈다. 한국어 공문서는 '~한다.' 형태가 대부분이다."""
+    parts = re.split(r"(?<=[.!?])\s+", text)
+    return [p.strip() for p in parts if p.strip()]
+
+
+def _pack_units(units: list[str], limit: int, joiner: str) -> list[str]:
+    """조각들을 limit 이하로 이어 붙인다. limit을 넘는 단일 조각은 그대로 둔다."""
+    packed: list[str] = []
+    current = ""
+    for unit in units:
+        if not current:
+            current = unit
+        elif len(current) + len(joiner) + len(unit) <= limit:
+            current = current + joiner + unit
+        else:
+            packed.append(current)
+            current = unit
+    if current:
+        packed.append(current)
+    return packed
+
+
+def _split_body(body: str, limit: int) -> list[str]:
+    """본문을 limit 이하 조각으로 나눈다. 문장 중간은 자르지 않는다.
+
+    단락 → 줄 → 문장 순으로 경계를 낮춰 가며 시도하고, 그래도 limit을 넘는
+    문장 하나만 남으면 어쩔 수 없이 그대로 둔다(자르면 뜻이 깨지므로).
     """
-    섹션 헤딩을 감지해 의미 단위로 분할.
-    헤딩이 없으면 단락 기반 분할로 폴백.
+    if len(body) <= limit:
+        return [body] if body.strip() else []
+
+    paragraphs = [p.strip() for p in re.split(r"\n{2,}", body) if p.strip()]
+    if len(paragraphs) <= 1:
+        paragraphs = [ln.strip() for ln in body.split("\n") if ln.strip()]
+
+    units: list[str] = []
+    for para in paragraphs:
+        units.extend([para] if len(para) <= limit else _split_sentences(para))
+
+    return [c for c in _pack_units(units, limit, "\n") if c.strip()]
+
+
+def _split_semantic_chunks(text: str) -> list[DocumentSection]:
+    """문서를 헤딩 계층대로 섹션으로 나눈다.
+
+    헤딩은 제목으로 그대로 쓰고(LLM이 새로 짓지 않는다), 상위 헤딩은
+    분류·세부분야로 넘긴다. 헤딩이 없으면 단락 기반으로 폴백한다.
     """
-    # 1. 헤딩 기반 분할 시도
     lines = text.splitlines()
-    sections: list[list[str]] = []
+    # (계층, 제목) 스택 — 현재 위치의 상위 경로를 담는다.
+    trail: list[tuple[int, str]] = []
+    # (제목, 분류, 세부분야, 본문 줄들)
+    blocks: list[tuple[str | None, str | None, str | None, list[str]]] = []
     current: list[str] = []
+    heading: str | None = None
+    category: str | None = None
+    field: str | None = None
+
+    def flush() -> None:
+        if heading is not None or "\n".join(current).strip():
+            blocks.append((heading, category, field, current))
 
     for line in lines:
-        if _is_heading(line) and len("\n".join(current)) > 150:
-            sections.append(current)
-            current = [line]
-        else:
+        level = _heading_level(line)
+        if level is None:
             current.append(line)
-    if current:
-        sections.append(current)
+            continue
 
-    # 섹션이 충분히 나뉘었으면 사용
-    if len(sections) >= 3:
-        raw: list[str] = ["\n".join(s).strip() for s in sections if "\n".join(s).strip()]
-    else:
-        # 폴백: 단락 기반
-        raw = [p.strip() for p in re.split(r"\n{2,}", text) if p.strip()]
+        flush()
+        current = []
+        title = line.strip()
+        while trail and trail[-1][0] >= level:
+            trail.pop()
+        trail.append((level, title))
+        # 분류는 최상위 계층. 세부분야는 최상위와 자기 자신 사이에 낀 계층이 있을 때만
+        # 채운다 — 없는데 억지로 넣으면 제목과 똑같은 값이 FAQ에 중복으로 들어간다.
+        category = trail[0][1] if len(trail) > 1 else None
+        field = trail[1][1] if len(trail) > 2 else None
+        heading = title
+    flush()
 
-    # 2. 너무 큰 섹션은 슬라이딩 윈도우로 재분할
-    chunks: list[str] = []
-    for block in raw:
-        if len(block) <= _CHUNK_SIZE:
-            chunks.append(block)
-        else:
-            for start in range(0, len(block), _CHUNK_SIZE - _CHUNK_OVERLAP):
-                sub = block[start : start + _CHUNK_SIZE].strip()
-                if len(sub) >= 60:
-                    chunks.append(sub)
+    # 헤딩이 하나도 없을 때만 단락 기반으로 폴백한다.
+    # (예전에는 3개 미만이면 버렸는데, 헤딩 판정이 느슨해 오탐을 걸러내려던 장치였다.
+    #  지금은 종결어미·계층 규칙으로 걸러내므로 하나라도 있으면 쓰는 편이 낫다.)
+    titled = [b for b in blocks if b[0] is not None]
+    if not titled:
+        paragraphs = [p.strip() for p in re.split(r"\n{2,}", text) if p.strip()]
+        blocks = [(None, None, None, [p]) for p in paragraphs]
 
-    # 3. 너무 짧은 청크는 앞 청크에 병합
-    merged: list[str] = []
-    for c in chunks:
-        if merged and len(c) < 120 and len(merged[-1]) + len(c) < _CHUNK_SIZE:
-            merged[-1] = merged[-1] + "\n\n" + c
-        else:
-            merged.append(c)
+    sections: list[DocumentSection] = []
+    for block_heading, block_category, block_field, body_lines in blocks:
+        body = "\n".join(body_lines).strip()
+        # 본문 없는 장 제목은 청크가 되지 않고 경로(분류) 정보로만 남는다.
+        # 제목이 붙어 있으면 본문이 짧아도 살린다 — "수수료: 무료입니다" 같은
+        # 한 줄짜리 항목을 길이만 보고 버리면 관리자는 누락 사실조차 모른다.
+        floor = _MIN_TITLED_BODY if block_heading else _MIN_UNTITLED_BODY
+        if len(body) < floor:
+            continue
+        pieces = _split_body(body, _CHUNK_SIZE)
+        for index, piece in enumerate(pieces, start=1):
+            full = f"{block_heading}\n{piece}" if block_heading else piece
+            sections.append(
+                DocumentSection(
+                    text=full,
+                    heading=block_heading,
+                    category=block_category,
+                    field=block_field,
+                    part=index,
+                    part_count=len(pieces),
+                )
+            )
 
-    return [c for c in merged if len(c.strip()) >= 60][:_MAX_CHUNKS_PER_SESSION]
+    return sections[:_MAX_CHUNKS_PER_SESSION]
 
 
 # ── Q&A 형식 감지·추출 (원문 보존, 재작성 없음) ──────────────────────────────────
@@ -945,8 +1046,22 @@ def create_staging_session_immediate(
     return session_row
 
 
-def _analyze_one_chunk(sort_order: int, chunk_text: str, chatbot_id: str) -> dict:
-    """단일 청크 분석(LLM 주제/태그/정리 + PII + FAQ 병합 검사).
+def _section_title(section: DocumentSection, fallback: str) -> str:
+    """섹션 제목. 문서에 적힌 헤딩이 있으면 그대로 쓴다.
+
+    LLM이 청크 내용을 보고 제목을 새로 지으면 인접 섹션끼리 비슷한 이름이 나와
+    추천 주제가 중복됐다. 문서가 이미 붙여 놓은 제목이 가장 정확하다.
+    긴 섹션이 여러 조각으로 나뉜 경우에만 (1/3) 꼬리를 붙여 구분한다.
+    """
+    if not section.heading:
+        return fallback
+    if section.part_count > 1:
+        return f"{section.heading} ({section.part}/{section.part_count})"
+    return section.heading
+
+
+def _analyze_one_chunk(sort_order: int, section: DocumentSection, chatbot_id: str) -> dict:
+    """단일 청크 분석(주제/태그/정리 + PII + FAQ 병합 검사).
 
     스레드 풀에서 병렬 실행되며 **스레드별 독립 DB 세션**을 쓴다(SQLAlchemy 세션은
     스레드 안전하지 않음). DB 쓰기는 하지 않고 결과 dict만 반환 → 호출자가 메인
@@ -955,10 +1070,11 @@ def _analyze_one_chunk(sort_order: int, chunk_text: str, chatbot_id: str) -> dic
     """
     from app.db import SessionLocal  # noqa: PLC0415
 
+    chunk_text = section.text
     tdb = SessionLocal()
     try:
         llm_title, llm_tags, llm_content = _llm_analyze_chunk(chunk_text, tdb)
-        topic_title = llm_title or _rule_based_title(chunk_text)
+        topic_title = _section_title(section, llm_title or _rule_based_title(chunk_text))
         final_content = llm_content if llm_content else chunk_text
         pii_found, pii_regions = detect_pii(final_content)
 
@@ -986,6 +1102,8 @@ def _analyze_one_chunk(sort_order: int, chunk_text: str, chatbot_id: str) -> dic
             "merge_original_content": merge_original_content,
             "registration_type": registration_type,
             "sort_order": sort_order,
+            "category": section.category,
+            "field": section.field,
         }
     except Exception as exc:  # noqa: BLE001
         logger.warning(
@@ -993,7 +1111,7 @@ def _analyze_one_chunk(sort_order: int, chunk_text: str, chatbot_id: str) -> dic
         )
         pii_found, pii_regions = detect_pii(chunk_text)
         return {
-            "topic_title": _rule_based_title(chunk_text),
+            "topic_title": _section_title(section, _rule_based_title(chunk_text)),
             "content": chunk_text,
             "tags": [],
             "pii_detected": pii_found,
@@ -1004,6 +1122,8 @@ def _analyze_one_chunk(sort_order: int, chunk_text: str, chatbot_id: str) -> dic
             "merge_original_content": None,
             "registration_type": "new",
             "sort_order": sort_order,
+            "category": section.category,
+            "field": section.field,
         }
     finally:
         tdb.close()
@@ -1074,8 +1194,8 @@ def analyze_staging_session_background(
                 max_workers = min(_ANALYZE_CONCURRENCY, len(raw_chunks))
                 with ThreadPoolExecutor(max_workers=max_workers) as executor:
                     futures = {
-                        executor.submit(_analyze_one_chunk, i, chunk_text, chatbot_id): i
-                        for i, chunk_text in enumerate(raw_chunks)
+                        executor.submit(_analyze_one_chunk, i, section, chatbot_id): i
+                        for i, section in enumerate(raw_chunks)
                     }
                     for fut in as_completed(futures):
                         idx = futures[fut]
@@ -1099,6 +1219,9 @@ def analyze_staging_session_background(
                     registration_type=res["registration_type"],
                     status="pending",
                     sort_order=res["sort_order"],
+                    # Q&A 경로(_build_qa_staging_result)는 계층이 없어 키가 빠진다.
+                    category=res.get("category"),
+                    field=res.get("field"),
                 )
             )
 
@@ -1267,8 +1390,10 @@ def register_staging_chunks(
                         answer=faq_answer,
                         tags=chunk_tags,
                         source_staging_session_id=session_id,
-                        category=chunk_tags[0] if chunk_tags else None,
-                        field=chunk_tags[1] if len(chunk_tags) > 1 else None,
+                        # 문서 헤딩 계층이 있으면 그쪽이 정확하다. 계층이 없는
+                        # 문서와 이 컬럼 도입 전 행은 예전처럼 태그로 폴백한다.
+                        category=chunk.category or (chunk_tags[0] if chunk_tags else None),
+                        field=chunk.field or (chunk_tags[1] if len(chunk_tags) > 1 else None),
                     )
             faq_ok = True
         except Exception as exc:
