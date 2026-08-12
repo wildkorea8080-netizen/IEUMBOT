@@ -13,6 +13,7 @@ from app.api.dependencies.auth import AdminPrincipal, require_institution_admin_
 from app.db import get_db_session
 from app.models.knowledge_staging import KnowledgeStagingChunk, KnowledgeStagingSession
 from app.schemas import ApiSchema
+from app.services.admin.document_type import DocType
 from app.services.admin.scope_service import (
     ensure_chatbot_in_scope,
     require_institution_organization_id,
@@ -62,6 +63,11 @@ class StagingSessionResponse(ApiSchema):
     effective_doc_type: str | None = None
     doc_type_reason: str | None = None
     chunks: list[StagingChunkItem]
+
+
+class StagingReanalyzeRequest(ApiSchema):
+    # 비우면 자동 판별을 그대로 쓴다. 값을 주면 그 유형으로 다시 분석한다.
+    doc_type: str | None = None
 
 
 class StagingTextCreateRequest(ApiSchema):
@@ -340,10 +346,15 @@ def get_staging_session(
 def reanalyze_staging_session(
     session_id: str,
     background_tasks: BackgroundTasks,
+    body: StagingReanalyzeRequest | None = None,
     principal: AdminPrincipal = Depends(require_institution_admin_auth),
     db: Session = Depends(get_db_session),
 ) -> StagingSessionResponse:
     """분석 실패/타임아웃 세션을 보관된 원본 텍스트로 재분석.
+
+    docType을 함께 보내면 자동 판별을 관리자의 선택으로 덮어쓴다(3계층).
+    자동 판별은 반드시 틀리므로 이게 최종 안전장치다 — 특히 서식으로 잘못
+    판정돼 결과가 0건인 경우, 이 경로 말고는 되돌릴 방법이 없다.
 
     RAG 색인은 최초 업로드 시 이미 완료됐으므로 재색인하지 않고
     FAQ 주제 분석만 다시 수행한다.
@@ -366,6 +377,19 @@ def reanalyze_staging_session(
     if not text or not text.strip():
         # 구버전 세션(텍스트 미보관) 또는 추출 실패 → 재업로드 안내
         raise HTTPException(status_code=409, detail="STAGING_TEXT_UNAVAILABLE")
+
+    requested_type = (body.doc_type if body else None) or None
+    if requested_type is not None:
+        allowed = {t.value for t in DocType}
+        if requested_type not in allowed:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "INVALID_DOC_TYPE",
+                    "message": f"허용되지 않는 문서 유형입니다: {requested_type}",
+                },
+            )
+        session_row.admin_doc_type = requested_type
 
     # 이전 분석 청크 제거 후 analyzing 으로 리셋
     db.execute(

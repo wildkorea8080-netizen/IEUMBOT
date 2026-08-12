@@ -197,6 +197,11 @@ import Placeholder from "@tiptap/extension-placeholder";
 import { TableKit } from "@tiptap/extension-table";
 import Image from "@tiptap/extension-image";
 import { apiClient } from "../../../../lib/api/client";
+import {
+  DOC_TYPE_LABELS,
+  reanalyzeStagingSession,
+  type DocTypeValue,
+} from "../../../../lib/api/admin-operations";
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
@@ -226,6 +231,10 @@ type StagingSession = {
   status: string;
   totalChunks: number;
   isDuplicateFile?: boolean;
+  detectedDocType?: DocTypeValue | null;
+  adminDocType?: DocTypeValue | null;
+  effectiveDocType?: DocTypeValue | null;
+  docTypeReason?: string | null;
   chunks: StagingChunk[];
 };
 
@@ -499,6 +508,7 @@ export default function KnowledgeReviewPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [canReanalyze, setCanReanalyze] = useState(false);
   const [isReanalyzing, setIsReanalyzing] = useState(false);
+  const [isChangingDocType, setIsChangingDocType] = useState(false);
   const pollingStartRef = useRef(Date.now());
   const [isDirty, setIsDirty] = useState(false);
   const [showDiff, setShowDiff] = useState(false);
@@ -668,6 +678,30 @@ export default function KnowledgeReviewPage() {
   }, [sessionId, loadChunkIntoEditor]); // eslint-disable-line
 
   useEffect(() => { void load(); }, [load]);
+
+  // 문서 유형을 바꾸면 그 유형으로 다시 분석한다. AI 판별은 반드시 틀리므로
+  // 이게 예측 못 한 문서의 안전장치다 — 특히 서식으로 잘못 판정돼 결과가 0건일 때
+  // 되돌릴 방법이 이 경로뿐이다.
+  const changeDocType = useCallback(async (next: DocTypeValue) => {
+    if (!sessionId || isChangingDocType) return;
+    // 재분석은 기존 주제를 전부 지우고 다시 만든다. 편집해 둔 내용이 날아가므로
+    // 드롭다운을 잘못 건드린 경우를 막는다.
+    if (!confirm("문서 유형을 바꾸면 지금까지의 분석 결과와 편집 내용이 사라지고 처음부터 다시 분석합니다. 계속할까요?")) {
+      return;
+    }
+    setIsChangingDocType(true);
+    setLoadError(null);
+    try {
+      await reanalyzeStagingSession(sessionId, next);
+      pollingStartRef.current = Date.now();
+      setIsLoading(true);
+      await load();
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : "문서 유형 변경에 실패했습니다.");
+    } finally {
+      setIsChangingDocType(false);
+    }
+  }, [sessionId, isChangingDocType, load]);
 
   const handleReanalyze = useCallback(async () => {
     if (!sessionId || isReanalyzing) return;
@@ -855,13 +889,51 @@ export default function KnowledgeReviewPage() {
             {piiCount > 0 && <span style={{ marginLeft: 8, color: "#dc2626", fontWeight: 600 }}>⚠ 민감정보 {piiCount}건 포함</span>}
           </p>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {/* 문서 유형 — AI 판별 결과를 보여 주고 관리자가 고칠 수 있게 한다 */}
+          <label style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            <span style={{ fontSize: 11, color: "#6b7280" }}>
+              문서 유형 · AI 판별 · 다르면 바꿔주세요
+            </span>
+            <select
+              value={session.effectiveDocType ?? "general"}
+              disabled={isChangingDocType}
+              onChange={e => void changeDocType(e.target.value as DocTypeValue)}
+              title={session.docTypeReason ?? undefined}
+              style={{
+                padding: "7px 10px", border: "1px solid #d1d5db", borderRadius: 8,
+                background: isChangingDocType ? "#f3f4f6" : "#fff", fontSize: 13,
+                color: "#374151", cursor: isChangingDocType ? "wait" : "pointer",
+              }}
+            >
+              {(Object.keys(DOC_TYPE_LABELS) as DocTypeValue[]).map(value => (
+                <option key={value} value={value}>{DOC_TYPE_LABELS[value]}</option>
+              ))}
+            </select>
+          </label>
           <button type="button" onClick={() => router.push("/admin/knowledge/list")}
             style={{ padding: "9px 16px", border: "1px solid #d1d5db", borderRadius: 8, background: "#fff", fontSize: 13, cursor: "pointer", color: "#374151" }}>
             목록으로
           </button>
         </div>
       </div>
+
+      {/* 서식으로 판정돼 결과가 0건이면, 왜 비었는지와 되돌리는 법을 함께 알린다.
+          이유 없이 빈 화면을 보여 주면 관리자는 업로드가 실패한 줄 안다. */}
+      {session.effectiveDocType === "form" && session.totalChunks === 0 && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 10, padding: "10px 16px", borderRadius: 10,
+          marginBottom: 10, flexShrink: 0, fontSize: 13,
+          background: "#fef9c3", border: "1px solid #fde047", color: "#854d0e",
+        }}>
+          <span style={{ fontSize: 18 }}>📄</span>
+          <span>
+            빈 서식·신청서로 판단해 주제를 만들지 않았습니다
+            {session.docTypeReason ? ` (${session.docTypeReason})` : ""}.
+            내용이 있는 문서라면 위에서 <strong>문서 유형</strong>을 바꿔 다시 분석해 주세요.
+          </span>
+        </div>
+      )}
 
       {/* 파일 중복 여부 배너 */}
       {session.sourceType === "file" && (

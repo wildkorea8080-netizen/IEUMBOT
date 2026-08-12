@@ -376,6 +376,15 @@ export async function uploadKnowledgeFile(body: {
   return (await response.json()) as KnowledgeDetail;
 }
 
+/** 2계층 문서 유형. 값 추가는 백엔드 document_type.DocType 과 함께. */
+export type DocTypeValue = "general" | "qa" | "form";
+
+export const DOC_TYPE_LABELS: Record<DocTypeValue, string> = {
+  general: "안내서·지침서",
+  qa: "질의응답 모음",
+  form: "서식·신청서",
+};
+
 export type StagingSessionResponse = {
   sessionId: string;
   chatbotId: string;
@@ -384,11 +393,18 @@ export type StagingSessionResponse = {
   status: string;
   totalChunks: number;
   isDuplicateFile?: boolean;
+  /** AI가 판별한 문서 유형. 관리자가 바꾸면 adminDocType이 우선한다. */
+  detectedDocType?: DocTypeValue | null;
+  adminDocType?: DocTypeValue | null;
+  effectiveDocType?: DocTypeValue | null;
+  docTypeReason?: string | null;
   chunks: Array<{
     id: string;
     topicTitle: string;
     content: string;
     tags: string[];
+    category?: string | null;
+    field?: string | null;
     piiDetected: boolean;
     piiRegions: Array<{ start: number; end: number; type: string; preview: string }>;
     mergeCandidateTitle: string | null;
@@ -444,10 +460,12 @@ export async function createKnowledgeTextToStaging(body: {
 
 export async function reanalyzeStagingSession(
   sessionId: string,
+  /** 넘기면 AI 판별을 이 유형으로 덮어쓰고 다시 분석한다. */
+  docType?: DocTypeValue,
 ): Promise<StagingSessionResponse> {
   return apiClient.request<StagingSessionResponse>(
     `/admin/knowledge/staging/${sessionId}/reanalyze`,
-    { method: "POST" },
+    { method: "POST", body: docType ? { docType } : undefined },
   );
 }
 
