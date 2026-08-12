@@ -71,6 +71,11 @@ _HEADING_MARKER_RE = re.compile(
 # 목차 표제와 점선 리더('····· 12', '..... 3')
 _TOC_HEADING_RE = re.compile(r"^(?:목\s*차|차\s*례|CONTENTS|목록)\s*$", re.IGNORECASE)
 _TOC_LEADER_RE = re.compile(r"(?:[·⋯…]{3,}|\.{4,}|_{4,})\s*\d{1,4}\s*$")
+_LIST_BULLET_RE = re.compile(r"^[-*•·▪◦]\s+")
+# 목차로 보고 지울 최소 연속 줄 수. 본문 속 짧은 나열을 잘못 지우지 않도록 넉넉히 잡고,
+# 점선 리더가 있으면 목차가 확실하므로 기준을 낮춘다.
+_TOC_MIN_RUN = 8
+_TOC_MIN_LEADER_RUN = 4
 
 # 종결어미로 끝나면 제목이 아니라 문장이다. 기존 규칙은 이 구분이 없어
 # "이용료는 무료입니다" 같은 평범한 문장을 제목으로 잡아 섹션을 잘못 끊었다.
@@ -133,18 +138,67 @@ def _looks_like_table_of_contents(body: str) -> bool:
     return short / len(lines) >= 0.7 and sentence_ended / len(lines) <= 0.15
 
 
+def _is_toc_line(line: str) -> bool:
+    """목차 항목처럼 보이는 줄 — 짧고, 문장으로 끝나지 않고, 나열 기호가 없다."""
+    s = line.strip()
+    if not s or len(s) > 40:
+        return False
+    if _SENTENCE_TAIL_RE.search(s):
+        return False
+    # 나열 기호가 붙은 줄은 본문 안의 목록이다. 표 조각(|)도 목차가 아니다.
+    if _LIST_BULLET_RE.match(s) or "|" in s:
+        return False
+    return True
+
+
 def _strip_table_of_contents(text: str) -> str:
-    """헤딩 분할 전에 목차 블록을 통째로 걷어낸다.
+    """헤딩 분할 전에 목차를 걷어낸다.
 
     섹션으로 쪼갠 뒤에 거르면 늦다 — 목차 줄 하나하나가 짧은 한글 제목이라
     헤딩으로 인식돼 목차가 여러 조각으로 흩어지고, 조각 단위로는 목차처럼
-    보이지 않는다. 그래서 단락 단위로 먼저 훑는다.
+    보이지 않는다.
+
+    빈 줄 기준 단락이 아니라 **연속된 줄 구간**을 본다. Vision 추출물은 줄바꿈
+    하나로 이어져 있어서 단락으로 나누면 문서 전체가 한 덩어리가 되고 아무것도
+    걸러지지 않는다(실제로 세무 사례집에서 이렇게 새어 나갔다).
     """
-    blocks = re.split(r"\n{2,}", text)
-    kept = [b for b in blocks if not _looks_like_table_of_contents(b)]
+    lines = text.splitlines()
+    keep = [True] * len(lines)
+    run_start: int | None = None
+
+    def close_run(end: int) -> None:
+        if run_start is None:
+            return
+        # 목차 항목 뒤에는 목차 항목이 오고, 헤딩 뒤에는 본문이 온다.
+        # 구간을 끊은 줄이 본문이면 구간의 마지막 줄은 목차가 아니라 그 본문의
+        # 제목일 가능성이 크므로 살린다 — 목차와 본문 사이에 빈 줄이 없는
+        # Vision 추출물에서 진짜 헤딩이 통째로 사라지던 경우다.
+        stop = end
+        if end < len(lines) and lines[end].strip() and stop - run_start > 1:
+            stop -= 1
+        length = stop - run_start
+        # 점선 리더가 있으면 목차가 확실하므로 짧은 구간도 지운다.
+        has_leader = any(_TOC_LEADER_RE.search(lines[i]) for i in range(run_start, stop))
+        if length >= (_TOC_MIN_LEADER_RUN if has_leader else _TOC_MIN_RUN):
+            for i in range(run_start, stop):
+                keep[i] = False
+
+    for index, line in enumerate(lines):
+        if _is_toc_line(line):
+            if run_start is None:
+                run_start = index
+            continue
+        # 빈 줄에서도 끊는다. 이어 붙이면 목차 바로 다음의 진짜 헤딩까지 구간에
+        # 딸려 들어가 본문 섹션이 통째로 사라진다(테스트로 잡았다).
+        close_run(index)
+        run_start = None
+    close_run(len(lines))
+
+    kept = [line for line, ok in zip(lines, keep, strict=True) if ok]
+    stripped = "\n".join(kept).strip()
     # 문서 전체가 목차로 판정되면(표지·목차만 추출된 경우) 원본을 그대로 둔다 —
     # 다 버리면 관리자는 빈 화면만 보고 이유를 모른다.
-    return "\n\n".join(kept) if kept else text
+    return stripped or text
 
 
 def _split_sentences(text: str) -> list[str]:

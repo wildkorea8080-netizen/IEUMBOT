@@ -11,6 +11,7 @@
 from app.services.admin.knowledge_staging_service import (
     _looks_like_table_of_contents,
     _split_semantic_chunks,
+    _strip_table_of_contents,
 )
 
 TOC = """제1편.
@@ -71,6 +72,54 @@ def test_section_with_a_short_list_is_not_a_toc() -> None:
 
 def test_short_block_is_never_a_toc() -> None:
     assert not _looks_like_table_of_contents("반입 절차\n계량\n검사")
+
+
+def test_toc_glued_to_the_body_is_still_removed() -> None:
+    # Vision 추출물은 줄바꿈 하나로 이어진다. 빈 줄을 기대하면 목차를 못 걷어낸다.
+    text = TOC + "\n" + "부당해고 판결에 따라 회사는 원천징수를 하여야 한다. " * 8
+
+    stripped = _strip_table_of_contents(text)
+
+    assert "근로장려금 신청" not in stripped
+    assert "부당해고 판결에 따라" in stripped
+
+
+def test_heading_right_after_a_toc_survives() -> None:
+    # 실제 추출물은 목차와 본문 사이에 빈 줄이 없다. 목차 구간이 바로 뒤의
+    # 진짜 헤딩까지 삼키면 그 섹션이 통째로 사라진다.
+    text = (
+        TOC
+        + "\n1. 과세예고통지\n"
+        + "과세예고통지를 받은 경우 30일 이내에 과세전적부심사를 청구할 수 있다. " * 6
+    )
+
+    stripped = _strip_table_of_contents(text)
+
+    assert "근로장려금 신청" not in stripped
+    assert "1. 과세예고통지" in stripped
+    assert [s.heading for s in _split_semantic_chunks(text)] == ["1. 과세예고통지"]
+
+
+def test_bullet_list_is_not_stripped_as_toc() -> None:
+    # 항목이 6개 넘는 나열도 본문이다. 길이만 보고 지우면 내용이 사라진다.
+    text = (
+        "제출 서류는 다음과 같다.\n"
+        "- 반입신청서 1부\n"
+        "- 폐기물 성상분석서 1부\n"
+        "- 사업자등록증 사본 1부\n"
+        "- 통장 사본 1부\n"
+        "- 위임장 1부\n"
+        "- 신분증 사본 1부\n"
+        "- 차량등록증 사본 1부\n"
+        "접수 후 3일 이내에 결과를 통보한다.\n"
+    )
+
+    assert "위임장" in _strip_table_of_contents(text)
+
+
+def test_document_that_is_entirely_toc_is_kept() -> None:
+    # 다 지우면 관리자는 빈 화면만 보고 이유를 모른다.
+    assert _strip_table_of_contents(TOC).strip()
 
 
 def test_toc_block_does_not_become_a_topic() -> None:
