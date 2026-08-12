@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "pnpm exec eslint . --ext .ts,.tsx",
+    "lint": "pnpm exec eslint \"**/*.{ts,tsx}\"",
     "typecheck": "pnpm exec tsc --project tsconfig.json --noEmit"
   },
   "dependencies": {
