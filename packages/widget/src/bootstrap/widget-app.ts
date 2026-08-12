@@ -49,12 +49,17 @@ const CHAT_RECOVERY_MESSAGE =
 const PRIVACY_INPUT_BLOCK_MESSAGE = "개인정보가 포함된 내용은 입력할 수 없습니다. 개인정보를 제외하고 다시 입력해 주세요.";
 const DEFAULT_TRUST_NOTICE = "AI 이음봇도 가끔 실수할 수 있습니다. 중요한 정보는 꼭 다시 한번 확인하세요.";
 
-const PRIVACY_PATTERNS = [
-  /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/,
-  /\b\d{6}-[1-4]\d{6}\b/,
-  /\b\d{4}[- ]?\d{4}[- ]?\d{4}[- ]?\d{4}\b/,
-  /\b01[016789][- ]?\d{3,4}[- ]?\d{4}\b/,
-  /\b(?:19|20)\d{2}[-./](?:0[1-9]|1[0-2])[-./](?:0[1-9]|[12]\d|3[01])\b/,
+// 유형명은 서버(privacy_guard_service)와 맞춘다 — 차단 사실을 통보할 때
+// 그대로 쓰이고, 서버가 모르는 이름은 버려진다.
+const PRIVACY_PATTERNS: { type: string; pattern: RegExp }[] = [
+  { type: "email", pattern: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/ },
+  { type: "rrn", pattern: /\b\d{6}-[1-4]\d{6}\b/ },
+  { type: "card", pattern: /\b\d{4}[- ]?\d{4}[- ]?\d{4}[- ]?\d{4}\b/ },
+  { type: "phone", pattern: /\b01[016789][- ]?\d{3,4}[- ]?\d{4}\b/ },
+  {
+    type: "birthdate",
+    pattern: /\b(?:19|20)\d{2}[-./](?:0[1-9]|1[0-2])[-./](?:0[1-9]|[12]\d|3[01])\b/,
+  },
 ];
 
 function escapeHtmlAttribute(value: string): string {
@@ -282,8 +287,9 @@ function asStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
-function hasPrivacyInput(value: string): boolean {
-  return PRIVACY_PATTERNS.some((pattern) => pattern.test(value));
+/** 걸린 개인정보 유형 목록. 비어 있으면 개인정보가 없다는 뜻이다. */
+function detectPrivacyTypes(value: string): string[] {
+  return PRIVACY_PATTERNS.filter(({ pattern }) => pattern.test(value)).map(({ type }) => type);
 }
 
 function isUrlLikeCitationPart(value: string): boolean {
@@ -2145,7 +2151,8 @@ export class IeumWidgetApp {
     }
     // 새 질문 전송 시작 — 이전 답변 핀 해제(질문은 맨 아래로 보임). 답변 생성 시 다시 설정.
     this.pinMessageIdToTop = null;
-    if (hasPrivacyInput(question)) {
+    const privacyTypes = detectPrivacyTypes(question);
+    if (privacyTypes.length > 0) {
       this.clearInitialWelcomeForDirectQuestion();
       this.lastFailedQuestion = null;
       this.input.value = "";
@@ -2156,6 +2163,17 @@ export class IeumWidgetApp {
         outcome: "restricted",
         timestamp: Date.now(),
       });
+      // 원문은 보내지 않고 '차단됐다는 사실과 유형'만 알린다. 이게 없으면
+      // 기관은 개인정보 입력 시도가 있었는지조차 알 수 없다(보안센터 항상 0).
+      void this.api
+        .reportBlockedPrivacyInput({
+          chatbotId: this.options.chatbotId,
+          sessionToken: this.sessionToken,
+          detectedTypes: privacyTypes,
+        })
+        .catch(() => {
+          /* 통보 실패가 사용자 경험을 막지 않는다 */
+        });
       this.input.focus();
       return;
     }

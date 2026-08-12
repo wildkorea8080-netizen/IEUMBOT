@@ -61,6 +61,26 @@ export class WidgetApiClient {
     return (await response.json()) as ChatResponse;
   }
 
+  /**
+   * 브라우저에서 개인정보를 차단했다는 사실만 서버에 알린다.
+   * 원문은 절대 보내지 않는다 — 개인정보가 브라우저를 떠나지 않게 하는 것이
+   * 로컬 차단의 존재 이유다. 유형(phone/email 등)만 전달한다.
+   */
+  async reportBlockedPrivacyInput(body: {
+    chatbotId: string;
+    sessionToken: string;
+    detectedTypes: string[];
+  }): Promise<void> {
+    await fetch(`${this.baseUrl}/widget/security-events`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      credentials: "omit",
+      keepalive: true,
+    });
+    // 실패해도 throw하지 않음 — 호출자가 catch로 처리
+  }
+
   async sendFeedback(messageId: string, feedback: 1 | -1): Promise<void> {
     await fetch(`${this.baseUrl}/chat/messages/${encodeURIComponent(messageId)}/feedback`, {
       method: "POST",

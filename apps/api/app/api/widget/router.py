@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.db import get_db_session
 from app.models import ChatbotSetting, DocumentChunk, QuickAction, WidgetDeployment
+from app.schemas import ApiSchema
 from app.schemas.widget import (
     WidgetBanner,
     WidgetConsultationSnapshot,
@@ -20,6 +21,12 @@ from app.schemas.widget import (
 )
 from app.services import widget_trust_badges as trust_badges
 from app.services.enforcement_service import ensure_runtime_access_for_widget
+from app.services.widget_security_report_service import (
+    WidgetReportRejected,
+    consume_session_quota,
+    normalize_detected_types,
+    record_client_blocked_privacy_event,
+)
 
 router = APIRouter(tags=["widget"])
 
@@ -308,4 +315,62 @@ def get_widget_consultation_snapshot(
         board_label="서울노동권익센터 상담게시판",
         receipt_no=receipt_no,
         source_list_url=source_list_url,
+    )
+
+
+class WidgetSecurityReportRequest(ApiSchema):
+    """위젯이 브라우저에서 개인정보를 차단했을 때 보내는 통보.
+
+    원문(question)은 받지 않는다 — 개인정보가 브라우저를 떠나지 않게 하는 것이
+    위젯 차단의 존재 이유이고, 그 성질을 여기서 깨면 안 된다.
+    """
+
+    chatbot_id: str
+    session_token: str | None = None
+    detected_types: list[str] = []
+
+
+@router.post("/security-events", status_code=status.HTTP_204_NO_CONTENT)
+def report_widget_security_event(
+    body: WidgetSecurityReportRequest,
+    db: Session = Depends(get_db_session),  # noqa: B008
+) -> None:
+    """위젯이 막은 개인정보 입력 시도를 보안 이벤트로 남긴다.
+
+    인증 없는 공개 경로다. 유형 화이트리스트와 세션당 상한으로 남용을 막고,
+    챗봇 접근 가능 여부는 다른 위젯 엔드포인트와 동일하게 검증한다.
+    """
+    try:
+        chatbot_uuid = uuid.UUID(body.chatbot_id)
+    except (ValueError, AttributeError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="INVALID_CHATBOT_ID"
+        ) from exc
+
+    chatbot = db.execute(
+        select(ChatbotSetting).where(
+            ChatbotSetting.id == chatbot_uuid,
+            ChatbotSetting.deleted_at.is_(None),
+        )
+    ).scalar_one_or_none()
+    if chatbot is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CHATBOT_NOT_FOUND")
+    ensure_runtime_access_for_widget(db, chatbot_id=str(chatbot.id))
+
+    session_token = (body.session_token or "").strip() or "unknown"
+    try:
+        types = normalize_detected_types(body.detected_types)
+        consume_session_quota(str(chatbot.id), session_token)
+    except WidgetReportRejected as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+
+    record_client_blocked_privacy_event(
+        db=db,
+        chatbot_id=str(chatbot.id),
+        organization_id=str(chatbot.organization_id),
+        session_token=session_token,
+        detected_types=types,
     )
