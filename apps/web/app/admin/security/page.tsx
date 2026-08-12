@@ -28,7 +28,12 @@ function fmtDate(v: string) {
 }
 
 function rangeDate(days: number) {
-  const d = new Date(); d.setDate(d.getDate() - days); return d.toISOString().slice(0, 10);
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  // toISOString()은 UTC라 한국 오전 0~9시에 하루 전 날짜가 나온다. 그러면
+  // '오늘'을 눌러도 어제를 조회해 방금 난 사건이 안 보인다. 로컬 날짜를 쓴다.
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 type Period = "today" | "yesterday" | "week7" | "month30" | "custom";
@@ -123,7 +128,7 @@ export default function SecurityPage() {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   const { fromDate, toDate } = useMemo(() => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = rangeDate(0);
     if (period === "today") return { fromDate: today, toDate: today };
     if (period === "yesterday") return { fromDate: rangeDate(1), toDate: rangeDate(1) };
     if (period === "week7") return { fromDate: rangeDate(7), toDate: today };

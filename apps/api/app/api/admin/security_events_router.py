@@ -1,7 +1,7 @@
 import csv
 import io
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
@@ -62,6 +62,34 @@ def _to_item(row: SecurityEvent) -> SecurityEventItem:
     )
 
 
+# 화면의 기간 버튼은 한국 날짜를 뜻한다. UTC로 자르면 한국 오전 0~9시에
+# '오늘'이 어제를 가리켜, 관리자가 아침에 보면 방금 난 사건이 안 보인다.
+_KST = timezone(timedelta(hours=9))
+
+
+def parse_event_day_range(
+    from_date: str | None, to_date: str | None
+) -> tuple[datetime | None, datetime | None]:
+    """YYYY-MM-DD 두 개를 [시작, 끝) 구간으로 바꾼다. 경계는 한국시간 기준.
+
+    끝은 종료일 '다음 날' 0시다. 종료일 0시로 두면 그날 하루가 통째로 빠진다.
+    형식이 잘못된 값은 화면 전체를 죽이지 않도록 무시한다.
+    """
+
+    def _day_start(value: str | None) -> datetime | None:
+        if not value:
+            return None
+        try:
+            return datetime.fromisoformat(value).replace(tzinfo=_KST)
+        except ValueError:
+            return None
+
+    start_at = _day_start(from_date)
+    end_day = _day_start(to_date)
+    end_at = end_day + timedelta(days=1) if end_day is not None else None
+    return start_at, end_at
+
+
 def _build_conditions(
     organization_id: str,
     chatbot_id: str | None,
@@ -80,16 +108,13 @@ def _build_conditions(
         conds.append(SecurityEvent.event_type == event_type)
     if severity:
         conds.append(SecurityEvent.severity == severity)
-    if from_date:
-        try:
-            conds.append(SecurityEvent.created_at >= datetime.fromisoformat(from_date))
-        except ValueError:
-            pass
-    if to_date:
-        try:
-            conds.append(SecurityEvent.created_at <= datetime.fromisoformat(to_date))
-        except ValueError:
-            pass
+    start_at, end_at = parse_event_day_range(from_date, to_date)
+    if start_at is not None:
+        conds.append(SecurityEvent.created_at >= start_at)
+    if end_at is not None:
+        # 종료 경계는 다음 날 0시 '미만'이다. 예전처럼 종료일 0시로 <= 비교하면
+        # 그날 발생한 이벤트가 전부 빠진다 — '오늘'이 항상 0건이던 원인.
+        conds.append(SecurityEvent.created_at < end_at)
     return conds
 
 
