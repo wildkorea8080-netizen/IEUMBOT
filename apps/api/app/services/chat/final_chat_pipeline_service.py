@@ -1624,7 +1624,26 @@ def run_final_chat_pipeline(
     # ── 개인정보(PII) 자동 처리 — LLM 전송·트레이스·로그 저장 전에 비식별화 ──
     privacy_result = detect_and_mask_privacy(body.question)
     if privacy_result.detected:
-        if answer_settings.answer_policy.privacy_input_mode == "block":
+        # 보안 이벤트는 반드시 여기서 남긴다. 아래 analyze_security는 block이면
+        # 도달하지 못하고, mask면 이미 가려진 질문을 받아 개인정보를 못 찾는다.
+        # 그래서 '개인정보 노출 위험'이 보안센터에서 항상 0이었다.
+        from app.services.security_guard_service import (  # noqa: PLC0415
+            log_security_event as _log_privacy_event,
+        )
+
+        _privacy_mode = answer_settings.answer_policy.privacy_input_mode
+        _log_privacy_event(
+            chatbot_id=str(chatbot.id),
+            organization_id=str(chatbot.organization_id),
+            session_id=session_token,
+            event_type="privacy_exposure",
+            severity="high",
+            # 원문을 넘겨도 log_security_event가 저장 직전에 다시 가린다.
+            question_masked=body.question,
+            detected_patterns=privacy_result.types,
+            ai_response="blocked" if _privacy_mode == "block" else "masked",
+        )
+        if _privacy_mode == "block":
             session = get_chat_session_by_token(
                 db,
                 organization_id=str(chatbot.organization_id),
