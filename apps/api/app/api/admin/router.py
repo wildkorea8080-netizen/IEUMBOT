@@ -31,6 +31,11 @@ from app.api.admin.users_router import router as users_router
 router = APIRouter(tags=["admin"])
 router.include_router(operations_router)
 router.include_router(conversations_router)
+# security_events_router가 security_router보다 먼저 와야 한다. 두 라우터가
+# /security/events 경로를 공유하는데 FastAPI는 먼저 등록된 쪽을 쓴다.
+# 또 security_router의 /security/events/{event_id}가 뒤에 있어야
+# /security/events/export 가 event_id="export"로 잡히지 않는다.
+router.include_router(security_events_router)
 router.include_router(security_router)
 router.include_router(usage_router)
 router.include_router(billing_router)
@@ -52,7 +57,6 @@ router.include_router(impersonation_router)
 router.include_router(conditional_router)
 router.include_router(api_endpoints_router)
 router.include_router(knowledge_sync_router)
-router.include_router(security_events_router)
 router.include_router(unanswered_router)
 router.include_router(team_router)
 router.include_router(organization_router)
