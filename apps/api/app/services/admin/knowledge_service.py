@@ -220,6 +220,15 @@ PDF_EXTRACTION_MIN_QUALITY = float(os.getenv("PDF_EXTRACTION_MIN_QUALITY", "0.62
 # Vision 추출 상한. 예전 20페이지 고정값은 긴 스캔본(수십~수백 쪽 매뉴얼/사례집)의
 # 뒷부분을 통째로 버려서, 목차만 읽고 본문을 놓치는 원인이었다.
 # 페이지당 LLM 1콜이므로 상한은 비용 가드 역할만 하고, 실제 지연은 아래 병렬도로 흡수한다.
+# Vision 추출 모델. 추출은 파이프라인의 맨 앞이라 여기서 잘못 읽으면 청킹·주제·답변이
+# 전부 오염되고 뒤에서 복구할 방법이 없다(스캔본에서 종합→중합, 미신고→미니건 같은
+# 오인식이 실제로 관찰됐다). 그래서 가장 싼 모델을 쓰지 않는다.
+# 런타임 설정(default_model)을 쓰지 않는 이유는 관리자가 비전 미지원 모델을 넣으면
+# 추출이 통째로 실패하기 때문이다. 비전 지원이 확인된 모델을 기본값으로 두고 env로 연다.
+# 해상도를 올리는 건 효과가 없다 — OpenAI는 짧은 변 768px, Anthropic은 긴 변 1568px로
+# 축소한 뒤 처리하므로 A4 150dpi(1240×1754)면 이미 그 한도를 넘는다.
+PDF_VISION_MODEL_OPENAI = os.getenv("PDF_VISION_MODEL_OPENAI", "gpt-4.1")
+PDF_VISION_MODEL_ANTHROPIC = os.getenv("PDF_VISION_MODEL_ANTHROPIC", "claude-sonnet-4-6")
 PDF_VISION_MAX_PAGES = int(os.getenv("PDF_VISION_MAX_PAGES", "200"))
 PDF_VISION_CONCURRENCY = max(1, int(os.getenv("PDF_VISION_CONCURRENCY", "6")))
 # 페이지 이미지는 장당 수 MB라 전체를 한 번에 들고 있으면 안 된다. 렌더 단위를 쪼갠다.
@@ -2860,6 +2869,10 @@ def _extract_pdf_text_via_vision(
         "이 문서 페이지의 모든 텍스트를 추출해주세요.\n"
         "표는 행과 열 구조를 유지해서 텍스트로 변환하세요.\n"
         "머리글/바닥글/페이지 번호는 제외하세요.\n"
+        # 스캔본에서 '종합→중합', '미신고→미니건' 같은 한 글자 오인식이 실제로 나왔다.
+        # 이런 오류는 뒤 단계에서 걸러낼 방법이 없으므로 추출 시점에 못 박는다.
+        "모양이 비슷한 한글을 임의로 바꾸지 마세요. 특히 행정·법률·세무 용어는\n"
+        "글자 하나까지 보이는 그대로 옮기고, 흐릿하면 추측해서 다른 낱말로 고치지 마세요.\n"
         "추출된 텍스트만 출력하고 다른 설명은 하지 마세요."
     )
 
@@ -2889,7 +2902,7 @@ def _extract_pdf_text_via_vision(
             page_text = ""
             if openai_client is not None:
                 resp = openai_client.chat.completions.create(
-                    model="gpt-4o-mini",
+                    model=PDF_VISION_MODEL_OPENAI,
                     max_tokens=2000,
                     messages=[
                         {
@@ -2911,7 +2924,7 @@ def _extract_pdf_text_via_vision(
                     page_text = resp.choices[0].message.content.strip()
             elif anthropic_client is not None:
                 resp = anthropic_client.messages.create(
-                    model="claude-3-5-haiku-20241022",
+                    model=PDF_VISION_MODEL_ANTHROPIC,
                     max_tokens=2000,
                     messages=[
                         {
@@ -2980,10 +2993,12 @@ def _extract_pdf_text_via_vision(
         images.clear()
 
     logger.info(
-        "[INGEST_FLOW] phase=vision_done pages_rendered=%s pages_extracted=%s concurrency=%s",
+        "[INGEST_FLOW] phase=vision_done pages_rendered=%s pages_extracted=%s "
+        "concurrency=%s model=%s",
         rendered,
         len(extracted_pages),
         workers,
+        PDF_VISION_MODEL_OPENAI if openai_client is not None else PDF_VISION_MODEL_ANTHROPIC,
     )
     return "\n\n".join(extracted_pages)
 
