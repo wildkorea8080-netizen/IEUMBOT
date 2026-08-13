@@ -459,15 +459,15 @@ export default function AdminAiStylePage() {
           </SectionCard>
 
           {/* 섹션 3: 출처 표시 */}
-          <SectionCard title="출처 표시 방식" description="현재 런타임이 지원하는 범위 안에서 운영자 친화적인 표현으로 제공합니다.">
+          <SectionCard title="출처 표시 방식" description="답변 아래 '참고한 자료'가 어떤 형태로 보일지 정합니다.">
             <RadioCardGroup
               label="출처 표시 방식"
               value={form.citationDisplay}
               onChange={v => setForm(p => ({ ...p, citationDisplay: v as StyleForm["citationDisplay"] }))}
               options={[
-                { value: "always", title: "항상 표시", description: "답변과 함께 출처를 바로 보여줍니다." },
-                { value: "bottom", title: "답변 하단 표시", description: "답변 본문 뒤에 출처를 정리해 보여줍니다." },
-                { value: "folded", title: "접기 형태 표시", description: "현재 구조에서는 요약형 출처 표시로 매핑됩니다." },
+                { value: "always", title: "항상 표시", description: "답변에 바로 이어 출처를 붙입니다. 구분선·제목 없이 간결합니다." },
+                { value: "bottom", title: "답변 하단 표시", description: "구분선을 긋고 '참고한 자료' 제목 아래 정리해 보여줍니다." },
+                { value: "folded", title: "접기 형태 표시", description: "'참고한 자료 3건'처럼 접어 두고, 누르면 펼쳐집니다." },
               ]}
             />
           </SectionCard>

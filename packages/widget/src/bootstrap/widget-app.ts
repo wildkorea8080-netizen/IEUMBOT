@@ -372,8 +372,20 @@ function getCitationTitle(_citations: ChatCitation[]): string {
   return "참고한 자료";
 }
 
-function shouldFoldCitations(config: WidgetPublicConfig | null): boolean {
-  return config?.citationPresentation === "folded" || config?.citationMode === "compact";
+type CitationDisplay = "always" | "bottom" | "folded";
+
+/**
+ * 관리자 '출처 표시 방식' 설정을 그대로 따른다.
+ *   always — 본문 바로 아래에 칩만 붙인다(구분선·제목 없음). "바로 보여줍니다".
+ *   bottom — 구분선 + '참고한 자료' 제목 아래 정리해 보여준다.
+ *   folded — 접어 두고 건수만 보여준다.
+ * 예전에는 folded 여부만 봐서 always와 bottom이 완전히 같게 동작했다.
+ */
+function getCitationDisplay(config: WidgetPublicConfig | null): CitationDisplay {
+  const stored = config?.citationPresentation;
+  if (stored === "always" || stored === "bottom" || stored === "folded") return stored;
+  // citationMode는 이 설정이 생기기 전의 값 — compact가 접기에 해당한다.
+  return config?.citationMode === "compact" ? "folded" : "bottom";
 }
 
 function getInstitutionLabel(config: WidgetPublicConfig | null, options: WidgetInitOptions): string {
@@ -794,6 +806,8 @@ function buildScopedStyles(primaryGradient: string): string {
 }
 /* ── citations ── */
 .ieum-citations { margin-top:10px; padding-top:9px; border-top:1px solid #f1f5f9; }
+/* '항상 표시' — 답변에 곧바로 이어 붙인다. 구분선·제목 없이 칩만. */
+.ieum-citations-inline { margin-top:8px; padding-top:0; border-top:none; }
 .ieum-citations-title { font-size:11px; font-weight:700; color:#94a3b8; margin-bottom:6px; letter-spacing:-0.1px; }
 /* 근거를 칩으로 보여 준다. 예전 회색 텍스트 줄은 본문에 묻혀 "근거가 있다"는
    신호가 전달되지 않았다. 칩은 개수가 한눈에 보이고 누를 수 있어 보인다. */
@@ -2028,16 +2042,30 @@ export class IeumWidgetApp {
         }
 
         if (message.citations && message.citations.length > 0) {
-          const folded = shouldFoldCitations(this.config);
+          const display = getCitationDisplay(this.config);
+          const folded = display === "folded";
           const citationTitle = getCitationTitle(message.citations);
           const citationWrap = createElement(
             document,
             folded ? "details" : "div",
-            folded ? "ieum-citations ieum-citations-folded" : "ieum-citations",
+            folded
+              ? "ieum-citations ieum-citations-folded"
+              : display === "always"
+                ? "ieum-citations ieum-citations-inline"
+                : "ieum-citations",
           );
-          const title = createElement(document, folded ? "summary" : "div", "ieum-citations-title");
-          title.textContent = folded ? `${citationTitle} ${Math.min(message.citations.length, 5)}건` : citationTitle;
-          citationWrap.appendChild(title);
+          // '항상 표시'는 답변에 곧바로 이어 붙이는 것이 취지라 구분선·제목을 생략한다.
+          if (display !== "always") {
+            const title = createElement(
+              document,
+              folded ? "summary" : "div",
+              "ieum-citations-title",
+            );
+            title.textContent = folded
+              ? `${citationTitle} ${Math.min(message.citations.length, 5)}건`
+              : citationTitle;
+            citationWrap.appendChild(title);
+          }
           const chipRow = createElement(document, "div", "ieum-citation-chips");
           citationWrap.appendChild(chipRow);
           for (const citation of message.citations.slice(0, 5)) {
