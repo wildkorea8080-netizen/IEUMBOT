@@ -305,13 +305,42 @@ function sourceUrlDomain(value?: string | null): string | null {
   }
 }
 
-function getFriendlyOutcomeLabel(outcome?: string): string | null {
+type OutcomeNotice = { icon: string; text: string; tone: "warn" | "info" | "muted" };
+
+/** 답변 상태 안내. 아이콘·색조까지 함께 정해 상황이 한눈에 구분되게 한다. */
+function getOutcomeNotice(outcome?: string): OutcomeNotice | null {
   if (!outcome || outcome === "answered") return null;
-  if (outcome === "insufficient_evidence") return "등록된 자료에서 관련 정보를 충분히 찾지 못했습니다.";
-  if (outcome === "restricted") return "안전한 안내 범위에서 답변이 제한된 질문입니다.";
-  if (outcome === "conflict") return "근거 확인이 더 필요한 질문입니다.";
-  if (outcome === "escalate") return "정확한 확인이 필요한 내용입니다.";
+  if (outcome === "insufficient_evidence") {
+    return {
+      icon: "⚠️",
+      text: "등록된 자료에서 관련 근거를 찾지 못했습니다.",
+      tone: "warn",
+    };
+  }
+  if (outcome === "restricted") {
+    return { icon: "🔒", text: "안전한 안내 범위에서 답변이 제한된 질문입니다.", tone: "muted" };
+  }
+  if (outcome === "conflict") {
+    return { icon: "❓", text: "근거 확인이 더 필요한 질문입니다.", tone: "warn" };
+  }
+  if (outcome === "escalate") {
+    return { icon: "📞", text: "정확한 확인이 필요한 내용입니다.", tone: "info" };
+  }
   return null;
+}
+
+/** 근거 종류별 아이콘 — 파일인지 웹페이지인지 한눈에 구분되게. */
+function getCitationIcon(citation: ChatCitation): string {
+  if ((citation.extractionMethod ?? "").toLowerCase() === "seoul_labor") return "💬";
+  if (citation.sourceUrl?.trim()) return "🔗";
+  const name = (citation.documentName ?? "").toLowerCase();
+  if (/\.(pdf|hwp|hwpx|docx?|xlsx?|pptx?|txt)$/.test(name)) return "📎";
+  return "📄";
+}
+
+/** 칩 오른쪽에 붙는 보조 정보(쪽 번호 등). 없으면 null. */
+function getCitationMeta(citation: ChatCitation): string | null {
+  return citation.pageNumber ? `${citation.pageNumber}p` : null;
 }
 
 function toCitationText(citation: ChatCitation, institutionName?: string | null): string {
@@ -337,8 +366,10 @@ function getCitationDisplayName(citation: ChatCitation): string {
   return sourceUrlDomain(citation.sourceUrl) ?? "참조 자료";
 }
 
-function getCitationTitle(citations: ChatCitation[]): string {
-  return citations.some((citation) => citation.sourceUrl?.trim()) ? "참조 링크" : "참조 자료";
+function getCitationTitle(_citations: ChatCitation[]): string {
+  // 파일·링크가 섞여 나오는 게 보통이라 종류로 제목을 나누면 오히려 헷갈린다.
+  // 무엇을 근거로 답했는지만 알리면 된다.
+  return "참고한 자료";
 }
 
 function shouldFoldCitations(config: WidgetPublicConfig | null): boolean {
@@ -741,17 +772,47 @@ function buildScopedStyles(primaryGradient: string): string {
   border-left:3px solid #cbd5e1; padding-left:10px; color:#475569; margin:6px 0;
 }
 .ieum-bubble-rich img { max-width:100%; height:auto; border-radius:4px; }
-/* ── outcome 노트 ── */
-.ieum-outcome-note { margin-top:6px; font-size:11.5px; color:#6b7280; }
+/* ── outcome 안내 ──
+   답변을 못 한 이유는 본문만큼 중요한 정보다. 예전에는 본문 위 회색 한 줄이라
+   눈에 띄지 않았다. 상태별 색을 입힌 블록으로 올려 "왜 이 답이 나왔는지"가
+   먼저 읽히게 한다. */
+.ieum-outcome-note {
+  display:flex; gap:7px; align-items:flex-start;
+  margin-bottom:8px; padding:9px 11px; border-radius:9px;
+  font-size:12px; line-height:1.55; font-weight:500;
+}
+.ieum-outcome-icon { flex-shrink:0; font-size:13px; line-height:1.4; }
+.ieum-outcome-warn { background:#fffbeb; border:1px solid #fde68a; color:#92400e; }
+.ieum-outcome-info { background:#eff6ff; border:1px solid #bfdbfe; color:#1e40af; }
+.ieum-outcome-muted { background:#f8fafc; border:1px solid #e2e8f0; color:#475569; }
+/* 근거 없이 지어내지 않는다는 원칙을 이용자에게 보이게 한다 — 답을 못 받은
+   순간이 신뢰를 얻거나 잃는 지점이라, 침묵보다 이유를 밝히는 편이 낫다. */
+.ieum-trust-note {
+  margin-top:8px; padding:8px 11px; border-radius:8px;
+  background:#fefce8; border:1px solid #fef08a;
+  font-size:11.5px; line-height:1.55; color:#854d0e;
+}
 /* ── citations ── */
-.ieum-citations { margin-top:8px; padding-top:8px; border-top:1px solid #f1f5f9; }
-.ieum-citations-title { font-size:11px; font-weight:700; color:#6b7280; margin-bottom:5px; }
-.ieum-citation { font-size:11px; color:#6b7280; line-height:1.45; margin-bottom:3px; }
-.ieum-citation-link { color:#2563eb; text-decoration:none; font-weight:600; overflow-wrap:anywhere; }
-.ieum-citation-link:hover { text-decoration:underline; }
-.ieum-citation-snapshot { background:none; border:none; padding:0; margin:0; font:inherit; font-weight:600; color:#2563eb; cursor:pointer; text-align:left; }
-.ieum-citation-snapshot:hover { text-decoration:underline; }
-.ieum-citation-badge { display:inline-block; margin-left:6px; padding:0 6px; font-size:10px; font-weight:600; color:#7c3aed; background:#f5f3ff; border-radius:5px; vertical-align:middle; }
+.ieum-citations { margin-top:10px; padding-top:9px; border-top:1px solid #f1f5f9; }
+.ieum-citations-title { font-size:11px; font-weight:700; color:#94a3b8; margin-bottom:6px; letter-spacing:-0.1px; }
+/* 근거를 칩으로 보여 준다. 예전 회색 텍스트 줄은 본문에 묻혀 "근거가 있다"는
+   신호가 전달되지 않았다. 칩은 개수가 한눈에 보이고 누를 수 있어 보인다. */
+.ieum-citation-chips { display:flex; flex-wrap:wrap; gap:6px; }
+.ieum-citation-chip {
+  display:inline-flex; align-items:center; gap:5px; max-width:100%;
+  padding:5px 10px; border:1px solid #e2e8f0; border-radius:999px;
+  background:#f8fafc; font-size:11.5px; font-weight:600; color:#475569;
+  text-decoration:none; cursor:default; line-height:1.35;
+  font-family:inherit; text-align:left;
+}
+a.ieum-citation-chip, button.ieum-citation-chip { cursor:pointer; }
+a.ieum-citation-chip:hover, button.ieum-citation-chip:hover {
+  background:#eff6ff; border-color:#bfdbfe; color:#1d4ed8;
+}
+.ieum-citation-chip-icon { flex-shrink:0; font-size:11px; }
+.ieum-citation-chip-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:190px; }
+.ieum-citation-chip-meta { flex-shrink:0; color:#94a3b8; font-weight:500; }
+.ieum-citation-badge { display:inline-block; margin-left:2px; padding:0 6px; font-size:10px; font-weight:600; color:#7c3aed; background:#f5f3ff; border-radius:5px; vertical-align:middle; }
 .ieum-snapshot-overlay { position:fixed; inset:0; z-index:2147483647; background:rgba(15,23,42,0.45); display:flex; align-items:center; justify-content:center; padding:16px; }
 .ieum-snapshot-card { background:#fff; border-radius:14px; width:100%; max-width:420px; max-height:80vh; display:flex; flex-direction:column; box-shadow:0 20px 60px rgba(0,0,0,.28); overflow:hidden; }
 .ieum-snapshot-header { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; padding:16px 18px 10px; border-bottom:1px solid #f1f5f9; }
@@ -1894,11 +1955,29 @@ export class IeumWidgetApp {
       }
 
       if (message.role === "assistant") {
-        const outcomeText = getFriendlyOutcomeLabel(message.outcome);
-        if (outcomeText) {
-          const note = createElement(document, "div", "ieum-outcome-note");
-          note.textContent = outcomeText;
-          bubble.appendChild(note);
+        const notice = getOutcomeNotice(message.outcome);
+        if (notice) {
+          const note = createElement(
+            document,
+            "div",
+            `ieum-outcome-note ieum-outcome-${notice.tone}`,
+          );
+          const noteIcon = createElement(document, "span", "ieum-outcome-icon");
+          noteIcon.textContent = notice.icon;
+          const noteText = createElement(document, "span");
+          noteText.textContent = notice.text;
+          note.appendChild(noteIcon);
+          note.appendChild(noteText);
+          // 본문 위에 둔다. 왜 이런 답이 나왔는지를 먼저 읽어야 본문이 이해된다.
+          bubble.insertBefore(note, bubble.firstChild);
+        }
+        // 근거가 없을 때만: 지어내지 않는 것이 정상 동작임을 알린다.
+        // 답을 못 받은 순간이 신뢰가 갈리는 지점이라, 빈손으로 보내지 않는다.
+        if (message.outcome === "insufficient_evidence") {
+          const trust = createElement(document, "div", "ieum-trust-note");
+          trust.textContent =
+            "근거가 없을 때 그럴듯한 답을 지어내지 않는 것이 이 챗봇의 기본 동작입니다.";
+          bubble.appendChild(trust);
         }
         // 피드백 버튼 (assistant 메시지에만, id가 있을 때만)
         if (message.id) {
@@ -1959,44 +2038,56 @@ export class IeumWidgetApp {
           const title = createElement(document, folded ? "summary" : "div", "ieum-citations-title");
           title.textContent = folded ? `${citationTitle} ${Math.min(message.citations.length, 5)}건` : citationTitle;
           citationWrap.appendChild(title);
+          const chipRow = createElement(document, "div", "ieum-citation-chips");
+          citationWrap.appendChild(chipRow);
           for (const citation of message.citations.slice(0, 5)) {
-            const line = createElement(document, "div", "ieum-citation");
             const sourceUrl = citation.sourceUrl?.trim();
             const isConsultation =
               (citation.extractionMethod ?? "").toLowerCase() === "seoul_labor" &&
               !!citation.chunkId?.trim();
+            // 칩은 셋 다 같은 모양이고 태그만 다르다 — 누를 수 있는 것(링크·상담
+            // 스냅샷)은 a/button, 출처만 밝히는 것은 span.
+            const tag = isConsultation ? "button" : sourceUrl ? "a" : "span";
+            const chip = createElement(document, tag, "ieum-citation-chip");
+
+            const chipIcon = createElement(document, "span", "ieum-citation-chip-icon");
+            chipIcon.textContent = getCitationIcon(citation);
+            const chipName = createElement(document, "span", "ieum-citation-chip-name");
+            chipName.textContent = getCitationDisplayName(citation);
+            chip.appendChild(chipIcon);
+            chip.appendChild(chipName);
+
+            const meta = getCitationMeta(citation);
+            if (meta) {
+              const chipMeta = createElement(document, "span", "ieum-citation-chip-meta");
+              chipMeta.textContent = `· ${meta}`;
+              chip.appendChild(chipMeta);
+            }
+
             if (isConsultation) {
               // 게시판이 JS(POST)라 개별글 URL이 없어 딥링크 불가 →
               // 수집 때 저장한 상담 원문을 내부 스냅샷 모달로 표시.
               const chunkId = citation.chunkId as string;
-              const button = createElement(
-                document,
-                "button",
-                "ieum-citation-link ieum-citation-snapshot",
-              ) as HTMLButtonElement;
-              button.type = "button";
-              button.textContent = getCitationDisplayName(citation);
-              button.addEventListener("click", () => {
+              (chip as HTMLButtonElement).type = "button";
+              chip.addEventListener("click", () => {
                 void this.openConsultationSnapshot(chunkId, citation);
               });
-              line.appendChild(button);
               const category = citation.category?.trim();
               if (category) {
                 const badge = createElement(document, "span", "ieum-citation-badge");
                 badge.textContent = category;
-                line.appendChild(badge);
+                chip.appendChild(badge);
               }
             } else if (sourceUrl) {
-              const link = createElement(document, "a", "ieum-citation-link") as HTMLAnchorElement;
+              const link = chip as HTMLAnchorElement;
               link.href = sourceUrl;
               link.target = "_blank";
               link.rel = "noopener noreferrer";
-              link.textContent = getCitationDisplayName(citation);
-              line.appendChild(link);
             } else {
-              line.textContent = toCitationText(citation, this.config?.institutionName);
+              // 링크가 없으면 기관명·구간 등 전체 표기를 툴팁으로 보존한다.
+              chip.title = toCitationText(citation, this.config?.institutionName);
             }
-            citationWrap.appendChild(line);
+            chipRow.appendChild(chip);
           }
           bubble.appendChild(citationWrap);
         }
