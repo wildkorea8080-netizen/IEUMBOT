@@ -11,6 +11,7 @@ RAG 답변에 병합할 실시간 텍스트 컨텍스트를 반환한다.
 
 import json
 import logging
+import os
 import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -29,7 +30,10 @@ logger = logging.getLogger(__name__)
 # { endpoint_id: (cached_text, cached_structured, expires_at) }
 _cache: dict[str, tuple[str, ViewResponse | ListResponse | None, datetime]] = {}
 
-_API_TIMEOUT = 5  # seconds
+# 외부 API 읽기 타임아웃(초). 공공데이터포털(data.go.kr)은 흔히 4~8초가 걸린다 —
+# 운영 로그에서 KOTRA 호출이 4.7초로 5초 상한에 거의 닿아 있었다. 그 선을 넘으면
+# 조용히 실패하고 RAG가 대신 답해, 관리자는 API가 안 붙은 줄로만 안다.
+_API_TIMEOUT = int(os.getenv("EXTERNAL_API_TIMEOUT_SECONDS", "12"))
 
 
 # ── JSONPath 단순 추출 ────────────────────────────────────────────────────────

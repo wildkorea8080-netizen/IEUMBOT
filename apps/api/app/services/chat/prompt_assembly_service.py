@@ -263,11 +263,14 @@ def build_answer_prompt(
     # 기관별 추가 지시문: custom_instructions 가 있으면 마지막에 삽입
     custom_instr_part = f"추가 지시사항: {custom_instructions.strip()}" if custom_instructions and custom_instructions.strip() else ""
 
-    # 외부 API 실시간 데이터: RAG 컨텍스트보다 앞에 삽입 (Sprint 3-D)
+    # 외부 API 실시간 데이터는 유저 프롬프트(질문 바로 아래)에 넣는다.
+    # 시스템 프롬프트 끝에 두면 모델이 질문 옆에 붙은 RAG 근거로만 답하고 이 블록을
+    # 무시한다 — API가 정상 호출되고 3천 자가 주입됐는데도 답변에 전혀 반영되지 않던
+    # 원인이다. 주제 게이트를 유저 프롬프트로 옮긴 것과 같은 이유다.
     api_context_part = (
         f"[실시간 데이터]\n{api_context.strip()}\n"
         "위 실시간 데이터는 현재 시스템에서 직접 조회한 최신 정보입니다. "
-        "관련 질문에는 이 정보를 우선 참고하세요."
+        "관련 질문에는 이 정보를 우선 참고하세요.\n\n"
     ) if api_context and api_context.strip() else ""
 
     system_parts = [
@@ -282,7 +285,6 @@ def build_answer_prompt(
         slot_notice.strip(),
         caution_instruction.strip(),
         custom_instr_part,
-        api_context_part,  # 실시간 API 데이터 — system_parts 마지막에 위치
     ]
     system_prompt = "\n".join([part for part in system_parts if part])
 
@@ -320,6 +322,7 @@ def build_answer_prompt(
         + entity_block
         + f"사용자 질문: {question}\n"
         f"정규화 질문: {normalized_query}\n\n"
+        + api_context_part
         + evidence_instruction
         + "기관 소개나 사업 안내 질문이면 확인되는 사업명, 대상, 제공 내용, 참여/문의 방법을 구체적으로 정리하세요.\n"
         "교육 일정, 자격요건, 신청 기간처럼 근거에 정확한 값이 없으면 임의로 만들지 말고 공식 공지 확인이 필요하다고 말하세요.\n"
