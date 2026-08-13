@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Search, RefreshCw, Trash2, ChevronDown, ChevronRight as ChevronRightIcon,
   CheckCircle, Loader2, XCircle, Clock, BookOpen, PenLine, Globe,
-  Upload, Shield,
+  Shield,
 } from "lucide-react";
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -125,14 +125,6 @@ function effectiveStatus(item: KnowledgeItem): string {
   return item.displayStatus ?? item.status;
 }
 
-function statusClass(status: string): string {
-  if (status === "completed" || status === "ready") return "bg-emerald-100 text-emerald-700";
-  if (status === "failed" || status === "stale_failed") return "bg-red-100 text-red-700";
-  if (status === "needs_reindex") return "bg-orange-100 text-orange-700";
-  if (status === "inactive") return "bg-slate-200 text-slate-700";
-  return "bg-amber-100 text-amber-700";
-}
-
 function statusLabel(status: string): string {
   if (status === "queued") return "대기 중";
   if (status === "processing") return "처리 중";
@@ -166,10 +158,6 @@ function splitTags(value: string): string[] {
 
 function formatCount(value?: number | null): string {
   return typeof value === "number" ? value.toLocaleString("ko-KR") : "0";
-}
-
-function formatDateTime(value?: string | null): string {
-  return value ? new Date(value).toLocaleString("ko-KR") : "-";
 }
 
 function getDiagnosticWarnings(item: KnowledgeItem): string[] {

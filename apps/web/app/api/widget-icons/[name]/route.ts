@@ -2,7 +2,8 @@ import { existsSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest} from "next/server";
+import { NextResponse } from "next/server";
 
 /**
  * 업로드된 런처 아이콘 파일 서빙 (공개 · 인증 없음).

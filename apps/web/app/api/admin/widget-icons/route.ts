@@ -2,7 +2,8 @@ import { existsSync } from "node:fs";
 import { mkdir, readdir, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest} from "next/server";
+import { NextResponse } from "next/server";
 
 /**
  * Next가 실제로 정적 파일을 서빙하는 public 디렉터리를 찾는다.
@@ -70,15 +71,6 @@ type WidgetIconAsset = {
   url: string;
   deletable: boolean;
 };
-
-function getApiBaseUrl(): string {
-  const envBaseUrl =
-    process.env.NEXT_PUBLIC_API_BASE_URL ??
-    process.env.WEB_PUBLIC_API_BASE_URL ??
-    "http://localhost:8000/api";
-
-  return envBaseUrl.endsWith("/") ? envBaseUrl.slice(0, -1) : envBaseUrl;
-}
 
 function authorize(request: NextRequest): NextResponse | null {
   const authorization = request.headers.get("authorization");

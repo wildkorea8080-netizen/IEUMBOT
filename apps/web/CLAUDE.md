@@ -76,7 +76,7 @@ try {
 function effectiveStatus(item: KnowledgeItem): string {
   return item.displayStatus ?? item.status;
 }
-// statusClass(), statusLabel() 모두 effectiveStatus(item)으로 호출
+// statusLabel() 은 effectiveStatus(item)으로 호출
 ```
 
 | displayStatus | 배지 색상 | 표시 텍스트 |

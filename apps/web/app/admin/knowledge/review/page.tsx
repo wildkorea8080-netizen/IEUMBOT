@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
-  ChevronRight, Eye, GitMerge, Loader2, PenLine, Plus, Shield, Tag,
+  ChevronRight, Eye, GitMerge, Loader2, PenLine, Shield,
 } from "lucide-react";
 
 // ── Word-level diff (LCS 기반) ────────────────────────────────────────────────
@@ -675,7 +675,7 @@ export default function KnowledgeReviewPage() {
       );
       setIsLoading(false);
     }
-  }, [sessionId, loadChunkIntoEditor]); // eslint-disable-line
+  }, [sessionId, loadChunkIntoEditor]);  
 
   useEffect(() => { void load(); }, [load]);
 

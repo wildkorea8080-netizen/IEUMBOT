@@ -311,7 +311,7 @@ export default function ConditionalPage() {
     })();
   }, []);
 
-  useEffect(() => { if (chatbotId) void load(); }, [chatbotId]); // eslint-disable-line
+  useEffect(() => { if (chatbotId) void load(); }, [chatbotId]);  
 
   useEffect(() => {
     if (!toast) return;

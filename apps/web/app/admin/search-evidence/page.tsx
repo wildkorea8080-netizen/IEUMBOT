@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import type { FormEvent} from "react";
+import { useMemo, useState } from "react";
 
 import { SearchResultsList } from "../../../components/search-evidence/search-results-list";
 import { PagePanel } from "../../../components/ui/page-panel";

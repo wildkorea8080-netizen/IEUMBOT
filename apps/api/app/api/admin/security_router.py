@@ -1,17 +1,15 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.api.dependencies.auth import AdminPrincipal, require_institution_admin_auth
 from app.db import get_db_session
 from app.schemas.security import (
     AdminSecurityEventDetailResponse,
-    AdminSecurityEventsResponse,
     AdminSecuritySummaryResponse,
 )
 from app.services.admin.security_service import (
     get_security_event_detail_service,
     get_security_summary_service,
-    list_security_events_service,
 )
 
 router = APIRouter(tags=["admin-security"])
@@ -25,31 +23,10 @@ def admin_security_summary(
     return get_security_summary_service(db, principal=principal)
 
 
-@router.get("/security/events", response_model=AdminSecurityEventsResponse)
-def admin_security_events(
-    from_date: str | None = Query(default=None, alias="from"),
-    to_date: str | None = Query(default=None, alias="to"),
-    event_type: str | None = Query(default=None, alias="eventType", max_length=30),
-    severity: str | None = Query(default=None, max_length=20),
-    repeated_dissatisfaction_only: bool = Query(default=False, alias="repeatedDissatisfactionOnly"),
-    question: str | None = Query(default=None, max_length=500),
-    page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=20, alias="pageSize", ge=1, le=100),
-    principal: AdminPrincipal = Depends(require_institution_admin_auth),
-    db: Session = Depends(get_db_session),
-) -> AdminSecurityEventsResponse:
-    return list_security_events_service(
-        db,
-        principal=principal,
-        from_date_raw=from_date,
-        to_date_raw=to_date,
-        event_type=event_type,
-        severity=severity,
-        repeated_dissatisfaction_only=repeated_dissatisfaction_only,
-        question_query=question,
-        page=page,
-        page_size=page_size,
-    )
+# /security/events 목록은 security_events_router가 담당한다.
+# 여기에도 같은 경로가 있어 등록 순서에 따라 화면이 기대하지 않는 응답이 나갔고,
+# 보안센터가 통째로 빈 화면이었다(2026-08-12). 이를 쓰던 프런트는 죽은 코드라
+# 함께 지웠으므로 중복 경로도 남기지 않는다.
 
 
 @router.get("/security/events/{event_id}", response_model=AdminSecurityEventDetailResponse)
