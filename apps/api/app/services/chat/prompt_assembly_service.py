@@ -76,30 +76,46 @@ def _build_policy_instruction(settings: AnswerSettings) -> list[str]:
 
 
 def _build_style_instruction(settings: AnswerSettings) -> list[str]:
+    # 톤·길이는 아래에서 실제 행동 지시로 풀어 쓴다. 여기서 내부 열거값
+    # ("formal", "medium")을 그대로 프롬프트에 넣으면 같은 말을 두 번 하는 셈이고,
+    # 모델이 해석하기 나름이라 지시가 흐려진다.
     lines = [
         f"역할 모드: {settings.prompt_instruction.assistant_role_mode}",
-        f"톤 모드: {settings.prompt_instruction.tone_mode}",
         f"답변 스타일: {settings.prompt_instruction.answer_style_mode}",
-        f"답변 길이: {settings.answer_format.max_answer_length_mode}",
         "문장은 부드럽고 존중하는 한국어로 작성하되, 과장된 위로나 확정적 약속은 피하세요.",
         "목록은 3~6개 정도로 정리하고, 각 항목은 한두 문장으로 구체화하세요.",
     ]
 
-    # tone_mode 기반 말투 지시문 (실질적 행동 지시)
+    # 말투 — 관리 화면의 '응답 톤 설정' 세 가지에 대응한다.
+    # 어조만 맡고 분량은 건드리지 않는다. 그래야 아래 '답변 길이'와 조합된다
+    # (간결한 어조 + 자세히 = 짧은 문장들로 자세히).
     tone = settings.prompt_instruction.tone_mode
     if tone == "formal":
-        lines.append("격식체를 사용하고 전문적으로 답변하세요.")
+        # 공공기관형 — 격식 있고 단정한 안내 중심
+        lines.append(
+            "격식 있고 단정한 공공기관 안내문 어조로 답변하세요. "
+            "구어체·감탄사·이모티콘은 쓰지 마세요."
+        )
     elif tone == "plain":
-        lines.append("친근하고 이해하기 쉬운 말투로 답변하세요.")
-    else:  # polite (기본)
-        lines.append("존댓말을 사용하고 공손하게 답변하세요.")
+        # 간결한 안내형 — 핵심 위주로 짧고 빠르게.
+        # 예전에는 "친근하고 이해하기 쉬운 말투"로 매핑돼 있어, 이 항목을 골라도
+        # 답변이 전혀 간결해지지 않았다(간결함과 친근함은 다른 축이다).
+        lines.append(
+            "군더더기 없이 핵심만 짧은 문장으로 전달하세요. "
+            "인사말·사과·서론 없이 바로 본론부터 쓰세요."
+        )
+    else:  # polite (기본) — 친절한 상담형: 부드럽고 설명적인 안내
+        lines.append(
+            "부드러운 상담원 어조로 존댓말을 쓰고, 왜 그런지 배경이나 이유를 "
+            "한 문장 곁들여 설명하세요."
+        )
 
-    # max_answer_length_mode 기반 길이 지시문
+    # 분량 — 관리 화면의 '답변 길이' 세 가지에 대응한다.
     length = settings.answer_format.max_answer_length_mode
     if length == "short":
         lines.append("핵심만 2-3문장으로 간결하게 답변하세요.")
     elif length == "long":
-        lines.append("근거와 부연설명을 포함해 상세하게 답변하세요.")
+        lines.append("근거와 부연설명, 주의사항까지 상세하게 답변하세요.")
     # medium: 별도 지시 없음 (기존 기본 동작 유지)
 
     return lines
