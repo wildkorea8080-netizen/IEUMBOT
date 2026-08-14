@@ -20,8 +20,17 @@ type ApiEndpointItem = {
   intentKeywords: string[];
   responseType: string;
   responseTemplate: string | null;
+  listConfig: ListConfig | null;
   isEnabled: boolean;
   createdAt: string;
+};
+
+/** 목록형 응답 매핑. 백엔드 _build_list_response 가 읽는 키와 이름을 맞춘다. */
+type ListConfig = {
+  itemsPath?: string;
+  contentFields?: string[];
+  columnLabels?: string[];
+  sourceLinkPath?: string;
 };
 
 type ListResponse = { items: ApiEndpointItem[]; total: number };
@@ -33,7 +42,7 @@ type ApiTestResult = {
   rawPreview: string | null;
 };
 
-type ActiveTab = "header" | "param" | "ai" | null;
+type ActiveTab = "header" | "param" | "ai" | "list" | null;
 
 const DEFAULT_FORM = {
   name: "",
@@ -45,7 +54,18 @@ const DEFAULT_FORM = {
   paramKey: "", paramVal: "",
   params: {} as Record<string, string>,
   aiGuidance: "",
+  // 목록형 — 비워 두면 기존처럼 텍스트로 동작한다.
+  responseType: "text" as "text" | "list",
+  itemsPath: "",
+  contentFields: "",
+  columnLabels: "",
+  sourceLinkPath: "",
 };
+
+/** "a, b, c" → ["a","b","c"]. 빈 항목은 버린다. */
+function splitCsv(value: string): string[] {
+  return value.split(",").map(v => v.trim()).filter(Boolean);
+}
 
 function errMsg(e: unknown) {
   if (e instanceof ApiClientError) return `${e.code}: ${e.message}`;
@@ -79,6 +99,11 @@ function AddModal({ open, onClose, chatbotId, editItem, onSaved }: {
         headers: { ...editItem.headers },
         params: { ...editItem.params },
         aiGuidance: editItem.responseTemplate ?? "",
+        responseType: editItem.responseType === "list" ? "list" : "text",
+        itemsPath: editItem.listConfig?.itemsPath ?? "",
+        contentFields: (editItem.listConfig?.contentFields ?? []).join(", "),
+        columnLabels: (editItem.listConfig?.columnLabels ?? []).join(", "),
+        sourceLinkPath: editItem.listConfig?.sourceLinkPath ?? "",
       });
     } else {
       setForm(DEFAULT_FORM);
@@ -100,6 +125,14 @@ function AddModal({ open, onClose, chatbotId, editItem, onSaved }: {
     if (!form.name.trim() || !form.triggerQuestion.trim() || !form.endpointUrl.trim()) {
       setError("API 이름, 트리거 질문, 엔드포인트는 필수입니다."); return;
     }
+    // 목록형은 어디서 항목을 꺼낼지(itemsPath)와 무엇을 제목으로 쓸지
+    // (contentFields 첫 번째)를 알아야 카드를 만들 수 있다.
+    const isList = form.responseType === "list";
+    const contentFields = splitCsv(form.contentFields);
+    if (isList && (!form.itemsPath.trim() || contentFields.length === 0)) {
+      setError("목록형은 '항목 경로'와 '표시 필드'가 필요합니다.");
+      return;
+    }
     setIsSaving(true); setError(null);
     try {
       const payload = {
@@ -109,8 +142,17 @@ function AddModal({ open, onClose, chatbotId, editItem, onSaved }: {
         headers: form.headers,
         params: form.params,
         intentKeywords: [form.triggerQuestion.trim()],
-        responseType: "text",
+        responseType: form.responseType,
         responseTemplate: form.aiGuidance.trim() || null,
+        // 텍스트로 되돌릴 때 옛 매핑이 남지 않도록 null로 지운다.
+        listConfig: isList
+          ? {
+              itemsPath: form.itemsPath.trim(),
+              contentFields,
+              columnLabels: splitCsv(form.columnLabels),
+              sourceLinkPath: form.sourceLinkPath.trim() || undefined,
+            }
+          : null,
       };
       if (editItem) {
         await apiClient.request<ApiEndpointItem>(`/admin/api-endpoints/${editItem.id}`, {
@@ -198,8 +240,8 @@ function AddModal({ open, onClose, chatbotId, editItem, onSaved }: {
           {/* 탭 토글 */}
           <div>
             <div style={{ display: "flex", gap: 8 }}>
-              {(["header", "param", "ai"] as const).map(tab => {
-                const labels = { header: "헤더", param: "파라미터", ai: "AI지침" };
+              {(["header", "param", "ai", "list"] as const).map(tab => {
+                const labels = { header: "헤더", param: "파라미터", ai: "AI지침", list: "표시 형식" };
                 const isActive = activeTab === tab;
                 return (
                   <button key={tab} type="button"
@@ -273,6 +315,60 @@ function AddModal({ open, onClose, chatbotId, editItem, onSaved }: {
                   rows={4}
                   style={{ width: "100%", padding: "12px 14px", boxSizing: "border-box", border: "1px solid #e5e7eb", borderRadius: 10, fontSize: 13, color: "#374151", outline: "none", resize: "vertical", fontFamily: "inherit", lineHeight: 1.7 }}
                 />
+              </div>
+            )}
+
+            {/* 표시 형식 — 목록형을 고르면 응답 항목을 카드 목록으로 그린다. */}
+            {activeTab === "list" && (
+              <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 12 }}>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {(["text", "list"] as const).map(t => {
+                    const on = form.responseType === t;
+                    return (
+                      <button key={t} type="button"
+                        onClick={() => setForm(p => ({ ...p, responseType: t }))}
+                        style={{
+                          flex: 1, padding: "12px 14px", textAlign: "left", cursor: "pointer",
+                          border: `1.5px solid ${on ? "#2563eb" : "#e5e7eb"}`, borderRadius: 10,
+                          background: on ? "#eff6ff" : "#fff",
+                        }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: on ? "#1d4ed8" : "#374151" }}>
+                          {t === "text" ? "텍스트" : "목록형"}
+                        </div>
+                        <div style={{ fontSize: 11.5, color: "#6b7280", marginTop: 3, lineHeight: 1.5 }}>
+                          {t === "text"
+                            ? "AI가 응답 내용을 읽고 문장으로 답변합니다."
+                            : "게시글 목록처럼 제목·항목별 링크가 있는 카드로 보여줍니다."}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {form.responseType === "list" && (
+                  <>
+                    <div style={{ padding: "10px 12px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 11.5, color: "#475569", lineHeight: 1.6 }}>
+                      위의 <b>테스트</b> 버튼으로 응답을 먼저 확인하고, 그 JSON의 필드 이름을 아래에 적어 주세요.
+                    </div>
+                    {([
+                      ["itemsPath", "항목 경로 *", "response.body.itemList.item", "목록이 들어 있는 위치. 점(.)으로 단계를 잇습니다."],
+                      ["contentFields", "표시 필드 *", "newsTitl, newsWritDt", "쉼표로 구분. 맨 앞이 카드 제목이 됩니다."],
+                      ["columnLabels", "필드 이름표", "제목, 작성일", "표시 필드와 같은 순서. 비우면 필드명이 그대로 나옵니다."],
+                      ["sourceLinkPath", "링크 필드", "newsUrl", "각 항목을 눌렀을 때 열 주소가 담긴 필드."],
+                    ] as const).map(([key, label, ph, help]) => (
+                      <div key={key}>
+                        <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 6 }}>{label}</label>
+                        <input
+                          value={form[key]}
+                          onChange={e => setForm(p => ({ ...p, [key]: e.target.value }))}
+                          placeholder={ph}
+                          style={{ width: "100%", padding: "10px 12px", boxSizing: "border-box", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 13, outline: "none" }}
+                        />
+                        <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>{help}</div>
+                      </div>
+                    ))}
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -445,7 +541,13 @@ export default function ApiConnectPage() {
               </tr>
             ) : items.map(item => (
               <tr key={item.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
-                <td style={{ padding: "14px 16px", fontWeight: 500, color: "#111827" }}>{item.name}</td>
+                <td style={{ padding: "14px 16px", fontWeight: 500, color: "#111827" }}>
+                  {item.name}
+                  {/* 목록형은 답변 모양이 달라지므로 목록에서도 구분되게 표시한다. */}
+                  {item.responseType === "list" && (
+                    <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 700, background: "#eff6ff", color: "#1d4ed8", borderRadius: 4, padding: "1px 6px" }}>목록형</span>
+                  )}
+                </td>
                 <td style={{ padding: "14px 16px", color: "#6b7280", maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{triggerLabel(item)}</td>
                 <td style={{ padding: "14px 16px" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>

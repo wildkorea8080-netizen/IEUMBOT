@@ -204,9 +204,13 @@ def update_api_endpoint(
         row.response_path = body.response_path
     if body.response_template is not None:
         row.response_template = body.response_template
-    if body.view_config is not None:
+    # 매핑 설정은 "안 보냄"과 "비우기"를 구분해야 한다. is not None 으로만 보면
+    # 목록형에서 텍스트로 되돌려도 옛 매핑이 남고, 나중에 다시 목록형으로 바꿨을 때
+    # 지운 줄 알았던 설정이 되살아난다. 보낸 필드만 반영한다.
+    provided = body.model_fields_set
+    if "view_config" in provided:
         row.view_config = body.view_config
-    if body.list_config is not None:
+    if "list_config" in provided:
         row.list_config = body.list_config
     if body.cache_seconds is not None:
         row.cache_seconds = max(0, body.cache_seconds)
