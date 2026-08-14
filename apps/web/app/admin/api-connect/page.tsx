@@ -42,6 +42,16 @@ type ApiTestResult = {
   rawPreview: string | null;
 };
 
+type InspectResult = {
+  success: boolean;
+  error: string | null;
+  itemsPath: string | null;
+  itemCount: number;
+  fields: { name: string; sample: string }[];
+  suggestedTitle: string | null;
+  suggestedLink: string | null;
+};
+
 type ActiveTab = "header" | "param" | "ai" | "list" | null;
 
 const DEFAULT_FORM = {
@@ -86,6 +96,41 @@ function AddModal({ open, onClose, chatbotId, editItem, onSaved }: {
   const [activeTab, setActiveTab] = useState<ActiveTab>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isInspecting, setIsInspecting] = useState(false);
+  const [inspected, setInspected] = useState<InspectResult | null>(null);
+
+  /** 실제 응답을 분석해 목록형 칸을 대신 채운다. JSON 경로를 손으로 쓰지 않게 하는 게 목적. */
+  async function autoFill() {
+    if (!editItem) return;
+    setIsInspecting(true); setError(null);
+    try {
+      const r = await apiClient.request<InspectResult>(
+        `/admin/api-endpoints/${editItem.id}/inspect`, { method: "POST" },
+      );
+      setInspected(r);
+      if (!r.success) { setError(r.error ?? "응답을 분석하지 못했습니다."); return; }
+
+      // 제목을 맨 앞에 두고, 값이 있는 다른 필드를 최대 2개까지 덧붙인다.
+      // 링크 필드는 카드에 따로 붙으므로 표시 필드에서 뺀다.
+      const title = r.suggestedTitle ?? r.fields[0]?.name ?? "";
+      const extras = r.fields
+        .filter(f => f.name !== title && f.name !== r.suggestedLink && f.sample)
+        .slice(0, 2)
+        .map(f => f.name);
+      setForm(p => ({
+        ...p,
+        responseType: "list",
+        itemsPath: r.itemsPath ?? "",
+        contentFields: [title, ...extras].filter(Boolean).join(", "),
+        columnLabels: "",
+        sourceLinkPath: r.suggestedLink ?? "",
+      }));
+    } catch (e) {
+      setError(errMsg(e));
+    } finally {
+      setIsInspecting(false);
+    }
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -347,9 +392,44 @@ function AddModal({ open, onClose, chatbotId, editItem, onSaved }: {
 
                 {form.responseType === "list" && (
                   <>
-                    <div style={{ padding: "10px 12px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 11.5, color: "#475569", lineHeight: 1.6 }}>
-                      위의 <b>테스트</b> 버튼으로 응답을 먼저 확인하고, 그 JSON의 필드 이름을 아래에 적어 주세요.
-                    </div>
+                    {editItem ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        <button type="button" onClick={() => void autoFill()} disabled={isInspecting}
+                          style={{
+                            padding: "10px 14px", border: "1.5px solid #2563eb", borderRadius: 8,
+                            background: isInspecting ? "#eff6ff" : "#2563eb",
+                            color: isInspecting ? "#1d4ed8" : "#fff",
+                            fontSize: 13, fontWeight: 600, cursor: isInspecting ? "wait" : "pointer",
+                          }}>
+                          {isInspecting ? "응답 분석 중…" : "✨ 응답 분석해서 자동으로 채우기"}
+                        </button>
+                        {inspected?.success && (
+                          <div style={{ padding: "10px 12px", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 8, fontSize: 11.5, color: "#166534", lineHeight: 1.7 }}>
+                            항목 <b>{inspected.itemCount}건</b>을 찾았습니다. 사용 가능한 필드:
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
+                              {inspected.fields.map(f => (
+                                <span key={f.name} title={f.sample || "(값 없음)"}
+                                  style={{
+                                    padding: "2px 7px", borderRadius: 999, fontSize: 11,
+                                    background: f.sample ? "#fff" : "#f1f5f9",
+                                    border: `1px solid ${f.sample ? "#bbf7d0" : "#e2e8f0"}`,
+                                    color: f.sample ? "#166534" : "#94a3b8",
+                                  }}>
+                                  {f.name}
+                                </span>
+                              ))}
+                            </div>
+                            <div style={{ marginTop: 6, color: "#15803d" }}>
+                              회색 필드는 값이 비어 있어 카드에 아무것도 표시되지 않습니다.
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div style={{ padding: "10px 12px", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, fontSize: 11.5, color: "#92400e", lineHeight: 1.6 }}>
+                        먼저 저장한 뒤 <b>수정</b>에서 열면, 실제 응답을 분석해 아래 칸을 자동으로 채워 드립니다.
+                      </div>
+                    )}
                     {([
                       ["itemsPath", "항목 경로 *", "response.body.itemList.item", "목록이 들어 있는 위치. 점(.)으로 단계를 잇습니다."],
                       ["contentFields", "표시 필드 *", "newsTitl, newsWritDt", "쉼표로 구분. 맨 앞이 카드 제목이 됩니다."],

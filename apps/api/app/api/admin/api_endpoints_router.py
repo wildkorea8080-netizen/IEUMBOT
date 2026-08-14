@@ -87,6 +87,27 @@ class ApiTestResponse(ApiSchema):
     raw_preview: str | None
 
 
+class InspectedFieldItem(ApiSchema):
+    name: str
+    sample: str
+
+
+class ApiInspectResponse(ApiSchema):
+    """목록형 설정을 자동으로 채우기 위한 응답 구조 분석 결과.
+
+    원본 JSON을 통째로 내려보내지 않는다 — 응답이 수십 KB일 수 있고,
+    관리자에게 필요한 건 필드 이름과 예시값뿐이다.
+    """
+
+    success: bool
+    error: str | None = None
+    items_path: str | None = None
+    item_count: int = 0
+    fields: list[InspectedFieldItem] = []
+    suggested_title: str | None = None
+    suggested_link: str | None = None
+
+
 # ── 헬퍼 ─────────────────────────────────────────────────────────────────────
 
 def _to_item(row: ApiEndpoint) -> ApiEndpointItem:
@@ -259,4 +280,42 @@ def test_api_endpoint(
         result_text=None,
         error="API 호출 실패 또는 빈 응답. 서버 로그를 확인하세요.",
         raw_preview=None,
+    )
+
+
+@router.post("/api-endpoints/{endpoint_id}/inspect", response_model=ApiInspectResponse)
+def inspect_api_endpoint(
+    endpoint_id: str,
+    principal: AdminPrincipal = Depends(require_institution_admin_auth),
+    db: Session = Depends(get_db_session),
+) -> ApiInspectResponse:
+    """응답 구조를 분석해 목록형 설정 후보를 돌려준다.
+
+    관리자가 itemsPath 같은 JSON 경로를 직접 타이핑하지 않게 하려는 용도다.
+    """
+    org_id = require_institution_organization_id(principal)
+    row = _get_row(db, endpoint_id, org_id)
+
+    from app.services.chat.api_connector_service import fetch_raw_response  # noqa: PLC0415
+    from app.services.chat.api_response_inspector import inspect_list_shape  # noqa: PLC0415
+
+    try:
+        data = fetch_raw_response(row, question="테스트 질문")
+    except Exception as exc:  # noqa: BLE001
+        return ApiInspectResponse(success=False, error=f"API 호출 실패: {exc}")
+
+    shape = inspect_list_shape(data)
+    if shape is None:
+        return ApiInspectResponse(
+            success=False,
+            error="응답에서 목록을 찾지 못했습니다. 이 API는 텍스트 형식이 적합합니다.",
+        )
+
+    return ApiInspectResponse(
+        success=True,
+        items_path=shape.items_path,
+        item_count=shape.item_count,
+        fields=[InspectedFieldItem(name=f.name, sample=f.sample) for f in shape.fields],
+        suggested_title=shape.suggested_title,
+        suggested_link=shape.suggested_link,
     )

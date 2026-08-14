@@ -245,6 +245,42 @@ def should_use_api(
     return matched
 
 
+def fetch_raw_response(endpoint: ApiEndpoint, question: str) -> Any:
+    """엔드포인트를 호출해 파싱된 응답을 그대로 돌려준다(렌더링·캐시 없음).
+
+    call_api_endpoint 는 여기에 렌더링을 얹고, 관리 화면의 구조 분석은 원본이
+    필요해 이 함수를 직접 쓴다. 요청 조립 규칙이 두 벌로 갈리지 않게 한 곳에 둔다.
+    JSON이 아니면 원문 문자열을 반환한다.
+    """
+    url = endpoint.endpoint_url.strip()
+    headers: dict[str, str] = dict(endpoint.headers or {})
+    params: dict[str, str] = dict(endpoint.params or {})
+
+    for k, v in params.items():
+        if isinstance(v, str) and "{question}" in v:
+            params[k] = v.replace("{question}", question)
+
+    method = (endpoint.method or "GET").upper()
+    client = _get_web_client()
+    timeout = httpx.Timeout(connect=3.0, read=float(_API_TIMEOUT), write=5.0, pool=3.0)
+
+    if method == "GET":
+        response = client.get(url, params=params or None, headers=headers, timeout=timeout)
+    elif method == "POST":
+        body_data = json.dumps(params).encode("utf-8") if params else b"{}"
+        headers.setdefault("Content-Type", "application/json")
+        response = client.post(url, content=body_data, headers=headers, timeout=timeout)
+    else:
+        response = client.request(method, url, headers=headers, timeout=timeout)
+
+    response.raise_for_status()
+    raw_body = response.text
+    try:
+        return json.loads(raw_body)
+    except json.JSONDecodeError:
+        return raw_body
+
+
 def call_api_endpoint(
     endpoint: ApiEndpoint, question: str
 ) -> tuple[str | None, ViewResponse | ListResponse | None]:
@@ -260,34 +296,7 @@ def call_api_endpoint(
         return cached
 
     try:
-        url = endpoint.endpoint_url.strip()
-        headers: dict[str, str] = dict(endpoint.headers or {})
-        params: dict[str, str] = dict(endpoint.params or {})
-
-        for k, v in params.items():
-            if isinstance(v, str) and "{question}" in v:
-                params[k] = v.replace("{question}", question)
-
-        method = (endpoint.method or "GET").upper()
-        client = _get_web_client()
-        timeout = httpx.Timeout(connect=3.0, read=float(_API_TIMEOUT), write=5.0, pool=3.0)
-
-        if method == "GET":
-            response = client.get(url, params=params or None, headers=headers, timeout=timeout)
-        elif method == "POST":
-            body_data = json.dumps(params).encode("utf-8") if params else b"{}"
-            headers.setdefault("Content-Type", "application/json")
-            response = client.post(url, content=body_data, headers=headers, timeout=timeout)
-        else:
-            response = client.request(method, url, headers=headers, timeout=timeout)
-
-        response.raise_for_status()
-        raw_body = response.text
-
-        try:
-            data = json.loads(raw_body)
-        except json.JSONDecodeError:
-            data = raw_body
+        data = fetch_raw_response(endpoint, question)
 
         response_type = (endpoint.response_type or "text").lower()
         structured: ViewResponse | ListResponse | None = None
