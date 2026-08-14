@@ -881,12 +881,18 @@ a.ieum-citation-chip:hover, button.ieum-citation-chip:hover {
   color:#2563eb; text-decoration:none;
 }
 .ieum-more-link:hover { text-decoration:underline; }
-.ieum-list { list-style:none; margin:6px 0 0; padding:0; display:flex; flex-direction:column; gap:8px; }
-.ieum-list-item { border:1px solid #e5e7eb; border-radius:12px; padding:11px 13px; background:#fff; }
-.ieum-list-item-title { font-size:13px; font-weight:600; color:#111827; margin-bottom:5px; }
-.ieum-list-item-content { font-size:12px; color:#6b7280; line-height:1.55; margin:0 0 3px; }
-.ieum-list-item-link { display:inline-block; margin-top:6px; font-size:11.5px; color:#2563eb; text-decoration:none; }
-.ieum-list-item-link:hover { text-decoration:underline; }
+/* 게시판형 목록 — 카드가 아니라 줄 목록이다. 항목마다 테두리를 두르면
+   위젯 폭에서 제목 두 줄만 들어가도 화면이 카드로 꽉 찬다. 얇은 구분선으로
+   여러 건을 한눈에 훑게 한다. */
+.ieum-list { list-style:none; margin:8px 0 0; padding:0; border-top:1px solid #e5e7eb; }
+.ieum-list-item { padding:9px 2px; border-bottom:1px solid #f1f5f9; }
+.ieum-list-item-title {
+  display:block; font-size:13px; font-weight:600; color:#1d4ed8;
+  line-height:1.5; text-decoration:none; word-break:break-word;
+}
+a.ieum-list-item-title:hover { text-decoration:underline; }
+div.ieum-list-item-title { color:#111827; }
+.ieum-list-item-meta { margin-top:3px; font-size:11.5px; color:#94a3b8; line-height:1.45; }
 /* ── 피드백 ── */
 .ieum-feedback-row { display:flex; gap:4px; margin-top:8px; opacity:.55; transition:opacity .2s; }
 .ieum-feedback-row:hover { opacity:1; }
@@ -1929,28 +1935,33 @@ export class IeumWidgetApp {
           bubble.appendChild(wrap);
         } else if (sr.type === "list") {
           const lr = sr as ListResponse;
-          bubble.textContent = "";
+          // 본문(요약 설명)을 지우지 않는다. 예전에는 textContent=""로 비워
+          // 목록만 남겨서, 왜 이 목록이 나왔는지 설명이 사라졌다.
           const ul = createElement(document, "ul", "ieum-list");
           for (const item of lr.items.slice(0, 8)) {
             const li = createElement(document, "li", "ieum-list-item");
-            const title = createElement(document, "div", "ieum-list-item-title");
+            const href = item.targetLink || item.sourceLinkPath;
+
+            // 제목 자체를 링크로 만든다 — 게시판처럼 제목을 눌러 원문으로 간다.
+            // 예전에는 제목 아래에 '자세히 보기' 줄이 따로 붙어 목록이 두꺼웠다.
+            const title = createElement(
+              document,
+              href ? "a" : "div",
+              "ieum-list-item-title",
+            );
             title.textContent = item.title;
-            li.appendChild(title);
-            for (const c of item.contents.slice(0, 3)) {
-              const contentNode = createElement(document, "div", "ieum-list-item-content");
-              renderMessageText(contentNode, c);
-              li.appendChild(contentNode);
+            if (href) {
+              const a = title as HTMLAnchorElement;
+              a.href = href; a.target = "_blank"; a.rel = "noopener noreferrer";
             }
-            if (item.targetLink) {
-              const a = createElement(document, "a", "ieum-list-item-link") as HTMLAnchorElement;
-              a.href = item.targetLink; a.target = "_blank"; a.rel = "noopener noreferrer";
-              a.textContent = item.targetLinkLabel || "자세히 보기";
-              li.appendChild(a);
-            } else if (item.sourceLinkPath) {
-              const a = createElement(document, "a", "ieum-list-item-link") as HTMLAnchorElement;
-              a.href = item.sourceLinkPath; a.target = "_blank"; a.rel = "noopener noreferrer";
-              a.textContent = item.sourceLinkLabel || "출처 보기";
-              li.appendChild(a);
+            li.appendChild(title);
+
+            // 부가 정보는 한 줄에 모아 작게 — 작성일·부서 등이 제목을 밀어내지 않게.
+            const metaParts = item.contents.slice(0, 3).map(c => c.trim()).filter(Boolean);
+            if (metaParts.length > 0) {
+              const meta = createElement(document, "div", "ieum-list-item-meta");
+              meta.textContent = metaParts.join(" · ");
+              li.appendChild(meta);
             }
             ul.appendChild(li);
           }

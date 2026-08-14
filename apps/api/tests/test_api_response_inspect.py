@@ -65,6 +65,29 @@ def test_suggests_title_and_link_fields() -> None:
     assert shape.suggested_link == "newsUrl"
 
 
+def test_title_hint_beats_name_hint() -> None:
+    """'titl' 이 'Nm' 보다 먼저다.
+
+    KOTRA 응답에는 HS코드 설명(hsCdKorNm)이 newsTitl 보다 앞에 오고 값도 길다.
+    이름 순서만 보고 고르면 카드 제목이 "디스크·테이프·솔리드 스테이트의
+    비휘발성 기억장치…" 같은 품목 설명이 되고, 정작 뉴스 제목은 본문으로 밀린다.
+    """
+    data = {
+        "items": [
+            {
+                "hsCdKorNm": "디스크·테이프·솔리드 스테이트의 비휘발성 기억장치와 스마트카드",
+                "hsCdNm": "8523",
+                "newsTitl": "러시아 북극항로 운영 시스템 및 기술 개발 현황",
+                "newsUrl": "https://dream.kotra.or.kr/1",
+            }
+        ]
+    }
+
+    shape = inspect_list_shape(data)
+
+    assert shape.suggested_title == "newsTitl"
+
+
 def test_always_empty_fields_are_not_suggested_as_title() -> None:
     # cmdltNmKorn은 이름에 Nm이 들어가지만 값이 전부 비어 있다.
     shape = inspect_list_shape(KOTRA)

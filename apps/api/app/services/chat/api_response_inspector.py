@@ -14,9 +14,15 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-# 카드 제목·링크로 쓸 만한 필드 이름. 공공 API는 영문 약어를 쓰므로 넓게 잡는다.
-_TITLE_HINT = re.compile(r"titl|title|subject|name|nm$|nm[A-Z]", re.IGNORECASE)
-_LINK_HINT = re.compile(r"url|link|href", re.IGNORECASE)
+# 카드 제목 후보. **순서가 중요하다** — 앞선 패턴이 이긴다.
+# KOTRA 응답에는 품목 설명(hsCdKorNm)이 newsTitl 보다 앞에 오고 값도 훨씬 길다.
+# 우선순위 없이 이름만 훑으면 카드 제목이 "디스크·테이프·솔리드 스테이트의
+# 비휘발성 기억장치…" 같은 품목 설명이 되고 정작 뉴스 제목은 본문으로 밀린다.
+_TITLE_HINTS = [
+    re.compile(r"titl|title|subject", re.IGNORECASE),  # 제목이 확실한 이름
+    re.compile(r"name|nm$|nm[A-Z]", re.IGNORECASE),  # 그다음이 명칭류
+]
+_LINK_HINTS = [re.compile(r"url|link|href", re.IGNORECASE)]
 
 _MAX_FIELDS = 20
 _SAMPLE_SCAN = 5  # 예시값을 찾을 때 훑어볼 항목 수
@@ -62,15 +68,17 @@ def _sample_for(objects: list[dict], name: str) -> str:
     return ""
 
 
-def _suggest(fields: list[InspectedField], hint: re.Pattern[str]) -> str | None:
-    """이름이 힌트에 걸리는 필드 중 **값이 실제로 있는** 것을 고른다.
+def _suggest(fields: list[InspectedField], hints: list[re.Pattern[str]]) -> str | None:
+    """힌트를 앞에서부터 적용해 **값이 실제로 있는** 필드를 고른다.
 
     값을 함께 보는 이유: KOTRA의 cmdltNmKorn 은 이름만 보면 제목 같지만
     모든 항목이 빈 문자열이라 카드 제목으로 쓰면 목록이 통째로 빈칸이 된다.
+    힌트 순서를 지키는 이유는 _TITLE_HINTS 주석 참고.
     """
-    for candidate in fields:
-        if hint.search(candidate.name) and candidate.sample:
-            return candidate.name
+    for hint in hints:
+        for candidate in fields:
+            if hint.search(candidate.name) and candidate.sample:
+                return candidate.name
     return None
 
 
@@ -93,8 +101,8 @@ def inspect_list_shape(data: Any) -> ListShape | None:
 
     fields = [InspectedField(name=name, sample=_sample_for(objects, name)) for name in names]
 
-    title = _suggest(fields, _TITLE_HINT)
-    link = _suggest(fields, _LINK_HINT)
+    title = _suggest(fields, _TITLE_HINTS)
+    link = _suggest(fields, _LINK_HINTS)
     if title is None:
         # 이름으로 못 찾으면 값이 가장 긴 필드를 제목으로 본다.
         with_value = [f for f in fields if f.sample]
