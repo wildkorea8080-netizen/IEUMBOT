@@ -2257,6 +2257,16 @@ def run_final_chat_pipeline(
         _perf_llm_ms = int((time.perf_counter() - _t0) * 1000)
         llm_executed = bool(generation.get("executed"))
         llm_error_code = generation.get("errorCode")
+        if llm_error_code:
+            # LLM 실패는 이용자에게 '자료 부족'처럼 보이므로 원인을 눈에 띄게 남긴다.
+            # OpenAI 429(쿼터·레이트리밋)가 이 경로로 들어오는데, INFO 로그에 묻혀
+            # 있으면 자료·설정 문제로 오인하고 엉뚱한 곳을 뒤지게 된다.
+            logger.warning(
+                "[LLM_FAILED] code=%s type=%s message=%s",
+                llm_error_code,
+                generation.get("exceptionType"),
+                str(generation.get("exceptionMessage") or "")[:200],
+            )
         exception_type = generation.get("exceptionType") if isinstance(generation.get("exceptionType"), str) else None
         exception_message = (
             generation.get("exceptionMessage") if isinstance(generation.get("exceptionMessage"), str) else None
@@ -2287,7 +2297,12 @@ def run_final_chat_pipeline(
                 warnings.append("LLM_GENERATION_FAILED_EXTRACTIVE_OVERVIEW_USED")
             else:
                 fallback = build_fallback_response(policy_decision=policy_decision, answer_settings=answer_settings)
-                outcome = fallback["outcome"] if fallback["outcome"] != "answered" else "escalate"
+                # 여기까지 왔다는 건 근거가 있었는데 LLM 호출이 실패했다는 뜻이다
+                # (이 분기는 has_candidates 를 통과해야 도달한다). insufficient_evidence
+                # 로 두면 "등록된 자료에서 근거를 찾지 못했습니다"가 떠서, 실제로는
+                # OpenAI 429인 상황을 자료 부족으로 오인하게 된다. 운영 로그를
+                # 뒤지기 전까지 원인을 완전히 잘못 짚게 만든다.
+                outcome = "escalate"
                 answer_text = fallback["text"]
                 warnings = fallback.get("warnings", [])
                 warnings.append("자동 응답 처리 중 오류가 있어 안내 문구로 전환했습니다.")
