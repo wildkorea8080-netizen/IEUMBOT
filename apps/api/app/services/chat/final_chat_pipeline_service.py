@@ -2174,7 +2174,11 @@ def run_final_chat_pipeline(
     small_talk_detected = bool(policy_flags.get("smallTalkDetected"))
     abusive_detected = bool(policy_flags.get("abusiveDetected"))
     natural_conversation = greeting_detected or gratitude_detected or small_talk_detected
-    has_candidates = bool(prompt_candidates)
+    # 외부 API가 실제 데이터를 가져왔으면 그것도 근거다. RAG 청크만 세면
+    # 관리자가 등록한 API로 답을 만들어 놓고도 "등록된 자료에서 근거를 찾지
+    # 못했습니다" 경고가 함께 뜬다(KOTRA 뉴스 목록에서 실제로 그랬다).
+    has_api_evidence = bool(api_context and api_context.strip())
+    has_candidates = bool(prompt_candidates) or has_api_evidence
     has_referenceable_candidates = bool(citations)
     can_try_grounded_answer = (
         has_candidates

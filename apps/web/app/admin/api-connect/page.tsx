@@ -113,8 +113,13 @@ function AddModal({ open, onClose, chatbotId, editItem, onSaved }: {
       // 제목을 맨 앞에 두고, 값이 있는 다른 필드를 최대 2개까지 덧붙인다.
       // 링크 필드는 카드에 따로 붙으므로 표시 필드에서 뺀다.
       const title = r.suggestedTitle ?? r.fields[0]?.name ?? "";
+      // 부가 정보는 제목 아래 한 줄에 들어간다. 긴 설명문(KOTRA의 HS코드 품목
+      // 설명은 200자가 넘는다)을 넣으면 목록이 설명으로 뒤덮여 제목이 안 보인다.
+      // 날짜·부서명처럼 짧은 값만 고른다.
       const extras = r.fields
-        .filter(f => f.name !== title && f.name !== r.suggestedLink && f.sample)
+        .filter(f =>
+          f.name !== title && f.name !== r.suggestedLink && f.sample && f.sample.length <= 30,
+        )
         .slice(0, 2)
         .map(f => f.name);
       setForm(p => ({

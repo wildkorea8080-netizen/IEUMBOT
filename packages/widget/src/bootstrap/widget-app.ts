@@ -1957,7 +1957,13 @@ export class IeumWidgetApp {
             li.appendChild(title);
 
             // 부가 정보는 한 줄에 모아 작게 — 작성일·부서 등이 제목을 밀어내지 않게.
-            const metaParts = item.contents.slice(0, 3).map(c => c.trim()).filter(Boolean);
+            // 긴 설명문이 섞여 들어오면 잘라 낸다. 관리자가 매핑을 잘못 잡아도
+            // 목록이 설명으로 뒤덮여 제목이 안 보이는 일은 없어야 한다.
+            const metaParts = item.contents
+              .slice(0, 3)
+              .map(c => c.trim())
+              .filter(Boolean)
+              .map(c => (c.length > 60 ? `${c.slice(0, 60)}…` : c));
             if (metaParts.length > 0) {
               const meta = createElement(document, "div", "ieum-list-item-meta");
               meta.textContent = metaParts.join(" · ");
