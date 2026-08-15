@@ -145,8 +145,12 @@ def _build_list_response(data: Any, config: dict) -> ListResponse | None:
             # "hsCdNm: " 처럼 이름표만 남아 목록에 지저분하게 붙는다.
             if not val:
                 continue
-            lbl = column_labels[j] if j < len(column_labels) else field
-            contents.append(f"{lbl}: {val}")
+            # 라벨이 없으면 값만 쓴다. 예전엔 field 로 폴백했는데, 자동 채우기는
+            # 필드만 채우고 라벨은 비워 두기 때문에 목록에 "newsWrtrNm: 박건원 ·
+            # regn: 유럽" 처럼 API 원본 키가 그대로 이용자에게 노출됐다.
+            # 이건 이 경로가 위젯 화면에 직접 찍히는 문자열이라 특히 나쁘다.
+            lbl = (column_labels[j] if j < len(column_labels) else "").strip()
+            contents.append(f"{lbl}: {val}" if lbl else val)
 
         link = _clean_api_value(raw_item.get(link_field)) if link_field else ""
         link = link or None
