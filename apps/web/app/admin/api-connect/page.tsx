@@ -113,13 +113,20 @@ function AddModal({ open, onClose, chatbotId, editItem, onSaved }: {
       // 제목을 맨 앞에 두고, 값이 있는 다른 필드를 최대 2개까지 덧붙인다.
       // 링크 필드는 카드에 따로 붙으므로 표시 필드에서 뺀다.
       const title = r.suggestedTitle ?? r.fields[0]?.name ?? "";
-      // 부가 정보는 제목 아래 한 줄에 들어간다. 긴 설명문(KOTRA의 HS코드 품목
-      // 설명은 200자가 넘는다)을 넣으면 목록이 설명으로 뒤덮여 제목이 안 보인다.
-      // 날짜·부서명처럼 짧은 값만 고른다.
-      const extras = r.fields
-        .filter(f =>
-          f.name !== title && f.name !== r.suggestedLink && f.sample && f.sample.length <= 30,
-        )
+      // 부가 정보는 제목 아래 한 줄에 들어간다. 이용자에게 뜻이 통하는 값만 남긴다.
+      //  - 긴 설명문 제외: KOTRA HS코드 품목 설명은 200자가 넘어 제목을 덮는다.
+      //  - API 내부 값 제외: dataType(4유형)·hsCdNm(0801,0702) 같은 코드는
+      //    짧지만 이용자에게 아무 의미가 없다.
+      //  - 날짜·작성자·기관처럼 게시판에서 쓰는 항목을 먼저 고른다.
+      const NOISE = /type|code|cd$|cd[A-Z]|id$|seq|gubun|result|totalcnt|pageno/i;
+      const USEFUL = /dt$|date|일자|작성|regist|writ|author|dept|org|kotra|nm$/i;
+      const usable = r.fields.filter(
+        f => f.name !== title && f.name !== r.suggestedLink && f.sample && f.sample.length <= 30,
+      );
+      const extras = [
+        ...usable.filter(f => USEFUL.test(f.name) && !NOISE.test(f.name)),
+        ...usable.filter(f => !USEFUL.test(f.name) && !NOISE.test(f.name)),
+      ]
         .slice(0, 2)
         .map(f => f.name);
       setForm(p => ({

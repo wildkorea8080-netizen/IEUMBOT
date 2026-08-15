@@ -2184,7 +2184,11 @@ def run_final_chat_pipeline(
         has_candidates
         and not abusive_detected
         and not natural_conversation
-        and not policy_flags.get("unrelatedQuestion")
+        # 관리자가 등록한 API 트리거가 걸렸으면 '범위 밖' 판정을 무시한다.
+        # force_api 는 분류기와 FAQ 조기반환만 우회하고 여기까지 오지 못해,
+        # API가 뉴스 목록을 가져와 놓고도 폴백으로 빠져 "근거를 찾지 못했습니다"가
+        # 떴다. 등록 API는 기관이 명시적으로 연결한 공식 출처다.
+        and (force_api or not policy_flags.get("unrelatedQuestion"))
         and decision != "restricted"
     )
 

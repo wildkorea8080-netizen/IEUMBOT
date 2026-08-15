@@ -9,6 +9,7 @@ RAG 답변에 병합할 실시간 텍스트 컨텍스트를 반환한다.
 - 실패해도 None 반환 — 메인 응답에 영향 없음
 """
 
+import html
 import json
 import logging
 import os
@@ -102,6 +103,18 @@ def _build_view_response(data: Any, config: dict) -> ViewResponse | None:
     )
 
 
+def _clean_api_value(value: Any) -> str:
+    """API 값을 화면·프롬프트에 쓸 문자열로 다듬는다.
+
+    HTML 엔티티를 풀어 준다 — KOTRA 뉴스 제목에 &hellip; 가 그대로 들어 있어
+    목록에 "GPU 독주 끝나나&hellip;AI 에이전트 시대"로 노출됐다. 위젯은
+    textContent 로 넣으므로(XSS 안전) 엔티티가 저절로 풀리지 않는다.
+    """
+    if value is None:
+        return ""
+    return html.unescape(str(value)).strip()
+
+
 def _build_list_response(data: Any, config: dict) -> ListResponse | None:
     """API 응답 데이터 → ListResponse (위젯 목록 렌더링용)."""
     items_path = config.get("itemsPath") or ""
@@ -120,18 +133,23 @@ def _build_list_response(data: Any, config: dict) -> ListResponse | None:
             items.append(ListItem(title=str(raw_item)))
             continue
 
-        title_val = str(raw_item.get(content_fields[0], "")) if content_fields else str(next(iter(raw_item.values()), ""))
+        title_val = (
+            _clean_api_value(raw_item.get(content_fields[0], ""))
+            if content_fields
+            else _clean_api_value(next(iter(raw_item.values()), ""))
+        )
         contents: list[str] = []
         for j, field in enumerate(content_fields[1:], 1):
-            val = raw_item.get(field)
+            val = _clean_api_value(raw_item.get(field))
             # 빈 문자열도 건너뛴다. None만 걸러내면 값이 없는 필드가
             # "hsCdNm: " 처럼 이름표만 남아 목록에 지저분하게 붙는다.
-            if val is None or str(val).strip() == "":
+            if not val:
                 continue
             lbl = column_labels[j] if j < len(column_labels) else field
             contents.append(f"{lbl}: {val}")
 
-        link = str(raw_item[link_field]) if link_field and raw_item.get(link_field) else None
+        link = _clean_api_value(raw_item.get(link_field)) if link_field else ""
+        link = link or None
         items.append(ListItem(
             title=title_val,
             contents=contents,
