@@ -124,7 +124,9 @@ def _build_list_response(data: Any, config: dict) -> ListResponse | None:
         contents: list[str] = []
         for j, field in enumerate(content_fields[1:], 1):
             val = raw_item.get(field)
-            if val is None:
+            # 빈 문자열도 건너뛴다. None만 걸러내면 값이 없는 필드가
+            # "hsCdNm: " 처럼 이름표만 남아 목록에 지저분하게 붙는다.
+            if val is None or str(val).strip() == "":
                 continue
             lbl = column_labels[j] if j < len(column_labels) else field
             contents.append(f"{lbl}: {val}")
