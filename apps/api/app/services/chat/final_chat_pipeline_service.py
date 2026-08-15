@@ -2191,6 +2191,20 @@ def run_final_chat_pipeline(
         and (force_api or not policy_flags.get("unrelatedQuestion"))
         and decision != "restricted"
     )
+    # 이 게이트가 왜 닫혔는지는 화면만 봐서는 알 수 없다. 답변이 폴백으로
+    # 빠졌을 때 어느 조건에 걸렸는지 로그 한 줄로 확정할 수 있게 남긴다.
+    logger.info(
+        "[ANSWER_GATE] can_try=%s decision=%s candidates=%s api_evidence=%s "
+        "force_api=%s unrelated=%s natural=%s abusive=%s",
+        can_try_grounded_answer,
+        decision,
+        len(prompt_candidates or []),
+        has_api_evidence,
+        force_api,
+        bool(policy_flags.get("unrelatedQuestion")),
+        natural_conversation,
+        abusive_detected,
+    )
 
     if abusive_detected:
         outcome = "restricted"

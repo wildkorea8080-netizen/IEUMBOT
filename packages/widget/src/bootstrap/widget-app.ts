@@ -1935,8 +1935,10 @@ export class IeumWidgetApp {
           bubble.appendChild(wrap);
         } else if (sr.type === "list") {
           const lr = sr as ListResponse;
-          // 본문(요약 설명)을 지우지 않는다. 예전에는 textContent=""로 비워
-          // 목록만 남겨서, 왜 이 목록이 나왔는지 설명이 사라졌다.
+          // 구조화 응답이 있으면 이 분기로 들어와 message.text 가 아예 그려지지
+          // 않는다. 목록만 남고 "왜 이 목록이 나왔는지" 설명이 사라졌다.
+          // 목록 위에 본문을 먼저 그린다 — 요약과 목록이 함께 보여야 한다.
+          if (message.text?.trim()) renderMessageText(bubble, message.text);
           const ul = createElement(document, "ul", "ieum-list");
           for (const item of lr.items.slice(0, 8)) {
             const li = createElement(document, "li", "ieum-list-item");
