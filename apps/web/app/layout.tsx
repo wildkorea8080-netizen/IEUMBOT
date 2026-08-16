@@ -14,6 +14,13 @@ type RootLayoutProps = {
 export default function RootLayout({ children }: RootLayoutProps) {
   return (
     <html lang="ko">
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `document.documentElement.classList.add("js-motion")`
+          }}
+        />
+      </head>
       <body>{children}</body>
     </html>
   );
