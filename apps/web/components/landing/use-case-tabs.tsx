@@ -101,7 +101,10 @@ export function UseCaseTabs() {
           })}
         </div>
 
-        <div className="mt-8 grid gap-6 rounded-2xl border border-slate-200 bg-slate-50/70 p-7 lg:grid-cols-[1fr_minmax(0,22rem)] lg:p-10">
+        <div
+          key={activeId}
+          className="landing-tab-panel mt-8 grid gap-6 rounded-2xl border border-slate-200 bg-slate-50/70 p-7 lg:grid-cols-[1fr_minmax(0,22rem)] lg:p-10"
+        >
           <div>
             <h3 className="text-xl font-bold leading-snug text-slate-900">{active.title}</h3>
             <p className="mt-4 text-[15px] leading-8 text-slate-600">{active.body}</p>

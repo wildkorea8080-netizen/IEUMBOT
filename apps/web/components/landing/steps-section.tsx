@@ -1,4 +1,9 @@
+"use client";
+
+import Link from "next/link";
+
 import { SectionHeading } from "./section-heading";
+import { useReveal } from "./use-reveal";
 
 /* ── 도입 절차 ─────────────────────────────────────────────── */
 
@@ -6,7 +11,7 @@ const STEPS = [
   {
     num: "01",
     title: "자료 등록",
-    body: "홈페이지 주소를 넣고 안내 문서를 올립니다. 색인이 끝나면 어떤 자료가 검색 가능한 상태인지 목록에서 확인할 수 있습니다.",
+    body: "홈페이지 주소를 넣고 안내 문서를 올립니다. 처리가 끝나면 어떤 자료를 답변에 쓸 수 있는지 목록에서 확인할 수 있습니다.",
   },
   {
     num: "02",
@@ -26,6 +31,8 @@ const STEPS = [
 ];
 
 export function StepsSection() {
+  const ref = useReveal<HTMLOListElement>();
+
   return (
     <section id="steps" className="scroll-mt-20 border-b border-slate-200 bg-white py-20">
       <div className="mx-auto w-full max-w-6xl px-5">
@@ -35,9 +42,12 @@ export function StepsSection() {
           description="개발 부서를 거치지 않아도 담당자 선에서 진행할 수 있는 절차입니다."
         />
 
-        <ol className="mt-12 grid gap-5 md:grid-cols-2 lg:grid-cols-4">
+        <ol ref={ref} className="mt-12 grid gap-5 md:grid-cols-2 lg:grid-cols-4">
           {STEPS.map((item) => (
-            <li key={item.num} className="rounded-2xl border border-slate-200 bg-slate-50/60 p-6">
+            <li
+              key={item.num}
+              className="landing-reveal rounded-2xl border border-slate-200 bg-slate-50/60 p-6"
+            >
               <span className="text-3xl font-bold tracking-tight text-brand-600/25">{item.num}</span>
               <h3 className="mt-2 text-lg font-bold text-slate-900">{item.title}</h3>
               <p className="mt-3 text-[14px] leading-7 text-slate-600">{item.body}</p>
@@ -56,6 +66,18 @@ export function StepsSection() {
             <code>{`<script src="https://chat.deepsecu.co.kr/widget.js"
         data-chatbot-id="우리 기관 챗봇 ID" defer></script>`}</code>
           </pre>
+        </div>
+
+        <div className="mt-8 text-center">
+          <p className="text-[15px] leading-7 text-slate-600">
+            직접 해보시는 게 가장 빠릅니다. 가입하고 우리 기관 자료를 올려 보세요.
+          </p>
+          <Link
+            href="/login"
+            className="mt-4 inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-6 py-3 text-[15px] font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+          >
+            무료로 체험하기
+          </Link>
         </div>
       </div>
     </section>

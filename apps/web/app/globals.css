@@ -272,6 +272,19 @@ html.js-motion .landing-reveal[data-revealed="true"] {
   }
 }
 
+/* 활용 분야 탭 패널. key 가 바뀌면 다시 마운트되면서 이 애니메이션이 재생된다.
+   Tailwind 임의값 클래스(animate-[...])는 @media 안에서 이스케이프가
+   번거로워 전용 클래스를 쓴다. */
+.landing-tab-panel {
+  animation: landingRise 0.42s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-tab-panel {
+    animation: none;
+  }
+}
+
 /* 챗봇 답변(마크다운/HTML)의 표·헤딩·목록 렌더 스타일 (대화 테스트 등) */
 .ieum-rich-answer > *:first-child { margin-top: 0; }
 .ieum-rich-answer > *:last-child { margin-bottom: 0; }

@@ -24,7 +24,7 @@ export function LandingCta() {
             href="/login"
             className="inline-flex items-center justify-center rounded-xl border border-white/40 px-7 py-3.5 text-base font-semibold text-white transition-colors hover:bg-white/10"
           >
-            관리자 로그인
+            무료로 체험하기
           </Link>
         </div>
       </div>
