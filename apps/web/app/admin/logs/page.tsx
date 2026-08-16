@@ -293,7 +293,7 @@ export default function LogsPage() {
     finally { setIsLoading(false); }
   }
 
-  useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { void load(); }, []);
 
   // 날짜 필터 적용
   const filteredItems = useMemo(() => {

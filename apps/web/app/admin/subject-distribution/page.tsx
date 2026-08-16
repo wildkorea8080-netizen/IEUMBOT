@@ -54,7 +54,6 @@ export default function SubjectDistributionPage() {
 
   useEffect(() => {
     void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatbotId, from, to]);
 
   const maxKeyword = Math.max(1, ...(data?.topKeywords.map(k => k.count) ?? [1]));

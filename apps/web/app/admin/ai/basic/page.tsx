@@ -116,7 +116,7 @@ export default function AdminAiBasicPage() {
     finally { setIsLoading(false); }
   }
 
-  useEffect(() => { void loadPage(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { void loadPage(); }, []);
 
   // 사이드바에서 현재 챗봇을 바꾸면 이 페이지도 해당 챗봇으로 다시 로드(전역 선택과 동기화).
   const selectedIdRef = useRef(selectedChatbotId);
@@ -132,7 +132,7 @@ export default function AdminAiBasicPage() {
       window.removeEventListener(ADMIN_SELECTED_CHATBOT_EVENT, handler as EventListener);
       window.removeEventListener("storage", handler);
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (!toast) return;

@@ -154,7 +154,7 @@ export default function AdminQualityReportPage() {
     finally { setIsLoading(false); }
   }
 
-  useEffect(() => { void loadReport(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { void loadReport(); }, []);
 
   const answeredRate = report?.totalConversations ? (report.answeredCount / report.totalConversations) * 100 : 0;
 

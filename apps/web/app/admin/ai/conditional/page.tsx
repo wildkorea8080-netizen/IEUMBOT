@@ -202,7 +202,6 @@ export default function AdminAiConditionalPage() {
 
   useEffect(() => {
     void loadPage();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {

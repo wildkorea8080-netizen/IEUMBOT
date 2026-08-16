@@ -101,7 +101,6 @@ export default function AdminFeedbackPage() {
 
   useEffect(() => {
     void loadAll(chatbotId, page);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatbotId, page]);
 
   const totalPages = Math.ceil(lowRatedTotal / PAGE_SIZE);

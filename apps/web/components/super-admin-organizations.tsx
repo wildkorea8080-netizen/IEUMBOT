@@ -213,7 +213,7 @@ export function SuperAdminOrganizations() {
     }
   }
 
-  useEffect(() => { void loadOrganizations(); }, [query, statusFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { void loadOrganizations(); }, [query, statusFilter]);
 
   useEffect(() => {
     if (selectedId === "new") { setDetail(null); setForm(EMPTY_FORM); setOrgAdmins([]); return; }
@@ -236,7 +236,7 @@ export function SuperAdminOrganizations() {
     }
     void loadDetail();
     return () => { cancelled = true; };
-  }, [selectedId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedId]);
 
   function dismissMessage() { setMessage(null); setError(null); }
 

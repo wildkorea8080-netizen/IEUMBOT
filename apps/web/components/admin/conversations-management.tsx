@@ -92,7 +92,7 @@ export function ConversationsManagement() {
     }
   }
 
-  useEffect(() => { void loadConversations(1); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { void loadConversations(1); }, []);
 
   async function openDetail(sessionId: string) {
     setIsDetailLoading(true);

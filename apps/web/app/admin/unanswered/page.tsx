@@ -83,7 +83,7 @@ export default function UnansweredPage() {
     }
   }
 
-  useEffect(() => { void load(1); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { void load(1); }, []);
 
   useEffect(() => {
     if (!toast) return;

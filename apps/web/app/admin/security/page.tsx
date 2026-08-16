@@ -145,7 +145,7 @@ export default function SecurityPage() {
     })();
   }, []);
 
-  useEffect(() => { void load(1); }, [chatbotId, fromDate, toDate, category, severity]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { void load(1); }, [chatbotId, fromDate, toDate, category, severity]);
 
   async function load(p = page) {
     setIsLoading(true); setError(null);

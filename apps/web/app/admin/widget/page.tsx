@@ -579,7 +579,7 @@ export default function WidgetPage() {
     };
     void loadWidget();
     return () => { cancelled = true; };
-  }, [selectedChatbotId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedChatbotId]);
 
   const handleCreateWidget = async () => {
     if (!selectedChatbotId) return;

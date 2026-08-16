@@ -212,7 +212,7 @@ export function FaqAnalyzeModal({ knowledgeId, knowledgeTitle, chatbotId, onClos
   // Auto-analyze on mount
   useEffect(() => {
     void runAnalyze();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   async function runAnalyze() {
     setIsAnalyzing(true);

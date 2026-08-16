@@ -503,7 +503,7 @@ export default function ApiConnectPage() {
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
-  useEffect(() => { if (chatbotId) void load(); }, [chatbotId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (chatbotId) void load(); }, [chatbotId]);
 
   useEffect(() => {
     if (!toast) return;
