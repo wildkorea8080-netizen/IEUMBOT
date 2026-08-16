@@ -1,4 +1,6 @@
-import type { ReactNode } from "react";
+"use client";
+
+import { useEffect, useState, type ReactNode } from "react";
 
 /**
  * 히어로의 챗봇 데모. 실제 위젯 구조를 그대로 재현한다 —
@@ -8,7 +10,32 @@ import type { ReactNode } from "react";
  * 색은 packages/widget/src/bootstrap/widget-app.ts 의 .ieum-outcome-* 값을
  * 그대로 가져왔다. 위젯 색을 바꾸면 여기도 같이 바꾼다.
  */
+const TURN_COUNT = 3;
+const TURN_INTERVAL = 6500;
+
 export function WidgetDemo() {
+  const [visibleTurns, setVisibleTurns] = useState(TURN_COUNT);
+
+  // HTML에는 완성된 대화가 먼저 들어간다. JS가 살아 있을 때만 되감아
+  // 재생한다. 빈 화면에서 타이핑을 시작하면 스크립트가 죽는 순간
+  // 히어로가 백지가 된다.
+  useEffect(() => {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    setVisibleTurns(0);
+
+    let turn = 0;
+    const timer = window.setInterval(() => {
+      turn = turn >= TURN_COUNT ? 1 : turn + 1;
+      setVisibleTurns(turn);
+    }, TURN_INTERVAL);
+
+    const first = window.setTimeout(() => setVisibleTurns(1), 400);
+    return () => {
+      window.clearInterval(timer);
+      window.clearTimeout(first);
+    };
+  }, []);
+
   return (
     <div className="landing-rise landing-rise-delay mx-auto w-full max-w-md lg:max-w-none">
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl shadow-slate-900/5">
@@ -28,45 +55,54 @@ export function WidgetDemo() {
           <TrustBadge>🔒 개인정보 자동 보호</TrustBadge>
         </div>
 
-        <div className="space-y-3.5 bg-slate-50/70 px-4 py-5">
-          <Bubble role="user">주민등록등본 발급하려면 뭐가 필요한가요?</Bubble>
-          <Bubble role="bot">
-            <p>
-              본인이 직접 방문하시는 경우 <strong className="font-semibold">신분증</strong>만
-              지참하시면 됩니다. 대리인이 방문하실 때는 위임장, 대리인 신분증, 본인 신분증 사본이
-              추가로 필요합니다.
-            </p>
-            <div className="mt-3 border-t border-slate-100 pt-2.5">
-              <p className="mb-1.5 text-[11px] font-semibold text-slate-400">참고한 자료</p>
-              <div className="flex flex-wrap gap-1.5">
-                <Source>민원실 업무 안내.pdf · 3p</Source>
-                <Source>홈페이지 &gt; 민원 안내</Source>
+        <div
+          className="space-y-3.5 overflow-hidden bg-slate-50/70 px-4 py-5"
+          style={{ minHeight: "420px" }}
+        >
+          <Turn index={1} visible={visibleTurns}>
+            <Bubble role="user">주민등록등본 발급하려면 뭐가 필요한가요?</Bubble>
+            <Bubble role="bot">
+              <p>
+                본인이 직접 방문하시는 경우 <strong className="font-semibold">신분증</strong>만
+                지참하시면 됩니다. 대리인이 방문하실 때는 위임장, 대리인 신분증, 본인 신분증 사본이
+                추가로 필요합니다.
+              </p>
+              <div className="mt-3 border-t border-slate-100 pt-2.5">
+                <p className="mb-1.5 text-[11px] font-semibold text-slate-400">참고한 자료</p>
+                <div className="flex flex-wrap gap-1.5">
+                  <Source>민원실 업무 안내.pdf · 3p</Source>
+                  <Source>홈페이지 &gt; 민원 안내</Source>
+                </div>
               </div>
-            </div>
-          </Bubble>
+            </Bubble>
+          </Turn>
 
-          <Bubble role="user">내년도 예산 규모가 얼마인가요?</Bubble>
-          <Bubble role="bot">
-            <div
-              className="flex items-start gap-2 rounded-lg px-3 py-2.5 text-[12.5px] leading-6"
-              style={{ background: "#fffbeb", border: "1px solid #fde68a", color: "#92400e" }}
-            >
-              <span aria-hidden>⚠</span>
-              <span>
-                등록된 자료에서 관련 근거를 찾지 못했습니다. 정확한 안내를 위해 재정과(☎
-                02-000-0000)로 문의해 주세요.
-              </span>
-            </div>
-          </Bubble>
+          <Turn index={2} visible={visibleTurns}>
+            <Bubble role="user">내년도 예산 규모가 얼마인가요?</Bubble>
+            <Bubble role="bot">
+              <div
+                className="flex items-start gap-2 rounded-lg px-3 py-2.5 text-[12.5px] leading-6"
+                style={{ background: "#fffbeb", border: "1px solid #fde68a", color: "#92400e" }}
+              >
+                <span aria-hidden>⚠</span>
+                <span>
+                  등록된 자료에서 관련 근거를 찾지 못했습니다. 정확한 안내를 위해 재정과(☎
+                  02-000-0000)로 문의해 주세요.
+                </span>
+              </div>
+            </Bubble>
+          </Turn>
 
-          <Bubble role="user">이번 달 채용 공고 알려주세요</Bubble>
-          <Bubble role="bot">
-            <p className="mb-2.5">현재 접수 중인 채용 공고를 안내해 드릴게요.</p>
-            <ul className="space-y-2.5">
-              <ListItem meta="접수 마감 2026-08-29">2026년 제3회 공무직 근로자 채용</ListItem>
-              <ListItem meta="접수 마감 2026-09-05">청년인턴 하반기 모집</ListItem>
-            </ul>
-          </Bubble>
+          <Turn index={3} visible={visibleTurns}>
+            <Bubble role="user">이번 달 채용 공고 알려주세요</Bubble>
+            <Bubble role="bot">
+              <p className="mb-2.5">현재 접수 중인 채용 공고를 안내해 드릴게요.</p>
+              <ul className="space-y-2.5">
+                <ListItem meta="접수 마감 2026-08-29">2026년 제3회 공무직 근로자 채용</ListItem>
+                <ListItem meta="접수 마감 2026-09-05">청년인턴 하반기 모집</ListItem>
+              </ul>
+            </Bubble>
+          </Turn>
         </div>
 
         <div className="flex items-center gap-2 border-t border-slate-100 bg-white px-4 py-3">
@@ -87,6 +123,31 @@ export function WidgetDemo() {
           <p className="mt-1 text-[10px] text-slate-300">Powered by DeepSecu</p>
         </div>
       </div>
+    </div>
+  );
+}
+
+function Turn({
+  index,
+  visible,
+  children,
+}: {
+  index: number;
+  visible: number;
+  children: ReactNode;
+}) {
+  const shown = visible >= index;
+  return (
+    <div
+      className="space-y-3.5"
+      style={{
+        opacity: shown ? 1 : 0,
+        transform: shown ? "none" : "translateY(10px)",
+        transition:
+          "opacity 420ms cubic-bezier(0.22,1,0.36,1), transform 420ms cubic-bezier(0.22,1,0.36,1)",
+      }}
+    >
+      {children}
     </div>
   );
 }
