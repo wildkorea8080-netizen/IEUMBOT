@@ -13,9 +13,9 @@ import { StepsSection } from "../components/landing/steps-section";
 import { UseCaseTabs } from "../components/landing/use-case-tabs";
 
 export const metadata: Metadata = {
-  title: "IEUMBOT — 근거 없이는 답하지 않는 공공기관 AI 챗봇",
+  title: "IEUMBOT — 전화는 줄고, 안내는 24시간",
   description:
-    "기관이 등록한 자료 안에서만 답하고, 모든 답변에 출처를 표시하는 공공기관 전용 문서 기반 AI 챗봇입니다.",
+    "공공기관 담당자를 위한 문서 기반 AI 챗봇. 반복 문의를 24시간 받고, 등록된 자료에 근거가 없으면 지어내지 않습니다.",
 };
 
 export default function HomePage() {

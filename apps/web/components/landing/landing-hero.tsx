@@ -24,18 +24,17 @@ export function LandingHero() {
           </p>
 
           <h1 className="mt-5 text-[2.1rem] font-bold leading-[1.25] tracking-tight text-slate-900 sm:text-5xl sm:leading-[1.2]">
-            근거 없이는
+            전화는 줄고
             <br />
-            답하지 않습니다
+            안내는 24시간
           </h1>
 
           <p className="mt-5 max-w-xl text-[17px] leading-8 text-slate-600">
-            홈페이지 주소와 안내 문서를 등록하면 IEUMBOT이 자료를 읽고 색인합니다. 모든 답변에 어느
-            문서에서 나온 내용인지 출처를 붙이고,{" "}
+            홈페이지에 이미 있는 내용을 묻는 전화, 하루에 몇 통 받으시나요? IEUMBOT이 먼저 받습니다.{" "}
             <strong className="font-semibold text-slate-900">
-              등록된 자료에 근거가 없으면 답을 만들지 않고
+              등록된 자료에 근거가 없으면 지어내지 않고
             </strong>{" "}
-            담당 부서를 안내합니다.
+            담당 부서를 안내하기 때문에, 틀린 안내로 문제될 일은 없습니다.
           </p>
 
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
@@ -45,23 +44,23 @@ export function LandingHero() {
             >
               도입 문의하기
             </Link>
-            <a
-              href="#answer-flow"
+            <Link
+              href="/login"
               className="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-6 py-3.5 text-base font-semibold text-slate-700 transition-colors hover:bg-slate-50"
             >
-              답변 방식 살펴보기
-            </a>
+              무료로 체험하기
+            </Link>
           </div>
 
           <ul className="mt-8 flex flex-wrap gap-x-6 gap-y-2 text-sm text-slate-500">
             <li className="flex items-center gap-1.5">
-              <span className="text-brand-600">✓</span> 답변마다 출처 표시
+              <span className="text-brand-600">✓</span> 어디서 나온 답인지 표시
             </li>
             <li className="flex items-center gap-1.5">
-              <span className="text-brand-600">✓</span> 개인정보 자동 마스킹
+              <span className="text-brand-600">✓</span> 주민번호를 적어도 자동으로 가림
             </li>
             <li className="flex items-center gap-1.5">
-              <span className="text-brand-600">✓</span> 등록 자료 AI 학습 미사용
+              <span className="text-brand-600">✓</span> 우리 자료를 AI 학습에 쓰지 않음
             </li>
           </ul>
         </div>
