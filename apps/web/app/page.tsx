@@ -7,6 +7,7 @@ import { LandingCta } from "../components/landing/landing-cta";
 import { LandingHero } from "../components/landing/landing-hero";
 import { LandingNav } from "../components/landing/landing-nav";
 import { FeatureSection, LandingFooter, ProblemSection } from "../components/landing/landing-sections";
+import { ScrollRail } from "../components/landing/scroll-rail";
 import { SecuritySection } from "../components/landing/security-section";
 import { StepsSection } from "../components/landing/steps-section";
 import { UseCaseTabs } from "../components/landing/use-case-tabs";
@@ -20,6 +21,7 @@ export const metadata: Metadata = {
 export default function HomePage() {
   return (
     <div className="bg-white">
+      <ScrollRail />
       <LandingNav />
       <main>
         <LandingHero />
