@@ -229,6 +229,49 @@
   }
 }
 
+/* ── 랜딩 모션 시스템 ────────────────────────────────
+   전 섹션이 아래 토큰만 쓴다. 세련됨은 효과 개수가 아니라 값의
+   일관성에서 나온다. 22px를 넘기지 않는다 — 그 이상 움직이면
+   "동적"이 아니라 "산만"해진다. */
+:root {
+  --landing-dur-quick: 220ms;
+  --landing-dur-base: 550ms;
+  --landing-dur-slow: 900ms;
+  --landing-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --landing-ease-soft: cubic-bezier(0.4, 0, 0.2, 1);
+  --landing-rise-distance: 22px;
+}
+
+/* JS 게이팅 — 기본은 전부 보이는 상태다. JS가 로드돼야 html에
+   .js-motion 이 붙고 그때부터 숨김이 시작된다. 스크립트가 죽으면
+   내용은 그냥 다 보인다. opacity 로 숨겨도 안전한 이유가 이것이다. */
+.landing-reveal {
+  opacity: 1;
+  transform: none;
+}
+
+html.js-motion .landing-reveal {
+  opacity: 0;
+  transform: translateY(var(--landing-rise-distance));
+}
+
+html.js-motion .landing-reveal[data-revealed="true"] {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity var(--landing-dur-base) var(--landing-ease-out),
+    transform var(--landing-dur-base) var(--landing-ease-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html.js-motion .landing-reveal,
+  html.js-motion .landing-reveal[data-revealed="true"] {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
+
 /* 챗봇 답변(마크다운/HTML)의 표·헤딩·목록 렌더 스타일 (대화 테스트 등) */
 .ieum-rich-answer > *:first-child { margin-top: 0; }
 .ieum-rich-answer > *:last-child { margin-bottom: 0; }
