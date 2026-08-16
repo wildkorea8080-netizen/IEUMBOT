@@ -1,12 +1,16 @@
 import type { Metadata } from "next";
 
 import { AnswerFlowSection } from "../components/landing/answer-flow";
+import { BeforeAfter } from "../components/landing/before-after";
 import { ConsoleSection } from "../components/landing/console-section";
+import { EvaluationSection } from "../components/landing/evaluation-section";
 import { InstitutionMarquee } from "../components/landing/institution-marquee";
 import { LandingCta } from "../components/landing/landing-cta";
 import { LandingHero } from "../components/landing/landing-hero";
 import { LandingNav } from "../components/landing/landing-nav";
-import { FeatureSection, LandingFooter, ProblemSection } from "../components/landing/landing-sections";
+import { BenefitsSection } from "../components/landing/benefits-section";
+import { LandingFooter } from "../components/landing/landing-sections";
+import { LiveDataSection } from "../components/landing/live-data-section";
 import { ScrollRail } from "../components/landing/scroll-rail";
 import { SecuritySection } from "../components/landing/security-section";
 import { StepsSection } from "../components/landing/steps-section";
@@ -26,10 +30,12 @@ export default function HomePage() {
       <main>
         <LandingHero />
         <InstitutionMarquee />
-        <ProblemSection />
+        <BeforeAfter />
+        <BenefitsSection />
         <AnswerFlowSection />
-        <FeatureSection />
+        <LiveDataSection />
         <ConsoleSection />
+        <EvaluationSection />
         <StepsSection />
         <UseCaseTabs />
         <SecuritySection />
