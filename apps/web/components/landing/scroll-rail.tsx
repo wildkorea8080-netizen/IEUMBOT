@@ -17,7 +17,11 @@ export function ScrollRail() {
     const measure = () => {
       frame = 0;
       const span = document.body.scrollHeight - window.innerHeight;
-      setRatio(span > 0 ? window.scrollY / span : 0);
+      // 0~1로 가둔다. iOS 고무줄 스크롤에서 scrollY가 음수가 되거나 span을
+      // 넘어가는데, 음수 height는 브라우저가 선언째로 버려서 레일이 직전
+      // 높이에 멈춘 것처럼 보인다.
+      const next = span > 0 ? window.scrollY / span : 0;
+      setRatio(Math.min(Math.max(next, 0), 1));
     };
 
     const onScroll = () => {
