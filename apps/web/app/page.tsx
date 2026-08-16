@@ -1,18 +1,14 @@
 import type { Metadata } from "next";
 
+import { AnswerFlowSection } from "../components/landing/answer-flow";
+import { ConsoleSection } from "../components/landing/console-section";
 import { InstitutionMarquee } from "../components/landing/institution-marquee";
+import { LandingCta } from "../components/landing/landing-cta";
 import { LandingHero } from "../components/landing/landing-hero";
 import { LandingNav } from "../components/landing/landing-nav";
-import {
-  AnswerFlowSection,
-  ClosingSection,
-  ConsoleSection,
-  FeatureSection,
-  LandingFooter,
-  ProblemSection,
-  SecuritySection,
-  StepsSection,
-} from "../components/landing/landing-sections";
+import { FeatureSection, LandingFooter, ProblemSection } from "../components/landing/landing-sections";
+import { SecuritySection } from "../components/landing/security-section";
+import { StepsSection } from "../components/landing/steps-section";
 import { UseCaseTabs } from "../components/landing/use-case-tabs";
 
 export const metadata: Metadata = {
@@ -35,7 +31,7 @@ export default function HomePage() {
         <StepsSection />
         <UseCaseTabs />
         <SecuritySection />
-        <ClosingSection />
+        <LandingCta />
       </main>
       <LandingFooter />
     </div>
