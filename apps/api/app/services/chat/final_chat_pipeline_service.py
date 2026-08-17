@@ -38,6 +38,7 @@ from app.services.chat.entity_extraction_service import (
 )
 from app.services.chat.citation_service import assemble_citations
 from app.services.chat.fallback_response_service import build_fallback_response
+from app.services.chat.followup_service import build_follow_up_questions
 from app.services.chat.intent_classifier_service import (
     IntentClassification,
     classify_intent,
@@ -151,11 +152,6 @@ NATURAL_INTENT_RESPONSES = {
     "fun": FUN_RESPONSE,
     "emotion": EMOTION_RESPONSE,
 }
-FALLBACK_FOLLOW_UP_QUESTIONS = [
-    "관련 사업명을 알려주실 수 있나요?",
-    "신청 단계나 대상 기관을 알려주실 수 있나요?",
-    "찾고 싶은 자료명을 알려주실 수 있나요?",
-]
 
 
 def _normalize_text(value: str) -> str:
@@ -426,334 +422,6 @@ def _candidate_text(candidates: list[dict[str, Any]]) -> str:
             parts.append(str(signals.get("textPreview")))
     return _normalize_text(" ".join(parts))
 
-
-def _follow_up_key(value: str) -> str:
-    return re.sub(r"[\s?？!.。]+", "", value.strip())
-
-
-def _dedupe_three(items: list[str], *, exclude: str | None = None) -> list[str]:
-    result: list[str] = []
-    exclude_key = _follow_up_key(exclude) if exclude else None
-    for item in items:
-        normalized = " ".join(item.split())
-        if normalized and normalized not in result and _follow_up_key(normalized) != exclude_key:
-            result.append(normalized)
-        if len(result) == 3:
-            break
-    return result
-
-
-def _generate_followup_with_llm(
-    question: str,
-    answer_text: str,
-    db: Any,
-) -> list[str]:
-    """LLM follow-up 질문 동적 생성. 실패 시 [] 반환."""
-    import json as _json  # noqa: PLC0415
-    import re as _re  # noqa: PLC0415
-    import sys  # noqa: PLC0415
-
-    from app.services.chat.answer_generation_service import (  # noqa: PLC0415
-        _call_anthropic,
-        _call_openai_like,
-        _extract_output_text_anthropic,
-        _extract_output_text_openai,
-    )
-    from app.services.llm_api_config_runtime_service import (  # noqa: PLC0415
-        resolve_runtime_api_config as _resolve,
-    )
-
-    sys.stderr.write(f"[FOLLOWUP] 진입: {question[:20]}\n")
-    sys.stderr.flush()
-
-    try:
-        runtime_api = _resolve(db)
-    except Exception as e:
-        sys.stderr.write(f"[FOLLOWUP] resolve_runtime_api 예외: {e}\n")
-        sys.stderr.flush()
-        return []
-
-    if runtime_api is None:
-        return []
-
-    model = runtime_api.speed_model()  # 팔로우업 질문: 속도 우선
-    system_prompt = "follow-up 질문 생성 전문가입니다. JSON 배열만 출력하세요. 설명 없이."
-    user_prompt = (
-        "다음 대화를 보고 사용자가 이어서 물어볼 법한 질문 3개를 만들어주세요.\n\n"
-        f"질문: {question}\n"
-        f"답변: {answer_text[:600]}\n\n"
-        "규칙:\n"
-        "- 답변에서 언급된 구체적인 내용과 직접 관련된 질문\n"
-        "- 사용자가 실제로 다음에 궁금해할 만한 것\n"
-        "- 각 질문은 30자 이내의 간결한 한국어\n"
-        "- 원래 질문과 중복 금지\n"
-        '- 질문 형식으로 끝낼 것 ("~인가요?", "~어떻게 되나요?" 등)\n\n'
-        'JSON 배열로만 응답 예시: ["신청 마감일은 언제인가요?", "제출 서류는 어디서 받나요?", "합격 후 절차는 어떻게 되나요?"]'
-    )
-
-    try:
-        if runtime_api.provider == "anthropic":
-            response_json = _call_anthropic(
-                api_key=runtime_api.api_key,
-                base_url=runtime_api.base_url,
-                model=model,
-                temperature=0.3,
-                max_output_tokens=200,
-                top_p=None,
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                timeout_seconds=10,
-            )
-            raw_text = _extract_output_text_anthropic(response_json)
-        else:
-            response_json = _call_openai_like(
-                provider=runtime_api.provider,
-                api_key=runtime_api.api_key,
-                base_url=runtime_api.base_url,
-                model=model,
-                temperature=0.3,
-                max_output_tokens=200,
-                top_p=None,
-                frequency_penalty=None,
-                presence_penalty=None,
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                timeout_seconds=10,
-            )
-            raw_text = _extract_output_text_openai(response_json)
-    except Exception as e:
-        sys.stderr.write(f"[FOLLOWUP] LLM 호출 예외: {e}\n")
-        sys.stderr.flush()
-        return []
-
-    # ── JSON 파싱 ─────────────────────────────────────────────────────────────
-    raw_text = (raw_text or "").strip()
-    match = _re.search(r"\[.*?\]", raw_text, _re.DOTALL)
-    if not match:
-        sys.stderr.write(f"[FOLLOWUP] JSON배열 없음. raw={raw_text[:100]}\n")
-        sys.stderr.flush()
-        return []
-
-    try:
-        parsed = _json.loads(match.group(0))
-    except Exception as e:
-        sys.stderr.write(f"[FOLLOWUP] JSON파싱 실패: {e}\n")
-        sys.stderr.flush()
-        return []
-
-    if not isinstance(parsed, list):
-        return []
-
-    result_list = [str(q).strip() for q in parsed if isinstance(q, str) and q.strip()]
-    sys.stderr.write(f"[FOLLOWUP] 파싱결과={result_list}\n")
-    sys.stderr.flush()
-    return result_list
-
-
-def _rule_based_follow_up(
-    question: str,
-    answer_text: str,
-    candidates: list[dict[str, Any]],
-) -> list[str]:
-    """기존 키워드 규칙 기반 follow-up 생성. LLM fallback 시 사용."""
-    normalized = _normalize_text(question)
-    answer_context = _normalize_text(answer_text)
-    # 추천 질문 주제 판단은 질문+답변 기준만 사용한다.
-    # 검색된 청크 텍스트(source)를 섞으면 "교육" 같은 흔한 단어 하나가
-    # 전혀 다른 주제(예: 퇴직연금 질문 → 교육 신청 추천)를 유발하므로 제외.
-    context_text = f"{normalized} {answer_context}"
-
-    if "융자" in context_text:
-        return _dedupe_three(
-            ["융자 신청 자격은 어떻게 되나요?", "융자 신청 시 제출 서류는 무엇인가요?", "융자 금리와 상환 조건은 어떻게 되나요?"],
-            exclude=question,
-        )
-    if "사업신고" in context_text or "변경신고" in context_text:
-        return _dedupe_three(
-            ["사업신고 절차는 어떻게 되나요?", "사업신고 시 필요한 서류는 무엇인가요?", "변경신고는 언제 해야 하나요?"],
-            exclude=question,
-        )
-    if "교육" in context_text or "해외인턴" in context_text or "인턴" in context_text:
-        return _dedupe_three(
-            ["교육 신청 자격은 어떻게 되나요?", "모집 기간은 언제인가요?", "제출 서류는 무엇인가요?"],
-            exclude=question,
-        )
-    if any(keyword in context_text for keyword in ["기관 소개", "사업 소개", "주요 사업", "주요사업", "소개"]):
-        return _dedupe_three(
-            ["주요 지원사업은 무엇인가요?", "신청 가능한 사업은 어떤 것이 있나요?", "문의처는 어디인가요?"],
-            exclude=question,
-        )
-
-    source_driven: list[str] = []
-    if "자격" in context_text or "조건" in context_text:
-        source_driven.append("신청 자격은 어떻게 되나요?")
-    if "서류" in context_text or "제출" in context_text:
-        source_driven.append("제출 서류는 무엇인가요?")
-    if "기간" in context_text or "모집" in context_text or "마감" in context_text:
-        source_driven.append("신청 기간은 언제인가요?")
-    if "문의" in context_text or "연락" in context_text or "담당" in context_text:
-        source_driven.append("문의처는 어디인가요?")
-
-    return _dedupe_three(
-        source_driven + ["관련 사업명을 알려주실 수 있나요?", "신청 단계나 대상 기관을 알려주실 수 있나요?",
-                         "찾고 싶은 자료명을 알려주실 수 있나요?"],
-        exclude=question,
-    )
-
-
-_KO_STOPWORDS = {
-    "은", "는", "이", "가", "을", "를", "의", "에", "에서", "으로", "로",
-    "와", "과", "도", "만", "이다", "입니다", "했", "하는", "있는", "없는",
-    "하면", "있으면", "어떻게", "무엇", "언제", "어디", "왜", "누구",
-}
-
-
-def _keyword_select_from_pool(
-    question: str,
-    answer_text: str,
-    pool: list[str],
-) -> list[str]:
-    """
-    사전 등록 질문 풀에서 현재 Q&A와 키워드 오버랩이 높은 상위 3개 선택.
-    오버랩이 없는 항목은 제외하되, 부족하면 풀에서 순서대로 보완.
-    """
-    if not pool:
-        return []
-
-    context_words = set((question + " " + answer_text).lower().split()) - _KO_STOPWORDS
-
-    scored: list[tuple[int, str]] = []
-    for q in pool:
-        q_words = set(q.lower().split()) - _KO_STOPWORDS
-        overlap = len(context_words & q_words)
-        scored.append((overlap, q))
-
-    scored.sort(key=lambda x: x[0], reverse=True)
-    # 오버랩 있는 것 우선, 없으면 순서대로
-    result = [q for score, q in scored if score > 0][:3]
-    if len(result) < 3:
-        extra = [q for score, q in scored if score == 0][: 3 - len(result)]
-        result += extra
-
-    return result[:3]
-
-
-def _llm_select_from_pool(
-    question: str,
-    answer_text: str,
-    pool: list[str],
-    db: Any,
-) -> list[str]:
-    """
-    LLM에게 풀 목록 + 현재 Q&A를 주고 가장 관련성 높은 3개 번호 선택 요청.
-    실패 시 [] 반환 → 호출자가 키워드 방식으로 폴백.
-    """
-    import json as _json
-    import re as _re
-
-    from app.services.chat.answer_generation_service import (  # noqa: PLC0415
-        _call_anthropic,
-        _call_openai_like,
-        _extract_output_text_anthropic,
-        _extract_output_text_openai,
-    )
-    from app.services.llm_api_config_runtime_service import resolve_runtime_api_config as _resolve  # noqa: PLC0415
-
-    try:
-        runtime_api = _resolve(db)
-    except Exception:
-        return []
-    if runtime_api is None:
-        return []
-
-    pool_text = "\n".join(f"{i + 1}. {q}" for i, q in enumerate(pool[:30]))
-    system_prompt = "JSON 배열만 출력하세요. 설명 없이."
-    user_prompt = (
-        "현재 대화:\n"
-        f"질문: {question}\n"
-        f"답변: {answer_text[:400]}\n\n"
-        "아래 질문 목록에서 사용자가 다음으로 물어볼 가능성이 가장 높은 질문 3개의 번호를\n"
-        "JSON 배열로 응답하세요. 예: [1, 5, 12]\n\n"
-        f"질문 목록:\n{pool_text}"
-    )
-
-    model = runtime_api.speed_model()  # 풀 기반 질문 선택: 속도 우선
-
-    try:
-        if runtime_api.provider == "anthropic":
-            response_json = _call_anthropic(
-                api_key=runtime_api.api_key,
-                base_url=runtime_api.base_url,
-                model=model,
-                temperature=0,
-                max_output_tokens=60,
-                top_p=None,
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                timeout_seconds=5,
-            )
-            raw = _extract_output_text_anthropic(response_json)
-        else:
-            response_json = _call_openai_like(
-                provider=runtime_api.provider,
-                api_key=runtime_api.api_key,
-                base_url=runtime_api.base_url,
-                model=model,
-                temperature=0,
-                max_output_tokens=60,
-                top_p=None,
-                frequency_penalty=None,
-                presence_penalty=None,
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                timeout_seconds=5,
-            )
-            raw = _extract_output_text_openai(response_json)
-
-        m = _re.search(r"\[[\d,\s]+\]", raw)
-        if not m:
-            return []
-        indices = _json.loads(m.group(0))
-        return [pool[i - 1] for i in indices if isinstance(i, int) and 1 <= i <= len(pool)][:3]
-    except Exception:
-        return []
-
-
-def _build_follow_up_questions(
-    question: str,
-    answer_text: str,
-    outcome: str,
-    candidates: list[dict[str, Any]],
-    db: Any,
-    natural_conversation: bool = False,
-    privacy_blocked: bool = False,
-    question_pool: list[str] | None = None,
-    follow_up_enabled: bool = True,
-) -> list[str]:
-    if natural_conversation or privacy_blocked or not follow_up_enabled:
-        return []
-    if outcome != "answered":
-        return FALLBACK_FOLLOW_UP_QUESTIONS.copy()
-
-    # ── 풀 기반 선택 (관리자가 사전 등록한 질문 풀) ───────────────────────────
-    if question_pool:
-        if _USE_DYNAMIC_FOLLOWUP and db is not None:
-            # LLM이 풀에서 관련성 높은 3개 선택 (더 정확)
-            selected = _llm_select_from_pool(question, answer_text, question_pool, db)
-            if selected:
-                return selected
-        # LLM 미사용 또는 실패 시 키워드 오버랩으로 선택
-        keyword_selected = _keyword_select_from_pool(question, answer_text, question_pool)
-        if keyword_selected:
-            return keyword_selected
-
-    # ── 풀 없음: 기존 동적/규칙 생성 ─────────────────────────────────────────
-    if _USE_DYNAMIC_FOLLOWUP and db is not None:
-        result = _generate_followup_with_llm(question, answer_text, db)
-        if result:
-            return result[:3]
-
-    return _rule_based_follow_up(question, answer_text, candidates)
 
 
 def _log_unanswered(
@@ -1062,8 +730,11 @@ def build_chat_pipeline_error_response(
         "normalizedQuery": body.normalized_query or normalize_query(body.question),
         "fallbackReason": "UNKNOWN",
         "messageType": "error",
-        "followUpQuestions": FALLBACK_FOLLOW_UP_QUESTIONS.copy(),
-        "followUpSource": "rule_based",
+        # 파이프라인이 터진 상황에서는 추천 질문을 붙이지 않는다. 답을 못 준
+        # 마당에 "이건 물어보세요"는 답답하기만 하고, 그 질문에 답할 수 있는지도
+        # 확인할 수 없다.
+        "followUpQuestions": [],
+        "followUpSource": None,
         "retrieval": {
             "enabled": False,
             "retrievedCount": 0,
@@ -1099,7 +770,7 @@ def build_chat_pipeline_error_response(
         outcome="insufficient_evidence",
         answer={"text": SAFE_CHAT_ERROR_MESSAGE, "warnings": ["CHAT_PIPELINE_RECOVERED_FROM_ERROR"]},
         citations=[],
-        follow_up_questions=FALLBACK_FOLLOW_UP_QUESTIONS.copy(),
+        follow_up_questions=[],
         policy_decision={},
         trace=trace,
     )
@@ -1994,14 +1665,20 @@ def run_final_chat_pipeline(
             q for q in (faq_theme.get("recommendedQuestionsPool") or [])
             if isinstance(q, str) and q.strip()
         ]
-        faq_follow_ups = _build_follow_up_questions(
-            body.question,
-            faq_answer_text,
-            "answered",
-            [],  # FAQ 경로는 RAG 후보가 없다 — 풀/LLM/규칙 기반으로 생성
-            db,
+        # FAQ 경로는 RAG 후보가 없어 grounding 없이 생성한다. 대신 생성된
+        # 질문은 등록 자료로 검증하므로 답 못 할 질문은 걸러진다.
+        faq_follow_ups, faq_follow_up_source = build_follow_up_questions(
+            question=body.question,
+            answer_text=faq_answer_text,
+            outcome="answered",
+            candidates=[],
+            db=db,
+            organization_id=str(chatbot.organization_id),
+            chatbot_id=str(chatbot.id),
+            recent_messages=recent_messages,
             question_pool=faq_question_pool or None,
             follow_up_enabled=faq_theme.get("followUpEnabled", True) is not False,
+            use_llm=_USE_DYNAMIC_FOLLOWUP,
         )
         faq_conditional_actions: list[dict[str, Any]] = []
         try:
@@ -2057,10 +1734,7 @@ def run_final_chat_pipeline(
             follow_up_questions=faq_follow_ups,
             conditional_actions=faq_conditional_actions,
             structured_response=faq_structured_response,
-            follow_up_source=(
-                "llm_dynamic" if (faq_follow_ups and _USE_DYNAMIC_FOLLOWUP) else
-                ("rule_based" if faq_follow_ups else None)
-            ),
+            follow_up_source=faq_follow_up_source,
         )
 
     retrieval_start = time.perf_counter()
@@ -2528,19 +2202,19 @@ def run_final_chat_pipeline(
     ]
     _follow_up_enabled: bool = _chatbot_theme.get("followUpEnabled", True) is not False
 
-    follow_up_questions = _build_follow_up_questions(
-        body.question,
-        answer_text,
-        outcome,
-        prompt_candidates,
-        db,
+    follow_up_questions, follow_up_source = build_follow_up_questions(
+        question=body.question,
+        answer_text=answer_text,
+        outcome=outcome,
+        candidates=prompt_candidates,
+        db=db,
+        organization_id=str(chatbot.organization_id),
+        chatbot_id=str(chatbot.id),
+        recent_messages=recent_messages,
         natural_conversation=natural_conversation,
         question_pool=_question_pool or None,
         follow_up_enabled=_follow_up_enabled,
-    )
-    follow_up_source = (
-        "llm_dynamic" if (follow_up_questions and _USE_DYNAMIC_FOLLOWUP)
-        else ("rule_based" if follow_up_questions else None)
+        use_llm=_USE_DYNAMIC_FOLLOWUP,
     )
 
     # ── 조건별 CTA 액션 매칭 (Sprint 3-A) ────────────────────────────────────

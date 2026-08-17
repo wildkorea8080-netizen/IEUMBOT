@@ -499,7 +499,7 @@ export default function AdminAiStylePage() {
             />
             {form.recommendedQuestionsPool.length === 0 && (
               <div style={{ marginTop: 10, padding: "10px 14px", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, fontSize: 12, color: "#92400e" }}>
-                💡 등록된 질문이 없으면 AI가 자체적으로 추천 질문을 생성합니다. 자주 묻는 질문을 등록할수록 더 정확한 추천이 가능합니다.
+                💡 등록된 질문이 없으면 AI가 직전 대화 흐름과 답변에 쓰인 자료를 보고 추천 질문을 만듭니다. 만든 질문은 등록된 자료로 답할 수 있는지 확인한 뒤 보여주며, 답할 수 없는 질문은 표시하지 않습니다.
               </div>
             )}
           </SectionCard>
