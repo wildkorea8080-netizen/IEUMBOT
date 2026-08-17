@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from difflib import SequenceMatcher
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -110,6 +111,122 @@ def _grounding_text(candidates: list[dict[str, Any]]) -> str:
     return "\n\n".join(parts)
 
 
+_NON_WORD_RE = re.compile(r"[^0-9A-Za-z가-힣]+")
+
+# 어느 사업에나 붙는 절차 명사들. 이것만으로 이루어진 질문은 대상이 없다.
+# "신청 방법은 어떻게 되나요?" 가 융자 대화 중에 추천됐는데 누르니 환경조사
+# 신청방법이 나왔다 — 질문이 독립 실행되면서 대화 맥락이 사라지기 때문이다.
+_GENERIC_TERMS = (
+    "신청",
+    "방법",
+    "절차",
+    "서류",
+    "제출",
+    "기간",
+    "일정",
+    "조건",
+    "자격",
+    "요건",
+    "문의",
+    "연락",
+    "담당",
+    "부서",
+    "지원",
+    "대상",
+    "안내",
+    "확인",
+    "접수",
+    "마감",
+    "비용",
+    "금액",
+    "기준",
+    "내용",
+    "정보",
+    "자료",
+    "규정",
+    "지침",
+    "공고",
+    "등록",
+    "어떻게",
+    "무엇",
+    "언제",
+    "어디",
+    "얼마",
+    "누구",
+    "가능",
+    "필요",
+    "준비",
+    # 의문문 어미. 조사·어미가 붙어도 걸리도록 접두 비교를 쓴다.
+    "되나요",
+    "인가요",
+    "있나요",
+    "하나요",
+    "됩니",
+    "입니",
+    "합니",
+    "되는지",
+    "하는지",
+)
+
+_EVIDENCE_MIN_LEN = 8
+# 인용문에서 자료와 연속으로 일치해야 하는 최소 길이. 모델이 중간을 생략해
+# 인용하는 건 흔하므로 전체 일치율 대신 '가장 긴 연속 일치'를 본다.
+_EVIDENCE_MIN_RUN = 12
+
+
+def _normalize_for_match(text: str) -> str:
+    """공백·문장부호를 지운 비교용 문자열."""
+    return _NON_WORD_RE.sub("", text)
+
+
+def _evidence_supported(evidence: str, grounding: str) -> bool:
+    """모델이 인용한 문장이 실제 자료에 있는지 확인한다.
+
+    LLM은 근거를 요구하면 없는 문장을 지어낸다. 인용문과 자료의 '가장 긴 연속
+    일치' 길이를 본다. 중간을 생략해 인용하는 건 흔하므로 전체 일치율로 보면
+    정상 인용이 탈락한다. 반대로 통째로 창작한 문장은 긴 연속 일치가 나오지
+    않아 걸러진다.
+    """
+    normalized_evidence = _normalize_for_match(evidence)
+    normalized_grounding = _normalize_for_match(grounding)
+    if len(normalized_evidence) < _EVIDENCE_MIN_LEN or not normalized_grounding:
+        return False
+
+    matcher = SequenceMatcher(None, normalized_evidence, normalized_grounding, autojunk=False)
+    longest = matcher.find_longest_match(
+        0, len(normalized_evidence), 0, len(normalized_grounding)
+    ).size
+    required = min(_EVIDENCE_MIN_RUN, len(normalized_evidence) // 2)
+    return longest >= required
+
+
+def _is_generic_token(token: str) -> bool:
+    """절차 명사인지 판정. 한국어는 조사·어미가 붙으므로 접두로 본다.
+
+    '서류는', '방법은', '무엇인가요' 처럼 붙어 나오는 형태를 정확히 일치로
+    걸러내려다 통과시켰다 — 그래서 대상 없는 질문이 살아남았다.
+    """
+    return any(token.startswith(term) for term in _GENERIC_TERMS)
+
+
+def _has_subject(candidate: str, context: str) -> bool:
+    """질문이 무엇에 대한 것인지 문장만 보고 알 수 있는지 확인한다.
+
+    절차 명사(신청·방법·서류…)만으로 된 질문은 클릭하는 순간 대화 맥락을
+    잃고 엉뚱한 사업의 자료로 답하게 된다. 대화에 등장한 고유한 낱말이
+    질문 안에 하나라도 들어 있어야 한다.
+    """
+    tokens = {
+        token
+        for token in _NON_WORD_RE.split(candidate)
+        if len(token) >= 2 and not _is_generic_token(token)
+    }
+    if not tokens:
+        return False
+    normalized_context = _normalize_for_match(context)
+    return any(token in normalized_context for token in tokens)
+
+
 def _generate_with_llm(
     *,
     question: str,
@@ -117,8 +234,8 @@ def _generate_with_llm(
     history: str,
     grounding: str,
     db: Any,
-) -> list[str]:
-    """대화 맥락 + 근거 자료를 주고 이어질 질문을 만든다. 실패 시 []."""
+) -> list[tuple[str, str]]:
+    """대화 맥락 + 근거 자료를 주고 (질문, 인용문) 쌍을 만든다. 실패 시 []."""
     from app.services.chat.answer_generation_service import (  # noqa: PLC0415
         _call_anthropic,
         _call_openai_like,
@@ -138,8 +255,8 @@ def _generate_with_llm(
         return []
 
     system_prompt = (
-        "이어질 질문을 만드는 도우미입니다. 주어진 자료에 실제로 담긴 내용으로만 "
-        "질문을 만듭니다. JSON 배열만 출력하고 설명은 붙이지 않습니다."
+        "이어질 질문을 만드는 도우미입니다. 자료에 답이 실제로 적혀 있는 질문만 만듭니다. "
+        "JSON 배열만 출력하고 설명은 붙이지 않습니다."
     )
 
     sections = []
@@ -152,15 +269,21 @@ def _generate_with_llm(
 
     user_prompt = (
         "\n\n".join(sections) + "\n\n"
-        "위 대화 흐름에서 사용자가 이어서 물어볼 법한 질문을 최대 3개 만들어 주세요.\n\n"
+        "위 대화에 이어질 질문을 최대 3개 만들어 주세요.\n"
+        "각 질문마다 그 답이 적힌 원문 문장을 evidence 로 그대로 옮겨 적어야 합니다.\n\n"
         "규칙:\n"
-        "- 반드시 [답변에 쓰인 등록 자료]에 실제로 담긴 내용만 다룰 것\n"
-        "- 자료에 없는 내용은 만들지 말 것. 3개를 못 채워도 됩니다\n"
-        "- [이전 대화]의 관심사에서 벗어나지 말 것\n"
-        "- 이미 나온 질문과 중복 금지\n"
-        "- 각 질문은 30자 이내의 간결한 한국어 의문문\n\n"
-        '응답 예시: ["신청 자격은 어떻게 되나요?", "제출 서류는 무엇인가요?"]\n'
-        "만들 수 있는 질문이 없으면 [] 를 출력하세요."
+        "1. 질문에 대상을 반드시 넣을 것. 무엇에 대한 질문인지 문장만 보고 알 수 있어야 합니다.\n"
+        '   나쁨: "신청 방법은 어떻게 되나요?"  ← 무엇의 신청인지 알 수 없음\n'
+        '   좋음: "융자지원 신청 방법은 어떻게 되나요?"\n'
+        "2. evidence 는 자료에 있는 문장을 그대로 옮길 것. 요약하거나 지어내지 마세요.\n"
+        "3. evidence 에 답이 실제로 적혀 있어야 합니다. 주제만 언급된 문장은 근거가 아닙니다.\n"
+        '   예: "제출 서류의 유효기간에 유의해 주세요" 는 유효기간이 며칠인지 말하지 않으므로\n'
+        '   "서류 유효기간은?" 의 근거가 될 수 없습니다.\n'
+        "4. 이미 나온 질문과 중복 금지. 질문은 30자 이내 한국어 의문문.\n"
+        "5. 조건을 만족하는 질문이 없으면 빈 배열을 출력하세요. 개수를 채우려 하지 마세요.\n\n"
+        "응답 형식:\n"
+        '[{"q": "융자 신청 자격은 어떻게 되나요?", "evidence": "농림축산식품부장관에게 '
+        '사업계획을 신고한 자"}]'
     )
 
     model = runtime_api.speed_model()  # 추천 질문은 속도 우선
@@ -199,7 +322,7 @@ def _generate_with_llm(
         logger.warning("[FOLLOWUP] LLM 호출 실패: %s", exc)
         return []
 
-    match = re.search(r"\[.*?\]", (raw_text or "").strip(), re.DOTALL)
+    match = re.search(r"\[.*\]", (raw_text or "").strip(), re.DOTALL)
     if not match:
         return []
     try:
@@ -209,7 +332,15 @@ def _generate_with_llm(
     if not isinstance(parsed, list):
         return []
 
-    return [str(q).strip() for q in parsed if isinstance(q, str) and q.strip()]
+    result: list[tuple[str, str]] = []
+    for entry in parsed:
+        if not isinstance(entry, dict):
+            continue
+        text = str(entry.get("q") or "").strip()
+        evidence = str(entry.get("evidence") or "").strip()
+        if text:
+            result.append((text, evidence))
+    return result
 
 
 def verify_against_knowledge(
@@ -475,17 +606,41 @@ def build_follow_up_questions(
     if not use_llm or db is None:
         return [], None
 
+    history = _history_text(recent_messages or [])
+    chunk_text = _grounding_text(candidates)
+
+    # 인용문 대조 대상. 답변 본문도 포함한다 — FAQ 경로는 RAG 후보가 없고,
+    # 답변 자체가 등록 자료에서 나온 문장이라 근거로 인정할 수 있다.
+    grounding = "\n\n".join(part for part in (chunk_text, answer_text) if part)
+
+    # 대상 판정 기준. 이번 대화에 등장한 낱말이어야 "맥락 안"이다.
+    subject_context = " ".join(
+        part for part in (history, question, answer_text, chunk_text) if part
+    )
+
     generated = _generate_with_llm(
         question=question,
         answer_text=answer_text,
-        history=_history_text(recent_messages or []),
-        grounding=_grounding_text(candidates),
+        history=history,
+        grounding=chunk_text,
         db=db,
     )
     if not generated:
         return [], None
 
-    deduped = _dedupe(generated, exclude=question)
+    kept: list[str] = []
+    dropped_no_subject = 0
+    dropped_no_evidence = 0
+    for text, evidence in generated:
+        if not _has_subject(text, subject_context):
+            dropped_no_subject += 1
+            continue
+        if not _evidence_supported(evidence, grounding):
+            dropped_no_evidence += 1
+            continue
+        kept.append(text)
+
+    deduped = _dedupe(kept, exclude=question)
     verified = verify_against_knowledge(
         deduped,
         db=db,
@@ -494,8 +649,10 @@ def build_follow_up_questions(
     )
 
     logger.info(
-        "[FOLLOWUP] generated=%d verified=%d chatbot_id=%s",
-        len(deduped),
+        "[FOLLOWUP] generated=%d no_subject=%d no_evidence=%d verified=%d chatbot_id=%s",
+        len(generated),
+        dropped_no_subject,
+        dropped_no_evidence,
         len(verified),
         chatbot_id,
     )
