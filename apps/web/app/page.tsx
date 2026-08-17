@@ -22,6 +22,12 @@ export const metadata: Metadata = {
     "공공기관 담당자를 위한 문서 기반 AI 챗봇. 반복 문의를 24시간 받고, 등록된 자료에 근거가 없으면 지어내지 않습니다.",
 };
 
+// 이 페이지는 완전 정적으로 생성되면서 s-maxage=31536000(1년)이 붙는다.
+// 그래서 새 이미지로 컨테이너가 떠도 옛 HTML이 계속 나갔고, 배포 때마다
+// Coolify 에서 Restart 를 눌러야 반영됐다 — 잊으면 아무도 모른다.
+// 한 시간마다 스스로 다시 만들게 한다. 랜딩은 그보다 자주 바뀌지 않는다.
+export const revalidate = 3600;
+
 export default function HomePage() {
   return (
     <div className="bg-white">
