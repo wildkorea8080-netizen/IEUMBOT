@@ -43,10 +43,6 @@ type StyleForm = {
   recommendedQuestionsPool: string[];
   // 고급 설정
   followUpEnabled: boolean;
-  sentimentAnalysis: boolean;
-  multilingualEnabled: boolean;
-  autoLinkify: boolean;
-  autoBold: boolean;
   // 응답 형식 규칙
   responseFormatRules: FormatRule[];
 };
@@ -57,8 +53,7 @@ const DEFAULT_FORM: StyleForm = {
   qualityEvaluationEnabled: false,
   customInstructions: "",
   recommendedQuestionsPool: [],
-  followUpEnabled: true, sentimentAnalysis: false, multilingualEnabled: false,
-  autoLinkify: false, autoBold: false,
+  followUpEnabled: true,
   responseFormatRules: [],
 };
 
@@ -334,10 +329,6 @@ export default function AdminAiStylePage() {
         customInstructions: chatbot.customInstructions ?? "",
         recommendedQuestionsPool: pool,
         followUpEnabled:    theme.followUpEnabled !== false,
-        sentimentAnalysis:  !!theme.sentimentAnalysis,
-        multilingualEnabled: !!theme.multilingualEnabled,
-        autoLinkify:        !!theme.autoLinkify,
-        autoBold:           !!theme.autoBold,
         responseFormatRules: (chatbot.responseFormatRules ?? []) as FormatRule[],
       };
       setSelectedChatbot(chatbot);
@@ -389,10 +380,6 @@ export default function AdminAiStylePage() {
           aiCitationPresentation: form.citationDisplay,
           recommendedQuestionsPool: form.recommendedQuestionsPool,
           followUpEnabled: form.followUpEnabled,
-          sentimentAnalysis: form.sentimentAnalysis,
-          multilingualEnabled: form.multilingualEnabled,
-          autoLinkify: form.autoLinkify,
-          autoBold: form.autoBold,
         },
         customInstructions: form.customInstructions,
         responseFormatRules: form.responseFormatRules,
@@ -517,13 +504,6 @@ export default function AdminAiStylePage() {
                   desc: "비방, 욕설, 혐오 등 부적절한 질문에 대해 거부메시지를 자동으로 제공합니다.",
                 },
                 {
-                  key: "sentimentAnalysis" as const,
-                  checked: form.sentimentAnalysis,
-                  disabled: false,
-                  label: "감정 분석 활성화",
-                  desc: "고객의 감정 상태를 파악하여 적절한 톤으로 응대합니다.",
-                },
-                {
                   key: "followUpEnabled" as const,
                   checked: form.followUpEnabled,
                   disabled: false,
@@ -531,22 +511,13 @@ export default function AdminAiStylePage() {
                   desc: "대화 중 관련된 질문을 추천합니다.",
                 },
                 {
+                  // 켤 수 없는 항목이므로 '베타'가 아니라 '준비중'으로 둔다.
+                  // 베타는 거칠어도 쓸 수는 있다는 뜻이라 오해를 부른다.
                   key: "voiceSupport" as const,
                   checked: false,
                   disabled: true,
                   label: "음성 답변 지원",
                   desc: "텍스트 답변을 음성으로 변환하여 제공합니다.",
-                  badge: "베타",
-                },
-                {
-                  // 백엔드가 theme.multilingualEnabled 를 읽지 않는다(답변 파이프라인에
-                  // 언어 지시가 없음). 값만 저장되고 동작하지 않아 오해를 부르므로
-                  // 실제 구현 전까지 '음성 답변 지원'과 동일하게 비활성 처리한다.
-                  key: "multilingualEnabled" as const,
-                  checked: false,
-                  disabled: true,
-                  label: "다국어 지원",
-                  desc: "영어, 중국어, 일본어 등 주요 언어로 자동 응대합니다.",
                   badge: "준비중",
                 },
               ].map(({ key, checked, disabled, label, desc, badge }) => (
@@ -564,9 +535,7 @@ export default function AdminAiStylePage() {
                     checked={checked}
                     disabled={disabled}
                     onChange={e => {
-                      if (key === "sentimentAnalysis") setForm(p => ({ ...p, sentimentAnalysis: e.target.checked }));
-                      else if (key === "followUpEnabled") setForm(p => ({ ...p, followUpEnabled: e.target.checked }));
-                      else if (key === "multilingualEnabled") setForm(p => ({ ...p, multilingualEnabled: e.target.checked }));
+                      if (key === "followUpEnabled") setForm(p => ({ ...p, followUpEnabled: e.target.checked }));
                     }}
                     style={{ marginTop: 2, width: 15, height: 15, accentColor: "#2563eb", flexShrink: 0 }}
                   />
