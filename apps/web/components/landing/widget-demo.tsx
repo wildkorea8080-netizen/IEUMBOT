@@ -13,27 +13,32 @@ import { useEffect, useState, type ReactNode } from "react";
 const TURN_COUNT = 3;
 const TURN_INTERVAL = 6500;
 
-export function WidgetDemo() {
-  const [visibleTurns, setVisibleTurns] = useState(TURN_COUNT);
+/** 재생 중 대화 영역 높이. 가장 긴 턴(출처 칩이 붙는 1번)이 들어가는 값. */
+const STAGE_HEIGHT = "17.5rem";
 
-  // HTML에는 완성된 대화가 먼저 들어간다. JS가 살아 있을 때만 되감아
-  // 재생한다. 빈 화면에서 타이핑을 시작하면 스크립트가 죽는 순간
-  // 히어로가 백지가 된다.
+export function WidgetDemo() {
+  const [activeTurn, setActiveTurn] = useState(0);
+  const [playing, setPlaying] = useState(false);
+
+  // 서버 HTML에는 세 턴이 그대로 흘러 들어간다(playing=false). JS가 살아
+  // 있을 때만 겹쳐 놓고 하나씩 돌린다. 빈 화면에서 시작하면 스크립트가
+  // 죽는 순간 히어로가 백지가 된다.
+  //
+  // 누적으로 쌓지 않는 이유는 높이다. 세 턴이 다 펼쳐지면 카드가 900px을
+  // 넘어 왼쪽 카피와 균형이 무너진다. 한 장면씩 보여주면 카드는 절반이 되고
+  // 각 장면도 제 몫의 주목을 받는다.
   useEffect(() => {
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    setVisibleTurns(0);
+    setPlaying(true);
+    setActiveTurn(1);
 
-    let turn = 0;
+    let turn = 1;
     const timer = window.setInterval(() => {
       turn = turn >= TURN_COUNT ? 1 : turn + 1;
-      setVisibleTurns(turn);
+      setActiveTurn(turn);
     }, TURN_INTERVAL);
 
-    const first = window.setTimeout(() => setVisibleTurns(1), 400);
-    return () => {
-      window.clearInterval(timer);
-      window.clearTimeout(first);
-    };
+    return () => window.clearInterval(timer);
   }, []);
 
   return (
@@ -56,10 +61,10 @@ export function WidgetDemo() {
         </div>
 
         <div
-          className="space-y-3.5 overflow-hidden bg-slate-50/70 px-4 py-5"
-          style={{ minHeight: "420px" }}
+          className="relative space-y-3.5 overflow-hidden bg-slate-50/70 px-4 py-5"
+          style={playing ? { height: STAGE_HEIGHT } : undefined}
         >
-          <Turn index={1} visible={visibleTurns}>
+          <Turn index={1} active={activeTurn} playing={playing}>
             <Bubble role="user">주민등록등본 발급하려면 뭐가 필요한가요?</Bubble>
             <Bubble role="bot">
               <p>
@@ -77,7 +82,7 @@ export function WidgetDemo() {
             </Bubble>
           </Turn>
 
-          <Turn index={2} visible={visibleTurns}>
+          <Turn index={2} active={activeTurn} playing={playing}>
             <Bubble role="user">내년도 예산 규모가 얼마인가요?</Bubble>
             <Bubble role="bot">
               <div
@@ -93,7 +98,7 @@ export function WidgetDemo() {
             </Bubble>
           </Turn>
 
-          <Turn index={3} visible={visibleTurns}>
+          <Turn index={3} active={activeTurn} playing={playing}>
             <Bubble role="user">이번 달 채용 공고 알려주세요</Bubble>
             <Bubble role="bot">
               <p className="mb-2.5">현재 접수 중인 채용 공고를 안내해 드릴게요.</p>
@@ -129,20 +134,29 @@ export function WidgetDemo() {
 
 function Turn({
   index,
-  visible,
+  active,
+  playing,
   children,
 }: {
   index: number;
-  visible: number;
+  active: number;
+  playing: boolean;
   children: ReactNode;
 }) {
-  const shown = visible >= index;
+  // 재생 전에는 세 턴이 모두 흐름에 남는다 — JS 없이도 대화가 읽혀야 한다.
+  // 재생 중에는 겹쳐 놓고 활성 턴만 보인다.
+  const shown = !playing || active === index;
   return (
     <div
       className="space-y-3.5"
       style={{
+        position: playing ? "absolute" : "static",
+        top: playing ? "1.25rem" : undefined,
+        left: playing ? "1rem" : undefined,
+        right: playing ? "1rem" : undefined,
         opacity: shown ? 1 : 0,
         transform: shown ? "none" : "translateY(10px)",
+        pointerEvents: shown ? undefined : "none",
         transition:
           "opacity 420ms cubic-bezier(0.22,1,0.36,1), transform 420ms cubic-bezier(0.22,1,0.36,1)",
       }}
