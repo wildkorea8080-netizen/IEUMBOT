@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Trash2, ToggleLeft, ToggleRight, X } from "lucide-react";
+import { Trash2, ToggleLeft, ToggleRight, X, Pencil } from "lucide-react";
 
 import { ApiClientError } from "../../../lib/api";
 import { getAdminChatbots } from "../../../lib/api/admin-operations";
@@ -106,20 +106,34 @@ function extractKeywords(condition: string): string[] {
 // ── 모달 ──────────────────────────────────────────────────────────────────────
 
 function AddModal({
-  open, onClose, chatbotId, onSaved,
+  open, onClose, chatbotId, editingItem, onSaved,
 }: {
   open: boolean;
   onClose: () => void;
   chatbotId: string;
+  editingItem: ConditionalItem | null;
   onSaved: () => void;
 }) {
   const [form, setForm] = useState(DEFAULT_FORM);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const isEditing = editingItem !== null;
 
   useEffect(() => {
-    if (open) { setForm(DEFAULT_FORM); setError(null); }
-  }, [open]);
+    if (!open) return;
+    setError(null);
+    if (editingItem) {
+      setForm({
+        actionType: editingItem.actionType,
+        condition: editingItem.name,
+        actionLabel: editingItem.actionType === "file" ? editingItem.actionLabel : "",
+        actionValue: editingItem.actionValue,
+        actionDescription: editingItem.actionDescription ?? "",
+      });
+    } else {
+      setForm(DEFAULT_FORM);
+    }
+  }, [open, editingItem]);
 
   async function save() {
     if (!form.actionType || !form.condition.trim() || !form.actionValue.trim()) {
@@ -129,19 +143,25 @@ function AddModal({
     try {
       const keywords = extractKeywords(form.condition);
       const typeMeta = ACTION_META[form.actionType as ActionType];
-      await apiClient.request<ConditionalItem>("/admin/conditional", {
-        method: "POST",
-        body: {
-          chatbotId,
-          name: form.condition.trim(),
-          triggerKeywords: keywords.length > 0 ? keywords : [form.condition.trim()],
-          triggerType: "both",
-          actionType: form.actionType,
-          actionLabel: typeMeta.label,
-          actionValue: form.actionValue.trim(),
-          actionDescription: form.actionDescription.trim() || null,
-        },
-      });
+      const body = {
+        name: form.condition.trim(),
+        triggerKeywords: keywords.length > 0 ? keywords : [form.condition.trim()],
+        actionType: form.actionType,
+        actionLabel: typeMeta.label,
+        actionValue: form.actionValue.trim(),
+        actionDescription: form.actionDescription.trim() || null,
+      };
+      if (isEditing) {
+        await apiClient.request<ConditionalItem>(`/admin/conditional/${editingItem.id}`, {
+          method: "PATCH",
+          body,
+        });
+      } else {
+        await apiClient.request<ConditionalItem>("/admin/conditional", {
+          method: "POST",
+          body: { ...body, chatbotId, triggerType: "both" },
+        });
+      }
       onSaved(); onClose();
     } catch (e) { setError(errMsg(e)); }
     finally { setIsSaving(false); }
@@ -163,7 +183,9 @@ function AddModal({
       }}>
         {/* 헤더 */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
-          <h2 style={{ fontSize: 18, fontWeight: 700, color: "#111827" }}>추가 응답 설정</h2>
+          <h2 style={{ fontSize: 18, fontWeight: 700, color: "#111827" }}>
+            {isEditing ? "응답 설정 수정" : "추가 응답 설정"}
+          </h2>
           <button type="button" onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#9ca3af" }}>
             <X style={{ width: 20, height: 20 }} />
           </button>
@@ -282,7 +304,7 @@ function AddModal({
               background: (!form.actionType || !form.condition.trim() || !form.actionValue.trim()) ? "#9ca3af" : "#111827",
               fontSize: 14, fontWeight: 600, color: "#fff", cursor: isSaving ? "wait" : "pointer",
             }}>
-            {isSaving ? "저장 중..." : "규칙 저장"}
+            {isSaving ? "저장 중..." : isEditing ? "수정 저장" : "규칙 저장"}
           </button>
         </div>
       </div>
@@ -298,6 +320,7 @@ export default function ConditionalPage() {
   const [items, setItems] = useState<ConditionalItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<ConditionalItem | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -356,7 +379,6 @@ export default function ConditionalPage() {
       {/* 페이지 헤더 */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
         <h1 className="section-title" style={{ margin: 0 }}>조건별 답변 설정</h1>
-        <span style={{ fontSize: 11, fontWeight: 700, background: "linear-gradient(135deg,#06b6d4,#2563eb)", color: "#fff", borderRadius: 6, padding: "2px 8px" }}>도움말</span>
       </div>
 
       {/* 챗봇 선택 */}
@@ -410,6 +432,12 @@ export default function ConditionalPage() {
                     {item.isEnabled ? <ToggleRight style={{ width: 24, height: 24 }} /> : <ToggleLeft style={{ width: 24, height: 24 }} />}
                   </button>
 
+                  {/* 수정 */}
+                  <button type="button" onClick={() => { setEditingItem(item); setIsModalOpen(true); }}
+                    style={{ background: "none", border: "none", cursor: "pointer", color: "#9ca3af", flexShrink: 0 }}>
+                    <Pencil style={{ width: 16, height: 16 }} />
+                  </button>
+
                   {/* 삭제 */}
                   <button type="button" onClick={() => void remove(item.id)}
                     style={{ background: "none", border: "none", cursor: "pointer", color: "#d1d5db", flexShrink: 0 }}>
@@ -426,7 +454,7 @@ export default function ConditionalPage() {
       <div style={{ display: "flex", justifyContent: "flex-end" }}>
         <button
           type="button"
-          onClick={() => setIsModalOpen(true)}
+          onClick={() => { setEditingItem(null); setIsModalOpen(true); }}
           disabled={!chatbotId}
           style={{
             padding: "11px 22px", borderRadius: 10, border: "none",
@@ -440,9 +468,10 @@ export default function ConditionalPage() {
 
       <AddModal
         open={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
+        onClose={() => { setIsModalOpen(false); setEditingItem(null); }}
         chatbotId={chatbotId}
-        onSaved={() => { setToast("규칙이 추가되었습니다."); void load(); }}
+        editingItem={editingItem}
+        onSaved={() => { setToast(editingItem ? "수정되었습니다." : "규칙이 추가되었습니다."); void load(); }}
       />
     </div>
   );
