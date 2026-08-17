@@ -676,23 +676,57 @@ export default function ApiConnectPage() {
         </div>
       </div>
 
-      {/* 응답 형식 카드 */}
+      {/* 응답 형식 안내 */}
       <div className="bg-white rounded-xl border border-neutral-200" style={{ overflow: "hidden" }}>
         <div style={{ padding: "20px 24px 16px" }}>
-          <h2 style={{ fontSize: 15, fontWeight: 700, color: "#111827", marginBottom: 4 }}>응답 형식</h2>
-          <p style={{ fontSize: 13, color: "#6b7280" }}>
-            content의 내용이 AI의 컨텍스트로 활용됩니다. 5000자 이내로 값이 담기도록 해주세요.
+          <h2 style={{ fontSize: 15, fontWeight: 700, color: "#111827", marginBottom: 4 }}>
+            API 응답은 어떤 형태여도 됩니다
+          </h2>
+          <p style={{ fontSize: 13, color: "#6b7280", lineHeight: 1.7 }}>
+            정해진 규격은 없습니다. 이미 쓰고 계신 API가 있다면 그대로 연결하고, 응답에서 어느
+            위치의 값을 쓸지만 알려주시면 됩니다.
           </p>
         </div>
-        <div style={{ margin: "0 24px 24px", borderRadius: 12, background: "#1e1e2e", padding: "20px 24px", fontFamily: "monospace", fontSize: 13, lineHeight: 1.8 }}>
-          <div style={{ color: "#6b7280" }}>{`<!-- Content-Type: text/plain; charset=utf-8 →`}</div>
-          <div style={{ color: "#e2e8f0" }}>{`{`}</div>
-          <div style={{ color: "#e2e8f0", paddingLeft: 20 }}>
-            <span style={{ color: "#93c5fd" }}>{`"content"`}</span>
-            <span style={{ color: "#e2e8f0" }}>{`: `}</span>
-            <span style={{ color: "#86efac" }}>{`"your api response content"`}</span>
+
+        <div style={{ padding: "0 24px 24px", display: "grid", gap: 14 }}>
+          {/* 케이스 1 — 기존 API 연결 */}
+          <div style={{ border: "1px solid #e5e7eb", borderRadius: 10, padding: "14px 16px" }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#111827", marginBottom: 4 }}>
+              이미 API가 있는 경우
+            </div>
+            <p style={{ fontSize: 12.5, color: "#6b7280", lineHeight: 1.7 }}>
+              공공데이터포털처럼 남이 만든 API도 그대로 붙습니다. 등록할 때{" "}
+              <b style={{ color: "#374151" }}>응답 형식</b>을 고르고,{" "}
+              <b style={{ color: "#374151" }}>자동 채우기</b>를 누르면 응답을 분석해 필요한 경로를
+              채워 줍니다.
+            </p>
           </div>
-          <div style={{ color: "#e2e8f0" }}>{`}`}</div>
+
+          {/* 케이스 2 — 직접 만드는 경우 */}
+          <div style={{ border: "1px solid #e5e7eb", borderRadius: 10, padding: "14px 16px" }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#111827", marginBottom: 4 }}>
+              챗봇용 API를 새로 만드는 경우
+            </div>
+            <p style={{ fontSize: 12.5, color: "#6b7280", lineHeight: 1.7, marginBottom: 10 }}>
+              가장 단순한 형태는 아래와 같습니다. 이렇게 주시면 응답 경로에 <code>content</code> 만
+              적으면 됩니다. 물론 다른 모양이어도 괜찮습니다.
+            </p>
+            <div style={{ borderRadius: 10, background: "#1e1e2e", padding: "16px 20px", fontFamily: "monospace", fontSize: 12.5, lineHeight: 1.8 }}>
+              <div style={{ color: "#6b7280" }}>{"// Content-Type: application/json; charset=utf-8"}</div>
+              <div style={{ color: "#e2e8f0" }}>{"{"}</div>
+              <div style={{ color: "#e2e8f0", paddingLeft: 20 }}>
+                <span style={{ color: "#93c5fd" }}>{'"content"'}</span>
+                <span>{": "}</span>
+                <span style={{ color: "#86efac" }}>{'"오늘 민원실은 18시까지 운영합니다."'}</span>
+              </div>
+              <div style={{ color: "#e2e8f0" }}>{"}"}</div>
+            </div>
+          </div>
+
+          <p style={{ fontSize: 12, color: "#9ca3af", lineHeight: 1.7 }}>
+            응답이 길면 AI가 핵심을 놓치기 쉽습니다. 답변에 필요한 만큼만 담아 주세요.
+            응답 대기는 12초까지이며, 그 안에 오지 않으면 해당 API 없이 답변합니다.
+          </p>
         </div>
       </div>
 
