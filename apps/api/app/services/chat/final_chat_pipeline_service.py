@@ -37,7 +37,10 @@ from app.services.chat.entity_extraction_service import (
     merge_context_entities,
 )
 from app.services.chat.citation_service import assemble_citations
-from app.services.chat.fallback_response_service import build_fallback_response
+from app.services.chat.fallback_response_service import (
+    SERVICE_FAILURE_REASONS,
+    build_fallback_response,
+)
 from app.services.chat.followup_service import build_follow_up_questions
 from app.services.chat.intent_classifier_service import (
     IntentClassification,
@@ -303,9 +306,15 @@ def _detect_simple_intent(question: str) -> str | None:
     compact = normalized_for_intent.replace(" ", "")
     if compact in {"안녕", "안녕하세요"} or normalized in {"hi", "hello", "hey"}:
         return "greeting"
-    if any(keyword in normalized for keyword in ["고마워", "고맙습니다", "감사", "thank you", "thanks", "thx"]):
+    if any(
+        keyword in normalized
+        for keyword in ["고마워", "고맙습니다", "감사", "thank you", "thanks", "thx"]
+    ):
         return "thanks"
-    if any(keyword in normalized for keyword in ["안녕히", "잘가", "잘 가", "수고", "그만", "bye", "goodbye"]):
+    if any(
+        keyword in normalized
+        for keyword in ["안녕히", "잘가", "잘 가", "수고", "그만", "bye", "goodbye"]
+    ):
         return "goodbye"
     return None
 
@@ -315,7 +324,9 @@ def _simple_natural_response(question: str, *, user_turn_count: int) -> tuple[st
     if detected_intent is None:
         return None
     if detected_intent == "smalltalk":
-        response = SMALL_TALK_FIRST_RESPONSE if user_turn_count <= 0 else SMALL_TALK_REDIRECT_RESPONSE
+        response = (
+            SMALL_TALK_FIRST_RESPONSE if user_turn_count <= 0 else SMALL_TALK_REDIRECT_RESPONSE
+        )
     else:
         response = NATURAL_INTENT_RESPONSES[detected_intent]
     return ("answered", response, detected_intent)
@@ -376,7 +387,11 @@ def _build_extractive_overview_answer(
             or candidate.get("title")
             or ""
         ).strip()
-        signals = candidate.get("contentSignals") if isinstance(candidate.get("contentSignals"), dict) else {}
+        signals = (
+            candidate.get("contentSignals")
+            if isinstance(candidate.get("contentSignals"), dict)
+            else {}
+        )
         preview = str(signals.get("textPreview") or "").strip()
         if not title and not preview:
             continue
@@ -421,7 +436,6 @@ def _candidate_text(candidates: list[dict[str, Any]]) -> str:
         if isinstance(signals, dict) and signals.get("textPreview"):
             parts.append(str(signals.get("textPreview")))
     return _normalize_text(" ".join(parts))
-
 
 
 def _log_unanswered(
@@ -557,14 +571,20 @@ def _fallback_reason(
     if retrieval_fallback_reason:
         return str(retrieval_fallback_reason)
     reason = str(policy_reason or "").lower()
-    if decision == "restricted" or policy_flags.get("abusiveDetected") or policy_flags.get("restrictedTopic"):
+    if (
+        decision == "restricted"
+        or policy_flags.get("abusiveDetected")
+        or policy_flags.get("restrictedTopic")
+    ):
         return "POLICY_BLOCKED"
     if policy_flags.get("unrelatedQuestion") or "out_of_scope" in reason or "unrelated" in reason:
         return "OUT_OF_SCOPE"
     if retrieval_output is not None:
         if not bool(retrieval_output.get("knowledgeAvailable", True)):
             return "NO_KNOWLEDGE"
-        retrieved_count = int(retrieval_output.get("retrievedCount") or len(retrieval_output.get("candidates") or []))
+        retrieved_count = int(
+            retrieval_output.get("retrievedCount") or len(retrieval_output.get("candidates") or [])
+        )
         used_count = int(retrieval_output.get("usedInPromptCount") or 0)
         if retrieved_count == 0:
             return "NO_RETRIEVAL_RESULT"
@@ -601,7 +621,9 @@ def _build_admin_debug_trace(
 ) -> dict[str, Any]:
     candidates = list((retrieval_output or {}).get("candidates") or [])
     used_in_prompt_count = int((retrieval_output or {}).get("usedInPromptCount") or 0)
-    top_score = max((_safe_score(item.get("combinedScore")) or 0.0 for item in candidates), default=None)
+    top_score = max(
+        (_safe_score(item.get("combinedScore")) or 0.0 for item in candidates), default=None
+    )
     policy = policy_decision or {}
     policy_flags = dict(policy.get("flags") or {})
     decision = str(policy.get("decision") or "")
@@ -651,7 +673,9 @@ def _build_admin_debug_trace(
                 "topicBoostTerms": list(item.get("topicBoostTerms") or []),
                 "topicPenaltyApplied": bool(item.get("topicPenaltyApplied")),
                 "topicPenaltyTerms": list(item.get("topicPenaltyTerms") or []),
-                "preview": _preview(str((item.get("contentSignals") or {}).get("textPreview") or ""), 300),
+                "preview": _preview(
+                    str((item.get("contentSignals") or {}).get("textPreview") or ""), 300
+                ),
             }
         )
     return {
@@ -669,17 +693,21 @@ def _build_admin_debug_trace(
             "enabled": retrieval_output is not None,
             "latencyMs": retrieval_latency_ms,
             "retrievedCount": (retrieval_output or {}).get("retrievedCount", len(candidates)),
-            "usedInPromptCount": (retrieval_output or {}).get("usedInPromptCount", prompt_source_count),
+            "usedInPromptCount": (retrieval_output or {}).get(
+                "usedInPromptCount", prompt_source_count
+            ),
             "topScore": top_score,
             "threshold": (retrieval_output or {}).get("retrievalThreshold"),
             "dynamicThreshold": retrieval_trace.get("dynamicThreshold"),
             "promptChunkCount": retrieval_trace.get("promptChunkCount", prompt_source_count),
-            "scopeDiagnostics": (retrieval_output or {}).get("scopeDiagnostics") or retrieval_trace.get("scopeDiagnostics"),
+            "scopeDiagnostics": (retrieval_output or {}).get("scopeDiagnostics")
+            or retrieval_trace.get("scopeDiagnostics"),
             "searchableChunkCount": retrieval_trace.get("searchableChunkCount"),
             "excludedChunkCountByReason": retrieval_trace.get("excludedChunkCountByReason", {}),
             "sourceDiversityApplied": bool((retrieval_output or {}).get("sourceDiversityApplied")),
             "filterScope": (retrieval_output or {}).get("filterScope"),
-            "fallbackReason": (retrieval_output or {}).get("fallbackReason") or retrieval_trace.get("fallbackReason"),
+            "fallbackReason": (retrieval_output or {}).get("fallbackReason")
+            or retrieval_trace.get("fallbackReason"),
             "queryEmbeddingGenerated": (retrieval_output or {}).get("queryEmbeddingGenerated"),
             "queryEmbeddingLength": (retrieval_output or {}).get("queryEmbeddingLength"),
             "queryEmbeddingType": (retrieval_output or {}).get("queryEmbeddingType"),
@@ -695,7 +723,8 @@ def _build_admin_debug_trace(
         },
         "model": {
             "provider": model_provider,
-            "name": model_name or (answer_settings.model_runtime.model_name if answer_settings is not None else None),
+            "name": model_name
+            or (answer_settings.model_runtime.model_name if answer_settings is not None else None),
             "inputTokens": (llm_usage or {}).get("promptTokens"),
             "outputTokens": (llm_usage or {}).get("completionTokens"),
             "latencyMs": (llm_usage or {}).get("latencyMs"),
@@ -708,7 +737,8 @@ def _build_admin_debug_trace(
             "exceptionType": exception_type,
             "exceptionMessage": exception_message,
             "provider": model_provider,
-            "model": model_name or (answer_settings.model_runtime.model_name if answer_settings is not None else None),
+            "model": model_name
+            or (answer_settings.model_runtime.model_name if answer_settings is not None else None),
             "latencyMs": (llm_usage or {}).get("latencyMs"),
         },
         "exceptionType": effective_exception_type,
@@ -768,7 +798,10 @@ def build_chat_pipeline_error_response(
         request_id=f"chat_error_{uuid.uuid4().hex[:16]}",
         chatbot_id=body.chatbot_id,
         outcome="insufficient_evidence",
-        answer={"text": SAFE_CHAT_ERROR_MESSAGE, "warnings": ["CHAT_PIPELINE_RECOVERED_FROM_ERROR"]},
+        answer={
+            "text": SAFE_CHAT_ERROR_MESSAGE,
+            "warnings": ["CHAT_PIPELINE_RECOVERED_FROM_ERROR"],
+        },
         citations=[],
         follow_up_questions=[],
         policy_decision={},
@@ -784,8 +817,7 @@ def _build_soft_guidance_response(
     # tenant 설정값 우선 사용, 없으면 하드코딩 폴백
     if answer_settings is not None:
         configured = (
-            answer_settings.answer_policy.fallback_message_when_insufficient_evidence
-            or ""
+            answer_settings.answer_policy.fallback_message_when_insufficient_evidence or ""
         ).strip()
         if configured:
             return configured
@@ -836,7 +868,9 @@ def _compact_contact_line(line: str) -> str:
     phone_match = PHONE_NUMBER_REGEX.search(compact)
     if phone_match:
         preferred_keywords = ["문의처", "연락처", "담당자 전화번호", "전화번호", "담당자"]
-        contact_positions = [compact.find(keyword) for keyword in preferred_keywords if keyword in compact]
+        contact_positions = [
+            compact.find(keyword) for keyword in preferred_keywords if keyword in compact
+        ]
         contact_positions = [position for position in contact_positions if position >= 0]
         if contact_positions:
             start_anchor = min(contact_positions)
@@ -862,7 +896,11 @@ def _extract_contact_answer_from_candidates(
         preview = str(item.get("contentSignals", {}).get("textPreview", "") or "")
         lines = [line.strip() for line in preview.splitlines() if line.strip()]
         if len(lines) <= 1:
-            lines = [part.strip() for part in re.split(r"(?<=[.。])\s+|[•○❍]\s*", preview) if part.strip()]
+            lines = [
+                part.strip()
+                for part in re.split(r"(?<=[.。])\s+|[•○❍]\s*", preview)
+                if part.strip()
+            ]
 
         for line in lines:
             if not PHONE_NUMBER_REGEX.search(line):
@@ -890,8 +928,6 @@ def _extract_contact_answer_from_candidates(
         result_lines.append(f"- {line}")
 
     return "담당자 연락처는 다음 근거에서 확인됩니다.\n" + "\n".join(result_lines)
-
-
 
 
 def _conversation_tone_summary(
@@ -931,8 +967,6 @@ def _conversation_tone_summary(
         "previousProblemAssistantCount": previous_problem_assistant,
         "repeatedUserDissatisfaction": repeated_dissatisfaction,
     }
-
-
 
 
 def _run_grounded_generation(
@@ -1271,7 +1305,9 @@ def run_final_chat_pipeline(
     _perf_rerank_ms: int | None = None
     _perf_api_ms: int | None = None
     _perf_llm_ms: int | None = None
-    logger.info("[PIPELINE] start chatbot_id=%s question_len=%s", body.chatbot_id, len(body.question or ""))
+    logger.info(
+        "[PIPELINE] start chatbot_id=%s question_len=%s", body.chatbot_id, len(body.question or "")
+    )
     try:
         chatbot = get_chatbot_by_id(db, body.chatbot_id)
         if chatbot is None:
@@ -1349,6 +1385,7 @@ def run_final_chat_pipeline(
             analyze_security,
             log_security_event,
         )
+
         _sec = analyze_security(
             question=body.question,
             chatbot_id=str(chatbot.id),
@@ -1371,7 +1408,10 @@ def run_final_chat_pipeline(
                     request_id=request_id,
                     chatbot_id=str(chatbot.id),
                     outcome="restricted",
-                    answer={"text": "보안 정책에 따라 답변이 제한됩니다.", "warnings": ["SECURITY_BLOCKED"]},
+                    answer={
+                        "text": "보안 정책에 따라 답변이 제한됩니다.",
+                        "warnings": ["SECURITY_BLOCKED"],
+                    },
                     citations=[],
                     follow_up_questions=[],
                     conditional_actions=[],
@@ -1413,7 +1453,11 @@ def run_final_chat_pipeline(
                 outcome=outcome,
                 normalized_query=normalized_query,
                 retrieval_output=None,
-                policy_decision={"decision": "allow", "reason": "simple_natural_conversation", "flags": {}},
+                policy_decision={
+                    "decision": "allow",
+                    "reason": "simple_natural_conversation",
+                    "flags": {},
+                },
                 answer_settings=None,
                 prompt_bundle=None,
                 prompt_source_count=0,
@@ -1441,8 +1485,14 @@ def run_final_chat_pipeline(
         chatbot_id=str(chatbot.id),
         session_token=session_token,
     )
-    user_turn_count = count_user_messages_in_session(db, session_id=str(session.id)) if session is not None else 0
-    recent_messages = list_recent_session_messages(db, session_id=str(session.id), limit=8) if session is not None else []
+    user_turn_count = (
+        count_user_messages_in_session(db, session_id=str(session.id)) if session is not None else 0
+    )
+    recent_messages = (
+        list_recent_session_messages(db, session_id=str(session.id), limit=8)
+        if session is not None
+        else []
+    )
 
     # ── 긍정 답변("네") → 직전 AI 제안 이어받기 ──────────────────────────────
     # "네/응/알려줘" 같은 동의가 직전 '…안내해 드릴까요?' 제안을 가리키면, 그 제안 주제를
@@ -1451,6 +1501,7 @@ def run_final_chat_pipeline(
     if recent_messages:
         try:
             from app.services.chat.query_rewriter_service import resolve_affirmation_followup  # noqa: PLC0415
+
             _affirm_q, _affirmed = resolve_affirmation_followup(
                 current_query=body.question,
                 recent_messages=recent_messages,
@@ -1470,7 +1521,9 @@ def run_final_chat_pipeline(
     if not _cache_skip:
         _cached_answer = _answer_cache.get_cached(str(chatbot.id), body.question)
         if _cached_answer is not None:
-            tone_summary = _conversation_tone_summary(question=body.question, recent_messages=recent_messages)
+            tone_summary = _conversation_tone_summary(
+                question=body.question, recent_messages=recent_messages
+            )
             response = _persist_immediate_response(
                 db,
                 body=body,
@@ -1501,7 +1554,9 @@ def run_final_chat_pipeline(
             session_entities = session.context_entities
         except Exception:
             db.rollback()
-    tone_summary = _conversation_tone_summary(question=body.question, recent_messages=recent_messages)
+    tone_summary = _conversation_tone_summary(
+        question=body.question, recent_messages=recent_messages
+    )
     # answer_settings는 파이프라인 초입(개인정보 처리 전)에서 이미 로드됨 — 재사용
     intent_routing_method = "rag_default"
     detected_intent: str | None = None
@@ -1517,6 +1572,7 @@ def run_final_chat_pipeline(
     force_api = False
     try:
         from app.services.chat.api_connector_service import should_use_api as _should_use_api  # noqa: PLC0415
+
         if _should_use_api(body.question, str(chatbot.id), db):
             force_api = True
             logger.info("[API_CONNECTOR] 트리거 매칭 → 분류기/FAQ 조기반환 우회")
@@ -1611,6 +1667,7 @@ def run_final_chat_pipeline(
     if recent_messages:
         try:
             from app.services.chat.query_rewriter_service import rewrite_query  # noqa: PLC0415
+
             search_query, _was_rewritten = rewrite_query(
                 current_query=body.question,
                 recent_messages=recent_messages,
@@ -1629,13 +1686,18 @@ def run_final_chat_pipeline(
     _t0 = time.perf_counter()
     try:
         from app.services.chat.api_connector_service import get_api_result  # noqa: PLC0415
+
         api_context, api_structured_response = get_api_result(
             question=body.question,
             chatbot_id=str(chatbot.id),
             db=db,
         )
         if api_context:
-            logger.info("[API_CONNECTOR] 컨텍스트 주입 len=%d structured=%s", len(api_context), api_structured_response is not None)
+            logger.info(
+                "[API_CONNECTOR] 컨텍스트 주입 len=%d structured=%s",
+                len(api_context),
+                api_structured_response is not None,
+            )
     except Exception as _api_exc:
         logger.warning("[API_CONNECTOR] skipped: %s", _api_exc)
     _perf_api_ms = int((time.perf_counter() - _t0) * 1000)
@@ -1645,6 +1707,7 @@ def run_final_chat_pipeline(
     faq_match: dict | None = None
     try:
         from app.services.admin.faq_service import search_faq_by_question  # noqa: PLC0415
+
         faq_match = search_faq_by_question(
             db,
             chatbot_id=str(chatbot.id),
@@ -1662,7 +1725,8 @@ def run_final_chat_pipeline(
         #  답변만 덩그러니 나오고 다음 질문 추천이 사라졌다.)
         faq_theme = dict(chatbot.theme or {}) if chatbot.theme else {}
         faq_question_pool = [
-            q for q in (faq_theme.get("recommendedQuestionsPool") or [])
+            q
+            for q in (faq_theme.get("recommendedQuestionsPool") or [])
             if isinstance(q, str) and q.strip()
         ]
         # FAQ 경로는 RAG 후보가 없어 grounding 없이 생성한다. 대신 생성된
@@ -1685,6 +1749,7 @@ def run_final_chat_pipeline(
             from app.services.chat.conditional_response_service import (  # noqa: PLC0415
                 match_conditional_responses,
             )
+
             faq_conditional_actions = match_conditional_responses(
                 question=body.question,
                 answer_text=faq_answer_text,
@@ -1699,6 +1764,7 @@ def run_final_chat_pipeline(
             from app.services.chat.response_formatter_service import (  # noqa: PLC0415
                 build_structured_response,
             )
+
             faq_structured_response = build_structured_response(
                 question=body.question,
                 answer_text=faq_answer_text,
@@ -1761,6 +1827,7 @@ def run_final_chat_pipeline(
     # USE_RERANKING=false(기본) 이면 early-return으로 기존 동작과 100% 동일
     try:
         from app.services.chat.reranker_service import rerank_chunks  # noqa: PLC0415
+
         all_candidates = list(retrieval_output.get("candidates") or prompt_candidates)
         _rerank_start = time.perf_counter()
         reranked = rerank_chunks(db, query=body.question, chunks=all_candidates)
@@ -1811,8 +1878,8 @@ def run_final_chat_pipeline(
     policy_flags = policy_decision.get("flags") or {}
     question_type_flags = {
         "isStructuredQuestion": policy_flags.get("isStructuredQuestion", False),
-        "isOverviewQuestion":   policy_flags.get("isOverviewQuestion", False),
-        "isContactQuestion":    policy_flags.get("isContactQuestion", False),
+        "isOverviewQuestion": policy_flags.get("isOverviewQuestion", False),
+        "isContactQuestion": policy_flags.get("isContactQuestion", False),
     }
     uncovered_slots: list[str] = policy_flags.get("uncoveredSlots") or []
 
@@ -1839,7 +1906,9 @@ def run_final_chat_pipeline(
     model_name: str | None = answer_settings.model_runtime.model_name
 
     policy_detected_intent = (
-        policy_flags.get("detectedIntent") if isinstance(policy_flags.get("detectedIntent"), str) else None
+        policy_flags.get("detectedIntent")
+        if isinstance(policy_flags.get("detectedIntent"), str)
+        else None
     )
     if detected_intent is None:
         detected_intent = policy_detected_intent
@@ -1854,6 +1923,18 @@ def run_final_chat_pipeline(
     has_api_evidence = bool(api_context and api_context.strip())
     has_candidates = bool(prompt_candidates) or has_api_evidence
     has_referenceable_candidates = bool(citations)
+
+    # 검색이 '못 찾은 것'인지 '아예 못 돈 것'인지 구분한다. 임베딩이 죽으면
+    # 후보가 0이 되는데, 이걸 자료 부족으로 안내하면 담당자가 없는 문제를
+    # 찾아 자료를 뒤진다 — 크레딧 소진 장애 때 실제로 그렇게 됐다.
+    _retrieval_failure = (
+        str(
+            retrieval_output.get("fallbackReason")
+            or ((retrieval_output.get("trace") or {}).get("fallbackReason"))
+            or ""
+        )
+        or None
+    )
     can_try_grounded_answer = (
         has_candidates
         and not abusive_detected
@@ -1899,7 +1980,9 @@ def run_final_chat_pipeline(
         elif detected_intent in NATURAL_INTENT_RESPONSES:
             answer_text = NATURAL_INTENT_RESPONSES[detected_intent]
         else:
-            answer_text = SMALL_TALK_FIRST_RESPONSE if user_turn_count <= 0 else SMALL_TALK_REDIRECT_RESPONSE
+            answer_text = (
+                SMALL_TALK_FIRST_RESPONSE if user_turn_count <= 0 else SMALL_TALK_REDIRECT_RESPONSE
+            )
     elif direct_contact_answer:
         # 연락처는 전화번호 파싱이 더 정확 — LLM 생략
         outcome = "answered"
@@ -1907,9 +1990,7 @@ def run_final_chat_pipeline(
     elif (decision == "allow" and has_candidates) or can_try_grounded_answer:
         chatbot_name = str(chatbot.name or "")
         institution_name = str(
-            getattr(organization, "name", None)
-            or getattr(organization, "contact_name", None)
-            or ""
+            getattr(organization, "name", None) or getattr(organization, "contact_name", None) or ""
         )
         _t0 = time.perf_counter()
         generation = _run_grounded_generation(
@@ -1941,21 +2022,37 @@ def run_final_chat_pipeline(
                 generation.get("exceptionType"),
                 str(generation.get("exceptionMessage") or "")[:200],
             )
-        exception_type = generation.get("exceptionType") if isinstance(generation.get("exceptionType"), str) else None
+        exception_type = (
+            generation.get("exceptionType")
+            if isinstance(generation.get("exceptionType"), str)
+            else None
+        )
         exception_message = (
-            generation.get("exceptionMessage") if isinstance(generation.get("exceptionMessage"), str) else None
+            generation.get("exceptionMessage")
+            if isinstance(generation.get("exceptionMessage"), str)
+            else None
         )
         llm_usage = dict(generation.get("usage") or {})
-        prompt_bundle = generation.get("promptBundle") if isinstance(generation.get("promptBundle"), dict) else None
+        prompt_bundle = (
+            generation.get("promptBundle")
+            if isinstance(generation.get("promptBundle"), dict)
+            else None
+        )
         prompt_source_count = len(prompt_candidates) if prompt_bundle else 0
-        model_provider = generation.get("provider") if isinstance(generation.get("provider"), str) else None
-        model_name = generation.get("model") if isinstance(generation.get("model"), str) else model_name
+        model_provider = (
+            generation.get("provider") if isinstance(generation.get("provider"), str) else None
+        )
+        model_name = (
+            generation.get("model") if isinstance(generation.get("model"), str) else model_name
+        )
 
         if generation.get("text"):
             # 일부 모델이 표·소제목을 개행 없이 출력 → 위젯 마크다운 렌더 실패 방지.
             answer_text = _normalize_answer_layout(str(generation["text"]))
             if guardrail_eval.get("requiresWarningNotice"):
-                warnings.append("최신 기준이나 공고 조건에 따라 결과가 달라질 수 있으므로 담당 부서 확인이 필요합니다.")
+                warnings.append(
+                    "최신 기준이나 공고 조건에 따라 결과가 달라질 수 있으므로 담당 부서 확인이 필요합니다."
+                )
             outcome = "answered"
         elif llm_error_code:
             # LLM 오류 시 폴백
@@ -1970,7 +2067,9 @@ def run_final_chat_pipeline(
                 answer_text = extractive_answer
                 warnings.append("LLM_GENERATION_FAILED_EXTRACTIVE_OVERVIEW_USED")
             else:
-                fallback = build_fallback_response(policy_decision=policy_decision, answer_settings=answer_settings)
+                fallback = build_fallback_response(
+                    policy_decision=policy_decision, answer_settings=answer_settings
+                )
                 # 여기까지 왔다는 건 근거가 있었는데 LLM 호출이 실패했다는 뜻이다
                 # (이 분기는 has_candidates 를 통과해야 도달한다). insufficient_evidence
                 # 로 두면 "등록된 자료에서 근거를 찾지 못했습니다"가 떠서, 실제로는
@@ -1993,11 +2092,20 @@ def run_final_chat_pipeline(
                 answer_text = extractive_answer
                 warnings.append("EMPTY_MODEL_OUTPUT_EXTRACTIVE_OVERVIEW_USED")
             else:
-                fallback = build_fallback_response(policy_decision=policy_decision, answer_settings=answer_settings)
+                fallback = build_fallback_response(
+                    policy_decision=policy_decision, answer_settings=answer_settings
+                )
                 outcome = fallback["outcome"] if fallback["outcome"] != "answered" else "escalate"
                 answer_text = fallback["text"]
                 warnings = fallback.get("warnings", [])
-    elif not has_candidates and not policy_flags.get("unrelatedQuestion") and user_turn_count < 2:
+    elif (
+        not has_candidates
+        and not policy_flags.get("unrelatedQuestion")
+        and user_turn_count < 2
+        # 검색이 못 돈 상황에서 "질문을 더 구체적으로" 라고 하면 이용자가
+        # 질문만 계속 고쳐 쓰게 된다. 장애는 질문 탓이 아니다.
+        and _retrieval_failure not in SERVICE_FAILURE_REASONS
+    ):
         # 첫 2턴 내 근거 없음 → 질문 구체화 유도
         outcome = "answered"
         answer_text = _build_soft_guidance_response(
@@ -2005,7 +2113,11 @@ def run_final_chat_pipeline(
             answer_settings=answer_settings,
         )
     else:
-        fallback = build_fallback_response(policy_decision=policy_decision, answer_settings=answer_settings)
+        fallback = build_fallback_response(
+            policy_decision=policy_decision,
+            answer_settings=answer_settings,
+            retrieval_failure_reason=_retrieval_failure,
+        )
         outcome = fallback["outcome"]
         answer_text = fallback["text"]
         warnings = fallback.get("warnings", [])
@@ -2026,7 +2138,10 @@ def run_final_chat_pipeline(
         retrieval_output.get("retrievedCount", len(retrieval_output.get("candidates") or [])),
         retrieval_output.get("usedInPromptCount", len(prompt_candidates)),
         max(
-            (_safe_score(item.get("combinedScore")) or 0.0 for item in retrieval_output.get("candidates") or []),
+            (
+                _safe_score(item.get("combinedScore")) or 0.0
+                for item in retrieval_output.get("candidates") or []
+            ),
             default=None,
         ),
         fallback_reason_for_log,
@@ -2197,7 +2312,8 @@ def run_final_chat_pipeline(
     # 챗봇 theme에서 추천 질문 풀 + followUpEnabled 추출
     _chatbot_theme = dict(chatbot.theme or {}) if chatbot.theme else {}
     _question_pool: list[str] = [
-        q for q in (_chatbot_theme.get("recommendedQuestionsPool") or [])
+        q
+        for q in (_chatbot_theme.get("recommendedQuestionsPool") or [])
         if isinstance(q, str) and q.strip()
     ]
     _follow_up_enabled: bool = _chatbot_theme.get("followUpEnabled", True) is not False
@@ -2222,6 +2338,7 @@ def run_final_chat_pipeline(
     if outcome == "answered" and answer_text:
         try:
             from app.services.chat.conditional_response_service import match_conditional_responses  # noqa: PLC0415
+
             conditional_actions = match_conditional_responses(
                 question=body.question,
                 answer_text=answer_text,
@@ -2239,6 +2356,7 @@ def run_final_chat_pipeline(
     if structured_response is None and outcome == "answered" and answer_text:
         try:
             from app.services.chat.response_formatter_service import build_structured_response  # noqa: PLC0415
+
             structured_response = build_structured_response(
                 question=body.question,
                 answer_text=answer_text,
@@ -2300,8 +2418,10 @@ def run_final_chat_pipeline(
     # 조건 2: outcome == "answered" 이지만 RAG 최고 점수 < 0.3 (낮은 신뢰도)
     # 조건 3: prompt_candidates 가 비어있음 (근거 없음)
     _top_score: float | None = max(
-        (_safe_score(item.get("combinedScore")) or 0.0
-         for item in retrieval_output.get("candidates") or []),
+        (
+            _safe_score(item.get("combinedScore")) or 0.0
+            for item in retrieval_output.get("candidates") or []
+        ),
         default=None,
     )
     _is_low_confidence = (
@@ -2311,8 +2431,8 @@ def run_final_chat_pipeline(
         and not natural_conversation
     )
     _needs_unanswered_log = (
-        outcome == "escalate"                      # 조건 1
-        or _is_low_confidence                      # 조건 2
+        outcome == "escalate"  # 조건 1
+        or _is_low_confidence  # 조건 2
         or (not prompt_candidates and not natural_conversation)  # 조건 3
     )
     if _needs_unanswered_log:
@@ -2327,32 +2447,38 @@ def run_final_chat_pipeline(
 
     # ── 성능 지표 + 상세 청크 (debug_mode=True 시만 포함, Sprint 3-E) ──────────
     _total_ms = int((time.perf_counter() - total_start) * 1000)
-    _performance = PerformanceMetrics(
-        intent_classify_ms=_perf_intent_ms,
-        query_rewrite_ms=_perf_rewrite_ms,
-        retrieval_ms=_perf_retrieval_ms,
-        rerank_ms=_perf_rerank_ms,
-        api_fetch_ms=_perf_api_ms,
-        llm_ms=_perf_llm_ms,
-        total_ms=_total_ms,
-    ) if include_debug_trace else PerformanceMetrics()
+    _performance = (
+        PerformanceMetrics(
+            intent_classify_ms=_perf_intent_ms,
+            query_rewrite_ms=_perf_rewrite_ms,
+            retrieval_ms=_perf_retrieval_ms,
+            rerank_ms=_perf_rerank_ms,
+            api_fetch_ms=_perf_api_ms,
+            llm_ms=_perf_llm_ms,
+            total_ms=_total_ms,
+        )
+        if include_debug_trace
+        else PerformanceMetrics()
+    )
 
     _detailed_chunks: list[ChunkDetail] = []
     if include_debug_trace and prompt_candidates:
         for _c in prompt_candidates[:10]:
             _signals = _c.get("contentSignals") or {}
             _preview = str(_signals.get("textPreview") or "")[:150]
-            _detailed_chunks.append(ChunkDetail(
-                chunk_id=str(_c.get("chunkId") or _c.get("documentId") or ""),
-                document_name=str(_c.get("documentName") or ""),
-                section_title=_c.get("sectionTitle"),
-                score=float(_c.get("combinedScore") or 0.0),
-                text_preview=_preview,
-                chunk_type=None,
-                source_url=_c.get("sourceUrl"),
-                reranked=bool(_c.get("_reranked", False)),
-                used_in_prompt=bool(_c.get("usedInPrompt", True)),
-            ))
+            _detailed_chunks.append(
+                ChunkDetail(
+                    chunk_id=str(_c.get("chunkId") or _c.get("documentId") or ""),
+                    document_name=str(_c.get("documentName") or ""),
+                    section_title=_c.get("sectionTitle"),
+                    score=float(_c.get("combinedScore") or 0.0),
+                    text_preview=_preview,
+                    chunk_type=None,
+                    source_url=_c.get("sourceUrl"),
+                    reranked=bool(_c.get("_reranked", False)),
+                    used_in_prompt=bool(_c.get("usedInPrompt", True)),
+                )
+            )
 
     langfuse_service.end_chat_trace(outcome=outcome, answer_text=answer_text)
 
@@ -2362,7 +2488,9 @@ def run_final_chat_pipeline(
         _store_skip, _ = _answer_cache.should_skip(
             recent_messages=recent_messages,
             outcome=outcome,
-            requires_cautious_wording=bool(guardrail_eval.get("requiresCautiousWording")) if isinstance(guardrail_eval, dict) else False,
+            requires_cautious_wording=bool(guardrail_eval.get("requiresCautiousWording"))
+            if isinstance(guardrail_eval, dict)
+            else False,
         )
         if not _store_skip:
             _answer_cache.store(
@@ -2373,7 +2501,9 @@ def run_final_chat_pipeline(
                 citations=[c.model_dump(by_alias=True) for c in citations] if citations else [],
                 follow_up_questions=list(follow_up_questions or []),
                 structured_response=(
-                    structured_response.model_dump(by_alias=True) if structured_response is not None else None
+                    structured_response.model_dump(by_alias=True)
+                    if structured_response is not None
+                    else None
                 ),
             )
     except Exception as _cache_exc:  # noqa: BLE001
