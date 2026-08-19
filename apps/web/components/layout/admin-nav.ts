@@ -50,6 +50,10 @@ export const adminNav: NavGroup[] = [
     items: [
       { label: "대화관리", href: "/admin/chat-logs", icon: "MessageSquare" },
       { label: "상담 주제 분포", href: "/admin/subject-distribution", icon: "BarChart2" },
+      // 매일 새벽 3시 10분에 전날 답변을 채점해 두고도 화면으로 가는 링크가
+      // 없었다. 담당자는 주소를 직접 치지 않는 한 결과를 볼 수 없었고,
+      // 채점 비용만 나가고 있었다.
+      { label: "품질 리포트", href: "/admin/quality-report", icon: "ClipboardCheck" },
     ],
   },
   {

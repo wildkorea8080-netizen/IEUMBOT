@@ -21,6 +21,7 @@ MENU_KEYS: tuple[str, ...] = (
     "install_guide",        # 설치 안내
     "chat_logs",            # 대화관리
     "subject_distribution",  # 상담 주제 분포
+    "quality_report",       # 품질 리포트
     "security",             # 보안센터
 )
 

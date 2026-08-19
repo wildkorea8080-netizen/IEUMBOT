@@ -8,6 +8,7 @@ import {
   Bot, BotMessageSquare, Palette, Settings2, MonitorSmartphone, Code2,
   MessageSquare, ScrollText, BarChart2, ThumbsUp, HelpCircle, Zap, Plug2,
   TestTube2, Users, CreditCard, Shield, ChevronDown, LogOut, ListTree,
+  ClipboardCheck,
 } from "lucide-react";
 
 import { adminNav, type NavGroup } from "./admin-nav";
@@ -39,7 +40,7 @@ const ICON_MAP: Record<string, React.ComponentType<React.SVGProps<SVGSVGElement>
   LayoutDashboard, Upload, BookOpen, AlertCircle,
   Bot, BotMessageSquare, Palette, Settings2, MonitorSmartphone, Code2,
   MessageSquare, ScrollText, BarChart2, ThumbsUp, HelpCircle, Zap, Plug2,
-  TestTube2, Users, CreditCard, Shield, ListTree,
+  TestTube2, Users, CreditCard, Shield, ListTree, ClipboardCheck,
 };
 
 function NavIcon({

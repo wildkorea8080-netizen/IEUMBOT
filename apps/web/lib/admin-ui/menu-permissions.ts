@@ -19,6 +19,7 @@ export type MenuKey =
   | "install_guide"
   | "chat_logs"
   | "subject_distribution"
+  | "quality_report"
   | "security";
 
 /** UI 표시 순서 + 라벨(권한 설정 체크박스에 사용). */
@@ -36,6 +37,7 @@ export const MENU_CATALOG: { key: MenuKey; label: string; href: string }[] = [
   { key: "install_guide", label: "설치 안내", href: "/admin/install-guide" },
   { key: "chat_logs", label: "대화관리", href: "/admin/chat-logs" },
   { key: "subject_distribution", label: "상담 주제 분포", href: "/admin/subject-distribution" },
+  { key: "quality_report", label: "품질 리포트", href: "/admin/quality-report" },
   { key: "security", label: "보안센터", href: "/admin/security" },
 ];
 
