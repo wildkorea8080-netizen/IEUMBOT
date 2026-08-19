@@ -10,6 +10,7 @@ import zlib
 from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 from hashlib import sha256
+import html as html_module  # 지역 변수 이름 html 과 겹쳐 별칭으로 받는다
 from html.parser import HTMLParser
 from io import BytesIO
 from pathlib import Path
@@ -162,6 +163,7 @@ def classify_knowledge_topic(
 
         # JSON 추출
         import re as _re  # noqa: PLC0415
+
         m = _re.search(r"\{.*\}", raw, _re.DOTALL)
         if not m:
             return _FALLBACK
@@ -176,6 +178,8 @@ def classify_knowledge_topic(
     except Exception as exc:
         logger.warning("[CLASSIFY_TOPIC] 실패: %s", exc)
         return _FALLBACK
+
+
 SENSITIVE_PATTERNS = [
     re.compile(r"\b\d{6}-\d{7}\b"),
     re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),
@@ -266,6 +270,8 @@ def _build_tsvector_text(text: str) -> str:
                     result.append(bigram)
                     seen.add(bigram)
     return " ".join(result)
+
+
 STALE_QUEUED_AFTER = timedelta(minutes=int(os.getenv("INGEST_STALE_QUEUED_MINUTES", "20")))
 STALE_PROCESSING_AFTER = timedelta(minutes=int(os.getenv("INGEST_STALE_PROCESSING_MINUTES", "120")))
 SKIP_FILE_EXTENSIONS = {
@@ -464,8 +470,12 @@ class _HTMLTextExtractor(HTMLParser):
         self._skip_depth = 0
         self._tag_stack: list[tuple[str, dict[str, str]]] = []
         self._candidate_stack: list[str] = []
-        self._candidate_chunks: dict[str, list[str]] = {selector[0]: [] for selector in HTML_CONTENT_SELECTORS}
-        self._candidate_link_chars: dict[str, int] = {selector[0]: 0 for selector in HTML_CONTENT_SELECTORS}
+        self._candidate_chunks: dict[str, list[str]] = {
+            selector[0]: [] for selector in HTML_CONTENT_SELECTORS
+        }
+        self._candidate_link_chars: dict[str, int] = {
+            selector[0]: 0 for selector in HTML_CONTENT_SELECTORS
+        }
         self._links: list[str] = []
         self._title_chunks: list[str] = []
         self._in_title = False
@@ -574,7 +584,9 @@ class _HTMLTextExtractor(HTMLParser):
         if selector_type == "id":
             return attrs.get("id", "").lower() == selector_value
         if selector_type == "class":
-            classes = {item.strip().lower() for item in attrs.get("class", "").split() if item.strip()}
+            classes = {
+                item.strip().lower() for item in attrs.get("class", "").split() if item.strip()
+            }
             return selector_value in classes
         return False
 
@@ -603,7 +615,11 @@ class _HTMLTextExtractor(HTMLParser):
         korean_chars = len(KOREAN_TEXT_REGEX.findall(text))
         korean_sentence_count = len(KOREAN_SENTENCE_REGEX.findall(text))
         punctuation_bonus = 1.5 if PUNCTUATION_REGEX.search(text) else 0.0
-        public_keyword_bonus = 10.0 if any(keyword in text for keyword in ("사업", "지원", "신청", "공고", "안내", "정책")) else 0.0
+        public_keyword_bonus = (
+            10.0
+            if any(keyword in text for keyword in ("사업", "지원", "신청", "공고", "안내", "정책"))
+            else 0.0
+        )
         nav_keyword_hits = _count_navigation_keyword_hits(text)
         nav_ratio = nav_keyword_hits / max(1, len(text.split()))
         link_ratio = link_chars / max(1, text_length)
@@ -639,7 +655,11 @@ class _HTMLTextExtractor(HTMLParser):
         for selector_name, candidate_text, score, removed_count in scored_candidates:
             if selector_name == "body":
                 continue
-            if score >= -5.0 and len(candidate_text) >= 100 and _navigation_line_ratio(candidate_text) < 0.45:
+            if (
+                score >= -5.0
+                and len(candidate_text) >= 100
+                and _navigation_line_ratio(candidate_text) < 0.45
+            ):
                 best_selector = selector_name
                 best_text = candidate_text
                 removed_navigation_lines = removed_count
@@ -652,7 +672,14 @@ class _HTMLTextExtractor(HTMLParser):
         return self._links[:]
 
     def get_title(self) -> str | None:
-        title = " ".join("".join(self._title_chunks).split()).strip()
+        raw = "".join(self._title_chunks)
+        # HTMLParser 가 엔티티를 한 겹 풀어 주지만, 원본이 &amp;quot; 처럼
+        # 이중 인코딩돼 있으면 &quot; 가 남아 인용 칩에 그대로 노출된다
+        # (공공기관 CMS 에서 흔하다). 한 겹 더 푼다.
+        unescaped = html_module.unescape(raw)
+        if unescaped != raw:
+            raw = unescaped
+        title = " ".join(raw.split()).strip()
         return title or None
 
 
@@ -723,7 +750,11 @@ def _is_navigation_line(line: str) -> bool:
     if len(compact) <= 70 and any(keyword in lowered for keyword in MENU_LINE_KEYWORDS_NORMALIZED):
         if not PUNCTUATION_REGEX.search(compact) and not re.search(r"\d", compact):
             return True
-    if len(compact) <= 18 and not PUNCTUATION_REGEX.search(compact) and not re.search(r"\d", compact):
+    if (
+        len(compact) <= 18
+        and not PUNCTUATION_REGEX.search(compact)
+        and not re.search(r"\d", compact)
+    ):
         menu_words = {"로그인", "회원가입", "HOME", "Home", "목록", "처음", "끝", "닫기", "열기"}
         if compact in menu_words:
             return True
@@ -749,7 +780,9 @@ def _looks_like_name_or_menu_list(text: str) -> bool:
     if len(tokens) < 12:
         return False
     short_token_ratio = sum(1 for token in tokens if len(token) <= 8) / len(tokens)
-    has_policy_terms = any(term in compact for term in ("융자", "지원", "조건", "사업", "대상", "신청", "금리", "한도"))
+    has_policy_terms = any(
+        term in compact for term in ("융자", "지원", "조건", "사업", "대상", "신청", "금리", "한도")
+    )
     return short_token_ratio >= 0.82 and not has_policy_terms
 
 
@@ -791,7 +824,9 @@ def _is_low_quality_chunk(text: str) -> bool:
         return True
     significant_chars = [char for char in compact if not char.isspace()]
     if significant_chars:
-        numeric_or_symbol_chars = sum(1 for char in significant_chars if not re.match(r"[A-Za-z가-힣]", char))
+        numeric_or_symbol_chars = sum(
+            1 for char in significant_chars if not re.match(r"[A-Za-z가-힣]", char)
+        )
         letter_chars = sum(1 for char in significant_chars if re.match(r"[A-Za-z가-힣]", char))
         if numeric_or_symbol_chars / len(significant_chars) > 0.7:
             return True
@@ -844,7 +879,9 @@ def _generate_chunk_embedding(
         return None
     except Exception as exc:  # noqa: BLE001
         error_counts["EMBEDDING_API_ERROR"] = error_counts.get("EMBEDDING_API_ERROR", 0) + 1
-        logger.exception("[EMBEDDING_ERROR] item_id=%s chunk_id=%s error=%s", item_id, chunk_ref, exc)
+        logger.exception(
+            "[EMBEDDING_ERROR] item_id=%s chunk_id=%s error=%s", item_id, chunk_ref, exc
+        )
         return None
 
 
@@ -1117,7 +1154,9 @@ def _split_text_chunks_semantic(
             if _TABLE_LINE.match(lines[i]):
                 j = i
                 while j < len(lines) and (
-                    _TABLE_LINE.match(lines[j]) or lines[j].strip().startswith("|") or lines[j].strip() == ""
+                    _TABLE_LINE.match(lines[j])
+                    or lines[j].strip().startswith("|")
+                    or lines[j].strip() == ""
                 ):
                     # 빈 줄은 표 연속으로 허용하되 2줄 연속 빈 줄은 종료
                     if lines[j].strip() == "":
@@ -1126,7 +1165,9 @@ def _split_text_chunks_semantic(
                     j += 1
                 candidate = lines[i:j]
                 table_lines = [ln for ln in candidate if ln.strip()]
-                if len(table_lines) >= 2 and all(_TABLE_LINE.match(ln) or ln.strip().startswith("|") for ln in table_lines):
+                if len(table_lines) >= 2 and all(
+                    _TABLE_LINE.match(ln) or ln.strip().startswith("|") for ln in table_lines
+                ):
                     idx = len(table_blocks)
                     table_blocks.append("\n".join(candidate))
                     out.append(f"__TABLE_{idx}__")
@@ -1144,8 +1185,8 @@ def _split_text_chunks_semantic(
     # ── 3. 초과 단락 → 문장 분할 ──────────────────────────────────────────
     # 한국어 문장 끝 패턴 우선, 이후 일반 마침표 패턴
     _KO_SENT_END = _re.compile(
-        r"(?<=[다요까])(?:\. |! |\? )"   # 다. 요. 까. 다! 요! 다? 요?
-        r"|(?<=[.!?]) "                   # 일반 마침표 뒤 공백
+        r"(?<=[다요까])(?:\. |! |\? )"  # 다. 요. 까. 다! 요! 다? 요?
+        r"|(?<=[.!?]) "  # 일반 마침표 뒤 공백
     )
 
     def _sentence_split(para: str) -> list[str]:
@@ -1190,12 +1231,7 @@ def _split_text_chunks_semantic(
     merged: list[str] = []
     for chunk in raw_chunks:
         is_table = chunk.startswith("__TABLE_")
-        if (
-            not is_table
-            and len(chunk) < 100
-            and merged
-            and not merged[-1].startswith("__TABLE_")
-        ):
+        if not is_table and len(chunk) < 100 and merged and not merged[-1].startswith("__TABLE_"):
             merged[-1] = merged[-1] + "\n\n" + chunk
         else:
             merged.append(chunk)
@@ -1203,11 +1239,7 @@ def _split_text_chunks_semantic(
     # ── 5. 오버랩 적용 ────────────────────────────────────────────────────
     with_overlap: list[str] = []
     for i, chunk in enumerate(merged):
-        if (
-            i == 0
-            or chunk.startswith("__TABLE_")
-            or merged[i - 1].startswith("__TABLE_")
-        ):
+        if i == 0 or chunk.startswith("__TABLE_") or merged[i - 1].startswith("__TABLE_"):
             with_overlap.append(chunk)
         else:
             prev = merged[i - 1]
@@ -1322,7 +1354,9 @@ def _split_website_chunks(
             # 상담 원문은 collect 단계에서 이미 완료·답변보유로 걸러졌으므로 저품질 필터 생략.
             if not is_org_qa and _is_low_quality_chunk(chunk_text):
                 continue
-            section_title = chunk_item.get("section_title") or _infer_section_title(chunk_text, default_title=page_title)
+            section_title = chunk_item.get("section_title") or _infer_section_title(
+                chunk_text, default_title=page_title
+            )
             items.append(
                 {
                     "text": chunk_text,
@@ -1379,7 +1413,9 @@ def _website_request_headers(accept: str) -> dict[str, str]:
     }
 
 
-def _decode_website_payload(payload: bytes, *, content_type: str | None, content_encoding: str | None) -> str:
+def _decode_website_payload(
+    payload: bytes, *, content_type: str | None, content_encoding: str | None
+) -> str:
     encoding = (content_encoding or "").lower()
     # 주의: httpx/curl_cffi 등은 응답을 이미 자동 압축해제하지만 Content-Encoding 헤더는
     # 그대로 남는다. 그 상태에서 다시 decompress하면 "Not a gzipped file" 에러가 난다.
@@ -1405,7 +1441,9 @@ def _decode_website_payload(payload: bytes, *, content_type: str | None, content
             charset = match.group(1).strip()
     if not charset:
         sample = payload[:4096].decode("ascii", errors="ignore")
-        match = re.search(r"<meta[^>]+charset\s*=\s*['\"]?\s*([A-Za-z0-9._-]+)", sample, re.IGNORECASE)
+        match = re.search(
+            r"<meta[^>]+charset\s*=\s*['\"]?\s*([A-Za-z0-9._-]+)", sample, re.IGNORECASE
+        )
         if match:
             charset = match.group(1).strip()
     if not charset:
@@ -1499,7 +1537,9 @@ def _try_scraper_api_fetch(url: str) -> tuple[str, str, int | None] | None:
             api_url,
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             json={"url": url, "formats": ["html"]},  # Firecrawl /v1/scrape 형식
-            timeout=httpx.Timeout(connect=5.0, read=60.0, write=10.0, pool=5.0),  # 렌더링은 느릴 수 있음
+            timeout=httpx.Timeout(
+                connect=5.0, read=60.0, write=10.0, pool=5.0
+            ),  # 렌더링은 느릴 수 있음
         )
         resp.raise_for_status()
         payload = resp.json()
@@ -1609,10 +1649,14 @@ def _fetch_website_page_once(url: str) -> tuple[str, str, int | None]:
                 if rendered is not None:
                     return rendered
                 reason = "access_denied" if status_code in {401, 403} else "server_error"
-                logger.warning("[WEB_FETCH_SKIP] url=%s status=%s reason=%s", url, status_code, reason)
+                logger.warning(
+                    "[WEB_FETCH_SKIP] url=%s status=%s reason=%s", url, status_code, reason
+                )
                 raise _WebsiteFetchSkipped(url, status_code, reason) from exc
             # 외부 except 호환을 위해 urllib HTTPError로 재포장
-            raise HTTPError(url, status_code, exc.response.reason_phrase, dict(exc.response.headers), None) from exc
+            raise HTTPError(
+                url, status_code, exc.response.reason_phrase, dict(exc.response.headers), None
+            ) from exc
         except httpx.RequestError as exc:
             # 연결/TLS 차단 가능 → ① 임퍼소네이션 → ② 헤드리스 브라우저(Playwright/관리형) → 실패 시 URLError
             impersonated = _try_impersonated_fetch(url)
@@ -1655,12 +1699,16 @@ def _extract_text_via_trafilatura(html: str, *, url: str | None = None) -> str |
 _TRAFILATURA_FALLBACK_THRESHOLD = 200
 
 
-def _fetch_website_page(url: str) -> tuple[str, str, list[str], str, int | None, str | None, str, bool, int]:
+def _fetch_website_page(
+    url: str,
+) -> tuple[str, str, list[str], str, int | None, str | None, str, bool, int]:
     html, final_url, http_status_code = _fetch_website_page_once(url)
     extractor = _HTMLTextExtractor()
     extractor.feed(html)
     text = extractor.get_text()
-    redirect_url = _detect_client_redirect_url(html, base_url=final_url or url) if not text else None
+    redirect_url = (
+        _detect_client_redirect_url(html, base_url=final_url or url) if not text else None
+    )
     if redirect_url and redirect_url != final_url:
         redirect_url = _normalize_crawl_url(final_url or url, redirect_url)
     if redirect_url and redirect_url != final_url:
@@ -1681,7 +1729,9 @@ def _fetch_website_page(url: str) -> tuple[str, str, list[str], str, int | None,
         if traf_text and len(traf_text.strip()) > len(text.strip()):
             logger.info(
                 "[WEB_EXTRACT] url=%s method=trafilatura custom_chars=%s traf_chars=%s",
-                final_url or url, len(text.strip()), len(traf_text.strip()),
+                final_url or url,
+                len(text.strip()),
+                len(traf_text.strip()),
             )
             text = traf_text
             extraction_method = "trafilatura"
@@ -1700,7 +1750,9 @@ def _fetch_website_page(url: str) -> tuple[str, str, list[str], str, int | None,
                     s_text = s_traf
             if len(s_text.strip()) > len(text.strip()):
                 logger.info(
-                    "[WEB_EXTRACT] url=%s method=scraper_api chars=%s", s_final, len(s_text.strip()),
+                    "[WEB_EXTRACT] url=%s method=scraper_api chars=%s",
+                    s_final,
+                    len(s_text.strip()),
                 )
                 html, text, final_url = s_html, s_text, s_final
                 links = s_ext.get_links()
@@ -1738,8 +1790,11 @@ def _fetch_binary_resource(url: str) -> tuple[bytes, str | None]:
         return response.content, content_type
     except httpx.HTTPStatusError as exc:
         raise HTTPError(
-            url, exc.response.status_code, exc.response.reason_phrase,
-            dict(exc.response.headers), None,
+            url,
+            exc.response.status_code,
+            exc.response.reason_phrase,
+            dict(exc.response.headers),
+            None,
         ) from exc
     except httpx.RequestError as exc:
         raise URLError(str(exc)) from exc
@@ -1753,16 +1808,32 @@ def _serialize_attachment_items(
         normalized_items.append(
             {
                 "url": str(item.get("url")) if item.get("url") is not None else None,
-                "file_name": str(item.get("file_name")) if item.get("file_name") is not None else None,
-                "file_type": str(item.get("file_type")) if item.get("file_type") is not None else None,
-                "mime_type": str(item.get("mime_type")) if item.get("mime_type") is not None else None,
-                "text_length": int(item.get("text_length")) if item.get("text_length") is not None else None,
-                "extracted": bool(item.get("extracted")) if item.get("extracted") is not None else None,
-                "extraction_method": str(item.get("extraction_method")) if item.get("extraction_method") is not None else None,
+                "file_name": str(item.get("file_name"))
+                if item.get("file_name") is not None
+                else None,
+                "file_type": str(item.get("file_type"))
+                if item.get("file_type") is not None
+                else None,
+                "mime_type": str(item.get("mime_type"))
+                if item.get("mime_type") is not None
+                else None,
+                "text_length": int(item.get("text_length"))
+                if item.get("text_length") is not None
+                else None,
+                "extracted": bool(item.get("extracted"))
+                if item.get("extracted") is not None
+                else None,
+                "extraction_method": str(item.get("extraction_method"))
+                if item.get("extraction_method") is not None
+                else None,
                 "extraction_status": (
-                    str(item.get("extraction_status")) if item.get("extraction_status") is not None else None
+                    str(item.get("extraction_status"))
+                    if item.get("extraction_status") is not None
+                    else None
                 ),
-                "error_message": str(item.get("error_message")) if item.get("error_message") is not None else None,
+                "error_message": str(item.get("error_message"))
+                if item.get("error_message") is not None
+                else None,
             }
         )
     return normalized_items
@@ -1795,7 +1866,9 @@ def _resolve_reindex_storage_path(document: Document, version: DocumentVersion) 
     return None
 
 
-def _rebuild_text_from_existing_chunks(db: Session, document: Document, version: DocumentVersion) -> str:
+def _rebuild_text_from_existing_chunks(
+    db: Session, document: Document, version: DocumentVersion
+) -> str:
     stmt = (
         select(DocumentChunk.text_content)
         .where(DocumentChunk.document_id == document.id)
@@ -1851,9 +1924,9 @@ Here is a chunk from the document:
 
 Please give a short succinct context (2-3 sentences in Korean) to situate this chunk within the overall document for the purpose of improving search retrieval. Answer only with the context and nothing else."""
 
-_CONTEXT_INTRO_CHARS = 600     # 문서 도입부 (항상 포함)
-_CONTEXT_WINDOW_BEFORE = 400   # 청크 앞 여백
-_CONTEXT_WINDOW_AFTER = 800    # 청크 뒤 여백
+_CONTEXT_INTRO_CHARS = 600  # 문서 도입부 (항상 포함)
+_CONTEXT_WINDOW_BEFORE = 400  # 청크 앞 여백
+_CONTEXT_WINDOW_AFTER = 800  # 청크 뒤 여백
 
 
 def _build_chunk_doc_preview(full_text: str, chunk_text: str) -> str:
@@ -1906,7 +1979,11 @@ def _generate_chunk_contexts(
         try:
             import openai  # noqa: PLC0415
 
-            api_key = getattr(_settings, "openai_api_key", None) or os.getenv("API_OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
+            api_key = (
+                getattr(_settings, "openai_api_key", None)
+                or os.getenv("API_OPENAI_API_KEY")
+                or os.getenv("OPENAI_API_KEY")
+            )
             if not api_key:
                 return idx, None
             client = openai.OpenAI(api_key=api_key)
@@ -1925,8 +2002,7 @@ def _generate_chunk_contexts(
     max_workers = getattr(_settings, "contextual_retrieval_max_workers", 5)
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
-            executor.submit(_call_one, i, str(c.get("text") or "")): i
-            for i, c in enumerate(chunks)
+            executor.submit(_call_one, i, str(c.get("text") or "")): i for i, c in enumerate(chunks)
         }
         for future in concurrent.futures.as_completed(futures):
             idx, ctx = future.result()
@@ -1976,7 +2052,11 @@ def _ingest_document_version_content(
         db=db,
     )
     extracted_text = extracted_text.strip()
-    if detected_file_type == ".pdf" and extracted_text and _looks_like_mojibake_text(extracted_text):
+    if (
+        detected_file_type == ".pdf"
+        and extracted_text
+        and _looks_like_mojibake_text(extracted_text)
+    ):
         extracted_text = ""
         extraction_method = "failed"
         if metadata_updates is not None:
@@ -1986,7 +2066,11 @@ def _ingest_document_version_content(
             }
     if not extracted_text:
         version.status = "failed"
-        version.error_code = "MOJIBAKE_TEXT_DETECTED" if detected_file_type == ".pdf" and extraction_method == "failed" else "EMPTY_DOCUMENT_TEXT"
+        version.error_code = (
+            "MOJIBAKE_TEXT_DETECTED"
+            if detected_file_type == ".pdf" and extraction_method == "failed"
+            else "EMPTY_DOCUMENT_TEXT"
+        )
         version.extracted_text_length = 0
         version.chunk_count = 0
         version.embedding_count = 0
@@ -2038,7 +2122,9 @@ def _ingest_document_version_content(
     if version.source_type != "file":
         version.storage_key = str(extracted_text_storage_path)
     version.file_size_bytes = len(file_bytes)
-    version.mime_type = content_type or ATTACHMENT_MIME_HINTS.get(detected_file_type, "application/octet-stream")
+    version.mime_type = content_type or ATTACHMENT_MIME_HINTS.get(
+        detected_file_type, "application/octet-stream"
+    )
     if version.source_type == "text":
         version.mime_type = "text/plain"
     version.checksum_sha256 = sha256(extracted_text.encode("utf-8")).hexdigest()
@@ -2142,7 +2228,9 @@ def _ingest_document_version_content(
                 chunks=chunks,
             )
         except Exception as _ctx_exc:
-            logger.warning("[CONTEXTUAL_RETRIEVAL] generation failed, proceeding without context: %s", _ctx_exc)
+            logger.warning(
+                "[CONTEXTUAL_RETRIEVAL] generation failed, proceeding without context: %s", _ctx_exc
+            )
             chunk_contexts = [None] * len(chunks)
 
     if job is not None:
@@ -2210,7 +2298,11 @@ def _ingest_document_version_content(
             err_msg = str(exc).lower()
             # text_search_vector 컬럼이 아직 없는 경우(마이그레이션 미실행) —
             # tsv 없이 재시도. 운영 DB 에서는 마이그레이션 후 이 경로를 타지 않음.
-            if "text_search_vector" in err_msg or "context_text" in err_msg or "undefined column" in err_msg:
+            if (
+                "text_search_vector" in err_msg
+                or "context_text" in err_msg
+                or "undefined column" in err_msg
+            ):
                 db.rollback()
                 # 미실행 마이그레이션 환경: text_search_vector / context_text 없이 재시도
                 _fallback_kwargs: dict = dict(
@@ -2262,7 +2354,9 @@ def _ingest_document_version_content(
         )
     if embedding_count == 0:
         version.status = "failed"
-        version.error_code, version.error_message = _summarize_embedding_error(embedding_error_counts)
+        version.error_code, version.error_message = _summarize_embedding_error(
+            embedding_error_counts
+        )
         document.status = "failed"
     else:
         version.status = "completed"
@@ -2340,7 +2434,11 @@ def _sync_web_source_attachment_documents(
             continue
         file_name = str(item.get("file_name") or _guess_file_name_from_url(attachment_url))
         file_type = str(item.get("file_type") or _guess_file_type_from_url(attachment_url))
-        mime_type = str(item.get("mime_type") or ATTACHMENT_MIME_HINTS.get(file_type) or "application/octet-stream")
+        mime_type = str(
+            item.get("mime_type")
+            or ATTACHMENT_MIME_HINTS.get(file_type)
+            or "application/octet-stream"
+        )
         existing = existing_by_url.get(attachment_url)
 
         if existing is None:
@@ -2393,14 +2491,18 @@ def _sync_web_source_attachment_documents(
                 previous_version.is_active = False
             db.flush()
 
-        next_version_number = max((version.version_number for version in existing.versions), default=0) + 1
+        next_version_number = (
+            max((version.version_number for version in existing.versions), default=0) + 1
+        )
         version = DocumentVersion(
             organization_id=uuid.UUID(organization_id),
             document_id=existing.id,
             chatbot_id=uuid.UUID(chatbot_id),
             version_number=next_version_number,
             file_name=file_name,
-            file_size_bytes=int(item.get("raw_file_size_bytes") or len(extracted_text.encode("utf-8"))),
+            file_size_bytes=int(
+                item.get("raw_file_size_bytes") or len(extracted_text.encode("utf-8"))
+            ),
             storage_key="",
             mime_type=mime_type,
             source_type="file",
@@ -2882,7 +2984,9 @@ def _extract_pdf_text_via_vision(
     anthropic_client = None
     if provider in ("openai", "azure_openai", "azure"):
         normalized_provider = "azure_openai" if provider in ("azure_openai", "azure") else "openai"
-        openai_client = _build_openai_client(normalized_provider, api_key, api_cfg.base_url).with_options(
+        openai_client = _build_openai_client(
+            normalized_provider, api_key, api_cfg.base_url
+        ).with_options(
             timeout=vision_timeout,
         )
     elif provider == "anthropic":
@@ -3020,14 +3124,20 @@ def _extract_pdf_text_best_effort(
     #    letter_ratio를 통과하므로, 품질 미달이면 OCR/Vision 복구 경로로 넘긴다.
     try:
         extracted = _extract_pdf_text_via_pypdf(file_bytes)
-        if _is_viable_pdf_text(extracted) and _pdf_extraction_quality(extracted) >= PDF_EXTRACTION_CLEAN_QUALITY:
+        if (
+            _is_viable_pdf_text(extracted)
+            and _pdf_extraction_quality(extracted) >= PDF_EXTRACTION_CLEAN_QUALITY
+        ):
             return extracted, "text"
     except Exception:  # noqa: BLE001
         extracted = ""
 
     stream_text = _extract_pdf_text_via_streams(file_bytes)
     combined = _normalize_text_blocks([extracted, stream_text])
-    if _is_viable_pdf_text(combined) and _pdf_extraction_quality(combined) >= PDF_EXTRACTION_CLEAN_QUALITY:
+    if (
+        _is_viable_pdf_text(combined)
+        and _pdf_extraction_quality(combined) >= PDF_EXTRACTION_CLEAN_QUALITY
+    ):
         return combined, "text"
 
     # 2. 텍스트형 실패 = 스캔본/이미지/깨진-텍스트레이어 PDF → OCR 시도
@@ -3069,6 +3179,7 @@ def _extract_pdf_text_best_effort(
 
 
 # ── 페이지 출처(page_number) 주석 + 페이지 이미지 저장 (B2 기반) ────────────────
+
 
 def _extract_pdf_pages_via_pypdf(file_bytes: bytes) -> list[str]:
     """페이지별 텍스트 리스트 반환 (pypdf). 실패 시 빈 리스트.
@@ -3180,7 +3291,9 @@ def _extract_hwp_text_best_effort(file_bytes: bytes) -> str:
     return "\n".join(parts).strip()
 
 
-def _extract_attachment_text(file_url: str, file_bytes: bytes, content_type: str | None) -> tuple[str, str, str]:
+def _extract_attachment_text(
+    file_url: str, file_bytes: bytes, content_type: str | None
+) -> tuple[str, str, str]:
     file_type = _guess_file_type_from_url(file_url)
     if file_type == ".pdf":
         extracted_text, extraction_method = _extract_pdf_text_best_effort(file_bytes)
@@ -3234,11 +3347,15 @@ def _canonicalize_website_url(url: str) -> str:
     normalized, _fragment = urldefrag(url.strip())
     parsed = urlparse(normalized)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="INVALID_WEBSITE_URL")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="INVALID_WEBSITE_URL"
+        )
 
     hostname = (parsed.hostname or "").lower()
     port = parsed.port
-    if port and not ((parsed.scheme == "http" and port == 80) or (parsed.scheme == "https" and port == 443)):
+    if port and not (
+        (parsed.scheme == "http" and port == 80) or (parsed.scheme == "https" and port == 443)
+    ):
         netloc = f"{hostname}:{port}"
     else:
         netloc = hostname
@@ -3247,7 +3364,9 @@ def _canonicalize_website_url(url: str) -> str:
     if path != "/":
         path = path.rstrip("/") or "/"
 
-    return parsed._replace(scheme=parsed.scheme.lower(), netloc=netloc, path=path, fragment="").geturl()
+    return parsed._replace(
+        scheme=parsed.scheme.lower(), netloc=netloc, path=path, fragment=""
+    ).geturl()
 
 
 def _normalize_excluded_paths(paths: list[str] | None) -> list[str]:
@@ -3272,12 +3391,14 @@ def _resolve_crawl_page_limit(metadata: dict | None) -> int:
     crawl_all_pages = _resolve_crawl_all_pages(metadata_dict)
     try:
         default_limit = (
-            DEFAULT_FULL_SITE_CRAWL_PAGE_LIMIT
-            if crawl_all_pages
-            else DEFAULT_CRAWL_PAGE_LIMIT
+            DEFAULT_FULL_SITE_CRAWL_PAGE_LIMIT if crawl_all_pages else DEFAULT_CRAWL_PAGE_LIMIT
         )
         value = int(raw_value or default_limit)
-        if crawl_all_pages and "crawl_all_pages" not in metadata_dict and value == DEFAULT_CRAWL_PAGE_LIMIT:
+        if (
+            crawl_all_pages
+            and "crawl_all_pages" not in metadata_dict
+            and value == DEFAULT_CRAWL_PAGE_LIMIT
+        ):
             value = DEFAULT_FULL_SITE_CRAWL_PAGE_LIMIT
     except (TypeError, ValueError):
         value = DEFAULT_FULL_SITE_CRAWL_PAGE_LIMIT if crawl_all_pages else DEFAULT_CRAWL_PAGE_LIMIT
@@ -3368,12 +3489,19 @@ def _crawl_website(
     delay_max: float = CRAWL_DELAY_MAX,
     max_consecutive_failures: int = MAX_CONSECUTIVE_CRAWL_FAILURES,
     progress_callback: Callable[[int, int], None] | None = None,
-) -> tuple[str, str, list[str], list[str], str | None, int | None, dict[str, int | str | bool | None]]:
+) -> tuple[
+    str, str, list[str], list[str], str | None, int | None, dict[str, int | str | bool | None]
+]:
     parsed_root = urlparse(base_url)
     root_hostname = parsed_root.hostname or ""
     normalized_excluded = _normalize_excluded_paths(excluded_paths)
-    sitemap_urls = _collect_sitemap_urls(base_url, root_hostname, limit=max_pages) if root_hostname else []
-    queue: list[tuple[str, int]] = [(base_url, 0), *((url, 1) for url in sitemap_urls if url != base_url)]
+    sitemap_urls = (
+        _collect_sitemap_urls(base_url, root_hostname, limit=max_pages) if root_hostname else []
+    )
+    queue: list[tuple[str, int]] = [
+        (base_url, 0),
+        *((url, 1) for url in sitemap_urls if url != base_url),
+    ]
     queued: set[str] = {url for url, _depth in queue}
     visited: set[str] = set()
     crawled_urls: list[str] = []
@@ -3402,7 +3530,9 @@ def _crawl_website(
         if time.monotonic() - crawl_started_at > CRAWL_TIME_BUDGET_SECONDS:
             logger.warning(
                 "[CRAWL_STOP] reason=time_budget elapsed=%.0fs crawled=%s page_limit=%s",
-                time.monotonic() - crawl_started_at, len(crawled_urls), page_limit,
+                time.monotonic() - crawl_started_at,
+                len(crawled_urls),
+                page_limit,
             )
             break
         current_url, depth = queue.pop(0)
@@ -3512,7 +3642,9 @@ def _crawl_website(
             len(
                 [
                     chunk
-                    for chunk in _split_text_chunks(text, chunk_size=CHUNK_SIZE, overlap=CHUNK_OVERLAP)
+                    for chunk in _split_text_chunks(
+                        text, chunk_size=CHUNK_SIZE, overlap=CHUNK_OVERLAP
+                    )
                     if not _is_low_quality_chunk(str(chunk.get("text") or ""))
                 ]
             ),
@@ -3635,7 +3767,9 @@ def _reconcile_orphaned_web_documents(db: Session, *, organization_id: str) -> i
                 WebSource.organization_id == uuid.UUID(organization_id),
                 WebSource.is_deleted.is_(True),
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     }
     if not deleted_ids:
         return 0
@@ -3646,7 +3780,9 @@ def _reconcile_orphaned_web_documents(db: Session, *, organization_id: str) -> i
                 Document.deleted_at.is_(None),
                 Document.metadata_json["web_source_id"].astext.in_(deleted_ids),
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
     now = datetime.now(UTC)
     for doc in docs:
@@ -3716,7 +3852,9 @@ def _collect_attachment_contents(
             payload, detected_content_type = _fetch_binary_resource(url)
             if detected_content_type:
                 mime_type = detected_content_type
-            extracted_text, detected_file_type, extraction_method = _extract_attachment_text(url, payload, mime_type)
+            extracted_text, detected_file_type, extraction_method = _extract_attachment_text(
+                url, payload, mime_type
+            )
             if detected_file_type:
                 file_type = detected_file_type
             extracted = bool(extracted_text.strip())
@@ -3728,7 +3866,9 @@ def _collect_attachment_contents(
                 else "empty"
             )
             if extracted:
-                attachment_text_blocks.append(f"[ATTACHMENT] {file_name}\n[URL] {url}\n{extracted_text.strip()}")
+                attachment_text_blocks.append(
+                    f"[ATTACHMENT] {file_name}\n[URL] {url}\n{extracted_text.strip()}"
+                )
             attachment_items.append(
                 {
                     "url": url,
@@ -3840,7 +3980,9 @@ def _ingest_web_source_content(
         elif is_api_source(web_source):
             # 공식 OpenAPI 수집 — 크롤 대신 API 호출 → 동일한 [URL]-마킹 텍스트 생성.
             # 이후 색인(청킹·임베딩·Document)은 웹소스와 완전히 동일 경로 재사용.
-            api_cfg = ApiConnectorConfig.from_dict((web_source.metadata_json or {}).get("apiConfig"))
+            api_cfg = ApiConnectorConfig.from_dict(
+                (web_source.metadata_json or {}).get("apiConfig")
+            )
             api_items = fetch_api_items(web_source.base_url, api_cfg)
             extracted_text, crawled_urls = build_api_source_text(web_source.base_url, api_items)
             html = extracted_text
@@ -3952,7 +4094,11 @@ def _ingest_web_source_content(
         _snippet = re.sub(r"\s+", " ", (html or "")).strip()[:180]
         logger.warning(
             "[WEB_CRAWL] url=%s status=%s html_bytes=%s extracted_chars=%s pages=%s reason=EMPTY_WEBSITE_CONTENT",
-            web_source.base_url, http_status_code, _html_len, len(extracted_text or ""), len(crawled_urls),
+            web_source.base_url,
+            http_status_code,
+            _html_len,
+            len(extracted_text or ""),
+            len(crawled_urls),
         )
         _set_job_failed(
             web_source=web_source,
@@ -4046,7 +4192,9 @@ def _ingest_web_source_content(
         }
         db.flush()
 
-    next_version_number = max((version.version_number for version in document.versions), default=0) + 1
+    next_version_number = (
+        max((version.version_number for version in document.versions), default=0) + 1
+    )
     storage_name = f"{uuid.uuid4()}.html.txt"
     storage_path = KNOWLEDGE_STORAGE_DIR / storage_name
     KNOWLEDGE_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
@@ -4111,7 +4259,9 @@ def _ingest_web_source_content(
                 chunks=chunks,
             )
         except Exception as _ctx_exc:
-            logger.warning("[CONTEXTUAL_RETRIEVAL][WEB] failed, proceeding without context: %s", _ctx_exc)
+            logger.warning(
+                "[CONTEXTUAL_RETRIEVAL][WEB] failed, proceeding without context: %s", _ctx_exc
+            )
             web_chunk_contexts = [None] * len(chunks)
 
     embedding_count = 0
@@ -4136,9 +4286,13 @@ def _ingest_web_source_content(
         section_title = str(chunk_item["section_title"] or web_source.name)
         page_title = str(chunk_item.get("page_title") or web_source.name)
         chunk_final_url = str(chunk_item.get("final_url") or chunk_url)
-        extraction_method = str(chunk_item.get("extraction_method") or crawl_diagnostics.get("extraction_method") or "")
+        extraction_method = str(
+            chunk_item.get("extraction_method") or crawl_diagnostics.get("extraction_method") or ""
+        )
         navigation_removed = str(
-            chunk_item.get("navigation_removed") or crawl_diagnostics.get("navigation_removed") or ""
+            chunk_item.get("navigation_removed")
+            or crawl_diagnostics.get("navigation_removed")
+            or ""
         )
         chunk_category = str(chunk_item.get("category") or "").strip() or None
         context_text = web_chunk_contexts[index - 1]
@@ -4185,7 +4339,11 @@ def _ingest_web_source_content(
             db.flush()
         except SQLAlchemyError as exc:
             err_msg = str(exc).lower()
-            if "text_search_vector" in err_msg or "context_text" in err_msg or "undefined column" in err_msg:
+            if (
+                "text_search_vector" in err_msg
+                or "context_text" in err_msg
+                or "undefined column" in err_msg
+            ):
                 db.rollback()
                 _fallback_kwargs: dict = dict(
                     organization_id=uuid.UUID(organization_id),
@@ -4217,7 +4375,11 @@ def _ingest_web_source_content(
                 db.add(DocumentChunk(**_fallback_kwargs))
                 db.flush()
             else:
-                logger.exception("[EMBEDDING_ERROR] chunk_id=%s error_code=VECTOR_SAVE_ERROR error=%s", f"{web_source.id}:{index}", exc)
+                logger.exception(
+                    "[EMBEDDING_ERROR] chunk_id=%s error_code=VECTOR_SAVE_ERROR error=%s",
+                    f"{web_source.id}:{index}",
+                    exc,
+                )
                 raise
 
     version.embedding_count = embedding_count
@@ -4237,7 +4399,9 @@ def _ingest_web_source_content(
         )
     if embedding_count == 0:
         version.status = "failed"
-        version.error_code, version.error_message = _summarize_embedding_error(embedding_error_counts)
+        version.error_code, version.error_message = _summarize_embedding_error(
+            embedding_error_counts
+        )
         version.is_active = False
         db.execute(delete(DocumentChunk).where(DocumentChunk.document_version_id == version.id))
         web_source.status = "failed"
@@ -4316,7 +4480,9 @@ def _ingest_web_source_content(
     )
 
 
-def _normalize_status(base_status: str | None, *, is_active: bool, ingestion_status: str | None) -> str:
+def _normalize_status(
+    base_status: str | None, *, is_active: bool, ingestion_status: str | None
+) -> str:
     base = (base_status or "").lower()
     ingestion = (ingestion_status or "").lower()
     if ingestion in {"failed", "error"} or base == "failed":
@@ -4471,7 +4637,10 @@ def _is_stale_job(job: IngestionJob | None, *, now: datetime) -> tuple[bool, str
         if now - reference >= STALE_QUEUED_AFTER:
             return True, "queued_timeout"
     if job_status == "processing":
-        reference = max((value for value in [job.started_at, job.updated_at, job.created_at] if value), default=now)
+        reference = max(
+            (value for value in [job.started_at, job.updated_at, job.created_at] if value),
+            default=now,
+        )
         if now - reference >= STALE_PROCESSING_AFTER:
             return True, "processing_timeout"
     return False, ""
@@ -4490,8 +4659,15 @@ def _clear_stale_recovery_metadata(job: IngestionJob | None) -> None:
     job.metadata_json = metadata
 
 
-def _mark_job_completed_from_existing(job: IngestionJob | None, *, now: datetime, message: str) -> None:
-    if job is None or (job.status or "").lower() not in {"queued", "pending", "processing", "running"}:
+def _mark_job_completed_from_existing(
+    job: IngestionJob | None, *, now: datetime, message: str
+) -> None:
+    if job is None or (job.status or "").lower() not in {
+        "queued",
+        "pending",
+        "processing",
+        "running",
+    }:
         return
     job.status = "completed"
     job.current_step = "completed"
@@ -4506,7 +4682,12 @@ def _mark_job_completed_from_existing(job: IngestionJob | None, *, now: datetime
 
 
 def _mark_job_failed_stale(job: IngestionJob | None, *, now: datetime, message: str) -> None:
-    if job is None or (job.status or "").lower() not in {"queued", "pending", "processing", "running"}:
+    if job is None or (job.status or "").lower() not in {
+        "queued",
+        "pending",
+        "processing",
+        "running",
+    }:
         return
     job.status = "failed"
     job.current_step = "failed"
@@ -4520,7 +4701,9 @@ def _mark_job_failed_stale(job: IngestionJob | None, *, now: datetime, message: 
     job.metadata_json = metadata
 
 
-def _recover_document_ingest_state(doc: Document, version: DocumentVersion | None, job: IngestionJob | None) -> bool:
+def _recover_document_ingest_state(
+    doc: Document, version: DocumentVersion | None, job: IngestionJob | None
+) -> bool:
     if version is None:
         return False
     now = datetime.now(UTC)
@@ -4532,10 +4715,11 @@ def _recover_document_ingest_state(doc: Document, version: DocumentVersion | Non
     has_existing_index = chunks > 0 and embeddings > 0
     source_type = version.source_type or "file"
 
-    should_complete_from_existing = has_existing_index and (
-        stale
-        or (job is None and (version.status or "").lower() in {"queued", "processing"})
-    ) and not _is_explicit_reindex_job(job)
+    should_complete_from_existing = (
+        has_existing_index
+        and (stale or (job is None and (version.status or "").lower() in {"queued", "processing"}))
+        and not _is_explicit_reindex_job(job)
+    )
     if should_complete_from_existing:
         version.status = "completed"
         version.error_code = None
@@ -4545,7 +4729,11 @@ def _recover_document_ingest_state(doc: Document, version: DocumentVersion | Non
         doc.status = "active"
         doc.processed_at = doc.processed_at or version.processed_at
         _mark_job_completed_from_existing(job, now=now, message="chunk/embedding already exist")
-        _log_ingest_recovery(knowledge_id=doc.id, action="completed_from_existing_chunks", reason="chunk_embedding_counts_present")
+        _log_ingest_recovery(
+            knowledge_id=doc.id,
+            action="completed_from_existing_chunks",
+            reason="chunk_embedding_counts_present",
+        )
         _log_ingest_status(
             knowledge_id=doc.id,
             source_type=source_type,
@@ -4597,17 +4785,24 @@ def _recover_web_ingest_state(web_source: WebSource, job: IngestionJob | None) -
     # searchable = chunks AND embeddings both present (text_len not required)
     has_existing_index = chunks > 0 and embeddings > 0
 
-    should_complete_from_existing = has_existing_index and (
-        stale
-        or (job is None and (web_source.status or "").lower() in {"queued", "processing"})
-    ) and not _is_explicit_reindex_job(job)
+    should_complete_from_existing = (
+        has_existing_index
+        and (
+            stale or (job is None and (web_source.status or "").lower() in {"queued", "processing"})
+        )
+        and not _is_explicit_reindex_job(job)
+    )
     if should_complete_from_existing:
         web_source.status = "active"
         web_source.last_error_code = None
         web_source.last_error_message = None
         web_source.last_synced_at = web_source.last_synced_at or now
         _mark_job_completed_from_existing(job, now=now, message="chunk/embedding already exist")
-        _log_ingest_recovery(knowledge_id=web_source.id, action="completed_from_existing_chunks", reason="chunk_embedding_counts_present")
+        _log_ingest_recovery(
+            knowledge_id=web_source.id,
+            action="completed_from_existing_chunks",
+            reason="chunk_embedding_counts_present",
+        )
         _log_ingest_status(
             knowledge_id=web_source.id,
             source_type="website",
@@ -4622,7 +4817,9 @@ def _recover_web_ingest_state(web_source: WebSource, job: IngestionJob | None) -
     # stale job with no usable index → mark failed so user can reindex
     if stale and ((chunks == 0 or embeddings == 0) or _is_explicit_reindex_job(job)):
         message = "색인 작업이 제한 시간을 초과했습니다. 재색인이 필요합니다."
-        web_source.status = "active" if has_existing_index and _is_explicit_reindex_job(job) else "failed"
+        web_source.status = (
+            "active" if has_existing_index and _is_explicit_reindex_job(job) else "failed"
+        )
         web_source.last_error_code = "STALE_INGESTION_JOB"
         web_source.last_error_message = message
         web_source.last_synced_at = now
@@ -4641,7 +4838,9 @@ def _recover_web_ingest_state(web_source: WebSource, job: IngestionJob | None) -
     return False
 
 
-def _document_item(doc: Document, version: DocumentVersion | None, job: IngestionJob | None) -> KnowledgeItem:
+def _document_item(
+    doc: Document, version: DocumentVersion | None, job: IngestionJob | None
+) -> KnowledgeItem:
     metadata = dict(doc.metadata_json or {})
     tags = _parse_tags(metadata.get("tags"))
     is_website_attachment = metadata.get("sourceType") == "website_attachment"
@@ -4649,7 +4848,11 @@ def _document_item(doc: Document, version: DocumentVersion | None, job: Ingestio
     source_label = version.file_name if version else None
     summary = metadata.get("summary") or _truncate_preview(metadata.get("content_preview"))
     if not summary:
-        summary = _truncate_preview(doc.description) or _truncate_preview(metadata.get("memo")) or source_label
+        summary = (
+            _truncate_preview(doc.description)
+            or _truncate_preview(metadata.get("memo"))
+            or source_label
+        )
     is_active = bool(version.is_active) if version else doc.status not in {"inactive", "deprecated"}
     ingestion_status = job.status if job else version.status if version else None
     extracted_text_length = version.extracted_text_length if version else 0
@@ -4682,13 +4885,17 @@ def _document_item(doc: Document, version: DocumentVersion | None, job: Ingestio
             embedding_count=embedding_count,
             reason="display_differs_from_db",
         )
-    error_message = (job.error_message if job and job.error_message else None) or (version.error_message if version else None)
+    error_message = (job.error_message if job and job.error_message else None) or (
+        version.error_message if version else None
+    )
     indexed_at = None
     if version and version.processed_at:
         indexed_at = version.processed_at.isoformat()
     elif doc.processed_at:
         indexed_at = doc.processed_at.isoformat()
-    source_url = metadata.get("url") or metadata.get("attachment_url") or metadata.get("parent_website_url")
+    source_url = (
+        metadata.get("url") or metadata.get("attachment_url") or metadata.get("parent_website_url")
+    )
     return KnowledgeItem(
         id=str(doc.id),
         source_group="file_text",
@@ -4707,8 +4914,16 @@ def _document_item(doc: Document, version: DocumentVersion | None, job: Ingestio
         created_at=doc.created_at.isoformat(),
         updated_at=doc.updated_at.isoformat(),
         indexed_at=indexed_at,
-        effective_date=_iso_date(version.effective_date if version else _parse_date(metadata.get("effective_date"), "effective_date")),
-        expiration_date=_iso_date(version.expiration_date if version else _parse_date(metadata.get("expiration_date"), "expiration_date")),
+        effective_date=_iso_date(
+            version.effective_date
+            if version
+            else _parse_date(metadata.get("effective_date"), "effective_date")
+        ),
+        expiration_date=_iso_date(
+            version.expiration_date
+            if version
+            else _parse_date(metadata.get("expiration_date"), "expiration_date")
+        ),
         department=(version.issuing_department if version else None) or metadata.get("department"),
         sensitive_detected=bool(metadata.get("sensitive_detected", False)),
         error_message=error_message,
@@ -4719,7 +4934,9 @@ def _document_item(doc: Document, version: DocumentVersion | None, job: Ingestio
         file_name=version.file_name if version else None,
         source_url=source_url if isinstance(source_url, str) else None,
         final_url=metadata.get("final_url") if isinstance(metadata.get("final_url"), str) else None,
-        http_status_code=metadata.get("http_status_code") if isinstance(metadata.get("http_status_code"), int) else None,
+        http_status_code=metadata.get("http_status_code")
+        if isinstance(metadata.get("http_status_code"), int)
+        else None,
         ingestion_job_id=(str(job.id) if job else None),
         ingestion_status=ingestion_status,
         ingestion_progress_percent=(job.progress_percent if job else None),
@@ -4737,7 +4954,9 @@ def _document_item(doc: Document, version: DocumentVersion | None, job: Ingestio
     )
 
 
-def _document_detail(doc: Document, version: DocumentVersion | None, job: IngestionJob | None) -> KnowledgeDetailResponse:
+def _document_detail(
+    doc: Document, version: DocumentVersion | None, job: IngestionJob | None
+) -> KnowledgeDetailResponse:
     item = _document_item(doc, version, job)
     metadata = dict(doc.metadata_json or {})
     return KnowledgeDetailResponse(
@@ -4745,9 +4964,15 @@ def _document_detail(doc: Document, version: DocumentVersion | None, job: Ingest
         file_name=(version.file_name if version else None),
         source_path=(version.storage_key if version else None),
         last_indexed_at=item.indexed_at,
-        extraction_method=(metadata.get("extraction_method") if isinstance(metadata.get("extraction_method"), str) else None),
-        effective_date=_iso_date(version.effective_date if version else None) or metadata.get("effective_date"),
-        expiration_date=_iso_date(version.expiration_date if version else None) or metadata.get("expiration_date"),
+        extraction_method=(
+            metadata.get("extraction_method")
+            if isinstance(metadata.get("extraction_method"), str)
+            else None
+        ),
+        effective_date=_iso_date(version.effective_date if version else None)
+        or metadata.get("effective_date"),
+        expiration_date=_iso_date(version.expiration_date if version else None)
+        or metadata.get("expiration_date"),
         department=(version.issuing_department if version else None) or metadata.get("department"),
     )
 
@@ -4794,7 +5019,9 @@ def _website_item(web_source: WebSource, job: IngestionJob | None) -> KnowledgeI
         field=metadata.get("field"),
         tags=_parse_tags(metadata.get("tags")),
         memo=metadata.get("memo"),
-        summary=metadata.get("summary") or _truncate_preview(metadata.get("memo")) or web_source.base_url,
+        summary=metadata.get("summary")
+        or _truncate_preview(metadata.get("memo"))
+        or web_source.base_url,
         status=status_value,
         display_status=display_status,
         can_search=can_search,
@@ -4807,14 +5034,18 @@ def _website_item(web_source: WebSource, job: IngestionJob | None) -> KnowledgeI
         expiration_date=metadata.get("expiration_date"),
         department=metadata.get("department"),
         sensitive_detected=bool(metadata.get("sensitive_detected", False)),
-        error_message=(job.error_message if job and job.error_message else None) or web_source.last_error_message,
+        error_message=(job.error_message if job and job.error_message else None)
+        or web_source.last_error_message,
         extracted_text_length=web_source.extracted_text_length or 0,
         chunk_count=chunk_count,
         embedding_count=embedding_count,
-        last_processed_at=(web_source.last_synced_at.isoformat() if web_source.last_synced_at else None),
+        last_processed_at=(
+            web_source.last_synced_at.isoformat() if web_source.last_synced_at else None
+        ),
         file_name=None,
         source_url=web_source.base_url,
-        final_url=web_source.final_url or (metadata.get("final_url") if isinstance(metadata.get("final_url"), str) else None),
+        final_url=web_source.final_url
+        or (metadata.get("final_url") if isinstance(metadata.get("final_url"), str) else None),
         http_status_code=web_source.http_status_code,
         ingestion_job_id=(str(job.id) if job else None),
         ingestion_status=(job.status if job else None),
@@ -4867,7 +5098,9 @@ def _matches_query(item: KnowledgeItem, query: str | None) -> bool:
     return query.lower() in haystack
 
 
-def _matches_filter(item: KnowledgeItem, *, category: str | None, field: str | None, status_filter: str | None) -> bool:
+def _matches_filter(
+    item: KnowledgeItem, *, category: str | None, field: str | None, status_filter: str | None
+) -> bool:
     if category and item.category != category:
         return False
     if field and item.field != field:
@@ -4881,9 +5114,13 @@ def _check_python_package(module_name: str) -> KnowledgeRuntimeDependencyItem:
     try:
         module = __import__(module_name)
         module_path = getattr(module, "__file__", None)
-        return KnowledgeRuntimeDependencyItem(installed=True, path=str(module_path) if module_path else None)
+        return KnowledgeRuntimeDependencyItem(
+            installed=True, path=str(module_path) if module_path else None
+        )
     except Exception as exc:  # noqa: BLE001
-        return KnowledgeRuntimeDependencyItem(installed=False, detail=f"{exc.__class__.__name__}: {exc}")
+        return KnowledgeRuntimeDependencyItem(
+            installed=False, detail=f"{exc.__class__.__name__}: {exc}"
+        )
 
 
 def _check_system_binary(binary_name: str) -> KnowledgeRuntimeDependencyItem:
@@ -4893,7 +5130,9 @@ def _check_system_binary(binary_name: str) -> KnowledgeRuntimeDependencyItem:
     return KnowledgeRuntimeDependencyItem(installed=False, detail="NOT_FOUND")
 
 
-def get_knowledge_runtime_status_service(*, principal: AdminPrincipal) -> KnowledgeRuntimeStatusResponse:
+def get_knowledge_runtime_status_service(
+    *, principal: AdminPrincipal
+) -> KnowledgeRuntimeStatusResponse:
     require_institution_organization_id(principal)
 
     python_packages = {
@@ -4920,13 +5159,17 @@ def get_knowledge_runtime_status_service(*, principal: AdminPrincipal) -> Knowle
 
     notes: list[str] = []
     if not scanned_pdf_ready:
-        notes.append("이미지형 스캔 PDF는 Tesseract OCR과 Poppler(pdftoppm, pdfinfo)가 모두 있어야 정상 색인됩니다.")
+        notes.append(
+            "이미지형 스캔 PDF는 Tesseract OCR과 Poppler(pdftoppm, pdfinfo)가 모두 있어야 정상 색인됩니다."
+        )
     if not python_packages["pypdf"].installed:
         notes.append("텍스트형 PDF 추출용 pypdf Python 패키지가 필요합니다.")
     if not system_binaries["tesseract"].installed:
         notes.append("Tesseract 실행 파일이 없어 OCR을 실행할 수 없습니다.")
     if not (system_binaries["pdftoppm"].installed and system_binaries["pdfinfo"].installed):
-        notes.append("Poppler 실행 파일(pdftoppm, pdfinfo)이 없어 PDF를 OCR용 이미지로 변환할 수 없습니다.")
+        notes.append(
+            "Poppler 실행 파일(pdftoppm, pdfinfo)이 없어 PDF를 OCR용 이미지로 변환할 수 없습니다."
+        )
 
     return KnowledgeRuntimeStatusResponse(
         ocr_ready=bool(ocr_ready),
@@ -4952,14 +5195,18 @@ def list_knowledge_service(
     items: list[KnowledgeItem] = []
     recovered = False
     # 삭제된 웹소스의 잔존 Document 자가치유(검색·인용에서 즉시 제외)
-    recovered = _reconcile_orphaned_web_documents(db, organization_id=organization_id) > 0 or recovered
+    recovered = (
+        _reconcile_orphaned_web_documents(db, organization_id=organization_id) > 0 or recovered
+    )
     if source_group in {None, "", "file_text"}:
         for doc, version, job in list_document_knowledge_rows(
             db, organization_id=organization_id, chatbot_id=chatbot_id
         ):
             recovered = _recover_document_ingest_state(doc, version, job) or recovered
             item = _document_item(doc, version, job)
-            if _matches_query(item, query) and _matches_filter(item, category=category, field=field, status_filter=status_filter):
+            if _matches_query(item, query) and _matches_filter(
+                item, category=category, field=field, status_filter=status_filter
+            ):
                 items.append(item)
     if source_group in {None, "", "website"}:
         for web_source, job in list_web_source_knowledge_rows(
@@ -4967,7 +5214,9 @@ def list_knowledge_service(
         ):
             recovered = _recover_web_ingest_state(web_source, job) or recovered
             item = _website_item(web_source, job)
-            if _matches_query(item, query) and _matches_filter(item, category=category, field=field, status_filter=status_filter):
+            if _matches_query(item, query) and _matches_filter(
+                item, category=category, field=field, status_filter=status_filter
+            ):
                 items.append(item)
     if recovered:
         db.commit()
@@ -4999,7 +5248,9 @@ def get_knowledge_content_service(
 ) -> dict:
     """지식의 실제 텍스트 내용을 DocumentChunk에서 읽어 반환."""
     organization_id = require_institution_organization_id(principal)
-    doc_row = get_document_knowledge_row(db, organization_id=organization_id, knowledge_id=knowledge_id)
+    doc_row = get_document_knowledge_row(
+        db, organization_id=organization_id, knowledge_id=knowledge_id
+    )
     if doc_row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="KNOWLEDGE_NOT_FOUND")
     doc, version, _job = doc_row
@@ -5007,9 +5258,12 @@ def get_knowledge_content_service(
         return {"content": "", "chunk_count": 0, "source_type": "file"}
 
     from sqlalchemy import select as sa_select  # noqa: PLC0415
+
     chunk_texts = list(
         db.execute(
-            sa_select(DocumentChunk.text_content, DocumentChunk.section_title, DocumentChunk.chunk_order)
+            sa_select(
+                DocumentChunk.text_content, DocumentChunk.section_title, DocumentChunk.chunk_order
+            )
             .where(DocumentChunk.document_version_id == version.id)
             .order_by(DocumentChunk.chunk_order.asc())
         ).all()
@@ -5051,10 +5305,14 @@ def update_knowledge_content_service(
 ) -> dict:
     """지식 내용 수정 — 새 버전 파일로 저장 후 재색인."""
     if not content.strip():
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="CONTENT_EMPTY")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="CONTENT_EMPTY"
+        )
 
     organization_id = require_institution_organization_id(principal)
-    doc_row = get_document_knowledge_row(db, organization_id=organization_id, knowledge_id=knowledge_id)
+    doc_row = get_document_knowledge_row(
+        db, organization_id=organization_id, knowledge_id=knowledge_id
+    )
     if doc_row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="KNOWLEDGE_NOT_FOUND")
 
@@ -5130,12 +5388,16 @@ def get_knowledge_service(
     knowledge_id: str,
 ) -> KnowledgeDetailResponse:
     organization_id = require_institution_organization_id(principal)
-    document_row = get_document_knowledge_row(db, organization_id=organization_id, knowledge_id=knowledge_id)
+    document_row = get_document_knowledge_row(
+        db, organization_id=organization_id, knowledge_id=knowledge_id
+    )
     if document_row is not None:
         if _recover_document_ingest_state(document_row[0], document_row[1], document_row[2]):
             db.commit()
         return _document_detail(document_row[0], document_row[1], document_row[2])
-    web_source_row = get_web_source_knowledge_row(db, organization_id=organization_id, knowledge_id=knowledge_id)
+    web_source_row = get_web_source_knowledge_row(
+        db, organization_id=organization_id, knowledge_id=knowledge_id
+    )
     if web_source_row is not None:
         if _recover_web_ingest_state(web_source_row[0], web_source_row[1]):
             db.commit()
@@ -5160,7 +5422,9 @@ def _apply_common_metadata(metadata: dict, body: KnowledgeUpsertRequest) -> dict
         _parse_date(body.expiration_date, "expiration_date")
         next_metadata["expiration_date"] = body.expiration_date
     if body.crawl_page_limit is not None:
-        next_metadata["crawl_page_limit"] = max(1, min(int(body.crawl_page_limit), MAX_CRAWL_PAGE_LIMIT))
+        next_metadata["crawl_page_limit"] = max(
+            1, min(int(body.crawl_page_limit), MAX_CRAWL_PAGE_LIMIT)
+        )
     if body.crawl_all_pages is not None:
         next_metadata["crawl_all_pages"] = bool(body.crawl_all_pages)
     if body.include_attachments is not None:
@@ -5176,7 +5440,9 @@ def patch_knowledge_service(
     body: KnowledgeUpsertRequest,
 ) -> KnowledgeDetailResponse:
     organization_id = require_institution_organization_id(principal)
-    document_row = get_document_knowledge_row(db, organization_id=organization_id, knowledge_id=knowledge_id)
+    document_row = get_document_knowledge_row(
+        db, organization_id=organization_id, knowledge_id=knowledge_id
+    )
     if document_row is not None:
         doc, version, _job = document_row
         ensure_document_in_scope(db, principal=principal, document_id=knowledge_id)
@@ -5200,7 +5466,9 @@ def patch_knowledge_service(
         _invalidate_chatbot_answer_cache(str(doc.chatbot_id) if doc.chatbot_id else None)
         return get_knowledge_service(db, principal=principal, knowledge_id=knowledge_id)
 
-    web_source_row = get_web_source_knowledge_row(db, organization_id=organization_id, knowledge_id=knowledge_id)
+    web_source_row = get_web_source_knowledge_row(
+        db, organization_id=organization_id, knowledge_id=knowledge_id
+    )
     if web_source_row is not None:
         web_source, _job = web_source_row
         ensure_web_source_in_scope(db, principal=principal, web_source_id=knowledge_id)
@@ -5215,7 +5483,9 @@ def patch_knowledge_service(
         if body.is_active is not None:
             web_source.status = "active" if body.is_active else "inactive"
         db.commit()
-        _invalidate_chatbot_answer_cache(str(web_source.chatbot_id) if web_source.chatbot_id else None)
+        _invalidate_chatbot_answer_cache(
+            str(web_source.chatbot_id) if web_source.chatbot_id else None
+        )
         return get_knowledge_service(db, principal=principal, knowledge_id=knowledge_id)
 
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="KNOWLEDGE_NOT_FOUND")
@@ -5228,7 +5498,9 @@ def delete_knowledge_service(
     knowledge_id: str,
 ) -> None:
     organization_id = require_institution_organization_id(principal)
-    document_row = get_document_knowledge_row(db, organization_id=organization_id, knowledge_id=knowledge_id)
+    document_row = get_document_knowledge_row(
+        db, organization_id=organization_id, knowledge_id=knowledge_id
+    )
     if document_row is not None:
         doc = ensure_document_in_scope(db, principal=principal, document_id=knowledge_id)
         chatbot_id = str(doc.chatbot_id) if doc.chatbot_id else None
@@ -5239,7 +5511,9 @@ def delete_knowledge_service(
             _invalidate_chatbot_answer_cache(chatbot_id)
         return
 
-    web_source_row = get_web_source_knowledge_row(db, organization_id=organization_id, knowledge_id=knowledge_id)
+    web_source_row = get_web_source_knowledge_row(
+        db, organization_id=organization_id, knowledge_id=knowledge_id
+    )
     if web_source_row is not None:
         web_source = ensure_web_source_in_scope(db, principal=principal, web_source_id=knowledge_id)
         chatbot_id = str(web_source.chatbot_id) if web_source.chatbot_id else None
@@ -5352,7 +5626,8 @@ def _dispatch_reindex(
         return "background_tasks"
     logger.warning(
         "[REINDEX_DISPATCH_SKIPPED] knowledge_id=%s job_id=%s — no worker, no bg tasks",
-        knowledge_id, job_id,
+        knowledge_id,
+        job_id,
     )
     return "skipped"
 
@@ -5363,10 +5638,16 @@ def _process_reindex_job(principal: AdminPrincipal, knowledge_id: str, job_id: s
         organization_id = require_institution_organization_id(principal)
         job = db.get(IngestionJob, uuid.UUID(job_id))
         if job is None:
-            logger.warning("[REINDEX] knowledge_id=%s skipped reason=queued_job_not_found", knowledge_id)
+            logger.warning(
+                "[REINDEX] knowledge_id=%s skipped reason=queued_job_not_found", knowledge_id
+            )
             return
         if str(job.organization_id) != organization_id or job.status != "queued":
-            logger.warning("[REINDEX] knowledge_id=%s skipped reason=job_not_queued job_id=%s", knowledge_id, job_id)
+            logger.warning(
+                "[REINDEX] knowledge_id=%s skipped reason=job_not_queued job_id=%s",
+                knowledge_id,
+                job_id,
+            )
             return
         logger.info("[REINDEX] knowledge_id=%s started job_id=%s", knowledge_id, job_id)
         job.status = "processing"
@@ -5385,8 +5666,14 @@ def _process_reindex_job(principal: AdminPrincipal, knowledge_id: str, job_id: s
         logger.info("[REINDEX] knowledge_id=%s status=processing job_id=%s", knowledge_id, job_id)
 
         if job.document_id is not None:
-            doc = ensure_document_in_scope(db, principal=principal, document_id=str(job.document_id))
-            version = db.get(DocumentVersion, job.document_version_id) if job.document_version_id else None
+            doc = ensure_document_in_scope(
+                db, principal=principal, document_id=str(job.document_id)
+            )
+            version = (
+                db.get(DocumentVersion, job.document_version_id)
+                if job.document_version_id
+                else None
+            )
             if version is None:
                 _mark_reindex_failed(
                     db,
@@ -5398,7 +5685,9 @@ def _process_reindex_job(principal: AdminPrincipal, knowledge_id: str, job_id: s
                 storage_path = _resolve_reindex_storage_path(doc, version)
                 if storage_path is not None:
                     content_type = version.mime_type
-                    if str(storage_path).endswith(".txt") and not (content_type or "").startswith("text/"):
+                    if str(storage_path).endswith(".txt") and not (content_type or "").startswith(
+                        "text/"
+                    ):
                         content_type = "text/plain"
                     file_bytes = storage_path.read_bytes()
                 else:
@@ -5432,7 +5721,9 @@ def _process_reindex_job(principal: AdminPrincipal, knowledge_id: str, job_id: s
                         error_message="재색인할 원본 파일, 추출 텍스트 또는 기존 청크를 찾지 못했습니다.",
                     )
         elif job.web_source_id is not None:
-            web_source = ensure_web_source_in_scope(db, principal=principal, web_source_id=str(job.web_source_id))
+            web_source = ensure_web_source_in_scope(
+                db, principal=principal, web_source_id=str(job.web_source_id)
+            )
             _rag_settings = _load_rag_settings_for_chatbot(
                 db,
                 organization_id=organization_id,
@@ -5461,11 +5752,15 @@ def _process_reindex_job(principal: AdminPrincipal, knowledge_id: str, job_id: s
         logger.info(
             "[REINDEX] knowledge_id=%s %s",
             knowledge_id,
-            "failed" if completed_job is not None and completed_job.status == "failed" else "completed",
+            "failed"
+            if completed_job is not None and completed_job.status == "failed"
+            else "completed",
         )
     except SQLAlchemyError as exc:
         db.rollback()
-        logger.exception("[REINDEX] knowledge_id=%s failed error_code=VECTOR_SAVE_ERROR", knowledge_id)
+        logger.exception(
+            "[REINDEX] knowledge_id=%s failed error_code=VECTOR_SAVE_ERROR", knowledge_id
+        )
         if job_id:
             _mark_reindex_failed(
                 db,
@@ -5478,7 +5773,9 @@ def _process_reindex_job(principal: AdminPrincipal, knowledge_id: str, job_id: s
         db.rollback()
         logger.exception("[REINDEX] knowledge_id=%s failed", knowledge_id)
         if job_id:
-            _mark_reindex_failed(db, job_id=job_id, error_code="REINDEX_FAILED", error_message=str(exc))
+            _mark_reindex_failed(
+                db, job_id=job_id, error_code="REINDEX_FAILED", error_message=str(exc)
+            )
             db.commit()
     finally:
         # 색인 완료/실패와 무관하게 답변 캐시 무효화 — 컨텐츠가 바뀌었을 수 있음
@@ -5517,7 +5814,9 @@ def reindex_knowledge_service(
     background_tasks=None,
 ) -> KnowledgeDetailResponse:
     organization_id = require_institution_organization_id(principal)
-    document_row = get_document_knowledge_row(db, organization_id=organization_id, knowledge_id=knowledge_id)
+    document_row = get_document_knowledge_row(
+        db, organization_id=organization_id, knowledge_id=knowledge_id
+    )
     if document_row is not None:
         doc, version, _job = document_row
         ensure_document_in_scope(db, principal=principal, document_id=knowledge_id)
@@ -5542,7 +5841,9 @@ def reindex_knowledge_service(
         _dispatch_reindex(background_tasks, principal, knowledge_id, str(job.id))
         return get_knowledge_service(db, principal=principal, knowledge_id=knowledge_id)
 
-    web_source_row = get_web_source_knowledge_row(db, organization_id=organization_id, knowledge_id=knowledge_id)
+    web_source_row = get_web_source_knowledge_row(
+        db, organization_id=organization_id, knowledge_id=knowledge_id
+    )
     if web_source_row is not None:
         web_source, _job = web_source_row
         ensure_web_source_in_scope(db, principal=principal, web_source_id=knowledge_id)
@@ -5587,7 +5888,9 @@ def reindex_all_knowledge_service(
     skipped = 0
 
     # ── 문서 항목 ─────────────────────────────────────────────────────────────
-    doc_rows = list_document_knowledge_rows(db, organization_id=organization_id, chatbot_id=chatbot_id)
+    doc_rows = list_document_knowledge_rows(
+        db, organization_id=organization_id, chatbot_id=chatbot_id
+    )
     for doc, version, existing_job in doc_rows:
         # 이미 처리 중인 것은 건너뜀
         if existing_job is not None and existing_job.status in ("queued", "processing"):
@@ -5617,7 +5920,9 @@ def reindex_all_knowledge_service(
         queued += 1
 
     # ── 웹 소스 항목 ──────────────────────────────────────────────────────────
-    web_rows = list_web_source_knowledge_rows(db, organization_id=organization_id, chatbot_id=chatbot_id)
+    web_rows = list_web_source_knowledge_rows(
+        db, organization_id=organization_id, chatbot_id=chatbot_id
+    )
     for web_source, existing_job in web_rows:
         if existing_job is not None and existing_job.status in ("queued", "processing"):
             skipped += 1
@@ -5881,6 +6186,7 @@ def create_text_knowledge_internal(
     Returns: created document id (str)
     """
     from app.models.chatbot_settings import ChatbotSetting as _ChatbotSetting  # noqa: PLC0415
+
     chatbot = db.execute(
         select(_ChatbotSetting).where(_ChatbotSetting.id == uuid.UUID(chatbot_id))
     ).scalar_one_or_none()
@@ -5995,8 +6301,12 @@ def create_website_knowledge_service(
     parsed = urlparse(canonical_url)
     hostname = parsed.hostname or ""
     allowed_domains = [domain.lower() for domain in list(chatbot.allowed_domains or []) if domain]
-    if allowed_domains and not any(hostname == domain or hostname.endswith(f".{domain}") for domain in allowed_domains):
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="WEBSITE_DOMAIN_NOT_ALLOWED")
+    if allowed_domains and not any(
+        hostname == domain or hostname.endswith(f".{domain}") for domain in allowed_domains
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="WEBSITE_DOMAIN_NOT_ALLOWED"
+        )
     duplicate_stmt = select(WebSource).where(
         WebSource.organization_id == uuid.UUID(organization_id),
         WebSource.chatbot_id == chatbot.id,
@@ -6004,7 +6314,9 @@ def create_website_knowledge_service(
         WebSource.base_url == canonical_url,
     )
     if db.execute(duplicate_stmt).scalar_one_or_none() is not None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="WEBSITE_ALREADY_REGISTERED")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="WEBSITE_ALREADY_REGISTERED"
+        )
 
     excluded_paths = _normalize_excluded_paths(body.excluded_paths)
     crawl_page_limit = max(1, min(body.crawl_page_limit, MAX_CRAWL_PAGE_LIMIT))
@@ -6068,7 +6380,9 @@ def _create_api_knowledge_source(
     생략(관리자가 신뢰하는 외부 API 엔드포인트를 명시 등록)."""
     endpoint = body.url.strip()
     if not endpoint.lower().startswith(("http://", "https://")):
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="INVALID_API_ENDPOINT")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="INVALID_API_ENDPOINT"
+        )
     duplicate_stmt = select(WebSource).where(
         WebSource.organization_id == uuid.UUID(organization_id),
         WebSource.chatbot_id == chatbot.id,
@@ -6076,7 +6390,9 @@ def _create_api_knowledge_source(
         WebSource.base_url == endpoint,
     )
     if db.execute(duplicate_stmt).scalar_one_or_none() is not None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="WEBSITE_ALREADY_REGISTERED")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="WEBSITE_ALREADY_REGISTERED"
+        )
 
     web_source = WebSource(
         organization_id=uuid.UUID(organization_id),
@@ -6148,7 +6464,9 @@ def _create_seoul_labor_source(
         WebSource.base_url == base_url,
     )
     if db.execute(duplicate_stmt).scalar_one_or_none() is not None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="WEBSITE_ALREADY_REGISTERED")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="WEBSITE_ALREADY_REGISTERED"
+        )
 
     web_source = WebSource(
         organization_id=uuid.UUID(organization_id),
@@ -6187,7 +6505,9 @@ def _create_seoul_labor_source(
     )
     db.add(job)
     db.commit()
-    logger.info("[SEOUL_LABOR_CREATE] web_source_id=%s board=%s job_id=%s", web_source.id, board, job.id)
+    logger.info(
+        "[SEOUL_LABOR_CREATE] web_source_id=%s board=%s job_id=%s", web_source.id, board, job.id
+    )
     _dispatch_reindex(background_tasks, principal, str(web_source.id), str(job.id))
     return get_knowledge_service(db, principal=principal, knowledge_id=str(web_source.id))
 
@@ -6224,7 +6544,9 @@ def preview_api_knowledge_service(
     require_institution_organization_id(principal)
     endpoint = (url or "").strip()
     if not endpoint.lower().startswith(("http://", "https://")):
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="INVALID_API_ENDPOINT")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="INVALID_API_ENDPOINT"
+        )
     try:
         config = ApiConnectorConfig.from_dict(api_config)
         from app.services.admin.api_knowledge_connector import preview_api_source  # noqa: PLC0415
