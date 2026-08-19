@@ -405,15 +405,24 @@ export default function AdminQualityReportPage() {
                 }
               }}
             >
-              {isBackfilling ? "평가 중..." : chatbotId ? "이 기간 평가하기" : "이 기간 평가하기 (전체 챗봇)"}
+              {isBackfilling ? "평가 중..." : "선택 기간 채점하기"}
             </button>
+            {/* 기간 필터는 화면 맨 위에 있고 이 버튼은 맨 아래다. "이 기간"이
+                어느 기간인지 보이지 않아 무엇이 채점될지 알 수 없었다. */}
+            <span style={{ fontSize: 12, color: "#475569" }}>
+              대상 <strong>{startDate} ~ {endDate}</strong>
+              {" · "}
+              {chatbotId ? (chatbots.find(c => c.id === chatbotId)?.name ?? "선택 챗봇") : `전체 챗봇 ${chatbots.length}개`}
+              {" · 기간은 화면 위 필터에서 바꾼 뒤 다시 누르세요"}
+            </span>
             {backfillInfo && <span style={{ fontSize: 12, color: "#64748b" }}>{backfillInfo}</span>}
           </div>
 
           {!report.answerQuality.enabled ? (
             <div style={{ padding: 20, background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 10, fontSize: 13, color: "#475569" }}>
-              아직 채점 결과가 없습니다. 위 <strong>&ldquo;이 기간 평가하기&rdquo;</strong>를 누르면
-              선택한 기간의 답변을 지금 바로 채점합니다 — 실행 전에 건수와 예상 비용을 보여드립니다.
+              아직 채점 결과가 없습니다. 채점할 기간은 <strong>화면 맨 위 날짜 필터</strong>에서 정하고,
+              위 <strong>&ldquo;선택 기간 채점하기&rdquo;</strong>를 누르면 그 기간의 답변을 지금 바로
+              채점합니다 — 실행 전에 건수와 예상 비용을 보여드립니다.
               <br />
               <strong>대화 스타일 설정 → 답변 품질 자동 평가</strong>를 켜두면 이후로는 매일 새벽에
               전날 답변이 자동으로 채점됩니다.
