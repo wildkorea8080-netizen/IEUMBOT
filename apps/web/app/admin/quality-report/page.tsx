@@ -31,6 +31,111 @@ function errorMessage(error: unknown): string {
   return "품질 리포트를 불러오지 못했습니다.";
 }
 
+/** CSV 한 칸. 쉼표·따옴표·줄바꿈이 있으면 감싸고 내부 따옴표는 두 번 쓴다. */
+function csvCell(value: unknown): string {
+  const text = value === null || value === undefined ? "" : String(value);
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function csvRow(cells: unknown[]): string {
+  return cells.map(csvCell).join(",");
+}
+
+/**
+ * 품질 리포트를 CSV 한 장으로 만든다.
+ *
+ * 요약 지표와 문제 질문 목록을 한 파일에 섹션으로 나눠 담는다. 상급자 보고나
+ * 평가 증빙으로 붙일 때 엑셀에서 바로 열려야 하므로 시트를 쪼개지 않는다.
+ */
+function buildQualityCsv(
+  report: AdminQualityReportResponse,
+  meta: { chatbotName: string; startDate: string; endDate: string },
+): string {
+  const lines: string[] = [];
+  const answeredRate = report.totalConversations
+    ? (report.answeredCount / report.totalConversations) * 100
+    : 0;
+
+  lines.push(csvRow(["품질 리포트"]));
+  lines.push(csvRow(["챗봇", meta.chatbotName]));
+  lines.push(csvRow(["기간", `${meta.startDate} ~ ${meta.endDate}`]));
+  lines.push(csvRow(["생성 시각", new Date().toLocaleString("ko-KR")]));
+  lines.push("");
+
+  lines.push(csvRow(["운영 지표 (챗봇 자체 판정)"]));
+  lines.push(csvRow(["항목", "값"]));
+  lines.push(csvRow(["총 대화 수", report.totalConversations]));
+  lines.push(csvRow(["답변 성공률(%)", answeredRate.toFixed(1)]));
+  lines.push(csvRow(["답변 건수", report.answeredCount]));
+  lines.push(csvRow(["Fallback 비율(%)", report.fallbackRate ?? ""]));
+  lines.push(csvRow(["Fallback 건수", report.fallbackCount]));
+  lines.push(csvRow(["평균 응답시간(ms)", report.avgLatencyMs ?? ""]));
+  lines.push(csvRow(["평균 topScore", report.avgTopScore ?? ""]));
+  lines.push(csvRow(["LLM 실행률(%)", report.llmExecutedRate ?? ""]));
+  lines.push("");
+
+  const quality = report.answerQuality;
+  if (quality?.enabled) {
+    lines.push(csvRow(["AI 답변 품질 (LLM 채점)"]));
+    lines.push(csvRow(["채점 모델", quality.evaluatorModel ?? ""]));
+    lines.push(csvRow(["채점 기준", quality.promptVersion ?? ""]));
+    lines.push(csvRow(["채점 건수", quality.total]));
+    lines.push(csvRow(["항목", "평균", "통과율(%)"]));
+    lines.push(csvRow(["답변 적합성", quality.relevance.average ?? "", quality.relevance.passRate ?? ""]));
+    lines.push(csvRow(["문서 근거성", quality.groundedness.average ?? "", quality.groundedness.passRate ?? ""]));
+    lines.push(csvRow(["대화 맥락 유지", quality.context.average ?? "", quality.context.passRate ?? ""]));
+    lines.push(csvRow(["추천질문 적합성", quality.followup.average ?? "", quality.followup.passRate ?? ""]));
+    lines.push(csvRow(["주제 이탈(%)", quality.topicDriftRate ?? ""]));
+    lines.push(csvRow(["검토 필요(건)", quality.needsReviewCount]));
+    lines.push("");
+  }
+
+  const sections: [string, AdminQualityQuestionItem[]][] = [
+    ["최근 실패 질문", report.recentFailedQuestions],
+    ["낮은 점수 질문", report.lowScoreQuestions],
+    ["출처 없는 답변", report.noCitationAnswers],
+  ];
+  for (const [title, rows] of sections) {
+    lines.push(csvRow([title, `${rows.length}건`]));
+    lines.push(csvRow(["시간", "질문", "상태", "사유", "점수", "프롬프트", "출처"]));
+    for (const row of rows) {
+      lines.push(
+        csvRow([
+          row.createdAt ?? "",
+          row.question ?? "",
+          row.outcome ?? "",
+          row.fallbackReason ?? "",
+          row.topScore ?? "",
+          row.usedInPromptCount ?? 0,
+          row.retrievedCount ?? 0,
+        ]),
+      );
+    }
+    lines.push("");
+  }
+
+  if (report.topFallbackReasons.length > 0) {
+    lines.push(csvRow(["Fallback 원인"]));
+    lines.push(csvRow(["사유", "건수"]));
+    for (const item of report.topFallbackReasons) {
+      lines.push(csvRow([item.reason, item.count]));
+    }
+  }
+
+  return lines.join("\r\n");
+}
+
+/** 엑셀은 BOM 이 없으면 UTF-8 한글을 깨뜨린다. */
+function downloadCsv(filename: string, csv: string): void {
+  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 function fmt(value?: number | null): string {
   if (typeof value !== "number") return "-";
   return value.toLocaleString("ko-KR");
@@ -171,7 +276,23 @@ export default function AdminQualityReportPage() {
           <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, color: "#475569", cursor: "pointer" }}>
             <input type="checkbox" checked={fallbackOnly} onChange={e => setFallbackOnly(e.target.checked)} style={{ width: 15, height: 15, accentColor: "#2563eb" }} />fallback만 보기
           </label>
-          <button type="button" onClick={() => void loadReport()} className="btn-primary" style={{ padding: "8px 20px", marginLeft: "auto" }}>조회</button>
+          <button
+            type="button"
+            className="btn-secondary"
+            style={{ padding: "8px 16px", marginLeft: "auto" }}
+            disabled={!report || report.totalConversations === 0}
+            onClick={() => {
+              if (!report) return;
+              const name = chatbots.find(c => c.id === chatbotId)?.name ?? "전체 챗봇";
+              downloadCsv(
+                `품질리포트_${name}_${startDate}_${endDate}.csv`,
+                buildQualityCsv(report, { chatbotName: name, startDate, endDate }),
+              );
+            }}
+          >
+            CSV 내려받기
+          </button>
+          <button type="button" onClick={() => void loadReport()} className="btn-primary" style={{ padding: "8px 20px" }}>조회</button>
         </div>
         {error && <p style={{ marginTop: 12, padding: "8px 12px", borderRadius: 8, background: "#fef2f2", border: "1px solid #fecaca", fontSize: 13, color: "#dc2626" }}>{error}</p>}
         {isLoading && <p style={{ marginTop: 12, fontSize: 13, color: "#94a3b8" }}>품질 데이터를 불러오는 중...</p>}
