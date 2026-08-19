@@ -21,12 +21,20 @@ def test_quality_evaluation_can_be_enabled() -> None:
 
 
 class _Msg:
-    """ORM 대신 쓰는 최소 스텁. 선별 함수는 속성만 읽는다."""
+    """ORM 대신 쓰는 최소 스텁 — 실제 ChatMessage 와 같은 모양이어야 한다.
+
+    예전 스텁은 final_decision 에 {"outcome": "answered"} 를 넣었다. 실제로
+    거기 들어가는 policy_decision 에는 outcome 키가 없다(decision/reason/flags
+    뿐). 스텁이 없는 필드를 지어내는 바람에 선별 로직이 모든 메시지를
+    NOT_ANSWERED 로 거르는데도 테스트는 통과했고, 운영에서 채점 대상이 늘
+    0건이었다. 답변 결과는 result_type 컬럼에 있다.
+    """
 
     def __init__(self, **kw):
         self.role = kw.get("role", "assistant")
         self.is_test = kw.get("is_test", False)
-        self.final_decision = kw.get("final_decision", {"outcome": "answered"})
+        self.result_type = kw.get("result_type", "answered")
+        self.final_decision = kw.get("final_decision", {"decision": "allow", "flags": {}})
         self.metadata_json = kw.get("metadata_json", {})
 
 
@@ -45,8 +53,25 @@ def test_test_message_is_skipped() -> None:
 def test_non_answered_outcomes_are_skipped() -> None:
     """모르는 걸 정직하게 답한 건을 품질 미달로 세면, 아는 척할수록 점수가 오른다."""
     for outcome in ("insufficient_evidence", "escalate", "restricted"):
-        msg = _Msg(final_decision={"outcome": outcome})
-        assert should_evaluate(msg) is SkipReason.NOT_ANSWERED, outcome
+        assert should_evaluate(_Msg(result_type=outcome)) is SkipReason.NOT_ANSWERED, outcome
+
+
+def test_실제_final_decision_모양에서도_채점_대상으로_잡힌다() -> None:
+    """policy_evaluation_service 가 만드는 dict 를 그대로 넣는다.
+
+    outcome 키가 없다 — 이 모양을 못 읽으면 답변 성공 건이 통째로 제외된다.
+    """
+    msg = _Msg(
+        result_type="answered",
+        final_decision={
+            "decision": "allow",
+            "reason": "정책 평가를 통과해 답변 생성을 진행할 수 있습니다.",
+            "flags": {},
+            "recommendedAction": "answer",
+            "safeMessage": None,
+        },
+    )
+    assert should_evaluate(msg) is None
 
 
 def test_simple_greeting_is_skipped() -> None:
@@ -55,7 +80,7 @@ def test_simple_greeting_is_skipped() -> None:
 
 
 def test_cache_hit_is_skipped() -> None:
-    msg = _Msg(final_decision={"outcome": "answered", "reason": "answer_cache_hit"})
+    msg = _Msg(final_decision={"decision": "allow", "reason": "answer_cache_hit"})
     assert should_evaluate(msg) is SkipReason.CACHE_HIT
 
 
@@ -174,7 +199,9 @@ def test_parse_broken_json_returns_none() -> None:
 
 
 def test_parse_clamps_out_of_range_scores() -> None:
-    raw = '{"relevance": {"reason": "r", "score": 130}, "groundedness": {"reason": "r", "score": -5}}'
+    raw = (
+        '{"relevance": {"reason": "r", "score": 130}, "groundedness": {"reason": "r", "score": -5}}'
+    )
     parsed = parse_evaluation_response(raw)
     assert parsed.relevance_score == 100
     assert parsed.groundedness_score == 0
@@ -621,9 +648,7 @@ class _FakeRangeDB:
 
 def _patch_range_dependencies(monkeypatch, messages: list) -> None:
     monkeypatch.setattr(evaluation_service, "count_evaluated_since", lambda *a, **kw: 0)
-    monkeypatch.setattr(
-        evaluation_service, "list_unevaluated_messages", lambda *a, **kw: messages
-    )
+    monkeypatch.setattr(evaluation_service, "list_unevaluated_messages", lambda *a, **kw: messages)
     monkeypatch.setattr(evaluation_service, "should_evaluate", lambda message: None)
 
 

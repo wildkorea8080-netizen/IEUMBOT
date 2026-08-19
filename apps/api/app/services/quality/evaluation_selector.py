@@ -29,9 +29,15 @@ def should_evaluate(message: Any) -> SkipReason | None:
     if bool(_field(message, "is_test", False)):
         return SkipReason.TEST_MESSAGE
 
-    decision = _field(message, "final_decision", {}) or {}
-    if decision.get("outcome") != "answered":
+    # 답변 결과는 ChatMessage.result_type 에 들어간다(create_chat_message 의
+    # result_type=outcome). final_decision 은 policy_evaluation_service 가 만든
+    # dict 라 decision/reason/flags 만 있고 outcome 키가 아예 없다 —
+    # decision.get("outcome") 으로 읽던 동안 모든 메시지가 NOT_ANSWERED 로
+    # 걸러져 채점 대상이 늘 0건이었다.
+    if _field(message, "result_type", "") != "answered":
         return SkipReason.NOT_ANSWERED
+
+    decision = _field(message, "final_decision", {}) or {}
     if decision.get("reason") == "answer_cache_hit":
         return SkipReason.CACHE_HIT
 

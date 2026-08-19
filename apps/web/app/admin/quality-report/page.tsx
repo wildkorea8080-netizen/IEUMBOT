@@ -246,6 +246,11 @@ export default function AdminQualityReportPage() {
   const [error, setError] = useState<string | null>(null);
   const [backfillInfo, setBackfillInfo] = useState<string | null>(null);
   const [isBackfilling, setIsBackfilling] = useState(false);
+  // 채점 기간은 조회 기간과 따로 잡을 수 있어야 한다. 조회는 넓게 보면서
+  // 채점은 최근 며칠만 돌리고 싶은 경우가 흔한데(비용이 든다), 하나로 묶어
+  // 두면 조회 범위를 줄였다 늘렸다 해야 한다.
+  const [evalStart, setEvalStart] = useState(initialRange.startDate);
+  const [evalEnd, setEvalEnd] = useState(initialRange.endDate);
 
   async function loadReport() {
     setIsLoading(true); setError(null);
@@ -350,7 +355,26 @@ export default function AdminQualityReportPage() {
             </span>
           </div>
 
-          <div style={{ display: "flex", gap: 8, alignItems: "center", margin: "10px 0 16px" }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", margin: "10px 0 16px" }}>
+            <span style={{ fontSize: 13, color: "#475569" }}>분석 기간</span>
+            <input
+              type="date"
+              value={evalStart}
+              max={evalEnd}
+              onChange={e => setEvalStart(e.target.value)}
+              className="input-field"
+              style={{ width: 148 }}
+              aria-label="분석 시작일"
+            />
+            <input
+              type="date"
+              value={evalEnd}
+              min={evalStart}
+              onChange={e => setEvalEnd(e.target.value)}
+              className="input-field"
+              style={{ width: 148 }}
+              aria-label="분석 종료일"
+            />
             <button
               type="button"
               className="btn-secondary"
@@ -372,7 +396,7 @@ export default function AdminQualityReportPage() {
                   let costUsd = 0;
                   let capped = false;
                   for (const bot of targets) {
-                    const est = await estimateQualityBackfill(bot.id, startDate, endDate);
+                    const est = await estimateQualityBackfill(bot.id, evalStart, evalEnd);
                     total += est.targetCount;
                     costUsd += est.estimatedCostUsd;
                     capped = capped || est.capped;
@@ -392,7 +416,7 @@ export default function AdminQualityReportPage() {
                   // 채점 자체는 백그라운드에서 진행되므로 여기서 완료 건수를 알 수 없다.
                   let queued = 0;
                   for (const bot of targets) {
-                    const result = await runQualityBackfill(bot.id, startDate, endDate);
+                    const result = await runQualityBackfill(bot.id, evalStart, evalEnd);
                     queued += result.targetCount;
                   }
                   setBackfillInfo(
@@ -405,24 +429,22 @@ export default function AdminQualityReportPage() {
                 }
               }}
             >
-              {isBackfilling ? "평가 중..." : "선택 기간 채점하기"}
+              {isBackfilling ? "분석 중..." : "분석하기"}
             </button>
             {/* 기간 필터는 화면 맨 위에 있고 이 버튼은 맨 아래다. "이 기간"이
                 어느 기간인지 보이지 않아 무엇이 채점될지 알 수 없었다. */}
             <span style={{ fontSize: 12, color: "#475569" }}>
-              대상 <strong>{startDate} ~ {endDate}</strong>
-              {" · "}
               {chatbotId ? (chatbots.find(c => c.id === chatbotId)?.name ?? "선택 챗봇") : `전체 챗봇 ${chatbots.length}개`}
-              {" · 기간은 화면 위 필터에서 바꾼 뒤 다시 누르세요"}
+              {" 대상 · 실행 전에 건수와 예상 비용을 보여드립니다"}
             </span>
             {backfillInfo && <span style={{ fontSize: 12, color: "#64748b" }}>{backfillInfo}</span>}
           </div>
 
           {!report.answerQuality.enabled ? (
             <div style={{ padding: 20, background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 10, fontSize: 13, color: "#475569" }}>
-              아직 채점 결과가 없습니다. 채점할 기간은 <strong>화면 맨 위 날짜 필터</strong>에서 정하고,
-              위 <strong>&ldquo;선택 기간 채점하기&rdquo;</strong>를 누르면 그 기간의 답변을 지금 바로
-              채점합니다 — 실행 전에 건수와 예상 비용을 보여드립니다.
+              아직 분석 결과가 없습니다. 위에서 <strong>분석 기간</strong>을 정하고
+              <strong>&ldquo;분석하기&rdquo;</strong>를 누르면 그 기간의 답변을 지금 바로 채점합니다 —
+              실행 전에 건수와 예상 비용을 보여드립니다.
               <br />
               <strong>대화 스타일 설정 → 답변 품질 자동 평가</strong>를 켜두면 이후로는 매일 새벽에
               전날 답변이 자동으로 채점됩니다.
