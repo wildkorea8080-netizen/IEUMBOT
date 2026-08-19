@@ -342,7 +342,11 @@ export default function AdminQualityReportPage() {
           <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 4 }}>
             <h2 style={{ fontSize: 18, fontWeight: 800 }}>AI 답변 품질</h2>
             <span style={{ fontSize: 12, color: "#64748b" }}>
-              {report.answerQuality.evaluatorModel ?? "-"} · 기준 {report.answerQuality.promptVersion ?? "-"} · n={report.answerQuality.total}
+              {/* 채점 전에는 "- · 기준 - · n=0" 이 떠서 고장난 것처럼 보인다.
+                  위쪽 운영 지표와 출처가 다르다는 점만 알려주는 편이 낫다. */}
+              {report.answerQuality.enabled
+                ? `${report.answerQuality.evaluatorModel ?? "-"} · 기준 ${report.answerQuality.promptVersion ?? "-"} · n=${report.answerQuality.total}`
+                : "LLM이 답변을 다시 읽고 매기는 점수입니다. 위 운영 지표와는 별개입니다."}
             </span>
           </div>
 
@@ -350,26 +354,49 @@ export default function AdminQualityReportPage() {
             <button
               type="button"
               className="btn-secondary"
-              disabled={!chatbotId || isBackfilling}
+              disabled={isBackfilling || chatbots.length === 0}
               onClick={async () => {
-                if (!chatbotId) return;
+                // 백엔드는 챗봇 하나씩만 받는다. '전체 챗봇'이면 목록을 돌며
+                // 순차로 견적을 합치고 순차로 큐에 넣는다. 예전에는 이 경우
+                // 버튼이 그냥 죽어 있어서, 기본값(전체)으로 들어온 담당자는
+                // 왜 못 누르는지도 모른 채 평가를 시작할 수 없었다.
+                const targets = chatbotId
+                  ? chatbots.filter(c => c.id === chatbotId)
+                  : chatbots;
+                if (targets.length === 0) return;
+
                 setIsBackfilling(true);
+                setBackfillInfo(null);
                 try {
-                  const est = await estimateQualityBackfill(chatbotId, startDate, endDate);
-                  if (est.targetCount === 0) {
+                  let total = 0;
+                  let costUsd = 0;
+                  let capped = false;
+                  for (const bot of targets) {
+                    const est = await estimateQualityBackfill(bot.id, startDate, endDate);
+                    total += est.targetCount;
+                    costUsd += est.estimatedCostUsd;
+                    capped = capped || est.capped;
+                  }
+                  if (total === 0) {
                     setBackfillInfo("이 기간에 평가할 대화가 없습니다.");
                     return;
                   }
-                  const won = Math.round(est.estimatedCostUsd * 1400).toLocaleString();
-                  const cappedNote = est.capped
+                  const won = Math.round(costUsd * 1400).toLocaleString();
+                  const scope = chatbotId ? "" : `\n대상 챗봇 ${targets.length}개.`;
+                  const cappedNote = capped
                     ? "\n\n주의: 대상 건수가 일일 처리 상한(5,000건)에서 잘린 값입니다. 실제 대상은 이보다 많을 수 있습니다."
                     : "";
-                  if (!confirm(`${est.targetCount}건을 평가합니다. 예상 비용 약 ${won}원.${cappedNote}\n진행할까요?`)) return;
+                  if (!confirm(`${total}건을 평가합니다. 예상 비용 약 ${won}원.${scope}${cappedNote}\n진행할까요?`)) return;
+
                   // 실행은 즉시 끝나지 않는다 — 서버가 워커 큐에 넣기만 하고 반환한다.
                   // 채점 자체는 백그라운드에서 진행되므로 여기서 완료 건수를 알 수 없다.
-                  const result = await runQualityBackfill(chatbotId, startDate, endDate);
+                  let queued = 0;
+                  for (const bot of targets) {
+                    const result = await runQualityBackfill(bot.id, startDate, endDate);
+                    queued += result.targetCount;
+                  }
                   setBackfillInfo(
-                    `평가를 시작했습니다 — ${result.targetCount}건. 완료되면 이 화면에 반영됩니다. 잠시 후 새로고침해 주세요.`,
+                    `평가를 시작했습니다 — ${queued}건. 채점은 백그라운드에서 진행됩니다. 잠시 후 조회를 다시 눌러 주세요.`,
                   );
                 } catch (e) {
                   setBackfillInfo(errorMessage(e));
@@ -378,15 +405,18 @@ export default function AdminQualityReportPage() {
                 }
               }}
             >
-              {isBackfilling ? "평가 중..." : "과거 구간 평가"}
+              {isBackfilling ? "평가 중..." : chatbotId ? "이 기간 평가하기" : "이 기간 평가하기 (전체 챗봇)"}
             </button>
             {backfillInfo && <span style={{ fontSize: 12, color: "#64748b" }}>{backfillInfo}</span>}
           </div>
 
           {!report.answerQuality.enabled ? (
             <div style={{ padding: 20, background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 10, fontSize: 13, color: "#475569" }}>
-              아직 평가 결과가 없습니다. <strong>대화 스타일 설정 → 답변 품질 자동 평가</strong>를 켜면
-              다음 날 새벽부터 채점이 시작됩니다. 과거 구간은 위 &ldquo;과거 구간 평가&rdquo;로 채울 수 있습니다.
+              아직 채점 결과가 없습니다. 위 <strong>&ldquo;이 기간 평가하기&rdquo;</strong>를 누르면
+              선택한 기간의 답변을 지금 바로 채점합니다 — 실행 전에 건수와 예상 비용을 보여드립니다.
+              <br />
+              <strong>대화 스타일 설정 → 답변 품질 자동 평가</strong>를 켜두면 이후로는 매일 새벽에
+              전날 답변이 자동으로 채점됩니다.
             </div>
           ) : (
             <>
